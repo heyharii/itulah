@@ -1,39 +1,48 @@
 import { Outlet, useRouter } from "@tanstack/react-router"
-import { useCallback, useEffect, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 
 import { AssistantPanel } from "@/components/assistant/panel"
 import { AssistantProvider } from "@/components/assistant/session"
 import { useAssistant } from "@/components/assistant/state"
+import { BottomBar } from "@/components/shell/bottom-bar"
 import { CommandPalette } from "@/components/shell/command-palette"
 import { Rail } from "@/components/shell/rail"
 import { Sidebar } from "@/components/shell/sidebar"
 import { TopBar } from "@/components/shell/top-bar"
 import { SheetSpace } from "@/components/shell/sheet-space"
-import { atLeast, useLayout } from "@/lib/layout"
+import {
+  atLeast,
+  publishPageWidth,
+  useLayout,
+  useRecordBeside,
+} from "@/lib/layout"
 import { useSheetsOpen } from "@/lib/sheet-space"
 import { cn } from "@/lib/utils"
 
-/// The shell: rail · sidebar · content. No header.
+/// The shell: rail · sidebar · (bar over content).
 ///
-/// `inventory-prototype.html` renders `<header class="topbar" hidden>` — the
-/// element is authored and then deliberately switched off, because the left-
-/// hand navigation took over everything it carried. So this app has no
-/// horizontal band of chrome at all, and every screen gets its full height.
+/// Two columns of navigation, each answering one question: the dark rail at
+/// the edge is *which part of the business* (`rail.tsx`), the light sidebar
+/// beside it is *which screen of it* (`sidebar.tsx`). Both run the window's
+/// full height; the bar spans only the page, and carries the breadcrumb and
+/// the tools that are not a place (`top-bar.tsx`).
 ///
-/// The rail beside the sidebar came back on 2026-09-10 — `rail.tsx` carries
-/// the argument, including the answer to the case that removed it. Here the
-/// consequence is that ⌘B now HIDES the sidebar rather than narrowing it to a
-/// column of icons: the rail is always standing, so nothing reachable in one
-/// click became reachable in two, and two columns of icons side by side would
-/// have been one too many.
+/// ⌘B folds the sidebar away and leaves the rail standing, so a wide table
+/// gets the width back without navigation ever leaving the screen. Whether it
+/// is folded is remembered per browser — a convenience, not a record.
 ///
 /// Density is baked into `:root { font-size: 14.4px }` rather than shipped as
 /// `zoom: 0.9`. The prototypes use zoom because they are single files; DESIGN.md
 /// is explicit that production must not.
 ///
-/// **One shell, three widths.** Under 64rem the sidebar stops being a column
-/// and becomes a drawer, and the topbar that was switched off comes back to
-/// carry its handle — see `top-bar.tsx`. Nothing else about a screen changes at
+/// **One shell, three widths.** Under 64rem both columns stop being columns
+/// and become one drawer, and the bar carries its handle — see `top-bar.tsx`. Nothing else about a screen changes at
 /// that boundary; what changes is where the navigation lives, which is a fact
 /// about the shell and belongs in exactly this file. The screens adapt through
 /// two primitives instead: `<DataTable>` relays its columns as cards, and
@@ -67,11 +76,14 @@ function Shell() {
   /// for a `md:`/`lg:` class instead, and the two agree because `useLayout`
   /// breaks on Tailwind's own numbers.
   const docked = atLeast(layout, "desktop")
+  // A phone navigates from the bottom bar, not from a drawer behind a
+  // hamburger — see `bottom-bar.tsx`. A tablet keeps the drawer.
+  const phone = layout === "phone"
   /// Whether a record is standing beside the page rather than over it, which
   /// is the one thing a monitor does differently. `<Sheet>` says whether one
   /// is open; this file says what the page does about it.
   const sheets = useSheetsOpen()
-  const beside = layout === "monitor" && sheets > 0
+  const beside = useRecordBeside() && sheets > 0
   /// Undocked: whether the drawer is over the content.
   ///
   /// Deliberately NOT the same state as `labelled` — a drawer that
@@ -97,6 +109,26 @@ function Shell() {
   /// state that says WHERE instead of WHETHER.
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen)
+  /// The column the page lives in, measured and published so the panels that
+  /// stand beside a list ask the page's width rather than the window's — see
+  /// `lib/layout.ts`. This column, not the scroll area inside it: the scroll
+  /// area takes padding when a record stands beside it, and a width that
+  /// shrank because of the answer would flip the answer back.
+  const page = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const node = page.current
+    if (!node) return
+    // Once now, before the first paint: an observer's first report arrives
+    // with the next frame, and a page that paints once with the wrong panel
+    // and then re-lays is the flicker this whole measurement exists to stop.
+    publishPageWidth(node.getBoundingClientRect().width)
+    const observer = new ResizeObserver(([entry]) =>
+      publishPageWidth(entry.contentRect.width)
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
   const router = useRouter()
 
   /// A drawer belongs to the undocked shell, so it does not survive docking.
@@ -105,11 +137,15 @@ function Shell() {
   /// commit with a drawer that should not exist.
   if (docked && drawerOpen) setDrawerOpen(false)
 
-  // Docked, there is nothing to toggle: the sidebar is 64px of icons that
-  // widens under the pointer and narrows again when it leaves. ⌘B therefore
-  // only has work to do at the widths where navigation is a drawer.
+  // Docked, ⌘B folds the sidebar away and the rail stays; undocked, it opens
+  // and shuts the drawer that holds both.
   const toggleSidebar = useCallback(() => {
-    if (!docked) setDrawerOpen((open) => !open)
+    if (docked) {
+      setSidebarOpen((open) => {
+        writeSidebarOpen(!open)
+        return !open
+      })
+    } else setDrawerOpen((open) => !open)
   }, [docked])
 
   /// Every finished navigation shuts it. One subscription rather than a rule
@@ -150,30 +186,24 @@ function Shell() {
   }, [toggleSidebar, assistant])
 
   return (
-    <div className="app-shell flex h-full w-full flex-col overflow-hidden bg-soft-3">
-      {/* The bar spans the window at every width now: the domains are the one
-          piece of navigation that never folds away, because they are how
-          somebody gets back out of wherever they are. */}
-      <TopBar onOpenNav={docked ? undefined : () => setDrawerOpen(true)} />
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-soft-3">
-        {/* The rail is docked-only. Under 64rem it folds into the drawer with
-            the rest of the navigation: a 56px strip permanently taking a
-            seventh of a phone's width, to hold something a thumb opens once a
-            session, is the trade the drawer exists to refuse. */}
-        {docked && <Rail />}
-        {/* `isolate` is load-bearing, not tidying. The rail is `z-30` and it
-            WIDENS over the page on hover, so anything a screen stacks at 30 or
-            above would be drawn through the open column — which is what a
-            sticky table header and a frozen first column both do, because a
-            frozen column has to out-stack the rows it slides over. Two screens
-            had already reached z-30 and punched their header row through the
-            rail's labels.
-
-            Fixing the numbers screen by screen fixes it until the next table.
-            Isolating here makes the page its own stacking context, so a
-            screen's z-index is a statement about that screen and can never be
-            read against the shell's. Floating layers are unaffected: base-ui
-            portals its popups and sheets to `body`, outside this element. */}
+    <div className="app-shell flex h-full w-full overflow-hidden bg-soft-3">
+      {/* Both columns are docked-only. Under 64rem they fold into the drawer
+          together: 320px of permanent chrome on a 768px screen, to hold
+          something a thumb opens once a session, is the trade the drawer
+          exists to refuse. */}
+      {docked && (
+        <Rail sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />
+      )}
+      {docked && <DockedSidebar open={sidebarOpen} />}
+      <div ref={page} className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <TopBar
+          onOpenNav={docked || phone ? undefined : () => setDrawerOpen(true)}
+        />
+        {/* `isolate` makes the page its own stacking context, so a screen's
+            z-index — a sticky table header, a frozen first column — is a
+            statement about that screen and can never be read against the
+            shell's. Floating layers are unaffected: base-ui portals its
+            popups and sheets to `body`, outside this element. */}
         <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col">
           {/* The scroll container is here, not on `body`: screens below hold a
               table body or a detail rail that scrolls inside itself, and a page
@@ -183,9 +213,8 @@ function Shell() {
               4px rise on the incoming screen — and removed: moving between the
               screens of one module happens several times a minute,
               and an animation that reads as considered on the first click reads
-              as lag on the tenth. Motion has to earn its place by explaining
-              something, and a screen that is already where it is going has
-              nothing to explain. */}
+              as lag on the tenth. The sidebar's list swaps with that motion
+              instead, and only when the domain changes — see `nav-swap`. */}
           {/* 29.5rem: the panel's 27.5, its 1rem inset off the right edge,
               and 1rem of air between it and the page.
 
@@ -194,11 +223,12 @@ function Shell() {
               beside anything. And no transition on it: the tables inside
               measure their own box to decide how many columns they can afford,
               so an animated width would have them re-deciding twelve times on
-              the way. The list arriving narrower is the same statement as the
-              list becoming narrower, made without the flicker. */}
+              the way. */}
           <div
             className={cn(
               "min-h-0 flex-1 overflow-y-auto",
+              // The last row clears the bottom bar on a phone.
+              phone && "pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]",
               beside && "pr-[29.5rem]"
             )}
           >
@@ -207,7 +237,8 @@ function Shell() {
         </div>
       </div>
 
-      {!docked && (
+      {phone && <BottomBar />}
+      {!docked && !phone && (
         <NavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
       )}
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
@@ -241,7 +272,7 @@ function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
         aria-hidden
         onClick={onClose}
         className={cn(
-          "fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-200",
+          "fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-(--t-sheet) ease-(--ease-out)",
           open ? "opacity-100" : "pointer-events-none opacity-0"
         )}
       />
@@ -249,16 +280,16 @@ function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
         inert={!open}
         data-motion="travel"
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex transition-transform duration-200 ease-out",
-          open ? "translate-x-0 shadow-shell" : "-translate-x-full"
+          // The iOS sheet curve, in at `--t-sheet` and out at `--t-exit`: the
+          // same pace every other panel in the app keeps.
+          "fixed inset-y-0 left-0 z-50 flex transition-transform ease-(--ease-drawer)",
+          open
+            ? "translate-x-0 shadow-shell duration-(--t-sheet)"
+            : "-translate-x-full duration-(--t-exit)"
         )}
       >
-        {/* The rail used to come with it, because it was the department
-            switcher and a drawer you cannot change department from is not a
-            navigation drawer. The domains are in the bar now, and the bar is
-            on screen at every width — so the drawer carries what it is for:
-            the screens of the domain you are in, spelled out. Two copies of
-            those, one as icons and one as words, is what it would be now. */}
+        {/* Both columns, as on a desk: a drawer you cannot change domain
+            from is not a navigation drawer. */}
         {/* Any link inside shuts it, as well as the path rule the caller
             holds. Those two are not the same rule, and the difference is the
             most-tapped row in the drawer: the one for the screen you are
@@ -272,11 +303,90 @@ function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
             if ((event.target as HTMLElement).closest("a") !== null) onClose()
           }}
         >
+          <Rail />
           <Sidebar variant="drawer" open onToggle={onClose} />
         </div>
       </div>
     </>
   )
+}
+
+/// The sidebar as a column, folded by SLIDING rather than by narrowing.
+///
+/// A column whose width animates makes every table beside it re-measure its
+/// columns on every frame of the animation, which reads as the page
+/// flickering. So the width changes exactly once per fold: opening, the
+/// column takes its full width at once and the panel slides in over it;
+/// closing, the panel slides out first and the width goes when it is gone.
+/// The page is laid out twice per fold, not twelve times.
+function DockedSidebar({ open }: { open: boolean }) {
+  // `present`: the column holds its width. `shown`: the panel is slid in.
+  const [present, setPresent] = useState(open)
+  const [shown, setShown] = useState(open)
+  // Both adjusted during render, as the drawer's state is above: the column
+  // takes its width, or the panel starts leaving, in the same commit as the
+  // prop that asked for it.
+  if (open && !present) setPresent(true)
+  if (!open && shown) setShown(false)
+  const timer = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    window.clearTimeout(timer.current)
+    if (open) {
+      // Two frames: the first paints the panel at its start position, so the
+      // second has somewhere to travel from.
+      let second = 0
+      const first = requestAnimationFrame(() => {
+        second = requestAnimationFrame(() => setShown(true))
+      })
+      return () => {
+        cancelAnimationFrame(first)
+        cancelAnimationFrame(second)
+      }
+    }
+    // A timer rather than `transitionend`, which never fires when reduced
+    // motion has taken the travel out — and a column that never lets go of
+    // its width is worse than one that lets go a frame early.
+    timer.current = window.setTimeout(() => setPresent(false), 220)
+    return () => window.clearTimeout(timer.current)
+  }, [open])
+
+  return (
+    <div
+      className={cn(
+        "relative h-full shrink-0 overflow-hidden",
+        present ? "w-[15.5rem]" : "w-0"
+      )}
+    >
+      <div
+        inert={!open}
+        className={cn(
+          "absolute inset-y-0 left-0 transition-[transform,opacity] duration-(--t-panel) ease-(--ease-out)",
+          shown ? "translate-x-0 opacity-100" : "-translate-x-6 opacity-0"
+        )}
+      >
+        {present && <Sidebar open onToggle={() => {}} />}
+      </div>
+    </div>
+  )
+}
+
+const SIDEBAR_KEY = "hub.sidebar-open"
+
+function readSidebarOpen(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_KEY) !== "0"
+  } catch {
+    return true
+  }
+}
+
+function writeSidebarOpen(open: boolean) {
+  try {
+    window.localStorage.setItem(SIDEBAR_KEY, open ? "1" : "0")
+  } catch {
+    // A private window: the fold simply is not remembered.
+  }
 }
 
 /// The centred column every screen renders into. `max-w` and the desk gutters
@@ -306,7 +416,7 @@ export function PageContent({
   return (
     <div
       className={cn(
-        "mx-auto max-w-[77.5rem] px-4 pt-4 pb-10 md:px-[1.875rem] md:pt-6 md:pb-14",
+        "mx-auto max-w-[100rem] px-4 pt-4 pb-10 md:px-[1.875rem] md:pt-6 md:pb-14",
         fill && "flex h-full min-h-0 flex-col"
       )}
     >

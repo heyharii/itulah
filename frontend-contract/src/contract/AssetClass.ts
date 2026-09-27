@@ -26,12 +26,14 @@ kind: string,
 build: string, 
 /**
  * The client's own ten-digit template this class came from —
- * `1021507001` for *OE - Rak 1*. Never NULL: every class here was a
- * family in their chart, and this is the number their register is
- * written in. It is the answer to "which one is this really", asked by
- * somebody holding a printout from the old system.
+ * `1021507001` for *OE - Rak 1* — or none for a class Finance added.
  */
-legacy_code: string, is_active: boolean, 
+legacy_code: string | null, 
+/**
+ * The life and method an asset of the class is assessed with when the
+ * assessment names none (0467).
+ */
+default_useful_life_months: number | null, default_method: string | null, is_active: boolean, 
 /**
  * How many registered assets are filed under it. Zero is worth seeing:
  * a class nobody uses is a class somebody invented by mistake.

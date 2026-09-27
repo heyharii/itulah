@@ -71,7 +71,7 @@ function Code({ issued }: { issued: IssuedPairingCode }) {
   return (
     <div className="flex flex-col gap-3 rounded-card bg-soft-2 px-4 py-4">
       <div className="flex flex-col gap-1">
-        <span className="text-[0.71875rem] font-medium text-mute">
+        <span className="text-[0.875rem] font-medium text-mute">
           Read these out to {issued.member_id}
         </span>
         <span
@@ -85,15 +85,15 @@ function Code({ issued }: { issued: IssuedPairingCode }) {
         </span>
       </div>
       {dead ? (
-        <span className="text-[0.71875rem] text-bad">
+        <span className="text-[0.875rem] text-bad">
           Expired. Issue another — there is no way to look this one up again.
         </span>
       ) : (
         <span
           className={
             remaining !== null && remaining < 60
-              ? "text-[0.71875rem] text-bad tabular-nums"
-              : "text-[0.71875rem] text-mute tabular-nums"
+              ? "text-[0.875rem] text-bad tabular-nums"
+              : "text-[0.875rem] text-mute tabular-nums"
           }
         >
           Good for {remaining === null ? "…" : mmss(remaining)}. The shopper
@@ -216,7 +216,7 @@ export function EnrolCard({
       <div className="flex flex-col gap-5">
         {enrolled === null ? (
           <>
-            <p className="text-[0.78125rem] leading-relaxed text-body">
+            <p className="text-[0.875rem] leading-relaxed text-body">
               The number printed on the card the shopper is already holding.
               Enrolling the same card twice is not a mistake — it upserts, so a
               card re-presented at a second shop keeps its history.
@@ -258,12 +258,7 @@ export function EnrolCard({
           </>
         ) : (
           <>
-            <Banner tone="ok">
-              {enrolled.member_id} is enrolled
-              {enrolled.display_name ? ` to ${enrolled.display_name}` : ""}. The
-              till can attribute sales to it from now on.
-            </Banner>
-            <p className="text-[0.78125rem] leading-relaxed text-body">
+            <p className="text-[0.875rem] leading-relaxed text-body">
               A card on its own earns points. The shopper only sees them once a
               phone is paired to it, and that takes a code from here — read out
               while they are still standing at the counter.

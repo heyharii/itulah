@@ -42,9 +42,9 @@ fun LoginScreen(
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
-    Box(Modifier.fillMaxSize().background(Soft), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().background(Soft3), contentAlignment = Alignment.Center) {
         Column(Modifier.widthIn(max = 420.dp).padding(20.dp)) {
-            Text("Masuk", fontSize = 24.sp)
+            Text("Masuk", style = Type.hero.copy(fontSize = 24.sp, letterSpacing = (-0.6).sp))
             Text(node, fontSize = 12.sp, color = Mute)
             Spacer(Modifier.height(16.dp))
             Card(Modifier.fillMaxWidth()) {

@@ -1,3 +1,6 @@
+use crate::clock::{ClockError, ClockMode, ClockStatus};
+use crate::cloud::domain::relay;
+use crate::cloud::http::clock::ClockControlRequest;
 use crate::contract::{
     ChangePasswordRequest, EdgeMe, EdgeSyncStatus, EdgeSyncTriggered, LoginRequest, LoginResponse,
     SessionUser,
@@ -40,6 +43,13 @@ struct EdgeState {
     /// durable, but nothing is being uploaded — and the status endpoint says
     /// exactly that rather than reporting a healthy idle sender.
     sync: Option<Arc<EdgeSyncHandle>>,
+    /// The node's business clock — the SAME handle the inventory stamps with,
+    /// so the control endpoint below moves the one clock every sale reads.
+    clock: Arc<crate::clock::ClockHandle>,
+    /// Whether the test-control surface answers. Read once at boot from
+    /// INVENTORY_ENABLE_TEST_CONTROLS: fail-closed, so a node that was never
+    /// told its database is disposable refuses to move time.
+    test_controls: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -81,12 +91,19 @@ pub fn dc_router_with_sync(
         ));
     }
     validate_auth_node(inventory.as_ref(), &auth)?;
-    let rfid = Arc::new(EdgeRfid::new(auth.connection(), auth.node().clone()));
+    let clock = inventory.clock();
+    let rfid = Arc::new(EdgeRfid::new(
+        auth.connection(),
+        auth.node().clone(),
+        clock.clone(),
+    ));
     let state = EdgeState {
         inventory,
         auth,
         rfid,
         sync,
+        test_controls: test_controls_enabled(),
+        clock,
     };
     Ok(common_router()
         .route("/api/v1/dc/intake", post(dc_intake))
@@ -171,6 +188,10 @@ pub fn dc_router_with_sync(
             get(dc_allotment_line_position),
         )
         .route("/api/v1/dc/printer/test", post(dc_test_printer))
+        // First sign-in from the Cloud hub. The request is unauthenticated at
+        // this node by design, but its body contains a short-lived Cloud
+        // signature that this DC verifies and consumes exactly once.
+        .route("/api/v1/auth/sso/exchange", post(edge_sso_exchange))
         .route("/api/v1/dc/print-sessions", post(dc_open_print_session))
         .route(
             "/api/v1/dc/print-sessions/{session_id}",
@@ -291,16 +312,32 @@ pub fn store_router_with_sync(
         ));
     }
     validate_auth_node(inventory.as_ref(), &auth)?;
-    let rfid = Arc::new(EdgeRfid::new(auth.connection(), auth.node().clone()));
+    let clock = inventory.clock();
+    let rfid = Arc::new(EdgeRfid::new(
+        auth.connection(),
+        auth.node().clone(),
+        clock.clone(),
+    ));
     let state = EdgeState {
         inventory,
         auth,
         rfid,
         sync,
+        test_controls: test_controls_enabled(),
+        clock,
     };
     Ok(common_router()
         .route("/api/v1/store/receive", post(store_receive))
         .route("/api/v1/store/receive-batch", post(store_receive_batch))
+        // Deliveries head office announced as on their way here, counted
+        // blind on arrival — see `edge::inbound`. The two routes above stay
+        // for goods that arrive unannounced.
+        .route("/api/v1/store/inbound", get(store_inbound_list))
+        .route("/api/v1/store/inbound/{delivery_id}", get(store_inbound_detail))
+        .route(
+            "/api/v1/store/inbound/{delivery_id}/receive",
+            post(store_inbound_receive),
+        )
         .route("/api/v1/store/movements", post(move_stock))
         .route("/api/v1/store/sales", post(store_sale))
         // The attempt, declared before the terminal is asked for money. Four
@@ -344,6 +381,31 @@ pub fn store_router_with_sync(
             "/api/v1/store/vouchers/{code}/release",
             post(relay_voucher_release),
         )
+        // A member's points balance, like a voucher's, lives at the centre —
+        // one shopper can be handed a code in store-01 and stand at store-07's
+        // counter with it. These two relay to head office and say so when the
+        // line is down, exactly as the voucher trio above does.
+        .route(
+            "/api/v1/store/points/redeem-requests/lookup",
+            post(relay_redeem_request_lookup),
+        )
+        .route(
+            "/api/v1/store/points/redeem-requests/{request_id}/confirm",
+            post(relay_redeem_request_confirm),
+        )
+        // The manager's HR — and the shop's own General Affairs — which live at
+        // head office and nowhere else. One route rather than one per screen:
+        // it relays `/api/v1/{path}` for the signed-in head-office account,
+        // held to one allowlist at both ends — see `relay_central`. Everything
+        // else in this router still answers out of the shop's own SQLite.
+        .route(
+            "/api/v1/store/central/{*path}",
+            get(relay_central)
+                .post(relay_central)
+                .put(relay_central)
+                .patch(relay_central)
+                .delete(relay_central),
+        )
         // ── The till's day ──────────────────────────────────────────────
         //
         // A drawer that opens and closes, and a sale the shop can take back.
@@ -351,6 +413,9 @@ pub fn store_router_with_sync(
         // shop does is already `/store`, and a second word for the same node
         // is a second thing to remember at four in the afternoon.
         .route("/api/v1/store/shifts", post(store_open_shift))
+        // A supervisor's yes to a basket edit, spent on a row of its own —
+        // the unsold basket has no sale to carry the signature.
+        .route("/api/v1/store/approvals", post(store_record_approval))
         // Declared BEFORE `{shift_id}` and as its own path, not as a GET on the
         // collection. Axum prefers a literal segment, but a reader should not
         // have to know that: `/shifts/active` and `/shifts/{id}` sitting one
@@ -469,6 +534,15 @@ fn common_router() -> Router<EdgeState> {
         .route("/api/v1/inventory/movements", get(movements))
         .route("/api/v1/sync/status", get(sync_status))
         .route("/api/v1/sync/trigger", post(sync_trigger))
+        // The virtual business clock's control surface, the same path the
+        // cloud serves — one wire contract so a rig script speaks to both
+        // ends identically (VIRTUAL-TIME-PLAN.md §8). Gated in the handler,
+        // not here: a production node must ROUTE the request far enough to
+        // answer 403 saying why it refused.
+        .route(
+            "/api/v1/inventory/control/clock",
+            get(clock_status).post(clock_control),
+        )
         // ── the unit's punch station ────────────────────────────────────
         //
         // Common to both node roles: a DC has staff and a door like every shop
@@ -497,6 +571,17 @@ async fn health(State(state): State<EdgeState>) -> Json<Value> {
         ]),
         EdgeRole::Store => json!(["store.receive", "store.move", "store.sale"]),
     };
+    // What this build understands, so an operator (and one day the centre)
+    // can tell whether it is safe to send it a command type. `store.inbound`
+    // = this shop applies `inventory.store_inbound.announce.v1`.
+    let capabilities = match node.role {
+        EdgeRole::Dc => json!(["inventory.pools.owned", "inventory.movements.read"]),
+        EdgeRole::Store => json!([
+            "inventory.pools.owned",
+            "inventory.movements.read",
+            crate::sync::workflow::STORE_INBOUND_CAPABILITY
+        ]),
+    };
     let policy = state.auth.policy_version().ok().flatten();
     Json(json!({
         "status":"ok",
@@ -508,7 +593,7 @@ async fn health(State(state): State<EdgeState>) -> Json<Value> {
         "ledger_authority":"local movement ledger",
         "auth":if state.auth.enabled() { "enabled" } else { "DISABLED" },
         "auth_policy":policy.map(|(version,valid_until)| json!({"version":version,"valid_until":valid_until})),
-        "capabilities":["inventory.pools.owned", "inventory.movements.read"],
+        "capabilities":capabilities,
         "local_operations":local_operations,
         "inventory_endpoints":{
             "owned":"/api/v1/inventory/pools"
@@ -1389,6 +1474,51 @@ async fn store_receive_batch(
     Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
 }
 
+#[derive(serde::Deserialize)]
+struct StoreInboundQuery {
+    #[serde(default)]
+    status: Option<String>,
+}
+
+/// What is on its way to this shop. Blind: an in-transit delivery shows its
+/// koli count and nothing of what is inside them.
+async fn store_inbound_list(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<StoreInboundQuery>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let result =
+        run_blocking(move || state.inventory.store_inbound_list(query.status.as_deref())).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// One delivery; its per-SKU comparison only once it has been received.
+async fn store_inbound_detail(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(delivery_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let result = run_blocking(move || state.inventory.store_inbound_detail(&delivery_id)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// Receive an announced delivery from what the handheld swept.
+async fn store_inbound_receive(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(delivery_id): Path<String>,
+    Json(mut request): Json<crate::edge::inbound::StoreInboundReceiveRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreReceive)? {
+        request.actor_id = principal.username;
+    }
+    let result =
+        run_blocking(move || state.inventory.receive_store_inbound(&delivery_id, request)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
 async fn move_stock(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
@@ -1536,7 +1666,7 @@ fn relay_client() -> Result<&'static reqwest::Client, EdgeError> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|error| EdgeError::Configuration(format!("voucher relay client: {error}")))?;
+        .map_err(|error| EdgeError::Configuration(format!("relay client: {error}")))?;
     Ok(RELAY.get_or_init(|| client))
 }
 
@@ -1598,10 +1728,37 @@ async fn relay_voucher(
         "site_id": node.site_id.as_str(),
         "actor_id": actor,
     });
-    let response = relay_client()?
-        .post(&url)
-        .header("x-sync-key", key)
-        .json(&body)
+    let (status, parsed) = relay_exchange(
+        relay_client()?
+            .post(&url)
+            .header(relay::SYNC_KEY_HEADER, key)
+            .json(&body),
+    )
+    .await?;
+    if status.is_success() {
+        return Ok(parsed);
+    }
+    // The centre's own refusal, relayed in its own words. A card that has
+    // expired or is held by another basket is the cashier's problem to solve,
+    // and "that voucher expired on Friday" is the sentence that solves it.
+    Err(relay_refusal(
+        status,
+        &parsed,
+        "head office refused the voucher call",
+    ))
+}
+
+/// Send one relay call to head office and hand back what it answered.
+///
+/// The half every relay shares: the call went, and here is the status and the
+/// body — parsed when it is JSON, and wrapped as `{"detail": …}` when it is
+/// not, so a proxy's HTML error page still reaches the caller as a sentence.
+/// Failing to get an answer at all is `Upstream` — the line is down, which is
+/// the one thing this node can say for certain.
+async fn relay_exchange(
+    request: reqwest::RequestBuilder,
+) -> Result<(StatusCode, Value), EdgeError> {
+    let response = request
         .send()
         .await
         .map_err(|error| EdgeError::Upstream(error.to_string()))?;
@@ -1611,26 +1768,25 @@ async fn relay_voucher(
         .await
         .map_err(|error| EdgeError::Upstream(error.to_string()))?;
     let parsed: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "detail": text }));
-    if status.is_success() {
-        return Ok(parsed);
-    }
-    // The centre's own refusal, relayed in its own words. A card that has
-    // expired or is held by another basket is the cashier's problem to solve,
-    // and "that voucher expired on Friday" is the sentence that solves it.
+    Ok((status, parsed))
+}
+
+/// Head office's refusal, as this node's own error, in head office's words.
+fn relay_refusal(status: StatusCode, parsed: &Value, fallback: &str) -> EdgeError {
     let said = parsed
         .get("error")
         .or_else(|| parsed.get("detail"))
         .and_then(Value::as_str)
-        .unwrap_or("head office refused the voucher call")
+        .unwrap_or(fallback)
         .to_string();
-    Err(match status {
+    match status {
         StatusCode::BAD_REQUEST => EdgeError::Validation(said),
         StatusCode::NOT_FOUND => EdgeError::NotFound(said),
         StatusCode::CONFLICT => EdgeError::Conflict(said),
         StatusCode::UNAUTHORIZED => EdgeError::Unauthorized(said),
         StatusCode::FORBIDDEN => EdgeError::Forbidden(said),
         other => EdgeError::Upstream(format!("{other}: {said}")),
-    })
+    }
 }
 
 /// The cashier's name is the only thing that comes from the request body's
@@ -1661,10 +1817,57 @@ async fn relay_voucher_authorize(
             "a hold has to say how much of the card the basket takes".into(),
         )));
     }
+    let checkout_id = call.checkout_id.clone();
     let held = relay_voucher(&state, &code, "authorize", &actor, call)
         .await
         .map_err(ApiError)?;
+    // Written down before the till hears yes: the sale that spends this hold
+    // is checked against this record (`spend_voucher_holds`), so a hold the
+    // till was told about but this node never recorded cannot exist.
+    let record = voucher_hold_record(&held, &code, checkout_id)?;
+    let inventory = state.inventory.clone();
+    run_blocking(move || inventory.record_voucher_hold(record)).await?;
     Ok(Json(held))
+}
+
+/// Head office's answer to an authorize, as the till's own record of it.
+/// An answer without an id or an amount is not a hold anything can spend, and
+/// is refused rather than recorded half-way.
+fn voucher_hold_record(
+    held: &Value,
+    code: &str,
+    checkout_id: String,
+) -> Result<crate::edge::VoucherHoldRecord, ApiError> {
+    let authorization_id = held
+        .get("authorization_id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            ApiError(EdgeError::Upstream(
+                "head office granted a hold without naming it".into(),
+            ))
+        })?;
+    let amount_minor = held
+        .get("amount_minor")
+        .and_then(Value::as_i64)
+        .filter(|amount| *amount > 0)
+        .ok_or_else(|| {
+            ApiError(EdgeError::Upstream(
+                "head office granted a hold without an amount".into(),
+            ))
+        })?;
+    let expires_at = held
+        .get("expires_at")
+        .and_then(Value::as_str)
+        .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+        .map(|at| at.with_timezone(&chrono::Utc));
+    Ok(crate::edge::VoucherHoldRecord {
+        authorization_id,
+        code: code.to_owned(),
+        checkout_id,
+        amount_minor,
+        expires_at,
+    })
 }
 
 async fn relay_voucher_commit(
@@ -1674,9 +1877,14 @@ async fn relay_voucher_commit(
     Json(call): Json<RelayVoucherCall>,
 ) -> Result<Json<Value>, ApiError> {
     let actor = relay_actor(&state, principal, "settling a voucher")?;
+    let checkout_id = call.checkout_id.clone();
     let committed = relay_voucher(&state, &code, "commit", &actor, call)
         .await
         .map_err(ApiError)?;
+    // Settled at the centre directly: no sale at this till may spend it again.
+    let inventory = state.inventory.clone();
+    let code_owned = code.clone();
+    run_blocking(move || inventory.close_voucher_hold(&code_owned, &checkout_id)).await?;
     Ok(Json(committed))
 }
 
@@ -1687,10 +1895,244 @@ async fn relay_voucher_release(
     Json(call): Json<RelayVoucherCall>,
 ) -> Result<Json<Value>, ApiError> {
     let actor = relay_actor(&state, principal, "releasing a voucher")?;
+    let checkout_id = call.checkout_id.clone();
     let released = relay_voucher(&state, &code, "release", &actor, call)
         .await
         .map_err(ApiError)?;
+    // Given back at the centre, so it is given back here too.
+    let inventory = state.inventory.clone();
+    let code_owned = code.clone();
+    run_blocking(move || inventory.close_voucher_hold(&code_owned, &checkout_id)).await?;
     Ok(Json(released))
+}
+
+/// POST a relay call to head office and translate its answer.
+///
+/// The voucher relay's tail (`relay_exchange` + `relay_refusal`) under its own
+/// name rather than `relay_voucher` itself generalised to cover it: the
+/// voucher relay builds its URL from a code and a verb, and points redemption
+/// has neither — a shared parameter list wide enough for both would fit
+/// neither call as clearly as this reads on its own.
+async fn relay_points_call(url: &str, key: &str, body: &Value) -> Result<Value, EdgeError> {
+    let (status, parsed) = relay_exchange(
+        relay_client()?
+            .post(url)
+            .header(relay::SYNC_KEY_HEADER, key)
+            .json(body),
+    )
+    .await?;
+    if status.is_success() {
+        return Ok(parsed);
+    }
+    // Head office's own refusal, relayed in its own words — a request that
+    // has expired or was already confirmed is the cashier's problem to solve,
+    // and "that code has expired" is the sentence that solves it.
+    Err(relay_refusal(
+        status,
+        &parsed,
+        "head office refused the points call",
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct RelayRedeemLookupCall {
+    member_id: String,
+    code: String,
+}
+
+/// A cashier's guess at a shopper's redemption code, relayed to head office —
+/// the only place a member's live request and its balance can both be seen.
+async fn relay_redeem_request_lookup(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(call): Json<RelayRedeemLookupCall>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "looking up a points redemption")?;
+    let Some(sync) = state.sync.as_ref() else {
+        return Err(ApiError(EdgeError::Upstream(
+            "this node has no upload URL configured, so it cannot reach head office".into(),
+        )));
+    };
+    let Some((base, key)) = sync.cloud() else {
+        return Err(ApiError(EdgeError::Configuration(
+            "SYNC_UPLOAD_URL is empty, so the relay cannot work out where head office is".into(),
+        )));
+    };
+    let url = format!("{base}/api/v1/sync/points/redeem-requests/lookup");
+    let node = state.inventory.node();
+    let body = json!({
+        "origin_id": &node.node_id,
+        "member_id": call.member_id,
+        "code": call.code,
+        "actor_id": actor,
+    });
+    let found = relay_points_call(&url, key, &body)
+        .await
+        .map_err(ApiError)?;
+    Ok(Json(found))
+}
+
+/// Confirm the request a lookup just found: the debit and the voucher it
+/// becomes, both at once, at the centre's own idea of the rate. This
+/// terminal never sees or decides a rate — see `postgres/loyalty.rs`'s
+/// `confirm_redeem_request`, the one place that is settled.
+async fn relay_redeem_request_confirm(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(request_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "confirming a points redemption")?;
+    let Some(sync) = state.sync.as_ref() else {
+        return Err(ApiError(EdgeError::Upstream(
+            "this node has no upload URL configured, so it cannot reach head office".into(),
+        )));
+    };
+    let Some((base, key)) = sync.cloud() else {
+        return Err(ApiError(EdgeError::Configuration(
+            "SYNC_UPLOAD_URL is empty, so the relay cannot work out where head office is".into(),
+        )));
+    };
+    let url = format!(
+        "{base}/api/v1/sync/points/redeem-requests/{}/confirm",
+        request_id.trim()
+    );
+    let node = state.inventory.node();
+    let body = json!({
+        "origin_id": &node.node_id,
+        "actor_id": actor,
+    });
+    let confirmed = relay_points_call(&url, key, &body)
+        .await
+        .map_err(ApiError)?;
+    Ok(Json(confirmed))
+}
+
+/// How long a manager's HR call may take to come back. Longer than a counter's
+/// voucher hold (the client's 10 s): a roster week or a month's attendance is a
+/// heavier read than one card, and nobody is standing at the counter waiting
+/// on it — but short enough that a dead line is still said in seconds.
+const CENTRAL_RELAY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The largest body a manager's HR call may carry up. Every allowlisted act is
+/// a small JSON form — a decision and a reason, a day's plan, a claim's lines —
+/// and the router's 2 MiB is for receipts and photographs this relay never
+/// carries.
+const CENTRAL_RELAY_MAX_BODY: usize = 256 * 1024;
+
+/// The shop's window onto head office's people — and its own General Affairs.
+///
+/// `/api/v1/store/central/{path}` is `/api/v1/{path}` at the cloud, relayed on
+/// behalf of whoever is signed in at this till, so the till keeps ONE server
+/// and ONE sign-in (Hari, 2026-09-25) while HR data stays where it lives. The
+/// shape is the voucher relay's: the node signs the call with its own machine
+/// credential (`x-sync-key`, proving WHICH SHOP), names itself
+/// (`x-relay-origin`) and the person (`x-relay-user`), and head office decides
+/// — see `cloud::http::auth::relayed_principal` for the chain it checks.
+///
+/// What this node refuses before anything leaves the shop:
+///
+/// - **Nobody signed in, or a node with sign-in off.** There is no person to
+///   relay for, and "the node" is not somebody head office has heard of.
+/// - **A LOCAL account.** A break-glass login exists only in this SQLite; it
+///   has no identity at the cloud, so there is nobody for the cloud to check
+///   the assignment of, and a relay that forwarded it would be asking the
+///   cloud to trust the node's word for a person it cannot name.
+/// - **A path off the list** (`domain::relay`). The same list the cloud holds
+///   the call to on arrival: one list, two walls.
+///
+/// What it forwards: the method, the path, the query string exactly as sent,
+/// and the JSON body. What it never forwards: the browser's cookie, bearer,
+/// or CSRF token — those are this node's session, and the cloud has no use
+/// for a credential it did not issue. The answer comes back as the cloud gave
+/// it, status and body, so a refusal reads in head office's own words; a line
+/// that is down is 503 and a sentence, never a locally-invented answer.
+///
+/// Nothing here is cached or kept. With the line down, HR is unavailable at
+/// the till — and the till's own work (sales, the drawer, stock) is untouched,
+/// because none of it comes through here.
+async fn relay_central(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    if !state.auth.enabled() {
+        return Err(ApiError(EdgeError::Forbidden(
+            "this node signs nobody in, so there is nobody head office could answer for".into(),
+        )));
+    }
+    let principal = principal
+        .map(|Extension(principal)| principal)
+        .ok_or_else(|| ApiError(EdgeError::Unauthorized("missing session principal".into())))?;
+    if principal.source != "CLOUD" {
+        return Err(ApiError(EdgeError::Forbidden(format!(
+            "{} is an account of this shop only; head office does not know it, so its HR \
+             cannot be reached with it — sign in with your head-office account",
+            principal.username
+        ))));
+    }
+    let method = request.method().as_str().to_owned();
+    let cloud_path = central_cloud_path(request.uri().path()).ok_or_else(|| {
+        ApiError(EdgeError::NotFound(
+            "that is not a head-office path this till can ask".into(),
+        ))
+    })?;
+    if !relay::is_relayable(&method, &cloud_path) {
+        return Err(ApiError(EdgeError::Forbidden(format!(
+            "{method} {cloud_path} is not something this till may ask head office"
+        ))));
+    }
+    let query = request.uri().query().map(str::to_owned);
+    let Some(sync) = state.sync.as_ref() else {
+        return Err(ApiError(EdgeError::Upstream(
+            "this node has no upload URL configured, so it cannot reach head office".into(),
+        )));
+    };
+    let Some((base, key)) = sync.cloud() else {
+        return Err(ApiError(EdgeError::Configuration(
+            "SYNC_UPLOAD_URL is empty, so the relay cannot work out where head office is".into(),
+        )));
+    };
+    let body = axum::body::to_bytes(request.into_body(), CENTRAL_RELAY_MAX_BODY)
+        .await
+        .map_err(|_| {
+            ApiError(EdgeError::Validation(format!(
+                "a head-office call carries at most {} KiB",
+                CENTRAL_RELAY_MAX_BODY / 1024
+            )))
+        })?;
+    let url = match query.as_deref().filter(|query| !query.is_empty()) {
+        Some(query) => format!("{base}{cloud_path}?{query}"),
+        None => format!("{base}{cloud_path}"),
+    };
+    let verb = reqwest::Method::from_bytes(method.as_bytes())
+        .map_err(|error| ApiError(EdgeError::Validation(error.to_string())))?;
+    let mut call = relay_client()
+        .map_err(ApiError)?
+        .request(verb, &url)
+        .timeout(CENTRAL_RELAY_TIMEOUT)
+        .header(relay::SYNC_KEY_HEADER, key)
+        .header(relay::RELAY_ORIGIN_HEADER, state.inventory.node().node_id.as_str())
+        .header(relay::RELAY_USER_HEADER, principal.user_id.to_string())
+        .header(header::ACCEPT, "application/json");
+    if !body.is_empty() {
+        call = call
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body);
+    }
+    let (status, answer) = relay_exchange(call).await.map_err(ApiError)?;
+    Ok((status, Json(answer)).into_response())
+}
+
+/// The cloud path a central-relay request names, or `None` when it names none.
+///
+/// Read from the raw request path rather than a decoded `Path` extractor, so
+/// what is checked against the relay list is byte for byte what is sent on —
+/// a `%2F` stays three characters, and the list's segment rule refuses it.
+fn central_cloud_path(raw: &str) -> Option<String> {
+    let rest = raw.strip_prefix(relay::STORE_RELAY_PREFIX)?;
+    rest.starts_with('/')
+        .then(|| format!("/api/v1{rest}"))
+        .filter(|path| path.len() > "/api/v1/".len())
 }
 
 /// What this shop took, bucketed by day, week or month.
@@ -1771,11 +2213,71 @@ async fn store_open_shift(
     principal: Option<Extension<EdgePrincipal>>,
     Json(mut request): Json<crate::edge::till::OpenShiftRequest>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let principal = require_permission(&state, principal, EdgePermission::StoreSale)?;
+    if let Some(principal) = principal.as_ref() {
+        request.actor_id = principal.username.clone();
+    }
+    let report = run_blocking(move || state.inventory.open_shift(request)).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(blind_for_cashier(principal.as_ref(), serde_json::to_value(report)?)),
+    ))
+}
+
+/// The drawer's figures, withheld from the person who counts it.
+///
+/// A blind close is only blind if the expectation cannot be read anywhere a
+/// cashier can reach, and every shift route answers with the whole Z report.
+/// So for a CASHIER the report goes out with `blind: true` and every figure the
+/// expected cash can be rebuilt from set to null: the takings by kind, the
+/// change, the refunds, the per-tender totals, the expectation and the
+/// variance. What the cashier did themselves — the float, the movements, the
+/// count sheet — stays. Supervisors and admins get it whole, and so does a
+/// node running with auth off, which has no roles to tell apart.
+fn blind_for_cashier(principal: Option<&EdgePrincipal>, mut report: Value) -> Value {
+    let cashier = principal.is_some_and(|principal| {
+        principal.role == crate::edge::domain::Role::Cashier
+    });
+    if !cashier {
+        return report;
+    }
+    if let Some(fields) = report.as_object_mut() {
+        for key in [
+            "sales_total_minor",
+            "cash_sales_minor",
+            "non_cash_minor",
+            "change_given_minor",
+            "cash_refunds_minor",
+            "non_cash_refunds_minor",
+            "expected_cash_minor",
+            "variance_minor",
+        ] {
+            if fields.contains_key(key) {
+                fields.insert(key.into(), Value::Null);
+            }
+        }
+        if fields.contains_key("tenders") {
+            fields.insert("tenders".into(), json!([]));
+        }
+        fields.insert("blind".into(), Value::Bool(true));
+    }
+    report
+}
+
+/// Record a supervisor's yes to a basket edit.
+///
+/// `StoreSale`, like a void: the cashier sends it with the supervisor's grant
+/// in the body, and the grant — not the cashier's role — is what is checked.
+async fn store_record_approval(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::till::TillApprovalRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
     if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
         request.actor_id = principal.username;
     }
-    let report = run_blocking(move || state.inventory.open_shift(request)).await?;
-    Ok((StatusCode::CREATED, Json(serde_json::to_value(report)?)))
+    let approval = run_blocking(move || state.inventory.record_till_approval(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(approval)?)))
 }
 
 /// The shift currently running, or `null`.
@@ -1788,10 +2290,14 @@ async fn store_active_shift(
     principal: Option<Extension<EdgePrincipal>>,
     Query(query): Query<ActiveShiftQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let principal = require_permission(&state, principal, EdgePermission::InventoryRead)?;
     let report =
         run_blocking(move || state.inventory.active_shift(query.terminal_id.as_deref())).await?;
-    Ok(Json(serde_json::to_value(report)?))
+    let report = serde_json::to_value(report)?;
+    if report.is_null() {
+        return Ok(Json(report));
+    }
+    Ok(Json(blind_for_cashier(principal.as_ref(), report)))
 }
 
 async fn store_shift_report(
@@ -1799,9 +2305,12 @@ async fn store_shift_report(
     principal: Option<Extension<EdgePrincipal>>,
     Path(shift_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let principal = require_permission(&state, principal, EdgePermission::InventoryRead)?;
     let report = run_blocking(move || state.inventory.shift_report(&shift_id)).await?;
-    Ok(Json(serde_json::to_value(report)?))
+    Ok(Json(blind_for_cashier(
+        principal.as_ref(),
+        serde_json::to_value(report)?,
+    )))
 }
 
 async fn store_cash_movement(
@@ -1810,12 +2319,16 @@ async fn store_cash_movement(
     Path(shift_id): Path<String>,
     Json(mut request): Json<crate::edge::till::CashMovementRequest>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
-    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
-        request.actor_id = principal.username;
+    let principal = require_permission(&state, principal, EdgePermission::StoreSale)?;
+    if let Some(principal) = principal.as_ref() {
+        request.actor_id = principal.username.clone();
     }
     let report =
         run_blocking(move || state.inventory.record_cash_movement(&shift_id, request)).await?;
-    Ok((StatusCode::CREATED, Json(serde_json::to_value(report)?)))
+    Ok((
+        StatusCode::CREATED,
+        Json(blind_for_cashier(principal.as_ref(), serde_json::to_value(report)?)),
+    ))
 }
 
 /// What the shop spent out of petty cash, over a span.
@@ -1959,11 +2472,15 @@ async fn store_close_shift(
     Path(shift_id): Path<String>,
     Json(mut request): Json<crate::edge::till::CloseShiftRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
-        request.actor_id = principal.username;
+    let principal = require_permission(&state, principal, EdgePermission::StoreSale)?;
+    if let Some(principal) = principal.as_ref() {
+        request.actor_id = principal.username.clone();
     }
     let report = run_blocking(move || state.inventory.close_shift(&shift_id, request)).await?;
-    Ok(Json(serde_json::to_value(report)?))
+    Ok(Json(blind_for_cashier(
+        principal.as_ref(),
+        serde_json::to_value(report)?,
+    )))
 }
 
 /// Undo a whole sale.
@@ -2121,6 +2638,37 @@ async fn login(
     Ok(response)
 }
 
+#[derive(Debug, Deserialize)]
+struct EdgeSsoExchangeRequest {
+    ticket: String,
+}
+
+/// Redeem a signed Cloud ticket without setting either colliding auth cookie.
+/// The hub posts with `credentials: omit` and keeps the returned bearer token
+/// in its tab-scoped Edge session store.
+async fn edge_sso_exchange(
+    State(state): State<EdgeState>,
+    Json(request): Json<EdgeSsoExchangeRequest>,
+) -> Result<Response, ApiError> {
+    let auth = state.auth.clone();
+    let issued = run_blocking(move || auth.exchange_cloud_ticket(&request.ticket)).await?;
+    let mut response = Json(LoginResponse {
+        token: issued.token,
+        token_type: "Bearer".to_owned(),
+        expires_at_epoch: issued.expires_at.timestamp(),
+        user: SessionUser {
+            id: issued.principal.user_id,
+            username: issued.principal.username,
+            display_name: issued.principal.display_name,
+            role: issued.principal.role.into(),
+            source: Some(issued.principal.source),
+        },
+    })
+    .into_response();
+    prevent_auth_caching(&mut response);
+    Ok(response)
+}
+
 /// What this node's outbox is doing.
 ///
 /// Readable by any signed-in operator rather than a supervisor only: the
@@ -2209,6 +2757,82 @@ async fn sync_trigger(
             ),
         },
     }))
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// The virtual business clock (VIRTUAL-TIME-PLAN.md §8)
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Whether the test-control surface answers. Read from the environment at
+/// boot, fail-closed: a node that was never told its database is disposable
+/// refuses to move time, in production and by accident alike. The same gate
+/// `cloud/http/control.rs` keeps for the cloud's own corruption probes.
+fn test_controls_enabled() -> bool {
+    std::env::var("INVENTORY_ENABLE_TEST_CONTROLS")
+        .map(|value| value.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+fn require_test_controls(state: &EdgeState) -> Result<(), ApiError> {
+    if state.test_controls {
+        Ok(())
+    } else {
+        Err(ApiError(EdgeError::Forbidden(
+            "test controls are disabled; set INVENTORY_ENABLE_TEST_CONTROLS=true only in a \
+             disposable environment"
+                .into(),
+        )))
+    }
+}
+
+/// Where the business clock now stands: mode, anchors, factor, and the real
+/// and virtual instants. The question a rig asks most is "what date is it".
+async fn clock_status(State(state): State<EdgeState>) -> Result<Json<ClockStatus>, ApiError> {
+    require_test_controls(&state)?;
+    Ok(Json(state.clock.status()))
+}
+
+/// One named operation on this node's clock. The request shape and the
+/// backward rule are the cloud's (`cloud/http/clock.rs`) — one wire contract,
+/// so a rig script re-anchors every node with the same body. A backward move
+/// is permitted ONLY under the `controlled` mode, where the database is
+/// disposable by definition; the rule reads the clock's own mode, never the
+/// caller's enthusiasm (plan §7.2).
+async fn clock_control(
+    State(state): State<EdgeState>,
+    Json(request): Json<ClockControlRequest>,
+) -> Result<Json<ClockStatus>, ApiError> {
+    require_test_controls(&state)?;
+    let before = state.clock.status();
+    let backward_permitted = |source: &ClockMode, prospective: &ClockMode| {
+        matches!(source, ClockMode::Controlled { .. })
+            || matches!(prospective, ClockMode::Controlled { .. })
+    };
+    let map_clock_error = |error: ClockError| match error {
+        ClockError::Validation(message) => ApiError(EdgeError::Validation(message)),
+        // A backward move conflicts with what the clock already said and with
+        // the date-keyed documents already on disk (plan §7.2).
+        ClockError::BackwardJump { current, attempted } => ApiError(EdgeError::Conflict(format!(
+            "the business clock cannot move backwards from {current} to {attempted}; re-anchor \
+             forward, rescale, or use the controlled mode on a disposable database"
+        ))),
+    };
+    let status = match &request {
+        ClockControlRequest::SetMode { mode } => state
+            .clock
+            .set_mode(mode.clone(), backward_permitted(&before.source, mode))
+            .map_err(map_clock_error)?,
+        ClockControlRequest::Rescale { factor } => {
+            state.clock.rescale(*factor).map_err(map_clock_error)?
+        }
+        ClockControlRequest::Pause => state.clock.pause().map_err(map_clock_error)?,
+        ClockControlRequest::Resume => state.clock.resume().map_err(map_clock_error)?,
+        ClockControlRequest::AdvanceTo { at } => state
+            .clock
+            .advance_to(*at, backward_permitted(&before.source, &before.source))
+            .map_err(map_clock_error)?,
+    };
+    Ok(Json(status))
 }
 
 /// Who is signed in.
@@ -2608,12 +3232,33 @@ async fn require_auth(
         return Ok(next.run(request).await);
     }
     let path = request.uri().path();
-    if !path.starts_with("/api/")
-        || matches!(
-            path,
-            "/api/v1/health" | "/api/v1/auth/login" | RFID_OBSERVATION_PATH
+    // Routes a till speaks before anybody has signed in, or with no bearer at
+    // all. The claim and roster routes carry their own credential — the
+    // handlers verify the terminal's signature over the method, path, clock,
+    // sequence and body themselves — so demanding a session here would be a
+    // door with no key the till is allowed to hold: the sign-in these routes
+    // exist to perform is the thing that mints one. `auth_methods` is the one
+    // split case: its GET is open by design (one word of shop configuration,
+    // asked before anybody is signed in), while its POST — which changes what
+    // the whole shop accepts — stays behind this middleware and behind the
+    // `AuthAdmin` check inside the handler.
+    let open = matches!(
+        path,
+        "/api/v1/health"
+            | "/api/v1/auth/login"
+            | "/api/v1/auth/sso/exchange"
+            | RFID_OBSERVATION_PATH
+    ) || matches!(
+        (request.method().as_str(), path),
+        (
+            "GET",
+            "/api/v1/auth/methods" | "/api/v1/auth/fingerprints/roster"
+        ) | (
+            "POST",
+            "/api/v1/auth/fingerprints/claim" | "/api/v1/auth/pin/claim"
         )
-    {
+    );
+    if !path.starts_with("/api/") || open {
         return Ok(next.run(request).await);
     }
     let bearer = request
@@ -3320,4 +3965,70 @@ async fn dc_confirm_tagging(
     }
     let result = run_blocking(move || state.inventory.confirm_tagging(request)).await?;
     Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
+}
+
+#[cfg(test)]
+mod blind_tests {
+    use super::*;
+
+    fn principal(role: crate::edge::domain::Role) -> EdgePrincipal {
+        EdgePrincipal {
+            session_id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            username: "siti".into(),
+            display_name: "Siti".into(),
+            role,
+            source: "LOCAL".into(),
+            authenticated_with_cookie: false,
+        }
+    }
+
+    fn report() -> Value {
+        json!({
+            "shift_id": "s-1",
+            "opening_float_minor": 500_000,
+            "sales_total_minor": 2_000_000,
+            "cash_sales_minor": 1_200_000,
+            "non_cash_minor": 800_000,
+            "change_given_minor": 30_000,
+            "cash_refunds_minor": 0,
+            "non_cash_refunds_minor": 0,
+            "expected_cash_minor": 1_670_000,
+            "declared_cash_minor": 1_660_000,
+            "variance_minor": -10_000,
+            "tenders": [{"method": "CASH", "count": 9, "amount_minor": 1_200_000}],
+            "movements": [],
+            "counted": [],
+            "blind": false
+        })
+    }
+
+    #[test]
+    fn a_cashier_never_reads_what_the_drawer_should_hold() {
+        let seen = blind_for_cashier(Some(&principal(crate::edge::domain::Role::Cashier)), report());
+        for key in [
+            "sales_total_minor",
+            "cash_sales_minor",
+            "non_cash_minor",
+            "change_given_minor",
+            "expected_cash_minor",
+            "variance_minor",
+        ] {
+            assert!(seen[key].is_null(), "{key} reached a cashier");
+        }
+        assert_eq!(seen["tenders"], json!([]));
+        assert_eq!(seen["blind"], json!(true));
+        // What the cashier did themselves stays.
+        assert_eq!(seen["opening_float_minor"], json!(500_000));
+        assert_eq!(seen["declared_cash_minor"], json!(1_660_000));
+    }
+
+    #[test]
+    fn a_supervisor_reads_the_whole_report() {
+        let seen = blind_for_cashier(
+            Some(&principal(crate::edge::domain::Role::Supervisor)),
+            report(),
+        );
+        assert_eq!(seen, report());
+    }
 }

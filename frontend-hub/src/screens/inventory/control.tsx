@@ -301,11 +301,8 @@ export function Control() {
         </Banner>
       ) : null}
 
-      {replay.isSuccess && replay.data && (
-        <Banner
-          tone={replay.data.status === "MATCH" ? "ok" : "warn"}
-          className="mb-3.5"
-        >
+      {replay.isSuccess && replay.data && replay.data.status !== "MATCH" && (
+        <Banner tone="warn" className="mb-3.5">
           Replay {replay.data.run_id} folded{" "}
           {count(replay.data.ledger_fact_count)} facts and found{" "}
           {count(replay.data.difference_count)} disagreements
@@ -313,16 +310,6 @@ export function Control() {
             ? `, plus ${count(replay.data.outbound_rollup_difference_count)} at the stage rollups`
             : ""}
           . Nothing was written.
-        </Banner>
-      )}
-
-      {repost.isSuccess && repost.data && (
-        <Banner tone="ok" className="mb-3.5">
-          Rebuilt {count(repost.data.projection_rows_rebuilt)} projection rows
-          and closed {count(repost.data.differences_before)} disagreements. The
-          ledger held at {count(repost.data.ledger_fact_count_after)} facts
-          throughout and gained {repost.data.ledger_facts_created} — a repost
-          repairs the reading, never the record.
         </Banner>
       )}
 
@@ -427,7 +414,7 @@ export function Control() {
                     {replay.isPending ? "Replaying…" : "Replay and compare"}
                   </Button>
                 </Toolbar>
-                <p className="text-[0.71875rem] text-mute">
+                <p className="text-[0.875rem] text-mute">
                   Replay reads; repost writes. Repost aborts rather than commit
                   if the ledger moves while it is working, and refuses to commit
                   a rebuild that does not reproduce the comparison exactly.

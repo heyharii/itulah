@@ -133,18 +133,20 @@ const DC_FULFILLMENT_POOL_CODES = new Set([
 const STORE_RETURN_POOL_CODES = new Set(["WAREHOUSE", "FLOOR", "REJECT"])
 
 /// The single pool a supplier return may leave from, named literally in the
-/// server's check. A POOL id, still spelled `dc`: migration 0256 renamed the
-/// site the warehouse's pools stand on, not the pools.
+/// server's check.
 const SUPPLIER_RETURN_POOL_ID = "dc.reject.dc"
 
-/// `site.kind` for the warehouse. `HO` and not `DC` since 0256 folded the
-/// distribution centre into head office — they are one building, and now one
-/// row. A filter left on `DC` matches nothing and silently offers an empty
-/// source list rather than erroring.
+/// `site.kind` for the warehouse. `HO` and not `DC` since 0353 folded the
+/// distribution centre into head office — they are one building, and one row.
+/// A filter left on `DC` matches nothing and silently offers an empty source
+/// list rather than erroring.
 const WAREHOUSE_SITE_KIND = "HO"
 
-/// `site.id` for that same place. The pool ids above do NOT follow it.
-const WAREHOUSE_SITE_ID = "ho"
+/// `site.id` for that same place: still `dc`, the server's
+/// `HEAD_OFFICE_SITE_ID`. The rename to `ho` (0256) has not landed; sending
+/// `ho` asked for a site that does not exist, and every RETURN_TO_DC was
+/// refused. This flips when the server's constant does, not before.
+const WAREHOUSE_SITE_ID = "dc"
 
 export type AllotmentKind = "TO_STORE" | "RETURN_TO_DC" | "RETURN_TO_SUPPLIER"
 
@@ -152,7 +154,12 @@ export function sourcePoolsFor(
   kind: AllotmentKind,
   pools: readonly FleetPool[]
 ): FleetPool[] {
-  const usable = placements(pools)
+  // A Cloud row shadowed by the Edge node that owns its site is the old ledger
+  // for a shelf the node now speaks for: same id, stale number. Offering it
+  // put `dc.warehouse` in the picker twice, once with the seed's stock.
+  const usable = placements(pools).filter(
+    (pool) => pool.authority.included_in_fleet_total
+  )
   switch (kind) {
     case "TO_STORE":
       return usable.filter(

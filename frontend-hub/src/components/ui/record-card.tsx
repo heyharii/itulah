@@ -69,7 +69,7 @@ export function RecordHead({
           {id}
         </span>
         {title && (
-          <span className="block truncate text-[0.71875rem] text-mute">
+          <span className="block truncate text-[0.875rem] text-mute">
             {title}
           </span>
         )}

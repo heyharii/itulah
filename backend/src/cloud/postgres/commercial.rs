@@ -665,6 +665,22 @@ pub(super) async fn dispatch_publication(
     publication_id: Uuid,
     issued_by: &str,
 ) -> Result<Vec<String>, AppError> {
+    dispatch_publication_to(tx, publication_id, issued_by, None).await
+}
+
+/// [`dispatch_publication`], to one shop instead of every shop.
+///
+/// For a node that joined after the book was published
+/// (`node_bootstrap.rs`). A book is a list of changes, not a replacement —
+/// the newest one that names a product wins — so a late shop is sent every
+/// published book in version order, and each one is shaped for it by exactly
+/// the code that shaped it for the shops that were there at the time.
+pub(super) async fn dispatch_publication_to(
+    tx: &mut Transaction<'_, Postgres>,
+    publication_id: Uuid,
+    issued_by: &str,
+    only_origin: Option<&str>,
+) -> Result<Vec<String>, AppError> {
     let publication = sqlx::query(
         "SELECT version,name,effective_from,effective_to
            FROM commercial_publication WHERE id=$1",
@@ -692,8 +708,11 @@ pub(super) async fn dispatch_publication(
 
     let shops = sqlx::query(
         "SELECT origin_id,site_id FROM sync_origin_credential
-          WHERE node_role='STORE' AND site_id IS NOT NULL ORDER BY origin_id",
+          WHERE node_role='STORE' AND site_id IS NOT NULL
+            AND ($1::text IS NULL OR origin_id=$1)
+          ORDER BY origin_id",
     )
+    .bind(only_origin)
     .fetch_all(&mut **tx)
     .await?;
 
@@ -771,7 +790,13 @@ pub(super) async fn dispatch_publication(
             // rewrite the scope somebody authored. The campaign's WINDOW is
             // carried and intersected at the till; its shops travel the same
             // way, so there is one composition rule rather than two.
-            "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
+            // The edge contract uses an empty list to mean "every shop".
+            // `None` in the Cloud authoring model must not serialize as JSON
+            // null here: the receiver expects a sequence and rejects the
+            // entire activation before it can be queued.
+            "site_ids": row
+                .get::<Option<Vec<String>>, _>("site_ids")
+                .unwrap_or_default(),
         })
     })
     .collect();
@@ -942,10 +967,58 @@ pub async fn publish_commercial_usage(
     issued_by: &str,
     targets: &[String],
 ) -> Result<(Uuid, Vec<String>), AppError> {
+    // The counts, and how far each shop's stream had been applied when they
+    // were taken — read as ONE instant. A till counts its own sales until the
+    // centre's figure includes them (edge `0043`), and it learns which ones it
+    // does from `applied_through`. Read apart, a sale applied between the two
+    // reads would be in the counts but not behind the watermark (counted twice
+    // at that till until the next message) or the other way round (counted
+    // nowhere). `apply_one` bumps a count and advances its stream in one
+    // transaction, so a single repeatable-read snapshot sees both or neither.
+    let mut snapshot = pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        .execute(&mut *snapshot)
+        .await?;
     let counted_at = Utc::now();
+    // A generation's position is vouched for only once every OLDER generation
+    // of the same shop has been applied through what it received. A fact
+    // renumbered into a new generation but already held under the old one is
+    // deduplicated by event id (`ingest_batch`), which moves the new stream past
+    // it with nothing applied — the sale is counted when the OLD stream reaches
+    // it. Until then the new position would tell the till to stop counting a
+    // sale the centre has not counted either, so it is reported as nought and
+    // the till keeps its own row: briefly counted twice, never counted nowhere.
+    let applied_through: Vec<Value> = sqlx::query(
+        "SELECT a.origin_id, a.generation,
+                CASE WHEN EXISTS (
+                         SELECT 1
+                           FROM sync_ingest_watermark older
+                           LEFT JOIN sync_applied_watermark done
+                                  ON done.origin_id = older.origin_id
+                                 AND done.generation = older.generation
+                          WHERE older.origin_id = a.origin_id
+                            AND older.generation < a.generation
+                            AND COALESCE(done.applied_seq, 0) < older.durable_seq)
+                     THEN 0
+                     ELSE a.applied_seq
+                END AS applied_seq
+           FROM sync_applied_watermark a
+          ORDER BY a.origin_id, a.generation",
+    )
+    .fetch_all(&mut *snapshot)
+    .await?
+    .into_iter()
+    .map(|row| {
+        json!({
+            "origin_id": row.get::<String, _>("origin_id"),
+            "generation": row.get::<i64, _>("generation"),
+            "applied_seq": row.get::<i64, _>("applied_seq"),
+        })
+    })
+    .collect();
     let counts: Vec<Value> =
         sqlx::query("SELECT kind, key, uses, spent_minor FROM commercial_usage ORDER BY kind, key")
-            .fetch_all(pool)
+            .fetch_all(&mut *snapshot)
             .await?
             .into_iter()
             .map(|row| {
@@ -957,8 +1030,37 @@ pub async fn publish_commercial_usage(
                 })
             })
             .collect();
+    // Each shop's allowance under every split limit, and its own count under
+    // it, in the same instant — see `cap_allocation::allowances_for_message`.
+    //
+    // Behind a savepoint, because the counts must go out whatever happens
+    // here. A read that fails leaves the allowances out, which sends every
+    // shop back to the fleet's count — a brake rather than a gate, as it was
+    // before any limit was split — and says so in the log.
+    sqlx::query("SAVEPOINT allowances")
+        .execute(&mut *snapshot)
+        .await?;
+    let allowances = match super::cap_allocation::allowances_for_message(&mut snapshot).await {
+        Ok(allowances) => allowances,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                "allowances left out of the usage message; shops enforce the fleet's count"
+            );
+            sqlx::query("ROLLBACK TO SAVEPOINT allowances")
+                .execute(&mut *snapshot)
+                .await?;
+            Vec::new()
+        }
+    };
+    snapshot.commit().await?;
 
-    let payload = json!({ "counted_at": counted_at, "counts": counts });
+    let payload = json!({
+        "counted_at": counted_at,
+        "counts": counts,
+        "applied_through": applied_through,
+        "allowances": allowances,
+    });
     super::sync::issue_command(
         pool,
         crate::cloud::domain::COMMAND_COMMERCIAL_USAGE,
@@ -1056,17 +1158,18 @@ pub async fn resolve_offer(pool: &PgPool, query: ResolveOfferQuery) -> Result<Va
     let pricing =
         super::pricing::load_site_pricing(&mut tx, &query.site_id, query.channel.as_str(), at)
             .await?;
-    // What the product IS, not just what it is called. A markdown or promotion
-    // written against the whole style matches on this, and a line without it
-    // silently qualifies for nothing.
-    let merchandise = super::pricing::load_merchandise(&mut tx, None).await?;
-    tx.commit().await?;
-
     let Some(sku_code) = pricing.sku_code_by_id.get(&query.sku_id).cloned() else {
         return Err(AppError::NotFound(
             "an effective offer for that SKU at that store and channel".into(),
         ));
     };
+    // What the product IS, not just what it is called. A markdown or promotion
+    // written against the whole style matches on this, and a line without it
+    // silently qualifies for nothing. Only this one product's facts: the line
+    // below is the only thing that reads them.
+    let merchandise =
+        super::pricing::load_merchandise(&mut tx, Some(std::slice::from_ref(&sku_code))).await?;
+    tx.commit().await?;
     let context = crate::reporting::pricing_context(&query.site_id, query.channel.as_str(), at);
     let priced = price_catalog(
         &pricing.snapshot,
@@ -2330,16 +2433,24 @@ pub async fn article_prices(
           ORDER BY {order}
           LIMIT $7"
     );
-    let article_rows = sqlx::query(&sql)
-        .bind(&needle)
-        .bind(&scope.divisions)
-        .bind(&scope.tags)
-        .bind(scope.min_price)
-        .bind(scope.max_price)
-        .bind(cursor.as_ref().map(|c| c.article_code.clone()))
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
+    let page = async {
+        Ok::<_, AppError>(
+            sqlx::query(&sql)
+                .bind(&needle)
+                .bind(&scope.divisions)
+                .bind(&scope.tags)
+                .bind(scope.min_price)
+                .bind(scope.max_price)
+                .bind(cursor.as_ref().map(|c| c.article_code.clone()))
+                .bind(limit)
+                .fetch_all(pool)
+                .await?,
+        )
+    };
+    // The page and its counts are independent reads of the same catalogue, so
+    // they run together rather than one after the other.
+    let (article_rows, (total, facets)) =
+        tokio::try_join!(page, pricelist_facets(pool, &needle, &scope))?;
 
     // Issued BEFORE the price bound thins the page — see
     // `ArticlePricePage::next_cursor`. A short page is the last page only
@@ -2353,8 +2464,6 @@ pub async fn article_prices(
         }
         _ => None,
     };
-
-    let (total, facets) = pricelist_facets(pool, &needle, &scope).await?;
 
     struct Style {
         article_code: String,
@@ -2438,6 +2547,10 @@ pub async fn article_prices(
         spans.push((from, lines.len()));
     }
 
+    // Campaigns and tax rules are the same for every shop, so they are read
+    // once here rather than once per branch inside the loader.
+    let common = super::pricing::load_price_book_common(&mut tx).await?;
+
     for shop in &shops {
         let site_id: String = shop.try_get("site_id")?;
         let label: Option<String> = shop.try_get("label")?;
@@ -2473,13 +2586,14 @@ pub async fn article_prices(
         // that has confirmed nothing gets an empty book rather than head
         // office's prices wearing a shop's name (§3, last row).
         let activated = super::pricing::activated_versions(&mut tx, &site_id, at).await?;
-        let pricing = super::pricing::load_site_price_book(
+        let pricing = super::pricing::load_site_price_book_with(
             &mut tx,
             &site_id,
             channel.as_str(),
             at,
             Some(&page_skus),
             &super::pricing::PriceBookScope::AsActivated(activated.clone()),
+            &common,
         )
         .await?;
         // What head office has published over the top and this shop has not
@@ -2835,6 +2949,21 @@ pub async fn commercial_products(
     query: Option<&str>,
     limit: i64,
 ) -> Result<Value, AppError> {
+    commercial_products_matching(pool, query, None, limit).await
+}
+
+/// `commercial_products`, optionally narrowed to exact style codes.
+///
+/// The new-price form opens on a selection of styles and needs every product
+/// of each. It used to send one substring search per style and throw away the
+/// neighbours each one also matched; this answers the whole selection in one
+/// query and matches the codes exactly.
+pub async fn commercial_products_matching(
+    pool: &PgPool,
+    query: Option<&str>,
+    article_codes: Option<&[String]>,
+    limit: i64,
+) -> Result<Value, AppError> {
     let limit = limit.clamp(1, 500);
     // Capped at eight words. A search box is not a query language, and a
     // paragraph pasted into one should cost a scan, not a self-join per word.
@@ -2876,11 +3005,13 @@ pub async fn commercial_products(
                      AND COALESCE(s.color, '') NOT ILIKE term
                      AND COALESCE(s.size, '') NOT ILIKE term
                      AND COALESCE(a.division_code, '') NOT ILIKE term)
+            AND ($3::text[] IS NULL OR a.article_code = ANY($3))
           ORDER BY a.article_code, s.sku_code
           LIMIT $2",
     )
     .bind(&terms)
     .bind(limit)
+    .bind(article_codes)
     .fetch_all(pool)
     .await?;
 

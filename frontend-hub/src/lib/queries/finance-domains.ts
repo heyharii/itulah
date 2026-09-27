@@ -14,6 +14,7 @@ import type {
   Principal,
   PrincipalDocument,
   ProfitAndLoss,
+  SaleDayPage,
   TaxPeriod,
   TaxPeriodDocument,
   TaxReconciliationRow,
@@ -63,6 +64,8 @@ export const domainKeys = {
     ["finance", "profit-and-loss", from, to, site ?? null] as const,
   unitResults: (from: string, to: string) =>
     ["finance", "unit-results", from, to] as const,
+  saleDays: (from: string, to: string, site?: string) =>
+    ["finance", "sale-days", from, to, site ?? null] as const,
 }
 
 // ── prepaid ────────────────────────────────────────────────────────────────
@@ -237,6 +240,23 @@ export function profitAndLoss(
 ): Promise<ProfitAndLoss> {
   return node.get<ProfitAndLoss>(
     `/api/v1/finance/reports/profit-and-loss${search({ from, to, ...options })}`,
+    { signal }
+  )
+}
+
+/// Which trading days took money, and how many of them are in the book.
+///
+/// Asked for one row only: the totals the envelope carries — posted, unposted,
+/// and the takings not yet in the ledger — cover every day the scope matches,
+/// not the page, so a summary has no use for the rows themselves.
+export function saleDayTotals(
+  from: string,
+  to: string,
+  signal?: AbortSignal,
+  options: { site?: string } = {}
+): Promise<SaleDayPage> {
+  return node.get<SaleDayPage>(
+    `/api/v1/finance/sale-days${search({ from, to, limit: 1, ...options })}`,
     { signal }
   )
 }

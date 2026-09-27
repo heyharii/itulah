@@ -1,7 +1,8 @@
 # Product master — the article and the four lists it is described with
 
 **Status:** implemented and in the tree. Owner decisions of 2026-09-12 are
-incorporated, including the conservative `ever_used` policy of §4.2. Code
+incorporated, including the conservative `ever_used` policy of §4.2, and the
+decision of 2026-09-25 that the divisions are the client's nine (§2, §7.1). Code
 references are read off `feat/handheld-rfid` at `eb53b99`.
 
 Vocabulary: [`../CONTEXT.md`](../CONTEXT.md) — note especially that *article*,
@@ -55,15 +56,39 @@ does.
 
 **Division** is one primary, top-level, business-defined bucket. The system
 guarantees the *shape* — exactly one, mandatory — and takes no position on the
-axis: whether the business divides by customer segment (`Menswear`, `Kids`) or
-by product type (`Footwear`, `Accessories`) is a fact about the company, not
-about the software. Both of these are valid, and which is right is §7.1:
+axis: whether the business divides by customer segment or by product type is a
+fact about the company, not about the software.
+
+The company's answer (owner, 2026-09-25, §7.1) is the client's own: the nine
+divisions of their *Summary Penjualan per Divisi* report, seeded by `0382` with
+`display_order` = the client's KODE DIVISI so every list sorts the way their
+report does.
+
+| KODE | Code | Label |
+|---|---|---|
+| 1 | `WANITA` | Wanita |
+| 2 | `PRIA` | Pria |
+| 3 | `ANAK_LAKI` | Anak Laki-laki |
+| 4 | `ANAK_PEREMPUAN` | Anak Perempuan |
+| 5 | `PERLENGKAPAN_BAYI` | Perlengkapan Bayi |
+| 6 | `SANDAL_SEPATU` | Sandal dan Sepatu |
+| 7 | `TAS` | Tas |
+| 8 | `AKSESORIS` | Aksesoris |
+| 9 | `NON_DIVISI` | Non Divisi |
+
+The six the seed started with — `MENSWEAR`, `WOMENSWEAR`, `KIDS`, `FOOTWEAR`,
+`ACCESSORY` (0022), `DIVIDED` (0043) — are **retired**, not deleted: whatever
+already holds them keeps them (§4).
+
+The nine still mix axes — segment for 1–5, product type for 6–8 — so a woman's
+sandal is `WANITA` or `SANDAL_SEPATU`. That is accepted, not overlooked; tags
+carry the other axis:
 
 ```
-Division = Footwear      Division = Womenswear
-Tags     = Women,        Tags     = Footwear,
-           Running,                 Running,
-           Sport                    Sport
+Division = SANDAL_SEPATU   Division = WANITA
+Tags     = Women,          Tags     = Footwear,
+           Running,                   Running,
+           Sport                      Sport
 ```
 
 **Tags** are the flexible secondary classification. Several per article, no
@@ -280,7 +305,7 @@ created, which is what makes delete safe to offer at all.
 
 | | Gap | Evidence | Fix |
 |---|---|---|---|
-| **P1** | A retired term reads as its code in a facet — `MENSWEAR`, not "Menswear" | `catalogue_vocabulary` returns active terms only (`postgres/suppliers.rs`), while the article search returns facets that include retired ones | An `include=retired` parameter on that endpoint, with the two pickers filtering for themselves — rather than each screen reading the master lists |
+| **P1** | A retired term reads as its code in a facet — `MENSWEAR`, not "Menswear" (sharper since `0382` retired all six original divisions) | `catalogue_vocabulary` returns active terms only (`postgres/suppliers.rs`), while the article search returns facets that include retired ones | An `include=retired` parameter on that endpoint, with the two pickers filtering for themselves — rather than each screen reading the master lists |
 | **P2** | Duplicates cannot be folded together | no merge anywhere | Phase two: repoint every reference — including the jsonb rule documents — and leave the old value as merged rather than erased |
 | **P3** | Saved reports and saved filters are not swept before a delete | `report_version.spec` is jsonb; a filter clause lives in a URL (`?f=`) outside the database | Left deliberately: a text match on a two-digit size code is false precision, and `ever_used` covers the realistic case |
 | **P4** | A master value created before 2026-09-12 can never be hard-deleted, even if it was genuinely never used | `0180` marks every pre-existing row | **None — this is the decision, not a defect.** The evidence to tell "never used" from "used and unpicked" was never recorded, so the safe reading is the only honest one. Retire covers the case; the list carries one misspelling rather than the risk of losing a word the history still reads |
@@ -289,13 +314,19 @@ created, which is what makes delete safe to offer at all.
 
 ## 7. Open decisions
 
-1. **What a Division divides by.** The six in the seed mix three axes:
-   `Menswear`/`Womenswear`/`Kids` are a customer segment, `Footwear` and
-   `Accessories` are a product type, `Divided` is a line. Division is mandatory
-   and singular, so the mixture leaves a question with no answer — a woman's
-   shoe is Womenswear or Footwear, whichever the person filing it thought of
-   first, and every report that groups by division splits on that coin toss.
-   Either axis works; the mixture does not. Whichever loses, the values are
-   **retired**, never deleted.
+1. ~~**What a Division divides by.**~~ **Resolved by the owner, 2026-09-25:
+   the client's nine** (§2). The six in the seed mixed three axes —
+   `Menswear`/`Womenswear`/`Kids` a customer segment, `Footwear` and
+   `Accessories` a product type, `Divided` a line — and the question was which
+   axis should win. The owner's answer is neither: the divisions are the ones
+   the client's *Summary Penjualan per Divisi* already reports by (KODE DIVISI
+   1–9). Those mix axes too — `WANITA`…`PERLENGKAPAN_BAYI` are a segment,
+   `SANDAL_SEPATU`, `TAS`, `AKSESORIS` a product type — and the mixture is
+   **accepted** because the client reports by it: an article filed under a
+   cleaner scheme would be an article their report cannot place. The residual
+   coin toss (a woman's sandal) is a filing rule for the merchandisers, not a
+   schema question. `0382` added the nine and **retired** the old six; nothing
+   was deleted and no article, order line, supplier item or promotion was
+   rewritten (§4).
 2. **Whether `Order` should exist on Divisions at all.** It is set and read
    today. Sizes need it, Tags demonstrably did not.

@@ -118,7 +118,7 @@ impl Shop {
                 active: true,
                 base_price_minor: Some(INTAKE_PRICE),
                 article_code: Some(article.clone()),
-                division_code: Some("MENSWEAR".into()),
+                division_code: Some("PRIA".into()),
                 tags: Vec::new(),
                 image_url: None,
             })
@@ -216,6 +216,8 @@ fn rule(sku_code: &str, site_id: Option<&str>, minor: i64) -> serde_json::Value 
 fn cash(amount_minor: i64) -> Vec<SaleTender> {
     vec![SaleTender {
         voucher_authorization_id: None,
+        acquirer: None,
+        card_kind: None,
         method: PaymentMethod::Cash,
         amount_minor,
         reference: None,
@@ -1166,13 +1168,83 @@ async fn a_price_that_claims_two_levels_is_refused_at_the_door() {
 // ---------------------------------------------------------------------------
 
 impl Shop {
-    /// Deliver what the centre has counted so far.
+    /// Deliver what the centre has counted so far — and, as a centre does, how
+    /// far it had applied this shop's stream when it counted. Here: everything
+    /// the shop has queued, because these tests stand for a centre that has
+    /// caught up with every sale they rang.
     async fn deliver_usage(&mut self, counts: Vec<serde_json::Value>) {
+        let (origin_id, generation, head) = self.stream_head();
+        self.deliver_usage_through(counts, json!([{
+            "origin_id": origin_id, "generation": generation, "applied_seq": head,
+        }]))
+        .await;
+    }
+
+    /// The same, with the centre's position said out loud.
+    async fn deliver_usage_through(
+        &mut self,
+        counts: Vec<serde_json::Value>,
+        applied_through: serde_json::Value,
+    ) {
+        self.deliver(
+            inventory_backend::cloud::domain::COMMAND_COMMERCIAL_USAGE,
+            json!({
+                "counted_at": "2026-09-01T00:00:00Z",
+                "counts": counts,
+                "applied_through": applied_through,
+            }),
+        )
+        .await;
+    }
+
+    /// A count from a centre older than `applied_through`, which says nothing
+    /// about how far it had got.
+    async fn deliver_usage_from_an_older_centre(&mut self, counts: Vec<serde_json::Value>) {
         self.deliver(
             inventory_backend::cloud::domain::COMMAND_COMMERCIAL_USAGE,
             json!({ "counted_at": "2026-09-01T00:00:00Z", "counts": counts }),
         )
         .await;
+    }
+
+    /// This shop's stream, and the last seq it has queued.
+    fn stream_head(&self) -> (String, i64, i64) {
+        let connection = self.edge.connection();
+        let guard = connection.lock().unwrap_or_else(|e| panic!("lock: {e}"));
+        guard
+            .query_row(
+                "SELECT origin_id, generation, next_seq FROM sync_origin WHERE singleton = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap_or_else(|e| panic!("stream head: {e}"))
+    }
+
+    /// What this till is counting on its own, per (kind, key).
+    fn local_usage(&self) -> Vec<(String, String, i64, i64)> {
+        let connection = self.edge.connection();
+        let guard = connection.lock().unwrap_or_else(|e| panic!("lock: {e}"));
+        let mut statement = guard
+            .prepare(
+                "SELECT kind, key, SUM(uses), SUM(spent_minor) FROM commercial_usage_local
+                  GROUP BY kind, key ORDER BY kind, key",
+            )
+            .unwrap_or_else(|e| panic!("prepare: {e}"));
+        let rows = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+            .unwrap_or_else(|e| panic!("query: {e}"));
+        rows.map(|row| row.unwrap_or_else(|e| panic!("row: {e}")))
+            .collect()
+    }
+
+    /// Run a statement against the till's own database, for the states a test
+    /// cannot reach through the node's API.
+    fn execute(&self, sql: &str) {
+        let connection = self.edge.connection();
+        let guard = connection.lock().unwrap_or_else(|e| panic!("lock: {e}"));
+        guard
+            .execute_batch(sql)
+            .unwrap_or_else(|e| panic!("{sql}: {e}"));
     }
 }
 
@@ -2021,7 +2093,7 @@ impl Shop {
                 active: true,
                 base_price_minor: Some(INTAKE_PRICE),
                 article_code: Some(format!("ART-{sku}")),
-                division_code: Some("MENSWEAR".into()),
+                division_code: Some("PRIA".into()),
                 tags: tags.iter().map(|tag| (*tag).to_string()).collect(),
                 image_url: None,
             })
@@ -2204,5 +2276,326 @@ async fn a_promotion_frozen_over_nothing_gives_nothing_away() {
     assert_eq!(
         sale.total_minor, 200_000,
         "it matched nothing when it started, and the tag on this garment is not a second chance"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// A till counts what it gave away itself (edge 0043)
+// ---------------------------------------------------------------------------
+
+/// A shop with one rule, a campaign budget of fifty thousand behind it and a
+/// single-use code in front of it, and four shirts to sell.
+async fn counted_shop() -> Shop {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    let mut offer = percent_off("R1", 2_000);
+    offer["campaign_id"] = json!("C1");
+    shop.deliver_full(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![],
+        vec![offer],
+        vec![],
+        vec![{
+            let mut envelope = campaign("C1", "ACTIVE");
+            envelope["budget_minor"] = json!(50_000);
+            envelope
+        }],
+    )
+    .await;
+    for epc in ["EPC43000001", "EPC43000002", "EPC43000003", "EPC43000004"] {
+        shop.stock_one(epc, "KEM001");
+    }
+    shop
+}
+
+#[tokio::test]
+async fn a_single_use_coupon_is_spent_at_this_till_before_the_centre_counts_it() {
+    // The hole this closes: the counter learned a code was spent only once the
+    // sale had gone to the centre, been counted and come back. In between, the
+    // same code passed again at the same counter.
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    let mut gated = percent_off("R1", 2_000);
+    gated["coupon_code"] = json!("SEKALI");
+    shop.deliver_commercial(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![],
+        vec![gated],
+        vec![json!({
+            "code": "SEKALI", "rule_id": "R1", "active": true,
+            "customer_id": null, "valid_from": null, "valid_to": null,
+            "max_uses": 1,
+        })],
+    )
+    .await;
+    shop.stock_one("EPC43000011", "KEM001");
+    shop.stock_one("EPC43000012", "KEM001");
+
+    assert_eq!(shop.sell("EPC43000011", 160_000, &["SEKALI"]).total_minor, 160_000);
+    let second = shop.sell("EPC43000012", 200_000, &["SEKALI"]);
+    assert_eq!(
+        second.total_minor, 200_000,
+        "the code was spent at this counter a moment ago; nothing has come back from the centre yet"
+    );
+    assert_eq!(
+        second.promotions[0].reason.as_deref(),
+        Some("that coupon has been used already")
+    );
+}
+
+#[tokio::test]
+async fn a_budget_spent_here_trims_the_next_basket_before_the_centre_counts_it() {
+    let shop = counted_shop().await;
+    assert_eq!(shop.sell("EPC43000001", 160_000, &[]).total_minor, 160_000);
+    assert_eq!(
+        shop.local_usage(),
+        vec![
+            ("CAMPAIGN".into(), "C1".into(), 1, 40_000),
+            ("RULE".into(), "R1".into(), 1, 40_000),
+        ],
+        "the same keys and the same arithmetic the centre will apply"
+    );
+    assert_eq!(
+        shop.sell("EPC43000002", 190_000, &[]).total_minor,
+        190_000,
+        "forty of the fifty went on the first basket, at this till"
+    );
+}
+
+#[tokio::test]
+async fn the_centres_count_takes_over_once_it_has_applied_the_sale() {
+    let mut shop = counted_shop().await;
+    shop.sell("EPC43000001", 160_000, &[]);
+
+    // The centre has applied the sale and counts it. From here its figure is
+    // the whole truth, and the till's own row would count the sale twice.
+    shop.deliver_usage(vec![
+        json!({ "kind": "CAMPAIGN", "key": "C1", "uses": 1, "spent_minor": 40_000 }),
+        json!({ "kind": "RULE", "key": "R1", "uses": 1, "spent_minor": 40_000 }),
+    ])
+    .await;
+    assert!(shop.local_usage().is_empty(), "the sale is inside the centre's figure now");
+    assert_eq!(
+        shop.sell("EPC43000002", 190_000, &[]).total_minor,
+        190_000,
+        "counted once: ten thousand left, not nothing"
+    );
+}
+
+#[tokio::test]
+async fn a_count_taken_before_the_sale_was_applied_keeps_the_tills_own() {
+    let mut shop = counted_shop().await;
+    shop.sell("EPC43000001", 160_000, &[]);
+    let (origin_id, generation, _) = shop.stream_head();
+
+    // The centre counted before it reached this sale: its figure says nothing
+    // was spent, and it says how far it had got — not far enough.
+    shop.deliver_usage_through(
+        vec![],
+        json!([{ "origin_id": origin_id, "generation": generation, "applied_seq": 0 }]),
+    )
+    .await;
+    assert!(!shop.local_usage().is_empty(), "the centre has not counted it yet");
+    assert_eq!(
+        shop.sell("EPC43000002", 190_000, &[]).total_minor,
+        190_000,
+        "still counted here, so still only ten thousand left"
+    );
+}
+
+#[tokio::test]
+async fn a_count_for_another_shop_changes_nothing_here() {
+    let mut shop = counted_shop().await;
+    shop.sell("EPC43000001", 160_000, &[]);
+    let (_, generation, head) = shop.stream_head();
+    shop.deliver_usage_through(
+        vec![],
+        json!([{ "origin_id": "another-shop", "generation": generation, "applied_seq": head }]),
+    )
+    .await;
+    assert!(
+        !shop.local_usage().is_empty(),
+        "another shop's position says nothing about this shop's sales"
+    );
+}
+
+#[tokio::test]
+async fn an_older_centre_releases_only_what_it_has_received() {
+    // A centre that predates `applied_through` says nothing about how far it
+    // had got. The till then trusts what the centre has acknowledged receiving
+    // — and until then counts the sale itself, even if that briefly counts it
+    // twice. Twice is a brake applied early; nowhere is a coupon spent twice.
+    let mut shop = counted_shop().await;
+    shop.sell("EPC43000001", 160_000, &[]);
+    shop.deliver_usage_from_an_older_centre(vec![json!({
+        "kind": "CAMPAIGN", "key": "C1", "uses": 1, "spent_minor": 40_000,
+    })])
+    .await;
+    assert!(!shop.local_usage().is_empty(), "nothing acknowledged yet, so kept");
+
+    let (origin_id, generation, head) = shop.stream_head();
+    shop.execute(&format!(
+        "INSERT INTO sync_watermark (origin_id, generation, durable_seq, updated_at)
+         VALUES ('{origin_id}', {generation}, {head}, '2026-09-01T00:00:00Z')
+         ON CONFLICT (origin_id, generation) DO UPDATE SET durable_seq = excluded.durable_seq"
+    ));
+    shop.deliver_usage_from_an_older_centre(vec![json!({
+        "kind": "CAMPAIGN", "key": "C1", "uses": 1, "spent_minor": 40_000,
+    })])
+    .await;
+    assert!(shop.local_usage().is_empty(), "received, so inside the count");
+    assert_eq!(shop.sell("EPC43000002", 190_000, &[]).total_minor, 190_000);
+}
+
+#[tokio::test]
+async fn a_renumbered_sale_is_still_found_by_its_event_id() {
+    // A new generation renumbers the unacknowledged backlog. A row that had
+    // stored the old seq would now point at the wrong fact, or none; the row
+    // names the fact, and the log says where it is now.
+    let mut shop = counted_shop().await;
+    shop.sell("EPC43000001", 160_000, &[]);
+    let (origin_id, _, head) = shop.stream_head();
+    shop.execute(
+        "UPDATE sync_fact_log SET generation = 2;
+         UPDATE sync_origin SET generation = 2;",
+    );
+
+    // Generation 1 is not where the sale is any more.
+    shop.deliver_usage_through(
+        vec![],
+        json!([{ "origin_id": origin_id, "generation": 1, "applied_seq": head }]),
+    )
+    .await;
+    assert!(!shop.local_usage().is_empty());
+
+    shop.deliver_usage_through(
+        vec![json!({ "kind": "CAMPAIGN", "key": "C1", "uses": 1, "spent_minor": 40_000 })],
+        json!([{ "origin_id": origin_id, "generation": 2, "applied_seq": head }]),
+    )
+    .await;
+    assert!(shop.local_usage().is_empty());
+}
+
+#[tokio::test]
+async fn a_sale_the_centre_will_never_hear_about_stays_counted_here() {
+    let mut shop = counted_shop().await;
+    shop.execute("UPDATE sync_origin SET enqueue_enabled = 0");
+    shop.sell("EPC43000001", 160_000, &[]);
+    shop.execute("UPDATE sync_origin SET enqueue_enabled = 1");
+    shop.deliver_usage(vec![]).await;
+    assert_eq!(
+        shop.local_usage().len(),
+        2,
+        "never queued, so no count from the centre can ever include it"
+    );
+    assert_eq!(shop.sell("EPC43000002", 190_000, &[]).total_minor, 190_000);
+}
+
+// ---------------------------------------------------------------------------
+// A shop holds its own allowance under a split limit (edge 0044)
+// ---------------------------------------------------------------------------
+
+impl Shop {
+    /// Deliver a count carrying this shop's allowance under campaign C1.
+    async fn deliver_allowance(&mut self, fleet_spent: i64, budget: Option<i64>, own_spent: i64) {
+        let (origin_id, generation, head) = self.stream_head();
+        let allowances = match budget {
+            Some(budget) => json!([{
+                "origin_id": origin_id, "kind": "CAMPAIGN", "key": "C1",
+                "budget_minor": budget, "max_uses": null,
+                "own_uses": 0, "own_spent_minor": own_spent,
+            }]),
+            None => json!([]),
+        };
+        self.deliver(
+            inventory_backend::cloud::domain::COMMAND_COMMERCIAL_USAGE,
+            json!({
+                "counted_at": "2026-09-01T00:00:00Z",
+                "counts": [{ "kind": "CAMPAIGN", "key": "C1", "uses": 0, "spent_minor": fleet_spent }],
+                "applied_through": [{
+                    "origin_id": origin_id, "generation": generation, "applied_seq": head,
+                }],
+                "allowances": allowances,
+            }),
+        )
+        .await;
+    }
+}
+
+/// A shop with a campaign whose fleet budget is a million, far more than any
+/// test here spends — so anything that stops the offer is the allowance.
+async fn allowance_shop() -> Shop {
+    let mut shop = Shop::open();
+    shop.deliver_catalogue(&[("KEM001", "Kemeja Putih")]).await;
+    let mut offer = percent_off("R1", 2_000);
+    offer["campaign_id"] = json!("C1");
+    shop.deliver_full(
+        1,
+        vec![rule("KEM001", None, 200_000)],
+        vec![],
+        vec![offer],
+        vec![],
+        vec![{
+            let mut envelope = campaign("C1", "ACTIVE");
+            envelope["budget_minor"] = json!(1_000_000);
+            envelope
+        }],
+    )
+    .await;
+    for epc in ["EPC44000001", "EPC44000002", "EPC44000003"] {
+        shop.stock_one(epc, "KEM001");
+    }
+    shop
+}
+
+#[tokio::test]
+async fn a_shop_stops_at_its_allowance_while_the_fleet_budget_has_plenty() {
+    let mut shop = allowance_shop().await;
+    shop.deliver_allowance(0, Some(50_000), 0).await;
+
+    assert_eq!(shop.sell("EPC44000001", 160_000, &[]).total_minor, 160_000);
+    assert_eq!(
+        shop.sell("EPC44000002", 190_000, &[]).total_minor,
+        190_000,
+        "fifty thousand was this shop's to give; forty went on the first basket, \
+         counted here before the centre heard of it"
+    );
+}
+
+#[tokio::test]
+async fn an_allowance_counts_the_shops_own_sales_the_centre_has_counted() {
+    let mut shop = allowance_shop().await;
+    // The centre has counted forty thousand of this shop's own sales under
+    // the limit, and granted it fifty.
+    shop.deliver_allowance(40_000, Some(50_000), 40_000).await;
+    assert_eq!(shop.sell("EPC44000001", 190_000, &[]).total_minor, 190_000);
+}
+
+#[tokio::test]
+async fn a_split_switched_off_goes_back_to_the_fleets_count() {
+    let mut shop = allowance_shop().await;
+    shop.deliver_allowance(0, Some(10_000), 0).await;
+    assert_eq!(shop.sell("EPC44000001", 190_000, &[]).total_minor, 190_000);
+
+    shop.deliver_allowance(10_000, None, 0).await;
+    assert_eq!(
+        shop.sell("EPC44000002", 160_000, &[]).total_minor,
+        160_000,
+        "no allowance any more: the fleet's million applies"
+    );
+}
+
+#[tokio::test]
+async fn the_fleets_count_still_binds_when_it_is_tighter_than_the_allowance() {
+    // A later book lowered the limit below what this shop was granted. Grants
+    // are never taken back, so the fleet's count is what stops the offer.
+    let mut shop = allowance_shop().await;
+    shop.deliver_allowance(990_000, Some(500_000), 0).await;
+    assert_eq!(
+        shop.sell("EPC44000001", 190_000, &[]).total_minor,
+        190_000,
+        "ten thousand left in the fleet, however much this shop was granted"
     );
 }

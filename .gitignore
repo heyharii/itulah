@@ -34,3 +34,14 @@ tablet/local.properties
 # Its own git repository (685 MB of it). Staging it produces a gitlink nobody
 # can clone, not the files.
 /rfid-homepage/
+
+# rig run environments (DBs live in Postgres as sim_rig_*, files here)
+runs/
+
+# Local demo environment (store back-office demo): DBs, binaries, credentials.
+.demo/
+.claude/settings.local.json
+
+# Third-party repositories cloned for research
+research/erpnext-indonesia/agile-technica/
+research/erpnext-indonesia/andrimuhyidin/

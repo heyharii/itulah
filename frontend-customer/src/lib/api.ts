@@ -13,6 +13,36 @@ import { Member, MEMBER_CSRF_COOKIE, Node } from "@itulah/contract/client"
 export const node = new Node("", MEMBER_CSRF_COOKIE)
 export const member = new Member(node)
 
+/// A member's own balance and the entries behind it.
+///
+/// Not a generated contract type: `GET /api/v1/member/points` wraps the same
+/// `points_account` read the estate-wide `/api/v1/members/points` screen in
+/// `frontend-hub` uses, and that one has never been typed either — see
+/// `frontend-hub/src/lib/queries/points.ts`'s `PointsAccount`, which this
+/// mirrors field for field. `balance_points` is `null` only for a member who
+/// has never earned or spent, which is not the same as a balance of nought.
+export interface MemberPointsAccount {
+  readonly customer_id: string
+  readonly balance_points: number | null
+  readonly ledger_sum: number
+  readonly reconciles: boolean
+  readonly entries: readonly PointsEntry[]
+}
+
+/// One line of the points ledger, newest first. `sale_id` names the purchase
+/// an EARN (or its reversal) came from, so a notification can open the receipt.
+export interface PointsEntry {
+  readonly entry_id: string
+  readonly entry_type: string
+  readonly points: number
+  readonly created_at: string
+  readonly sale_id?: string | null
+}
+
+export function pointsAccount(signal?: AbortSignal): Promise<MemberPointsAccount> {
+  return node.get<MemberPointsAccount>("/api/v1/member/points", { signal })
+}
+
 /// A key that changes whenever a request's answer could change.
 ///
 /// Nothing here is keyed by a member id any more, because nothing here can be
@@ -26,6 +56,8 @@ export const cacheKey = {
   transactions: () => ["member", "transactions"] as const,
   transaction: (saleId: string) =>
     ["member", "transactions", saleId] as const,
+  points: () => ["member", "points"] as const,
+  redeemRequests: () => ["member", "points", "redeem-requests"] as const,
 }
 
 /// Where a page of history starts. Both cursor fields travel together or not

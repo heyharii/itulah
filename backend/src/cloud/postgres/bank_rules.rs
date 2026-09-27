@@ -145,9 +145,10 @@ const RULE_COLUMNS: &str = "r.rule_id, r.priority, r.match_kind, r.pattern, r.di
 /// screen, and hiding it would hide the thing that has to be fixed.
 const RULE_FROM: &str = "FROM bank_rule r
      LEFT JOIN transaction_category c ON c.code = r.category_code
-     LEFT JOIN account_map m ON m.semantic_key = COALESCE(c.semantic_key, r.semantic_key)
-                            AND m.site_id = r.site_id
-                            AND m.qualifier = COALESCE(c.qualifier, r.qualifier)
+     LEFT JOIN account_resolution m ON m.role = COALESCE(c.semantic_key, r.semantic_key)
+                                   AND m.site_id = r.site_id
+                                   AND m.source_type = 'COMPANY'
+                                   AND m.source_id = COALESCE(c.qualifier, r.qualifier)
      LEFT JOIN ledger_account a ON a.account_code = m.account_code";
 
 fn to_rule(row: &sqlx::postgres::PgRow) -> Result<BankRuleRow, AppError> {
@@ -494,9 +495,10 @@ const PROPOSAL_FROM: &str = "FROM bank_rule_proposal p
      JOIN bank_statement s ON s.statement_id = l.statement_id
      LEFT JOIN cash_document d ON d.document_id = p.cash_document_id
      LEFT JOIN transaction_category c ON c.code = p.category_code
-     LEFT JOIN account_map m ON m.semantic_key = COALESCE(c.semantic_key, p.semantic_key)
-                            AND m.site_id = p.site_id
-                            AND m.qualifier = COALESCE(c.qualifier, p.qualifier)
+     LEFT JOIN account_resolution m ON m.role = COALESCE(c.semantic_key, p.semantic_key)
+                                   AND m.site_id = p.site_id
+                                   AND m.source_type = 'COMPANY'
+                                   AND m.source_id = COALESCE(c.qualifier, p.qualifier)
      LEFT JOIN ledger_account a ON a.account_code = m.account_code";
 
 fn to_proposal(row: &sqlx::postgres::PgRow) -> Result<BankRuleProposalRow, AppError> {

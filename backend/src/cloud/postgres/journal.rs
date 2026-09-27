@@ -49,7 +49,8 @@ pub struct JournalLineView {
     pub counter_site_id: Option<String>,
     pub debit_minor: i64,
     pub credit_minor: i64,
-    pub supplier_id: Option<String>,
+    pub party_type: Option<String>,
+    pub party_id: Option<String>,
     /// What kind of thing this line is, on the accounts that are kept by kind.
     ///
     /// Not a decoration on a drill-down: with forty accounts the code alone no
@@ -544,7 +545,7 @@ pub async fn journal_entry(pool: &PgPool, entry_id: Uuid) -> Result<JournalEntry
 
     let lines = sqlx::query(
         "SELECT l.line_number, l.account_code, a.name AS account_name, l.site_id,
-                l.counter_site_id, l.debit_minor, l.credit_minor, l.supplier_id,
+                l.counter_site_id, l.debit_minor, l.credit_minor, l.party_type, l.party_id,
                 l.category_code, k.name AS category_name,
                 l.asset_id, f.asset_number, l.memo
            FROM journal_line l
@@ -570,7 +571,8 @@ pub async fn journal_entry(pool: &PgPool, entry_id: Uuid) -> Result<JournalEntry
                     counter_site_id: row.try_get("counter_site_id")?,
                     debit_minor: row.try_get("debit_minor")?,
                     credit_minor: row.try_get("credit_minor")?,
-                    supplier_id: row.try_get("supplier_id")?,
+                    party_type: row.try_get("party_type")?,
+                    party_id: row.try_get("party_id")?,
                     category_code: row.try_get("category_code")?,
                     category_name: row.try_get("category_name")?,
                     asset_id: row.try_get("asset_id")?,
@@ -727,11 +729,12 @@ pub struct GeneralLedgerRow {
     pub counter_site_id: Option<String>,
     /// Who the other side was, when the posting named one.
     ///
-    /// `journal_line.supplier_id` is the sub-ledger dimension the payables
+    /// `journal_line.party_type` + `party_id` (0300) are the sub-ledger dimension the payables
     /// ageing is projected over (0051), so it is the party on every bill and
     /// every payment line. Null on a sales entry, a depreciation charge or a
     /// hand-written correction, which have no party and must not pretend to.
-    pub supplier_id: Option<String>,
+    pub party_type: Option<String>,
+    pub party_id: Option<String>,
     /// The supplier's name, looked up best-effort. Null when the line carries
     /// no party, and also when it names one no longer in the register — the id
     /// is the record and the name is the courtesy.
@@ -818,7 +821,7 @@ impl LedgerCursor {
 /// that is the whole reason it is a constant: the three are only consistent if
 /// they are the same rows.
 ///
-/// Binds: `$1` the account code prefix, `$2` the site or NULL, `$3` from, `$4`
+/// Binds: `$1` the account number, `$2` the site or NULL, `$3` from, `$4`
 /// the opening balance, `$5` to.
 ///
 /// `ord` and `amount` are computed here rather than only in `ORDER BY` because
@@ -830,7 +833,7 @@ impl LedgerCursor {
 const LEDGER_WINDOW: &str = "
     SELECT l.line_id, e.entry_id, e.entry_number, e.posting_date, e.source_kind,
            e.source_id, l.site_id, l.counter_site_id, l.account_code,
-           l.category_code, l.supplier_id,
+           l.category_code, l.party_type, l.party_id,
            COALESCE(l.memo, e.memo) AS memo,
            l.debit_minor, l.credit_minor,
            (m.journal_line_id IS NOT NULL) AS reconciled,
@@ -843,9 +846,13 @@ const LEDGER_WINDOW: &str = "
                      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW))::bigint AS running,
            ROW_NUMBER() OVER (ORDER BY e.posting_date, e.entry_number, l.line_number)
                AS ord
-      FROM journal_line l JOIN journal_entry e USING (entry_id)
+      FROM ledger_account selected
+      JOIN ledger_account descendant
+        ON descendant.lft >= selected.lft AND descendant.rgt <= selected.rgt
+      JOIN journal_line l ON l.account_code = descendant.account_code
+      JOIN journal_entry e USING (entry_id)
       LEFT JOIN bank_line_match m ON m.journal_line_id = l.line_id
-     WHERE l.account_code LIKE $1 || '%'
+     WHERE selected.account_code = $1
        AND ($2::text IS NULL OR l.site_id = $2)
        AND e.posting_date >= $3 AND e.posting_date <= $5
 ";
@@ -868,9 +875,9 @@ const LEDGER_FILTERS: &str = "
 
 /// One account's movements over a window, with the balance walking down it.
 ///
-/// The account code is matched by prefix, so asking for a heading gives the
-/// whole subtree — which is how somebody reads "what happened in CASH this
-/// month" without knowing that cash is fourteen separate leaves.
+/// The account's nested-set bounds select its whole subtree — so asking for a
+/// heading gives all descendant movements even when account numbers do not
+/// encode the hierarchy.
 /// `counter_site_id` narrows it further, to the movements with one other unit.
 /// It is the question an affiliate account exists to answer — head office's
 /// `Piutang Affiliasi` is thirteen balances filed under one heading, and 0122
@@ -891,15 +898,24 @@ pub async fn general_ledger(
     let site_id = scope.site_id.as_deref();
     let opening: i64 = sqlx::query(
         "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor),0)::bigint AS opening
-           FROM journal_line l JOIN journal_entry e USING (entry_id)
-          WHERE l.account_code LIKE $1 || '%'
+           FROM ledger_account selected
+           JOIN ledger_account descendant
+             ON descendant.lft >= selected.lft AND descendant.rgt <= selected.rgt
+           JOIN journal_line l ON l.account_code = descendant.account_code
+           JOIN journal_entry e USING (entry_id)
+          WHERE selected.account_code = $1
             AND ($2::text IS NULL OR l.site_id = $2)
-            AND ($4::text IS NULL OR l.counter_site_id = $4)
             AND e.posting_date < $3",
     )
     .bind(account_code)
     .bind(site_id)
     .bind(scope.from)
+    // Three parameters, three binds. The query used to carry a fourth --
+    // `AND ($4::text IS NULL OR l.counter_site_id = $4)`, a counterparty
+    // narrowing nothing ever sent -- and the prepared statement demanded a
+    // bind the caller never supplied, so every read of an account failed as
+    // 08P01. The clause is gone with the parameter; if counterparty narrowing
+    // is ever wanted, it arrives as a scope field and a bind together.
     .fetch_one(pool)
     .await?
     .try_get("opening")?;
@@ -982,7 +998,8 @@ pub async fn general_ledger(
            FROM page
            LEFT JOIN ledger_account account ON account.account_code = page.account_code
            LEFT JOIN line_category cat ON cat.category_code = page.category_code
-           LEFT JOIN supplier party ON party.supplier_id::text = page.supplier_id
+           LEFT JOIN supplier party ON party.supplier_id::text = page.party_id
+                                     AND page.party_type = 'SUPPLIER'
           ORDER BY {order}"
     );
     let rows = sqlx::query(&sql)
@@ -1029,7 +1046,8 @@ pub async fn general_ledger(
             category_name: row.try_get("category_name")?,
             site_id: row.try_get("site_id")?,
             counter_site_id: row.try_get("counter_site_id")?,
-            supplier_id: row.try_get("supplier_id")?,
+            party_type: row.try_get("party_type")?,
+            party_id: row.try_get("party_id")?,
             supplier_name: row.try_get("supplier_name")?,
             memo: row.try_get("memo")?,
             debit_minor: row.try_get("debit_minor")?,

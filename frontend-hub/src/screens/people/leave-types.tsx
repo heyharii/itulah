@@ -187,13 +187,11 @@ function DefineKind() {
     requiresEvidence: false,
   })
   const [failed, setFailed] = useState<string | null>(null)
-  const [written, setWritten] = useState(false)
 
   const define = useMutation({
     mutationFn: () => defineLeaveType(draft),
     onSuccess: () => {
       setFailed(null)
-      setWritten(true)
       setDraft({
         code: "",
         name: "",
@@ -205,7 +203,6 @@ function DefineKind() {
       void client.invalidateQueries({ queryKey: leaveKeys.types() })
     },
     onError: (error: Error) => {
-      setWritten(false)
       setFailed(error.message)
     },
   })
@@ -226,12 +223,6 @@ function DefineKind() {
         <CardTitle>Define a kind</CardTitle>
       </CardHeader>
       <div className="flex flex-col gap-3 px-4 pb-4">
-        {written && (
-          <Banner tone="ok">
-            Defined. There is no edit: a kind that should no longer be used is
-            one nobody picks.
-          </Banner>
-        )}
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
 
         <Field label="Code" hint="Upper-cased, and never changes.">

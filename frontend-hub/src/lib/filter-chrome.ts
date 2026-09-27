@@ -30,8 +30,19 @@ export const CHIP =
 /// scrolling. Base UI's select scrolls its own list — it has to, because it
 /// measures that list to sit the chosen row over the trigger — and a second
 /// scroll box wrapped around it makes the popup open in the wrong place.
-export const PANEL =
-  "z-50 min-w-[12rem] rounded-card border border-hairline bg-canvas p-[0.3125rem] text-[0.875rem] shadow-pop outline-none"
+/// How every popup arrives and leaves: out of the control that opened it.
+///
+/// `--transform-origin` is Base UI's — the point on the popup nearest its
+/// trigger — so a menu under a button grows down from the button and a select
+/// laid over its field grows from the field, instead of appearing from
+/// nowhere in the middle of itself. `scale(0.95)`, never `0`: nothing in the
+/// world appears from nothing. 160ms and the strong ease-out, which is the
+/// dropdown band (150–250ms) at its quick end — a list somebody opens a dozen
+/// times an hour. Reduced motion keeps the fade and drops the growth.
+export const POP_MOTION =
+  "origin-(--transform-origin) transition-[opacity,scale] duration-(--t-pop) ease-(--ease-out) data-[starting-style]:scale-95 data-[starting-style]:opacity-0 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 motion-reduce:data-[starting-style]:scale-100 motion-reduce:data-[ending-style]:scale-100"
+
+export const PANEL = `z-50 min-w-[12rem] rounded-card border border-hairline bg-canvas p-[0.3125rem] text-[0.875rem] shadow-pop outline-none ${POP_MOTION}`
 
 export const POPUP = `${PANEL} max-h-[22rem] overflow-y-auto`
 

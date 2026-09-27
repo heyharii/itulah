@@ -1,4 +1,10 @@
-/// The one control this module still owns: an offer, read back as its terms.
+import { ChevronRight } from "lucide-react"
+import { useState } from "react"
+
+import { cn } from "@/lib/utils"
+
+/// The controls this module still owns: an offer read back as its terms, and
+/// the fold its composers keep their optional settings behind.
 ///
 /// Everything else that started here has been promoted — `<Day>` to
 /// `components/ui/day`, `<Money>` into `field`, and `<Section>`, `<Choices>`,
@@ -67,25 +73,25 @@ export function Terms({
     <div className="rounded-inner border border-hairline bg-soft px-3.5 py-3">
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <span className="text-metric font-semibold text-ink">{headline}</span>
-        <span className="truncate text-[0.71875rem] text-mute">
+        <span className="truncate text-[0.875rem] text-mute">
           {name.trim() === "" ? "Unnamed" : name.trim()}
         </span>
       </div>
 
       {prose && prose.trim() !== "" && (
-        <p className="mb-2.5 border-l-2 border-hairline-strong pl-2.5 text-[0.71875rem] leading-relaxed whitespace-pre-line text-text">
+        <p className="mb-2.5 border-l-2 border-hairline-strong pl-2.5 text-[0.875rem] leading-relaxed whitespace-pre-line text-text">
           {prose.trim()}
         </p>
       )}
 
       {said.length === 0 ? (
-        <p className="text-[0.71875rem] leading-relaxed text-mute">{empty}</p>
+        <p className="text-[0.875rem] leading-relaxed text-mute">{empty}</p>
       ) : (
         <ol className="flex flex-col gap-1">
           {said.map((one, index) => (
             <li
               key={index}
-              className="flex gap-2 text-[0.71875rem] leading-relaxed text-text"
+              className="flex gap-2 text-[0.875rem] leading-relaxed text-text"
             >
               <span className="shrink-0 text-mute tabular-nums">
                 {index + 1}.
@@ -98,13 +104,87 @@ export function Terms({
 
       {(unsaid.length > 0 || foot) && (
         <div className="mt-2.5 border-t border-hairline pt-2.5">
-          <p className="text-[0.71875rem] leading-relaxed text-mute">
+          <p className="text-[0.875rem] leading-relaxed text-mute">
             {unsaid.length > 0
               ? `A shopper is never told any of this: ${unsaid.join("; ")}.`
               : foot}
           </p>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── the optional half of a form ─────────────────────────────────────────────
+
+/// Settings most offers leave alone, folded away until somebody asks for them.
+///
+/// A composer that shows every question at once makes the four that decide the
+/// offer look no more important than the eight that fine-tune it, and a first
+/// read of it is a wall. Closed by default; the count on the bar says how many
+/// of the folded settings have been moved off their defaults, so a closed fold
+/// never hides that something inside it is set.
+export function More({
+  label = "More options",
+  count = 0,
+  children,
+}: {
+  label?: string
+  /// How many settings inside differ from their defaults.
+  count?: number
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <section className="rounded-inner border border-hairline-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((was) => !was)}
+        className="flex w-full items-center gap-2 rounded-inner px-3.5 py-2.5 text-left transition-colors hover:bg-soft"
+      >
+        <ChevronRight
+          className={cn(
+            "size-4 shrink-0 text-line-ico transition-transform",
+            open && "rotate-90"
+          )}
+        />
+        <span className="flex-1 text-[0.875rem] font-medium text-ink">
+          {label}
+        </span>
+        {count > 0 && (
+          <span className="rounded-full bg-accent-bg px-2 py-0.5 text-[0.875rem] font-medium text-accent tabular-nums">
+            {count} set
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="flex flex-col gap-4 border-t border-hairline px-3.5 pt-3.5 pb-4">
+          {children}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/// A labelled question whose answer is not a single input — a row of tiles,
+/// a set of chips.
+///
+/// Not a `<Field>`: a `<label>` wrapped round a radio group hands every click
+/// on the words to the first option in it.
+export function Question({
+  label,
+  children,
+  className,
+}: {
+  label: React.ReactNode
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div className={cn("flex flex-col gap-[0.4375rem]", className)}>
+      <span className="text-[0.875rem] font-medium text-text">{label}</span>
+      {children}
     </div>
   )
 }

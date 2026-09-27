@@ -2,14 +2,15 @@
 //!
 //! Owner decision, 25 Sep (FINANCE-CONNECT-BRIEF.md): the fee is head office's
 //! income and the unit's cost, and because the two live in different books it
-//! crosses on Lain-lain (1059, two-way). The document is head office's:
+//! crosses on Lain-lain. The document is head office's:
 //!
-//!   unit   Dr 7032 Biaya Management Fee   / Cr 1059 Piutang Affiliasi Lain-lain
+//!   unit   Dr 7032 Biaya Management Fee   / Cr 2030 Hutang Lain-lain Principal
 //!   HO     Dr 1059 Piutang Affiliasi …    / Cr 4016 Management Fee
 //!
-//! The two unit lines are the poster's balancer at work — the rule writes the
-//! expense at the unit and the income at head office, and `kind_for_source`
-//! classes this kind as Lain-lain, which is what picks 1059 on both sides.
+//! The two affiliate lines are the poster's balancer at work — the rule writes
+//! the expense at the unit and the income at head office, `kind_for_source`
+//! classes this kind as Lain-lain, and the account map resolves Lain-lain to
+//! 2030 at the unit and 1059 at head office (owner decision 25 Sep, 0380).
 
 use super::poster::{post, PostingIntent, PostingLine, HEAD_OFFICE_SITE};
 use crate::cloud::application::AppError;

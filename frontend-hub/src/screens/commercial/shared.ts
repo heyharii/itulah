@@ -225,6 +225,8 @@ export function describeEffect(effect: Effect): string {
       return `${money(effect.amount.minor)} off the basket`
     case "FIXED_UNIT_PRICE":
       return `${money(effect.unit_price.minor)} each`
+    case "BUY_X_GET_Y":
+      return `Buy ${count(effect.buy)}, get ${count(effect.get)} at ${percent(effect.reward_bps)} off`
     case "FREE_ITEM":
       // Refused on publish today, so it can only be read from a book written
       // before that gate existed. Still said properly rather than shown blank.

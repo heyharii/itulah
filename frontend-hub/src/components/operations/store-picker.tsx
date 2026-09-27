@@ -65,7 +65,7 @@ export function StorePicker({
         }
       />
 
-      {hint && <p className="px-4 pb-3 text-[0.71875rem] text-mute">{hint}</p>}
+      {hint && <p className="px-4 pb-3 text-[0.875rem] text-mute">{hint}</p>}
 
       {known.length > 0 && (
         <div className="flex flex-wrap gap-1.5 border-t border-hairline px-4 py-3">
@@ -74,7 +74,7 @@ export function StorePicker({
               key={shop}
               type="button"
               onClick={() => store.replace(shop)}
-              className={`min-h-[2.25rem] rounded-full px-3 font-mono text-[0.71875rem] transition-colors ${
+              className={`min-h-[2.25rem] rounded-full px-3 font-mono text-[0.875rem] transition-colors ${
                 shop === chosen
                   ? "bg-accent-bg text-accent"
                   : "bg-soft-2 text-body hover:bg-soft-3 hover:text-ink"

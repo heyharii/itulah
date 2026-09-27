@@ -2,6 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { CreditCard, HeartHandshake, RotateCcw } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -9,7 +10,8 @@ import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
+import { Field, Input, Money, Textarea } from "@/components/ui/field"
+import { Choices, type Tile } from "@/components/ui/form"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Meter } from "@/components/ui/meter"
 import { DockedFilters } from "@/components/ui/list-chrome"
@@ -39,6 +41,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { Question } from "@/screens/commercial/controls"
 
 /// Vouchers — value a customer already holds and can pay with.
 ///
@@ -128,7 +131,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     cell: ({ row }) => (
       <span className="flex min-w-0 items-center gap-2">
         <Tag>{row.original.code}</Tag>
-        <span className="truncate text-[0.78125rem] text-mute">
+        <span className="truncate text-[0.875rem] text-mute">
           {describeKind(row.original.kind)}
         </span>
       </span>
@@ -147,7 +150,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
       row.original.member_id === null ? (
         <span className="text-mute">Bearer</span>
       ) : (
-        <span className="truncate text-[0.8125rem] text-ink">
+        <span className="truncate text-[0.875rem] text-ink">
           {holder(row.original)}
         </span>
       ),
@@ -357,7 +360,7 @@ export function Vouchers() {
           right. The last of the four lists still wearing a Filter button — a
           screen that narrows its rows differently from the three beside it is
           a screen people have to learn twice. */}
-      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
           <Toolbar className="mb-3">
             <Segmented
@@ -371,7 +374,7 @@ export function Vouchers() {
               onChange={setShown}
             />
             <Toolbar.Spacer />
-            <span className="text-[0.75rem] text-mute tabular-nums">
+            <span className="text-[0.875rem] text-mute tabular-nums">
               {count(rows.length)} cards
             </span>
           </Toolbar>
@@ -544,7 +547,7 @@ function VoucherSheet({
                 </Facts>
 
                 {data.voucher.note && (
-                  <p className="text-[0.78125rem] leading-relaxed text-body">
+                  <p className="text-[0.875rem] leading-relaxed text-body">
                     {data.voucher.note}
                   </p>
                 )}
@@ -725,7 +728,6 @@ function RedeemForm({
         {(field) => (
           <Field
             label="Amount"
-            hint={`Partial is normal — ${money(voucher.balance_minor)} is on the card, and whatever is left stays on it.`}
             problem={
               minorFrom(field.state.value) > voucher.balance_minor
                 ? `Only ${money(voucher.balance_minor)} is left on this card.`
@@ -736,7 +738,8 @@ function RedeemForm({
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={field.handleChange}
-              placeholder="150.000"
+              prefix="Rp"
+              placeholder={groupedMinor(voucher.balance_minor)}
             />
           </Field>
         )}
@@ -744,15 +747,12 @@ function RedeemForm({
 
       <form.Field name="sale">
         {(field) => (
-          <Field
-            label="Sale"
-            hint="The basket it paid for. Optional — the sale may not have reached the centre yet."
-          >
+          <Field label="Sale ID">
             <Input
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={(event) => field.handleChange(event.target.value)}
-              placeholder="Sale id"
+              placeholder="Optional"
             />
           </Field>
         )}
@@ -760,15 +760,13 @@ function RedeemForm({
 
       <form.Field name="note">
         {(field) => (
-          <Field
-            label="Note"
-            hint="Why this was settled by hand rather than at a till."
-          >
+          <Field label="Note">
             <Textarea
               rows={2}
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={(event) => field.handleChange(event.target.value)}
+              placeholder="Why it was settled by hand"
             />
           </Field>
         )}
@@ -836,18 +834,13 @@ function VoidForm({
         // money on it takes value away from a customer, and the amount is the
         // part somebody needs to see while deciding.
         <Banner tone="warn">
-          {money(voucher.balance_minor)} is still on this card. Stopping it
-          writes that off — the balance goes to nothing and the customer cannot
-          spend it.
+          {money(voucher.balance_minor)} left on this card will be written off.
         </Banner>
       )}
 
       <form.Field name="reason">
         {(field) => (
-          <Field
-            label="Reason"
-            hint="Required, and required in words: this is the whole record of somebody deciding to take value back."
-          >
+          <Field label="Reason">
             <Textarea
               rows={2}
               value={field.state.value}
@@ -949,83 +942,69 @@ function IssueSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       title="New voucher"
+      // Six short questions: the rail's default width left every box twice
+      // as wide as the figure it holds.
+      className="md:w-[clamp(27.5rem,40vw,34rem)]"
+      footer={
+        <div className="flex justify-end">
+          <form.Subscribe selector={(state) => state.values.amount}>
+            {(amount) => (
+              <Button
+                variant="primary"
+                type="submit"
+                form="new-voucher"
+                disabled={issue.isPending || minorFrom(amount) <= 0}
+              >
+                {issue.isPending
+                  ? "Issuing…"
+                  : `Issue ${money(minorFrom(amount))}`}
+              </Button>
+            )}
+          </form.Subscribe>
+        </div>
+      }
     >
       <form
+        id="new-voucher"
         // Keyed on nothing: the sheet unmounts on close, so a second card is
         // always started from empty rather than from the last one's values.
         onSubmit={(event) => {
           event.preventDefault()
           form.handleSubmit()
         }}
-        className="flex flex-col gap-3.5"
+        className="flex flex-col gap-4"
       >
         {issue.isError && <Banner tone="bad">{said(issue.error)}</Banner>}
 
+        {/* Asked first, because the accounting differs at the moment of issue:
+            paid for is a liability, given away is an expense that day, a
+            refund is a sale being unwound. */}
         <form.Field name="kind">
           {(field) => (
-            <Field
-              label="Kind"
-              hint="How it is booked: paid for, given away, or a sale unwound."
-            >
-              <Select
+            <Question label="Type">
+              <Choices
+                options={VOUCHER_KINDS}
                 value={field.state.value}
-                onChange={(next) => field.handleChange(next as VoucherKind)}
-              >
-                <option value="GIFT_CARD">
-                  Gift card — bought by somebody
-                </option>
-                <option value="REFUND">Refund — a sale being unwound</option>
-                <option value="GOODWILL">Goodwill — given away</option>
-              </Select>
-            </Field>
-          )}
-        </form.Field>
-
-        <form.Field name="amount">
-          {(field) => (
-            <Field
-              label="Value"
-              hint="In rupiah. Frozen at issue: the face value never changes, only the balance does."
-            >
-              <Money
-                value={field.state.value}
-                onBlur={field.handleBlur}
                 onChange={field.handleChange}
-                placeholder="200.000"
+                columns={3}
+                label="What kind of voucher this is"
               />
-            </Field>
-          )}
-        </form.Field>
-
-        <form.Field name="member">
-          {(field) => (
-            <Field
-              label="Holder"
-              hint="Leave blank for a bearer card — whoever holds it can spend it."
-            >
-              <Input
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
-                placeholder="Member id"
-              />
-            </Field>
+            </Question>
           )}
         </form.Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <form.Field name="code">
+          {/* Frozen at issue: the face value never changes, only the balance
+              does. */}
+          <form.Field name="amount">
             {(field) => (
-              <Field
-                label="Code"
-                hint="Only for pre-printed stock."
-                className="min-w-0"
-              >
-                <Input
+              <Field label="Value" className="min-w-0">
+                <Money
                   value={field.state.value}
                   onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder="Minted for you"
+                  onChange={field.handleChange}
+                  prefix="Rp"
+                  placeholder="200.000"
                 />
               </Field>
             )}
@@ -1033,50 +1012,79 @@ function IssueSheet({
 
           <form.Field name="expires">
             {(field) => (
-              <Field label="Expires" hint="Optional." className="min-w-0">
+              <Field label="Expires" className="min-w-0">
                 <Day
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={field.handleChange}
+                  placeholder="Never"
                 />
               </Field>
             )}
           </form.Field>
         </div>
 
+        <div className="grid grid-cols-2 gap-3">
+          {/* Blank is a bearer card — whoever holds it can spend it. */}
+          <form.Field name="member">
+            {(field) => (
+              <Field label="Holder" className="min-w-0">
+                <Input
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder="Anyone holding it"
+                />
+              </Field>
+            )}
+          </form.Field>
+
+          {/* Only for pre-printed stock; otherwise one is minted. */}
+          <form.Field name="code">
+            {(field) => (
+              <Field label="Code" className="min-w-0">
+                <Input
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder="Generated"
+                />
+              </Field>
+            )}
+          </form.Field>
+        </div>
+
+        {/* The one thing an audit six months from now cannot reconstruct. */}
         <form.Field name="note">
           {(field) => (
-            <Field
-              label="Note"
-              hint="Why it was issued. The one thing an audit six months from now cannot reconstruct."
-            >
+            <Field label="Note">
               <Textarea
                 rows={2}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
+                placeholder="Why it was issued"
               />
             </Field>
           )}
         </form.Field>
-
-        <form.Subscribe selector={(state) => state.values.amount}>
-          {(amount) => (
-            <Button
-              variant="primary"
-              type="submit"
-              disabled={issue.isPending || minorFrom(amount) <= 0}
-              className="self-start"
-            >
-              {issue.isPending
-                ? "Issuing…"
-                : `Issue ${money(minorFrom(amount))}`}
-            </Button>
-          )}
-        </form.Subscribe>
       </form>
     </Sheet>
   )
+}
+
+/// The three kinds, as tiles. Named for what happened rather than how it is
+/// booked; the booking follows from the name.
+const VOUCHER_KINDS: readonly Tile<VoucherKind>[] = [
+  { value: "GIFT_CARD", label: "Gift card", icon: CreditCard },
+  { value: "REFUND", label: "Refund", icon: RotateCcw },
+  { value: "GOODWILL", label: "Goodwill", icon: HeartHandshake },
+]
+
+/// A balance as the placeholder of the box it would be typed into — grouped,
+/// with no currency, because the box already carries the "Rp".
+function groupedMinor(minor: number): string {
+  return new Intl.NumberFormat("id-ID").format(minor)
 }
 
 // ---------------------------------------------------------------------------
@@ -1153,7 +1161,7 @@ function CouponSheet({
                   { label: "Unlocks", align: "left" },
                   { label: "Holder", align: "left" },
                   { label: "Valid", align: "left" },
-                  { label: "Uses", align: "right" },
+                  { label: "Max uses", align: "right" },
                 ]}
               >
                 {rows.map(({ coupon, book }) => (
@@ -1166,7 +1174,7 @@ function CouponSheet({
                         {/* Stopped is worth saying; running is the ordinary
                             case and wears no badge. */}
                         {!coupon.active && (
-                          <span className="text-[0.6875rem] text-mute">
+                          <span className="text-[0.875rem] text-mute">
                             stopped
                           </span>
                         )}
@@ -1176,7 +1184,7 @@ function CouponSheet({
                       <span className="block truncate text-ink">
                         {ruleName.get(coupon.rule_id) ?? "—"}
                       </span>
-                      <span className="block truncate text-[0.6875rem] text-mute">
+                      <span className="block truncate text-[0.875rem] text-mute">
                         {book.name}
                       </span>
                     </MiniCell>
@@ -1191,7 +1199,7 @@ function CouponSheet({
                       )}
                     </MiniCell>
                     <MiniCell>
-                      <span className="text-[0.71875rem] text-body">
+                      <span className="text-[0.875rem] text-body">
                         {coupon.valid_from === null && coupon.valid_to === null
                           ? "Always"
                           : `${coupon.valid_from === null ? "—" : day(coupon.valid_from)} – ${
@@ -1211,11 +1219,6 @@ function CouponSheet({
                   </MiniRow>
                 ))}
               </MiniTable>
-
-              <p className="text-[0.71875rem] text-mute">
-                A coupon unlocks an offer; a voucher carries money. Codes are
-                added on the promotion they belong to.
-              </p>
             </div>
           ),
       })}

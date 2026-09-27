@@ -32,6 +32,7 @@
 //! otherwise have the reversal land somewhere the issue never touched — both
 //! accounts wrong by the same amount, and the trial balance still balancing.
 
+use super::banking::claim_bank_line;
 use super::ledger::resolve_account_code;
 use super::poster::{post, reverse, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
@@ -49,7 +50,7 @@ pub struct GiroRow {
     /// `OUT` we wrote it, `IN` somebody gave us one.
     pub direction: String,
     pub number: String,
-    /// The `account_map` qualifier — `BCA`, `MANDIRI` — because it is what
+    /// The `account_link` source — `BCA`, `MANDIRI` — because it is what
     /// picks the leaf, not a display name.
     pub bank: String,
     pub site_id: String,
@@ -229,10 +230,11 @@ pub async fn giro_board(pool: &PgPool, as_of: NaiveDate) -> Result<GiroBoard, Ap
                 COUNT(*) FILTER (WHERE g.due_date < $1)::bigint AS overdue_count,
                 (SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
                    FROM journal_line l
-                   JOIN account_map m ON m.account_code = l.account_code
-                                     AND m.site_id = l.site_id
-                  WHERE m.semantic_key = 'bank_giro'
-                    AND m.qualifier = g.bank
+                   JOIN account_resolution m ON m.account_code = l.account_code
+                                            AND m.site_id = l.site_id
+                  WHERE m.role = 'bank_giro'
+                    AND m.source_type = 'COMPANY'
+                    AND m.source_id = g.bank
                     AND l.site_id = g.site_id) AS bank_balance_minor
            FROM giro g
           WHERE g.status IN ('ISSUED', 'DELIVERED', 'DUE')
@@ -442,9 +444,18 @@ async fn move_to(pool: &PgPool, giro_id: Uuid, to: GiroState) -> Result<GiroRow,
 /// The bank took it. This is the only act that moves the bank balance.
 ///
 /// `Dr giro_outstanding (bank) / Cr bank_giro (bank)` for one we wrote, and the
-/// mirror for one we were given. Both legs are resolved through `account_map`
+/// mirror for one we were given. Both legs are resolved through `account_resolution`
 /// with the bank as the qualifier, so a company that opens a sixth bank maps
 /// two rows on a screen rather than shipping a release.
+
+/// Two spellings of one bank: the giro carries the name the account map was
+/// qualified by, the statement carries the institution's registered name,
+/// and neither side ever sees the other's whitespace.
+fn same_bank(a: &str, b: &str) -> bool {
+    let fold = |s: &str| s.split_whitespace().collect::<String>().to_uppercase();
+    fold(a) == fold(b)
+}
+
 pub async fn giro_clear(
     pool: &PgPool,
     giro_id: Uuid,
@@ -461,6 +472,33 @@ pub async fn giro_clear(
     let site_id: String = row.try_get("site_id")?;
     let amount: i64 = row.try_get("amount_minor")?;
     let currency: String = row.try_get("currency")?;
+
+    // The evidence is the bank's own word, so it has to be THIS bank's: a
+    // BCA giro cleared on a Mandiri line is somebody reading two statements
+    // at once, and the books would move twice for one piece of paper.
+    if let Some(line_id) = statement_line_id {
+        let line_bank: Option<String> = sqlx::query(
+            "SELECT b.name
+               FROM bank_statement_line l
+               JOIN bank_statement s USING (statement_id)
+               JOIN bank_account a ON a.account_id = s.bank_account_id
+               JOIN bank b ON b.bank_id = a.bank_id
+              WHERE l.line_id = $1",
+        )
+        .bind(line_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .and_then(|row| row.try_get::<String, _>("name").ok());
+        let line_bank = line_bank.unwrap_or_default();
+        if !same_bank(&line_bank, &bank) {
+            return Err(AppError::Validation(format!(
+                "that statement line is {line_bank}'s word, and giro {number} is a {bank} \
+                 instrument; clearance evidence has to come from the bank the giro was drawn on"
+            )));
+        }
+        // And the line's story is ours to take (0317).
+        claim_bank_line(&mut tx, line_id, "GIRO_CLEAR", actor).await?;
+    }
 
     // Both meanings resolved before anything is written, so an unmapped bank
     // is refused by name rather than arriving from the poster.

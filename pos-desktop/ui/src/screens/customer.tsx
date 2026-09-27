@@ -74,7 +74,7 @@ export function CustomerScreen() {
   const view = useCustomerView()
   // Never an empty space where a shop's name goes. Until a node tells a till
   // which shop it is, the brand is the truest thing this window knows.
-  const name = view?.shopName ?? "itulah"
+  const name = view?.shopName ?? "central"
 
   // Nothing published yet, no channel on this WebView at all, or a counter
   // that has gone quiet — one greeting covers all three, because it is the
@@ -84,9 +84,6 @@ export function CustomerScreen() {
       <Frame name={name} foot="Selamat berbelanja">
         <div className="empty" style={{ gap: 16 }}>
           <h3 style={{ fontSize: 46, color: "var(--ink)" }}>Selamat datang</h3>
-          <p style={{ fontSize: 19, maxWidth: 540 }}>
-            Barang yang dipindai kasir muncul di layar ini, beserta totalnya.
-          </p>
         </div>
       </Frame>
     )
@@ -216,7 +213,7 @@ function Frame({
     >
       <div style={{ flex: "none", padding: "22px 34px 0" }}>
         <span className="brand" style={{ fontSize: 22 }}>
-          <span className="brand-mark">i.</span>
+          <span className="brand-mark">c.</span>
           {name}
         </span>
       </div>

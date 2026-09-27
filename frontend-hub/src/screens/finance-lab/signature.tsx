@@ -261,7 +261,7 @@ export function Aging({
           <span className="w-[7.5rem] shrink-0 text-meta text-body">
             {b.label}
           </span>
-          <span className="w-[6.5rem] shrink-0 text-right text-[0.8125rem] font-semibold text-ink tabular-nums">
+          <span className="w-[6.5rem] shrink-0 text-right text-[0.875rem] font-semibold text-ink tabular-nums">
             {rp(b.amount)}
           </span>
           <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-soft-2">
@@ -313,7 +313,7 @@ export function Runway({
           key={s.label}
           className="flex min-w-0 flex-1 flex-col items-center gap-1.5"
         >
-          <span className="text-[0.8125rem] font-semibold text-ink tabular-nums">
+          <span className="text-[0.875rem] font-semibold text-ink tabular-nums">
             {rp(s.amount)}
           </span>
           <span
@@ -502,7 +502,7 @@ export function Strip({
               year: "numeric",
             })}
             className={cn(
-              "flex h-5 w-7 items-center justify-center rounded-[0.25rem] text-[0.625rem] font-semibold",
+              "flex h-5 w-7 items-center justify-center rounded-[0.25rem] text-[0.875rem] font-semibold",
               i < done ? "bg-ok-bg text-ok-fg" : "bg-soft-2 text-faint"
             )}
           >
@@ -551,18 +551,18 @@ export function AttentionBoard({
               i.tone === "info" && "bg-info"
             )}
           />
-          <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-ink">
+          <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
             {i.title}
           </span>
           {i.amount !== undefined && (
-            <span className="shrink-0 text-[0.8125rem] font-semibold text-ink tabular-nums">
+            <span className="shrink-0 text-[0.875rem] font-semibold text-ink tabular-nums">
               <Amount minor={i.amount} />
             </span>
           )}
           <button
             type="button"
             onClick={() => onAct?.(i)}
-            className="hover:bg-soft-1 shrink-0 rounded-lg border border-hairline bg-canvas px-2.5 py-1 text-[0.75rem] font-semibold text-ink"
+            className="hover:bg-soft-1 shrink-0 rounded-lg border border-hairline bg-canvas px-2.5 py-1 text-[0.875rem] font-semibold text-ink"
           >
             {i.action}
           </button>
@@ -605,7 +605,7 @@ export function Bridge({
         >
           <span
             className={cn(
-              "text-[0.8125rem]",
+              "text-[0.875rem]",
               r.kind === "total"
                 ? "font-semibold text-ink"
                 : r.kind === "subtotal"
@@ -744,7 +744,7 @@ export function CloseBoard({
                   ? "partial"
                   : "not yet"}
             </Pill>
-            <span className="min-w-0 flex-1 text-[0.8125rem] text-ink">
+            <span className="min-w-0 flex-1 text-[0.875rem] text-ink">
               {c.label}
             </span>
             {c.detail && (
@@ -773,7 +773,7 @@ export function Matrix({
 }) {
   return (
     <div className={cn("overflow-x-auto", className)}>
-      <table className="w-full border-collapse text-[0.8125rem]">
+      <table className="w-full border-collapse text-[0.875rem]">
         <thead>
           <tr>
             <th className="pb-1.5 text-left font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
@@ -879,7 +879,7 @@ export function AccountCards({
                 {a.name}
               </span>
               {a.pending > 0 && (
-                <span className="inline-flex size-[1.125rem] shrink-0 items-center justify-center rounded-full bg-soft-2 text-[0.625rem] font-semibold text-body">
+                <span className="inline-flex size-[1.125rem] shrink-0 items-center justify-center rounded-full bg-soft-2 text-[0.875rem] font-semibold text-body">
                   {a.pending}
                 </span>
               )}

@@ -74,6 +74,10 @@ class MainActivity : ComponentActivity() {
 
     private var lastTriggerAt = 0L
 
+    /** The radio is open. The splash holds until this, see [Splash]. */
+    var readerReady by mutableStateOf(false)
+        private set
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SweepViewModel.appContext = applicationContext
@@ -98,9 +102,17 @@ class MainActivity : ComponentActivity() {
                 store.load().readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
                 reader.init(applicationContext)
             }
+            runOnUiThread { readerReady = true }
         }
 
-        setContent { ItulahTheme { Shell(this, reader, store, catalogStore) } }
+        setContent {
+            ItulahTheme {
+                Box(Modifier.fillMaxSize()) {
+                    Shell(this@MainActivity, reader, store, catalogStore)
+                    Splash(ready = readerReady)
+                }
+            }
+        }
     }
 
     /**
@@ -189,7 +201,15 @@ private fun Shell(
     }
 
     LaunchedEffect(tab) {
-        tab.mode?.let { vm.setMode(it) }
+        tab.mode?.let { mode ->
+            // A refused switch puts the bar back on the job that is still open.
+            // A delivery half swept keeps its sweep across pulls, so "finish
+            // this first" is now a real answer — and a lit squircle for a job
+            // the screen is not showing would contradict it.
+            if (!vm.setMode(mode)) {
+                Tab.entries.firstOrNull { it.mode == vm.state.value.mode }?.let { tab = it }
+            }
+        }
         if (tab == Tab.SETTINGS) vm.releaseReader()
     }
 
@@ -346,7 +366,7 @@ private fun TabBar(selected: Tab, modifier: Modifier = Modifier, onSelect: (Tab)
     )
     val shape = RoundedCornerShape(size / 3)
     Row(
-        modifier.fillMaxWidth().padding(bottom = 18.dp),
+        modifier.fillMaxWidth().padding(bottom = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(TabGap, Alignment.CenterHorizontally),
     ) {
         tabs.forEach { entry ->

@@ -355,7 +355,7 @@ export function Counts() {
         sub="What was expected, what was found, and who is allowed to say so."
       />
 
-      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
           {/* One line the width of the table, carrying everything that acts on
               it: what narrows it at the left, what orders and shapes it in the
@@ -372,7 +372,7 @@ export function Counts() {
                 }
                 placeholder="Search pool, reason, who"
                 aria-label="Search counts"
-                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
             </span>
             {/* The same model as the panel, as the chips over the table and
@@ -450,7 +450,7 @@ export function Counts() {
           kpis={bookKpis(board.data)}
           id="counts"
           subject="Count"
-          className="hidden min-[1440px]:flex"
+          className="hidden dock:flex"
         />
       </div>
 
@@ -695,10 +695,10 @@ function CountSheet({
                         key={line.subject_id ?? line.epc}
                         className="border-t border-hairline"
                       >
-                        <td className="py-2 pr-2 font-mono text-[0.65625rem] text-body">
+                        <td className="py-2 pr-2 font-mono text-[0.875rem] text-body">
                           {line.epc}
                         </td>
-                        <td className="py-2 text-right font-mono text-[0.65625rem] text-body">
+                        <td className="py-2 text-right font-mono text-[0.875rem] text-body">
                           {line.sku_code}
                         </td>
                         <td className="py-2 text-right tabular-nums">
@@ -735,7 +735,7 @@ function CountSheet({
 
               <section className="flex flex-col gap-2.5 border-t border-hairline pt-4">
                 {owned && data.status !== "DRAFT" && (
-                  <p className="text-[0.71875rem] text-mute">
+                  <p className="text-[0.875rem] text-mute">
                     The DC that owns this site does the counting. Entries and
                     submission from here are refused, and approving only asks
                     that node to adjust — the count closes when it answers.
@@ -794,7 +794,7 @@ function CountSheet({
                 )}
 
                 {data.status === "CLOSED" && (
-                  <p className="text-[0.71875rem] text-mute">
+                  <p className="text-[0.875rem] text-mute">
                     Closed {moment(data.closed_at)}. Shortages moved to missing
                     as `COUNT_SHORTAGE`; anything found over arrived as
                     `COUNT_GAIN`.
@@ -882,7 +882,7 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
         }}
         className="flex flex-col gap-4"
       >
-        <p className="text-[0.71875rem] text-mute">
+        <p className="text-[0.875rem] text-mute">
           A count starts as a draft and freezes nothing. The expectation is
           taken at activation — and if a DC owns the site, it is taken there
           rather than here.
@@ -893,11 +893,6 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
             {create.error instanceof Error
               ? create.error.message
               : "The count was refused."}
-          </Banner>
-        )}
-        {create.isSuccess && (
-          <Banner tone="ok">
-            Drafted. Open it from the board to activate it.
           </Banner>
         )}
 

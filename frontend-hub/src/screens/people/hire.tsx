@@ -618,10 +618,10 @@ function Group({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[0.78125rem] font-medium text-text">{label}</span>
+      <span className="text-[0.875rem] font-medium text-text">{label}</span>
       {children}
       {hint !== undefined && (
-        <span className="text-[0.71875rem] text-mute">{hint}</span>
+        <span className="text-[0.875rem] text-mute">{hint}</span>
       )}
     </div>
   )

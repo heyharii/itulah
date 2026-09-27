@@ -34,7 +34,7 @@
 //! the lever `commercial::switch_campaign` already provides. Everything a shop
 //! knows is behind, and no amount of cleverness here changes that.
 
-use super::performance::{campaign_performance, campaign_sell_through, PerformanceWindow};
+use super::performance::{campaign_performance_of, campaign_sell_through, PerformanceWindow};
 use crate::cloud::application::{AppError, CampaignSwitchRequest};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -639,17 +639,61 @@ async fn published_campaign(pool: &PgPool, campaign_id: &str) -> Result<Option<P
 pub async fn campaign_plan(pool: &PgPool, campaign_id: &str) -> Result<CampaignPlanView, AppError> {
     let campaign_id = required("campaign_id", campaign_id)?;
 
-    let activities = sqlx::query(
-        "SELECT * FROM campaign_activity
-          WHERE campaign_id = $1
-          ORDER BY COALESCE(starts_on, DATE '9999-12-31'), created_at, activity_id",
-    )
-    .bind(&campaign_id)
-    .fetch_all(pool)
-    .await?;
-
-    let rule_ids = rules_in_books(pool, &campaign_id).await?;
-    let markdown_ids = markdowns_in_books(pool, &campaign_id).await?;
+    // Seven reads that each need only the id, so they run together: awaited in
+    // turn, the plan tab cost seven round trips back to back.
+    let activities = async {
+        Ok::<_, AppError>(
+            sqlx::query(
+                "SELECT * FROM campaign_activity
+                  WHERE campaign_id = $1
+                  ORDER BY COALESCE(starts_on, DATE '9999-12-31'), created_at, activity_id",
+            )
+            .bind(&campaign_id)
+            .fetch_all(pool)
+            .await?,
+        )
+    };
+    let scope_rows = async {
+        Ok::<_, AppError>(
+            sqlx::query(
+                "SELECT dimension, value FROM campaign_scope
+                  WHERE campaign_id = $1 ORDER BY dimension, value",
+            )
+            .bind(&campaign_id)
+            .fetch_all(pool)
+            .await?,
+        )
+    };
+    let guardrails = async {
+        Ok::<_, AppError>(
+            sqlx::query("SELECT * FROM campaign_guardrail WHERE campaign_id = $1 ORDER BY measure")
+                .bind(&campaign_id)
+                .fetch_all(pool)
+                .await?,
+        )
+    };
+    let breaches = async {
+        Ok::<_, AppError>(
+            sqlx::query(
+                "SELECT * FROM campaign_guardrail_breach
+                  WHERE campaign_id = $1 AND acknowledged_at IS NULL
+                  ORDER BY first_seen_at DESC",
+            )
+            .bind(&campaign_id)
+            .fetch_all(pool)
+            .await?,
+        )
+    };
+    let (activities, rule_ids, markdown_ids, scope_rows, published, guardrails, breaches) =
+        tokio::try_join!(
+            activities,
+            rules_in_books(pool, &campaign_id),
+            markdowns_in_books(pool, &campaign_id),
+            scope_rows,
+            published_campaign(pool, &campaign_id),
+            guardrails,
+            breaches,
+        )?;
 
     let activities: Vec<CampaignActivityRow> = activities
         .iter()
@@ -678,13 +722,6 @@ pub async fn campaign_plan(pool: &PgPool, campaign_id: &str) -> Result<CampaignP
         .cloned()
         .collect();
 
-    let scope_rows = sqlx::query(
-        "SELECT dimension, value FROM campaign_scope
-          WHERE campaign_id = $1 ORDER BY dimension, value",
-    )
-    .bind(&campaign_id)
-    .fetch_all(pool)
-    .await?;
     let declared: Vec<CampaignScopeEntry> = scope_rows
         .iter()
         .map(|row| CampaignScopeEntry {
@@ -693,8 +730,7 @@ pub async fn campaign_plan(pool: &PgPool, campaign_id: &str) -> Result<CampaignP
         })
         .collect();
 
-    let binding_site_ids: Option<Vec<String>> = published_campaign(pool, &campaign_id)
-        .await?
+    let binding_site_ids: Option<Vec<String>> = published
         .and_then(|row| row.get::<Option<Vec<String>>, _>("site_ids"));
 
     let declared_sites: Vec<String> = declared
@@ -721,20 +757,6 @@ pub async fn campaign_plan(pool: &PgPool, campaign_id: &str) -> Result<CampaignP
         _ => (Vec::new(), Vec::new()),
     };
 
-    let guardrails =
-        sqlx::query("SELECT * FROM campaign_guardrail WHERE campaign_id = $1 ORDER BY measure")
-            .bind(&campaign_id)
-            .fetch_all(pool)
-            .await?;
-
-    let breaches = sqlx::query(
-        "SELECT * FROM campaign_guardrail_breach
-          WHERE campaign_id = $1 AND acknowledged_at IS NULL
-          ORDER BY first_seen_at DESC",
-    )
-    .bind(&campaign_id)
-    .fetch_all(pool)
-    .await?;
 
     Ok(CampaignPlanView {
         campaign_id,
@@ -1395,7 +1417,7 @@ async fn read_campaign(
         Some(window.measured_to),
         site_id,
     )?;
-    let body = campaign_performance(pool, &scope).await?;
+    let body = campaign_performance_of(pool, &scope, campaign_id).await?;
     Ok(reading_of(row_for(&body, campaign_id), window.days_elapsed))
 }
 
@@ -1786,10 +1808,12 @@ fn read_guardrail(
 /// Measure every rail, record what has been crossed, and stop the campaign
 /// where a rail says to.
 ///
-/// A deliberate act rather than a background sweep, and the estate has no
-/// scheduler to make it otherwise: a rail is as fresh as the last time somebody
-/// or something asked. Said out loud because a guardrail nobody runs is worse
-/// than no guardrail — it is a guardrail everybody believes in.
+/// "Check now" calls this, and so does the marketing scheduler
+/// (`marketing_watch::guardrails`), every few minutes for every running
+/// campaign with an active rail — so a rail is no longer only as fresh as the
+/// last time somebody pressed a button. Said out loud because a guardrail
+/// nobody runs is worse than no guardrail: it is a guardrail everybody believes
+/// in.
 pub async fn check_campaign_guardrails(
     pool: &PgPool,
     campaign_id: &str,

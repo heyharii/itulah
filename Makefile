@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgresql:///inventory_edge_dev
 
-.PHONY: db run run-cloud run-dc run-store check test test-unit test-integration rfid-demo contract contract-check front front-check
+.PHONY: db run run-cloud run-dc run-store check test test-unit test-integration invariants rfid-demo contract contract-check front front-check
 
 db:
 	docker compose up -d postgres
@@ -26,6 +26,12 @@ test-unit:
 
 test-integration:
 	cd backend && DATABASE_URL=postgresql:///postgres cargo test --tests -- --nocapture
+
+# Every consistency rule in backend/invariants against DATABASE_URL. Read-only,
+# so safe on production; exits 1 when a critical or high rule finds rows. Which
+# rule is enforced where is CONSISTENCY-MATRIX.md.
+invariants:
+	python3 scripts/check-invariants.py --db $(DATABASE_URL)
 
 rfid-demo:
 	python3 scripts/rfid_simulator.py --retry
@@ -83,7 +89,7 @@ contract-check: contract
 # cookie is actually sent. `frontend-customer` is deployed too, but as a
 # preview rather than a shopper-facing product until customer sign-in exists
 # (frontend-customer/README.md).
-FRONTENDS := frontend-cloud frontend-dc frontend-store frontend-employee frontend-customer
+FRONTENDS := frontend-cloud frontend-dc frontend-store-new frontend-employee frontend-customer
 
 front:
 	@for app in $(FRONTENDS); do \

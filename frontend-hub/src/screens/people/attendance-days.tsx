@@ -223,7 +223,7 @@ const columns: ColumnDef<TableSetup, DayRow>[] = [
     cell: ({ row }) => (
       <span className="flex min-w-0 flex-col">
         <span className="truncate text-cell text-ink">{row.original.who}</span>
-        <span className="truncate text-[0.6875rem] text-mute">
+        <span className="truncate text-[0.875rem] text-mute">
           {row.original.code}
         </span>
       </span>

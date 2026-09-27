@@ -2,14 +2,9 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
-/// The status pill: a soft tint carrying same-hue text.
-///
-/// One grammar for every state in the system, so the four colours are learned
-/// once. `accent` is the indigo one — selection and this app's own figure,
-/// points — and `info` is the sky one, which only ever means in motion. They
-/// are never swapped.
+/// A short fact set in a capsule — "Gratis", "Ditukar", "+13 poin".
 const pill = cva(
-  "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-pill font-medium whitespace-nowrap [&_svg]:size-3",
+  "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-pill font-medium whitespace-nowrap [&_svg]:size-3.5",
   {
     variants: {
       tone: {
@@ -19,6 +14,7 @@ const pill = cva(
         bad: "bg-bad-bg text-bad-fg",
         info: "bg-info-bg text-info-fg",
         soft: "bg-soft-2 text-body",
+        ink: "bg-ink text-on-dark",
       },
     },
     defaultVariants: { tone: "soft" },

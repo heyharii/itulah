@@ -1,3 +1,4 @@
+import { Menu } from "@base-ui/react/menu"
 import { Printer, Upload } from "lucide-react"
 import { useRef, useState } from "react"
 
@@ -51,13 +52,12 @@ function MenuItem({
   children: React.ReactNode
 }) {
   return (
-    <button
-      type="button"
+    <Menu.Item
       onClick={onClick}
-      className="hover:bg-soft-1 block w-full px-3 py-1.5 text-left text-[0.8125rem] text-ink"
+      className="flex min-h-8 cursor-default items-center rounded-inner px-2 text-[0.875rem] text-ink outline-none select-none data-[highlighted]:bg-soft-2"
     >
       {children}
-    </button>
+    </Menu.Item>
   )
 }
 
@@ -97,7 +97,6 @@ export function BankReconciliation() {
   const [marked, setMarked] = useState<ReadonlySet<string>>(new Set())
   const [showRegister, setShowRegister] = useState(false)
   const [chosen, setChosen] = useState<Record<string, string>>({})
-  const [menu, setMenu] = useState<string | null>(null)
   const file = useRef<HTMLInputElement>(null)
 
   /// Bank accounts only. A statement is the whole premise of this screen.
@@ -241,7 +240,7 @@ export function BankReconciliation() {
                 const r = b.importStatement(account, SAMPLE_CSV)
                 setImported(`Sample loaded: ${count(r.added, "line")} added.`)
               }}
-              className="text-[0.75rem] font-medium whitespace-nowrap text-accent hover:underline"
+              className="text-[0.875rem] font-medium whitespace-nowrap text-accent hover:underline"
             >
               Load sample
             </button>
@@ -291,7 +290,7 @@ export function BankReconciliation() {
         <button
           type="button"
           onClick={() => setShowRegister((v) => !v)}
-          className="text-[0.75rem] font-medium text-accent hover:underline"
+          className="text-[0.875rem] font-medium text-accent hover:underline"
         >
           {showRegister ? "Back to transactions" : "Go to account register"}
         </button>
@@ -476,7 +475,7 @@ export function BankReconciliation() {
                             value={l.counterparty ?? ""}
                             onChange={(v) => b.setCounterparty(l.line_id, v)}
                             aria-label="From/To"
-                            className="h-7 max-w-[11rem] bg-transparent px-1.5 text-[0.78125rem]"
+                            className="h-7 max-w-[11rem] bg-transparent px-1.5 text-[0.875rem]"
                           >
                             <option value="">Select name…</option>
                             {PARTIES.map((p) => (
@@ -501,7 +500,7 @@ export function BankReconciliation() {
                                 ? "matched"
                                 : "posted"}
                             </Pill>
-                            <span className="font-mono text-[0.75rem] text-mute">
+                            <span className="font-mono text-[0.875rem] text-mute">
                               {b.ledger.entry(l.entry_id)?.entry_number}
                             </span>
                           </span>
@@ -542,7 +541,7 @@ export function BankReconciliation() {
                                 setChosen({ ...chosen, [l.line_id]: v })
                               }
                               aria-label="Category"
-                              className="h-7 max-w-[13rem] bg-transparent px-1.5 text-[0.78125rem]"
+                              className="h-7 max-w-[13rem] bg-transparent px-1.5 text-[0.875rem]"
                             >
                               <option value="">Select category…</option>
                               {CATEGORIES.map((c) => (
@@ -569,69 +568,71 @@ export function BankReconciliation() {
                               {matches.length ? "Match" : "Post"}
                             </button>
                             <span className="text-faint">|</span>
-                            <button
-                              type="button"
-                              aria-label="More actions"
-                              onClick={() =>
-                                setMenu(menu === l.line_id ? null : l.line_id)
-                              }
-                              className="rounded px-1 text-mute hover:bg-soft-2"
-                            >
-                              ⌄
-                            </button>
-                            {menu === l.line_id && (
-                              <div className="absolute right-4 z-20 mt-1 w-44 rounded-lg border border-hairline bg-canvas py-1 shadow-soft">
-                                <MenuItem
-                                  onClick={() => {
-                                    setOpen(l.line_id)
-                                    setMenu(null)
-                                  }}
+                            <Menu.Root>
+                              <Menu.Trigger
+                                aria-label="More actions"
+                                className="rounded px-1 text-mute hover:bg-soft-2 data-[popup-open]:bg-soft-2"
+                              >
+                                ⌄
+                              </Menu.Trigger>
+                              <Menu.Portal>
+                                <Menu.Positioner
+                                  side="bottom"
+                                  align="end"
+                                  sideOffset={4}
+                                  className="z-50"
                                 >
-                                  Find match
-                                </MenuItem>
-                                <MenuItem
-                                  onClick={() => {
-                                    setOpen(l.line_id)
-                                    setMenu(null)
-                                  }}
-                                >
-                                  Split
-                                </MenuItem>
-                                <MenuItem
-                                  onClick={() => {
-                                    const role = chosen[l.line_id] ?? hint?.role
-                                    if (role) {
-                                      const cat = CATEGORIES.find(
-                                        (c) => c.role === role
-                                      )
-                                      b.addBankRule({
-                                        contains: l.description
-                                          .split(" ")
-                                          .slice(0, 2)
-                                          .join(" "),
-                                        role,
-                                        label: cat?.label ?? role,
-                                        counterparty: l.counterparty,
-                                      })
-                                    }
-                                    setMenu(null)
-                                  }}
-                                >
-                                  Create rule
-                                </MenuItem>
-                                <MenuItem
-                                  onClick={() => {
-                                    b.excludeLine(
-                                      l.line_id,
-                                      "Not our transaction"
-                                    )
-                                    setMenu(null)
-                                  }}
-                                >
-                                  Exclude
-                                </MenuItem>
-                              </div>
-                            )}
+                                  <Menu.Popup className="min-w-44 rounded-card border border-hairline bg-canvas p-1.5 shadow-pop">
+                                    <MenuItem
+                                      onClick={() => {
+                                        setOpen(l.line_id)
+                                      }}
+                                    >
+                                      Find match
+                                    </MenuItem>
+                                    <MenuItem
+                                      onClick={() => {
+                                        setOpen(l.line_id)
+                                      }}
+                                    >
+                                      Split
+                                    </MenuItem>
+                                    <MenuItem
+                                      onClick={() => {
+                                        const role =
+                                          chosen[l.line_id] ?? hint?.role
+                                        if (role) {
+                                          const cat = CATEGORIES.find(
+                                            (c) => c.role === role
+                                          )
+                                          b.addBankRule({
+                                            contains: l.description
+                                              .split(" ")
+                                              .slice(0, 2)
+                                              .join(" "),
+                                            role,
+                                            label: cat?.label ?? role,
+                                            counterparty: l.counterparty,
+                                          })
+                                        }
+                                      }}
+                                    >
+                                      Create rule
+                                    </MenuItem>
+                                    <MenuItem
+                                      onClick={() => {
+                                        b.excludeLine(
+                                          l.line_id,
+                                          "Not our transaction"
+                                        )
+                                      }}
+                                    >
+                                      Exclude
+                                    </MenuItem>
+                                  </Menu.Popup>
+                                </Menu.Positioner>
+                              </Menu.Portal>
+                            </Menu.Root>
                           </div>
                         ) : (
                           <button

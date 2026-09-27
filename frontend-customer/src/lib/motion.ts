@@ -1,64 +1,53 @@
 /// The motion vocabulary, named once.
 ///
-/// The curves and spring physics below are beUI's (https://beui.dev — its
-/// `lib/ease.ts`), adopted rather than invented for the same reason the colour
-/// tokens are Cloud Hub's: a spring somebody tuned by feel in one component is
-/// a value no second component can match. Every animation in this app resolves
-/// to one of these.
+/// Curves are Emil Kowalski's (`~/.claude/skills/emil-design-eng`), springs
+/// are Apple's two-parameter form (`bounce` + `duration`, which Motion maps
+/// onto damping ratio + response). Every animation in this app resolves to one
+/// of these; a value tuned by feel inside one component is a value no second
+/// component can match.
 ///
-/// They do not conflict with the Cloud Hub language — DESIGN.md specifies what
-/// a screen looks like and says almost nothing about how it moves, beyond
-/// "press feedback (mobile): a soft gray expanding ripple on tapped
-/// cards/rows". These fill that gap; where the two ever met, DESIGN.md won:
-/// the pull-to-refresh chrome is a `{soft-2}` chip on a white veil, not the
-/// glass surface beUI ships.
-///
-/// This file is only for what CSS cannot do. Hover, press and panel timings
-/// are `--ease-out` and the `--t-*` bands in `styles/index.css`, which are the
-/// same beUI values `frontend-hub` uses; reach for a spring here when an
-/// animation crosses two elements or follows a finger, and for the CSS tokens
-/// otherwise.
+/// The rules they serve: entrances ease out, nothing on screen runs longer
+/// than 300ms unless a finger is driving it, springs are critically damped
+/// (`bounce: 0`) unless the gesture that started them carried momentum, and
+/// only transform and opacity ever move. CSS does everything it can — see the
+/// `--ease-*` and `--t-*` tokens in `styles/index.css`; this file is for what
+/// needs a spring, a gesture or a shared layout.
 
-/// The house curve. Browser defaults (`ease-out`) are limp by comparison —
-/// this one leaves fast and settles slowly, which is what makes a 200ms
-/// transition read as physical rather than as a delay.
-export const EASE_OUT = [0.16, 1, 0.3, 1] as const
+/// Strong ease-out for UI. The browser's own `ease-out` is limp by
+/// comparison: this one leaves fast, so the first frame after a tap already
+/// shows movement.
+export const EASE_OUT = [0.23, 1, 0.32, 1] as const
 
-/// CSS form of the same curve, for the handful of transitions that are cheaper
-/// as plain CSS than as a motion value.
-export const EASE_OUT_CSS = "cubic-bezier(0.16, 1, 0.3, 1)"
+/// For something already on screen moving to a new place.
+export const EASE_IN_OUT = [0.77, 0, 0.175, 1] as const
+
+/// iOS sheet curve.
+export const EASE_DRAWER = [0.32, 0.72, 0, 1] as const
+
+export const EASE_OUT_CSS = "cubic-bezier(0.23, 1, 0.32, 1)"
 
 /// Press feedback on anything tappable.
-export const SPRING_PRESS = {
-  type: "spring",
-  stiffness: 500,
-  damping: 30,
-  mass: 0.6,
-} as const
+export const SPRING_PRESS = { type: "spring", duration: 0.25, bounce: 0 } as const
 
 /// Content trading places inside a control — a label swapping for a spinner.
-export const SPRING_SWAP = {
-  type: "spring",
-  stiffness: 460,
-  damping: 30,
-  mass: 0.55,
-} as const
+export const SPRING_SWAP = { type: "spring", duration: 0.3, bounce: 0 } as const
 
 /// Panels summoned by a gesture: the pull-to-refresh head, sheets.
-export const SPRING_PANEL = {
-  type: "spring",
-  stiffness: 420,
-  damping: 40,
-  mass: 0.5,
-} as const
+export const SPRING_PANEL = { type: "spring", duration: 0.4, bounce: 0 } as const
 
-/// Shared-layout glides — the indigo squircle travelling between tabs.
-export const SPRING_LAYOUT = {
-  type: "spring",
-  stiffness: 360,
-  damping: 32,
-  mass: 0.6,
-} as const
+/// Shared-layout glides — the tab highlight travelling between tabs.
+export const SPRING_LAYOUT = { type: "spring", duration: 0.35, bounce: 0 } as const
+
+/// Something the member threw or flicked — the card flipping over. The only
+/// place bounce is allowed, because the gesture carried momentum into it.
+export const SPRING_THROW = { type: "spring", duration: 0.6, bounce: 0.18 } as const
+
+/// Decorative tracking of a finger or pointer (the card's tilt). Soft, so the
+/// card lags the finger a touch the way a real object would.
+export const SPRING_TRACK = { stiffness: 170, damping: 22, mass: 0.6 } as const
+
+/// A rare moment worth marking — the check after a redemption goes through.
+export const SPRING_CELEBRATE = { type: "spring", duration: 0.5, bounce: 0.3 } as const
 
 import { useEffect, useState } from "react"
 

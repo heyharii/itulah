@@ -9,4 +9,24 @@ export type PayablesAging = { as_of: string, site_id: string | null,
 /**
  * Heaviest first: an ageing report is read to decide who to pay next.
  */
-suppliers: Array<PayablesAgingRow>, total: AgingBuckets, };
+suppliers: Array<PayablesAgingRow>, total: AgingBuckets, 
+/**
+ * How many POSTED bills in this scope are held, and what they come to.
+ *
+ * Counted and summed SEPARATELY rather than folded into the buckets: a
+ * held bill is still owed — it is real money against a real supplier — but
+ * it cannot be paid until somebody releases it, so a ready-to-pay screen
+ * has to be able to say "n ditahan" rather than silently hide it.
+ */
+on_hold_count: number, on_hold_minor: number, 
+/**
+ * The general ledger's own answer: the balance of every account mapped to
+ * `trade_payable` or `non_merchandise_payable`, as at `as_of`, in this
+ * scope, as a positive debt.
+ *
+ * Resolved through `account_map` here rather than by an account code in
+ * the screen: the screen used to ask for a client code (`2012001`) that
+ * the chart in use does not have, got a ledger of nothing back, and
+ * reported the whole ageing as a difference "against the books".
+ */
+books_minor: number, };

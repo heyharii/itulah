@@ -725,3 +725,96 @@ pub async fn mark_all_notifications_read(pool: &PgPool, username: &str) -> Resul
     .await?
     .rows_affected())
 }
+
+/// What one reader's list looks like from far away: how many rows, and how
+/// many of them are unread.
+///
+/// The notification stream compares this between polls rather than following
+/// a cursor. A cursor over `created_at` would skip a notification whose
+/// transaction started before the last poll and committed after it — its
+/// timestamp is the transaction's, not the commit's — and a skipped
+/// notification is exactly the failure this list exists to prevent. A new row
+/// always moves `total`, a read always moves `unread`, whenever it commits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct NotificationDigest {
+    pub total: i64,
+    pub unread: i64,
+}
+
+pub async fn notification_digest(
+    pool: &PgPool,
+    username: &str,
+) -> Result<NotificationDigest, AppError> {
+    let row = sqlx::query(
+        "SELECT count(*)::bigint AS total,
+                count(*) FILTER (WHERE read_at IS NULL)::bigint AS unread
+           FROM notification_recipient
+          WHERE username = $1",
+    )
+    .bind(username)
+    .fetch_one(pool)
+    .await?;
+    Ok(NotificationDigest {
+        total: row.try_get("total")?,
+        unread: row.try_get("unread")?,
+    })
+}
+
+/// The reader's unread notifications written since `since`, newest first.
+///
+/// The stream asks this when `total` grew, and remembers which ids it has
+/// already announced, so a notification is announced once however late its
+/// transaction committed — as long as it was written after `since`, which the
+/// stream sets a few minutes before it connected.
+pub async fn unread_notifications_since(
+    pool: &PgPool,
+    username: &str,
+    since: DateTime<Utc>,
+    limit: i64,
+) -> Result<Vec<Notification>, AppError> {
+    let rows = sqlx::query(
+        "SELECT n.notification_id, n.kind, n.title, n.body, n.subject_kind,
+                n.subject_id, n.origin_id, n.created_at, r.read_at
+           FROM notification_recipient r
+           JOIN notification n ON n.notification_id = r.notification_id
+          WHERE r.username = $1 AND r.read_at IS NULL AND n.created_at >= $2
+          ORDER BY n.created_at DESC
+          LIMIT $3",
+    )
+    .bind(username)
+    .bind(since)
+    .bind(limit.clamp(1, 100))
+    .fetch_all(pool)
+    .await?;
+    rows.iter().map(row_to_notification).collect()
+}
+
+/// Whether the session a stream was opened with is still one.
+///
+/// The session gate is asked once, when the stream connects; a stream is open
+/// for hours. Without asking again, signing out — or being signed out by a
+/// sign-in on another device — would leave a tab still being told somebody's
+/// work. The same conditions as `authenticate_session`, idle time included,
+/// and deliberately without touching `last_seen_at`: an open tab is not a
+/// person using it.
+pub async fn session_is_live(
+    pool: &PgPool,
+    session_id: Uuid,
+    idle_minutes: i64,
+) -> Result<bool, AppError> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM auth_session s
+               JOIN app_user u ON u.id = s.user_id
+              WHERE s.session_id = $1
+                AND s.revoked_at IS NULL
+                AND s.expires_at > now()
+                AND s.last_seen_at > now() - make_interval(mins => $2::int)
+                AND u.active
+                AND u.auth_version = s.auth_version)",
+    )
+    .bind(session_id)
+    .bind(idle_minutes.clamp(1, 24 * 60) as i32)
+    .fetch_one(pool)
+    .await?)
+}

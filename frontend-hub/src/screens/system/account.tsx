@@ -319,7 +319,6 @@ function UserSheet({
   // for the render where the list has not arrived yet.
   const [role, setRole] = useState<Role | null>(null)
   const [password, setPassword] = useState("")
-  const [said, setSaid] = useState<string | null>(null)
 
   const chosen = role ?? user?.role ?? "CASHIER"
 
@@ -328,35 +327,22 @@ function UserSheet({
 
   const changeRole = useMutation({
     mutationFn: () => setUserRole(user!.id, { role: chosen }),
-    onSuccess: (done) => {
-      setSaid(
-        `${done.username} is now ${done.role}, was ${done.previous_role}. Their role at every node is unchanged — that lives on the assignment.`
-      )
+    onSuccess: () => {
       void invalidate()
     },
   })
 
   const changeActive = useMutation({
     mutationFn: (active: boolean) => setUserActive(user!.id, { active }),
-    onSuccess: (done) => {
-      setSaid(
-        done.user.active
-          ? `${done.user.username} can sign in again.`
-          : `${done.user.username} is suspended everywhere, and every live session of theirs has been ended.`
-      )
+    onSuccess: () => {
       void invalidate()
     },
   })
 
   const reset = useMutation({
     mutationFn: () => resetUserPassword(user!.id, { new_password: password }),
-    onSuccess: (done) => {
+    onSuccess: () => {
       setPassword("")
-      setSaid(
-        done.active
-          ? `A new password is set for ${done.username}. Every session of theirs has ended.`
-          : `A new password is set for ${done.username}, but the account is still suspended and they cannot sign in yet.`
-      )
       void invalidate()
     },
   })
@@ -369,7 +355,6 @@ function UserSheet({
       open={open}
       onOpenChange={(next) => {
         if (!next) {
-          setSaid(null)
           setPassword("")
           onClose()
         }
@@ -390,11 +375,6 @@ function UserSheet({
             </Tag>
           </div>
 
-          {said && (
-            <Banner tone="ok" onDismiss={() => setSaid(null)}>
-              {said}
-            </Banner>
-          )}
           {failure && <Banner tone="bad">{saying(failure)}</Banner>}
 
           <Facts>
@@ -436,11 +416,6 @@ function UserSheet({
           </Facts>
 
           <Section title="Role at the centre">
-            <p className="mb-2.5 text-[0.78125rem] text-body">
-              Head office only. The same person's role at a till lives on their
-              node assignment, because a supervisor here can be an ordinary
-              cashier there. Changing this ends their live sessions.
-            </p>
             <div className="flex items-end gap-2.5">
               <Field label="Role" className="flex-1">
                 <Select
@@ -464,7 +439,7 @@ function UserSheet({
               </Button>
             </div>
             {self && (
-              <p className="mt-1.5 text-[0.71875rem] text-mute">
+              <p className="mt-1.5 text-[0.875rem] text-mute">
                 You cannot change your own role. The node has to keep at least
                 one usable administrator.
               </p>
@@ -472,10 +447,6 @@ function UserSheet({
           </Section>
 
           <Section title="Access">
-            <p className="mb-2.5 text-[0.78125rem] text-body">
-              Suspending stops them everywhere at once and ends every live
-              session. It is not a delete: usernames are never released.
-            </p>
             {user.active ? (
               <Button
                 variant="danger"
@@ -493,18 +464,13 @@ function UserSheet({
               </Button>
             )}
             {self && user.active && (
-              <p className="mt-1.5 text-[0.71875rem] text-mute">
+              <p className="mt-1.5 text-[0.875rem] text-mute">
                 You cannot suspend your own account.
               </p>
             )}
           </Section>
 
           <Section title="Password">
-            <p className="mb-2.5 text-[0.78125rem] text-body">
-              For somebody who cannot supply their old one. It is sent and never
-              shown again, and every session of theirs ends — a password nobody
-              knew is a password that may have been learned.
-            </p>
             <div className="flex items-end gap-2.5">
               <Field label="New password" className="flex-1">
                 <Secret
@@ -810,7 +776,7 @@ function OwnPasswordSheet({
           }}
           className="flex flex-col gap-3.5"
         >
-          <p className="text-[0.78125rem] text-body">
+          <p className="text-[0.875rem] text-body">
             You will be signed out when this succeeds. Every other session of
             yours ends too.
           </p>

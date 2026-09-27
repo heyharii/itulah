@@ -414,8 +414,8 @@ pub async fn prepaid_schedule_create(
     // place. This is where tax stops: `1011302*` is a tax credit and is mapped
     // to `vat_in` and the PPh meanings, never to this one.
     let mapped: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM account_map
-                        WHERE semantic_key = $1 AND site_id = $2 AND account_code = $3)",
+        "SELECT EXISTS(SELECT 1 FROM account_resolution
+                        WHERE role = $1 AND site_id = $2 AND account_code = $3)",
     )
     .bind(PREPAID_MEANING)
     .bind(&request.site_id)
@@ -606,6 +606,7 @@ pub async fn prepaid_allocate(
                 // the half that says what this is: every prepayment is `1401`,
                 // and only `RENT_STORE` beside it says the schedule is rent.
                 PostingLine {
+                    dimensions: Vec::new(),
                     account: LineAccount::Account {
                         account_code: expense_account.clone(),
                         category_code: expense_category.clone(),
@@ -614,12 +615,14 @@ pub async fn prepaid_allocate(
                     counter_site_id: None,
                     debit_minor: share,
                     credit_minor: 0,
-                    supplier_id: None,
+                    party_type: None,
+                    party_id: None,
                     asset_id: None,
                     bank_account_id: None,
                     memo: None,
                 },
                 PostingLine {
+                    dimensions: Vec::new(),
                     account: LineAccount::Account {
                         account_code: prepaid_account.clone(),
                         category_code: prepaid_category.clone(),
@@ -628,7 +631,8 @@ pub async fn prepaid_allocate(
                     counter_site_id: None,
                     debit_minor: 0,
                     credit_minor: share,
-                    supplier_id: None,
+                    party_type: None,
+                    party_id: None,
                     asset_id: None,
                     bank_account_id: None,
                     memo: None,

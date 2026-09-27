@@ -36,7 +36,7 @@ import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { Timeline } from "@/components/ui/timeline"
 import { useFilters } from "@/lib/filters"
-import { count, day, moment } from "@/lib/format"
+import { count, day, money, moment } from "@/lib/format"
 import type { Tone } from "@/lib/format"
 import {
   AMENDABLE_FIELDS,
@@ -47,15 +47,28 @@ import {
   applyTransition,
   assignToPlace,
   boundedTo,
+  claimStateLabel,
+  claimsOf,
   clearable,
+  claimsKeys,
   correctCode,
   daysUntil,
+  exitInterviewStateLabel,
+  exitInterviewStateTone,
+  exitKeys,
+  exitStanceLabel,
+  fnfKeys,
+  fnfStateLabel,
+  fnfStateTone,
   leaveBalances,
   leaveKeys,
   leaveRequestsOf,
   leaveStateLabel,
   linkAccount,
   listEmployees,
+  listExitInterviews,
+  listFnF,
+  openAdvances,
   provisionAccount,
   releaseAccount,
   expiringContracts,
@@ -77,8 +90,8 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import type {
   AccountBinding,
   EmployeeSummary,
+  EmployeeView,
   ProfileAmendmentView,
-  ProvisionedAccount,
 } from "@itulah/contract"
 import { Quiet } from "@/screens/people/parts"
 
@@ -352,7 +365,7 @@ export function Directory() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Directory"
+        title="Employees"
         sub={
           bounded === null
             ? "Who works here, under what contract, and where they are posted. Personal data is a different question and a different privilege."
@@ -426,7 +439,9 @@ export function Directory() {
 const TABS = [
   { value: "record", label: "Record" },
   { value: "leave", label: "Leave" },
+  { value: "claims", label: "Claims" },
   { value: "contracts", label: "Contracts" },
+  { value: "exit", label: "Exit" },
   { value: "change", label: "Change" },
 ] as const
 
@@ -444,8 +459,18 @@ const TABS = [
 /// `null` from the audience hook means "not yet known", and that is read as
 /// "not offered": a tab that appears a moment late is better than one that is
 /// drawn and then taken away under the reader's cursor.
-function tabsFor(employer: boolean): readonly (typeof TABS)[number][] {
-  return employer ? TABS : TABS.filter((one) => one.value !== "change")
+///
+/// The exit tab is a leaver's tab: an exit interview exists for somebody whose
+/// employment ended, so it is offered only when the record says TERMINATED —
+/// a tab beside an active record promises something that cannot exist.
+function tabsFor(
+  employer: boolean,
+  status?: string
+): readonly (typeof TABS)[number][] {
+  const base = employer ? TABS : TABS.filter((one) => one.value !== "change")
+  return status === "TERMINATED"
+    ? base
+    : base.filter((one) => one.value !== "exit")
 }
 
 function EmployeeSheet({
@@ -457,13 +482,7 @@ function EmployeeSheet({
   listed: EmployeeSummary | null
   onClose: () => void
 }) {
-  const [tab, setTab] = useState<string>("record")
   const employer = usePeopleAudience() === "employer"
-  const tabs = tabsFor(employer)
-  // A tab the caller may no longer be offered falls back rather than rendering
-  // nothing: reach arrives after the first paint, so "change" can be selected
-  // for a moment before we know the answer.
-  const shown = tabs.some((one) => one.value === tab) ? tab : "record"
 
   const detail = useQuery({
     queryKey: peopleKeys.employee(id ?? ""),
@@ -482,158 +501,181 @@ function EmployeeSheet({
       {queryState(detail, {
         loading: "Loading the record…",
         render: (person) => (
-          <div className="flex flex-col gap-5">
-            <div className="flex flex-wrap items-center gap-2">
-              <Pill tone={statusTone(person.status)}>
-                {statusLabel(person.status)}
-              </Pill>
-              {!person.selectable && (
-                <Pill tone="neutral">Not available for new work</Pill>
-              )}
-              {person.status !== "ACTIVE" &&
-                person.status !== "CANDIDATE" &&
-                person.account !== null &&
-                person.account.active && (
-                  // Ending or suspending employment closes the login as part of
-                  // the same act, so this is either a binding made before that
-                  // was true or a close that failed. Both are a working
-                  // credential for somebody who is not working, which is the
-                  // one thing on this sheet worth interrupting somebody about.
-                  <Pill tone="bad">Login still open</Pill>
-                )}
-            </div>
-
-            <Facts>
-              <Fact term="Posted to">
-                {person.current_place_name ?? person.current_place_id ?? "—"}
-              </Fact>
-              <Fact term="Login">
-                {person.account === null ? (
-                  "None"
-                ) : person.account.active ? (
-                  person.account.username
-                ) : (
-                  <span className="text-mute">
-                    {person.account.username} · closed
-                  </span>
-                )}
-              </Fact>
-              <Fact term="Job">{listed?.position ?? "—"}</Fact>
-              <Fact term="Registered">{day(person.created_at)}</Fact>
-            </Facts>
-
-            <div>
-              <SubTabs tabs={tabs} value={shown} onChange={setTab} />
-
-              {shown === "record" && (
-                <div className="flex flex-col gap-5">
-                  <div>
-                    <SubHead>Employment</SubHead>
-                    {person.history.length === 0 ? (
-                      <Quiet>
-                        Nothing has happened to this record yet — not even a
-                        hire.
-                      </Quiet>
-                    ) : (
-                      <Timeline
-                        events={person.history.map((event, index) => ({
-                          id: `${event.transition}-${event.at}-${index}`,
-                          title: `${event.transition} — ${event.from} → ${event.to}`,
-                          detail: `${event.actor} · ${event.reason}`,
-                          at: day(event.effective_on),
-                          state:
-                            index === person.history.length - 1
-                              ? "current"
-                              : "done",
-                        }))}
-                      />
-                    )}
-                  </div>
-
-                  <div>
-                    <SubHead>Postings</SubHead>
-                    {person.assignments.length === 0 ? (
-                      <Quiet>Never posted anywhere.</Quiet>
-                    ) : (
-                      <MiniTable
-                        head={[
-                          "Place",
-                          { label: "From", align: "left" },
-                          "Until",
-                        ]}
-                      >
-                        {person.assignments.map((assignment) => (
-                          <MiniRow
-                            key={`${assignment.place_id}-${assignment.valid_from}`}
-                          >
-                            <MiniCell>
-                              <span className="block text-[0.8125rem] text-ink">
-                                {assignment.place_name ?? assignment.place_id}
-                              </span>
-                              <span className="font-mono text-[0.65625rem] text-mute">
-                                {assignment.actor} · {assignment.reason}
-                              </span>
-                            </MiniCell>
-                            <MiniCell>{day(assignment.valid_from)}</MiniCell>
-                            <MiniCell align="right">
-                              {assignment.valid_to
-                                ? day(assignment.valid_to)
-                                : "open"}
-                            </MiniCell>
-                          </MiniRow>
-                        ))}
-                      </MiniTable>
-                    )}
-                  </div>
-
-                  {person.code_history.length > 0 && (
-                    <div>
-                      <SubHead>Number corrections</SubHead>
-                      <MiniTable
-                        head={["Was", { label: "Became", align: "left" }, "By"]}
-                      >
-                        {person.code_history.map((correction, index) => (
-                          <MiniRow key={`${correction.from}-${index}`}>
-                            <MiniCell>
-                              <span className="font-mono text-id text-mute line-through">
-                                {correction.from}
-                              </span>
-                            </MiniCell>
-                            <MiniCell>
-                              <span className="font-mono text-id text-ink">
-                                {correction.to}
-                              </span>
-                            </MiniCell>
-                            <MiniCell align="right">
-                              {correction.actor}
-                            </MiniCell>
-                          </MiniRow>
-                        ))}
-                      </MiniTable>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {shown === "leave" && (
-                <LeaveTab employeeId={person.employee_id} />
-              )}
-
-              {shown === "contracts" && (
-                <Contracts employeeId={person.employee_id} />
-              )}
-
-              {shown === "change" && (
-                <Changes
-                  employeeId={person.employee_id}
-                  account={person.account}
-                />
-              )}
-            </div>
-          </div>
+          <EmployeeSheetBody
+            person={person}
+            listed={listed}
+            employer={employer}
+          />
         ),
       })}
     </Sheet>
+  )
+}
+
+/// One person's sheet, once the record is in hand.
+///
+/// # The tabs depend on the reader AND the record
+///
+/// The Change forms are head office's, and the exit tab belongs to a leaver —
+/// an exit interview exists for somebody whose employment ended, and showing
+/// it beside an active record promises something that cannot exist. Both
+/// facts arrive with the detail read, so the tabs are computed here rather
+/// than in the sheet. A tab the reader may no longer be offered falls back
+/// rather than rendering nothing: opening a second person keeps the tab the
+/// first one was read on, and that tab may not exist for them.
+function EmployeeSheetBody({
+  person,
+  listed,
+  employer,
+}: {
+  person: EmployeeView
+  listed: EmployeeSummary | null
+  employer: boolean
+}) {
+  const [tab, setTab] = useState<string>("record")
+  const tabs = tabsFor(employer, person.status)
+  const shown = tabs.some((one) => one.value === tab) ? tab : "record"
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Pill tone={statusTone(person.status)}>
+          {statusLabel(person.status)}
+        </Pill>
+        {!person.selectable && (
+          <Pill tone="neutral">Not available for new work</Pill>
+        )}
+        {person.status !== "ACTIVE" &&
+          person.status !== "CANDIDATE" &&
+          person.account !== null &&
+          person.account.active && (
+            // Ending or suspending employment closes the login as part of
+            // the same act, so this is either a binding made before that
+            // was true or a close that failed. Both are a working
+            // credential for somebody who is not working, which is the
+            // one thing on this sheet worth interrupting somebody about.
+            <Pill tone="bad">Login still open</Pill>
+          )}
+      </div>
+
+      <Facts>
+        <Fact term="Posted to">
+          {person.current_place_name ?? person.current_place_id ?? "—"}
+        </Fact>
+        <Fact term="Login">
+          {person.account === null ? (
+            "None"
+          ) : person.account.active ? (
+            person.account.username
+          ) : (
+            <span className="text-mute">
+              {person.account.username} · closed
+            </span>
+          )}
+        </Fact>
+        <Fact term="Job">{listed?.position ?? "—"}</Fact>
+        <Fact term="Registered">{day(person.created_at)}</Fact>
+      </Facts>
+
+      <div>
+        <SubTabs tabs={tabs} value={shown} onChange={setTab} />
+
+        {shown === "record" && (
+          <div className="flex flex-col gap-5">
+            <div>
+              <SubHead>Employment</SubHead>
+              {person.history.length === 0 ? (
+                <Quiet>
+                  Nothing has happened to this record yet — not even a hire.
+                </Quiet>
+              ) : (
+                <Timeline
+                  events={person.history.map((event, index) => ({
+                    id: `${event.transition}-${event.at}-${index}`,
+                    title: `${event.transition} — ${event.from} → ${event.to}`,
+                    detail: `${event.actor} · ${event.reason}`,
+                    at: day(event.effective_on),
+                    state:
+                      index === person.history.length - 1 ? "current" : "done",
+                  }))}
+                />
+              )}
+            </div>
+
+            <div>
+              <SubHead>Postings</SubHead>
+              {person.assignments.length === 0 ? (
+                <Quiet>Never posted anywhere.</Quiet>
+              ) : (
+                <MiniTable
+                  head={["Place", { label: "From", align: "left" }, "Until"]}
+                >
+                  {person.assignments.map((assignment) => (
+                    <MiniRow
+                      key={`${assignment.place_id}-${assignment.valid_from}`}
+                    >
+                      <MiniCell>
+                        <span className="block text-[0.875rem] text-ink">
+                          {assignment.place_name ?? assignment.place_id}
+                        </span>
+                        <span className="font-mono text-[0.875rem] text-mute">
+                          {assignment.actor} · {assignment.reason}
+                        </span>
+                      </MiniCell>
+                      <MiniCell>{day(assignment.valid_from)}</MiniCell>
+                      <MiniCell align="right">
+                        {assignment.valid_to
+                          ? day(assignment.valid_to)
+                          : "open"}
+                      </MiniCell>
+                    </MiniRow>
+                  ))}
+                </MiniTable>
+              )}
+            </div>
+
+            {person.code_history.length > 0 && (
+              <div>
+                <SubHead>Number corrections</SubHead>
+                <MiniTable
+                  head={["Was", { label: "Became", align: "left" }, "By"]}
+                >
+                  {person.code_history.map((correction, index) => (
+                    <MiniRow key={`${correction.from}-${index}`}>
+                      <MiniCell>
+                        <span className="font-mono text-id text-mute line-through">
+                          {correction.from}
+                        </span>
+                      </MiniCell>
+                      <MiniCell>
+                        <span className="font-mono text-id text-ink">
+                          {correction.to}
+                        </span>
+                      </MiniCell>
+                      <MiniCell align="right">{correction.actor}</MiniCell>
+                    </MiniRow>
+                  ))}
+                </MiniTable>
+              </div>
+            )}
+          </div>
+        )}
+
+        {shown === "leave" && <LeaveTab employeeId={person.employee_id} />}
+
+        {shown === "claims" && <ClaimsTab employeeId={person.employee_id} />}
+
+        {shown === "contracts" && <Contracts employeeId={person.employee_id} />}
+
+        {shown === "exit" && (
+          <ExitTab employeeId={person.employee_id} employer={employer} />
+        )}
+
+        {shown === "change" && (
+          <Changes employeeId={person.employee_id} account={person.account} />
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -662,7 +704,7 @@ function Contracts({ employeeId }: { employeeId: string }) {
                     </Tag>
                     {contract.in_force && <Pill tone="ok">In force</Pill>}
                   </span>
-                  <span className="mt-0.5 block font-mono text-[0.65625rem] text-mute">
+                  <span className="mt-0.5 block font-mono text-[0.875rem] text-mute">
                     {contract.actor} · {contract.reason}
                   </span>
                 </MiniCell>
@@ -854,16 +896,6 @@ function TransitionForm({ employeeId }: { employeeId: string }) {
       className="flex flex-col gap-4"
     >
       {change.isError && <ErrorState error={change.error} />}
-      {change.isSuccess && (
-        <form.Subscribe selector={(state) => state.values.effectiveOn}>
-          {(effectiveOn) => (
-            <Banner tone="ok">
-              Recorded, effective {day(effectiveOn)}. The timeline above shows
-              it.
-            </Banner>
-          )}
-        </form.Subscribe>
-      )}
 
       <form.Field name="transition">
         {(field) => (
@@ -981,7 +1013,6 @@ function PostingForm({ employeeId }: { employeeId: string }) {
       className="flex flex-col gap-4"
     >
       {post.isError && <ErrorState error={post.error} />}
-      {post.isSuccess && <Banner tone="ok">Posting recorded.</Banner>}
 
       <form.Field name="placeId">
         {(field) => (
@@ -1127,7 +1158,6 @@ function ContractForm({ employeeId }: { employeeId: string }) {
       className="flex flex-col gap-4"
     >
       {add.isError && <ErrorState error={add.error} />}
-      {add.isSuccess && <Banner tone="ok">Contract added.</Banner>}
 
       <form.Field name="kind">
         {(field) => (
@@ -1248,12 +1278,6 @@ function CodeForm({ employeeId }: { employeeId: string }) {
   return (
     <div className="flex flex-col gap-4">
       {correct.isError && <ErrorState error={correct.error} />}
-      {correct.isSuccess && (
-        <Banner tone="ok">
-          Corrected. The old number stays on the record — a correction is not an
-          erasure.
-        </Banner>
-      )}
 
       <Field label="New employee number">
         <Input
@@ -1368,18 +1392,7 @@ function AccountForm({
   if (account !== null) {
     return (
       <div className="flex flex-col gap-4">
-        {/* Rendered here as well as below, because issuing succeeds *into* this
-            branch: the moment the account exists this is the form on screen,
-            and a confirmation that only the other branch draws is one nobody
-            ever reads. */}
-        {issue.data !== undefined && <IssuedNotice issued={issue.data} />}
         {release.isError && <ErrorState error={release.error} />}
-        {release.isSuccess && (
-          <Banner tone="ok">
-            Released. The account still exists and still signs in — it is simply
-            nobody&rsquo;s until it is bound again.
-          </Banner>
-        )}
 
         <Facts>
           <Fact term="Username">{account.username}</Fact>
@@ -1411,23 +1424,23 @@ function AccountForm({
     )
   }
 
-  const issued = issue.data ?? null
+  const freshAtDc =
+    (targets.data ?? []).find((one) => one.origin_id === fresh.origin)
+      ?.node_role === "DC"
+
   const readyToIssue =
     fresh.username.trim() !== "" &&
     fresh.displayName.trim() !== "" &&
     fresh.password !== "" &&
     reason.trim() !== "" &&
-    // A node was picked but no PIN typed for it is a grant that cannot be used.
-    (fresh.origin === "" || fresh.edgePassword !== "")
+    // A store picked but no PIN typed for it is a grant that cannot be used.
+    // A DC needs none: the hub signs people in there with this login.
+    (fresh.origin === "" || freshAtDc || fresh.edgePassword !== "")
 
   return (
     <div className="flex flex-col gap-4">
       {link.isError && <ErrorState error={link.error} />}
       {issue.isError && <ErrorState error={issue.error} />}
-      {link.isSuccess && (
-        <Banner tone="ok">Linked. This record now has a way to sign in.</Banner>
-      )}
-      {issued !== null && <IssuedNotice issued={issued} />}
 
       <Choices
         label="How this record gets a login"
@@ -1570,8 +1583,16 @@ function AccountForm({
                         </Select>
                       </Field>
                       <Field
-                        label="Password at that node"
-                        hint="The till is a separate credential — it has to keep working when the shop is offline."
+                        label={
+                          freshAtDc
+                            ? "Offline password at that DC (optional)"
+                            : "Password at that node"
+                        }
+                        hint={
+                          freshAtDc
+                            ? "Not needed to sign in: the hub uses this login. Set one only for signing in while the DC cannot reach the centre."
+                            : "The till is a separate credential — it has to keep working when the shop is offline."
+                        }
                       >
                         <Input
                           type="password"
@@ -1602,26 +1623,6 @@ function AccountForm({
         </>
       )}
     </div>
-  )
-}
-
-/// What was issued, named back. The username matters because it is what the
-/// person types; the node and its rung matter because they are the half of the
-/// act that is easy to forget was even asked for. The password is deliberately
-/// absent — the server does not echo it and neither does this.
-function IssuedNotice({ issued }: { issued: ProvisionedAccount }) {
-  return (
-    <Banner tone="ok">
-      Issued <b>{issued.username}</b> at {rungLabel(issued.role)} and bound it
-      to this record
-      {issued.edge_origin_id !== null &&
-        `, with ${rungLabel(issued.edge_role ?? "")} at ${issued.edge_origin_id}${
-          issued.policy_version === null
-            ? ""
-            : ` (policy ${issued.policy_version})`
-        }`}
-      . The password is not shown again — whoever typed it has it.
-    </Banner>
   )
 }
 
@@ -1893,10 +1894,10 @@ function LeaveTab({ employeeId }: { employeeId: string }) {
                 {rows.map((row) => (
                   <MiniRow key={row.leave_type}>
                     <MiniCell>
-                      <span className="block text-[0.8125rem] text-ink">
+                      <span className="block text-[0.875rem] text-ink">
                         {row.name}
                       </span>
-                      <span className="font-mono text-[0.65625rem] text-mute">
+                      <span className="font-mono text-[0.875rem] text-mute">
                         {row.leave_type}
                       </span>
                     </MiniCell>
@@ -1933,10 +1934,10 @@ function LeaveTab({ employeeId }: { employeeId: string }) {
                 {rows.map((row) => (
                   <MiniRow key={row.id}>
                     <MiniCell>
-                      <span className="block text-[0.8125rem] text-ink">
+                      <span className="block text-[0.875rem] text-ink">
                         {row.leave_type_name}
                       </span>
-                      <span className="font-mono text-[0.65625rem] text-mute">
+                      <span className="font-mono text-[0.875rem] text-mute">
                         {leaveStateLabel(row.state)}
                         {row.decided_by !== null && ` · ${row.decided_by}`}
                       </span>
@@ -1952,6 +1953,266 @@ function LeaveTab({ employeeId }: { employeeId: string }) {
             ),
         })}
       </div>
+    </div>
+  )
+}
+
+/// What this person has asked the petty cash for, and what they are still
+/// holding of the company's money.
+///
+/// Read-only, and deliberately so: deciding a claim is the queue's work, and
+/// a sheet that offered a second place to do it would be a second place to
+/// get a different answer. The advances underneath are Finance's table (0280)
+/// read through the employee route — People does not keep its own answer
+/// about who is holding money, and the narrowing to this one employee is the
+/// server's. The fold behind it carries every leg money has come back by,
+/// recovered-via-gaji included.
+function ClaimsTab({ employeeId }: { employeeId: string }) {
+  const claims = useQuery({
+    queryKey: claimsKeys.of(employeeId),
+    queryFn: ({ signal }) => claimsOf(employeeId, signal),
+  })
+  const advances = useQuery({
+    queryKey: claimsKeys.advances(employeeId),
+    queryFn: ({ signal }) => openAdvances(employeeId, signal),
+  })
+
+  // Approved and unpaid is the number the payout still owes — the debt the
+  // ledger already carries between the decision and the petty-cash drawer.
+  const owed = (claims.data ?? [])
+    .filter((row) => row.state === "APPROVED")
+    .reduce((sum, row) => sum + (row.sanctioned_minor ?? 0), 0)
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div>
+        <SubHead>Claims</SubHead>
+        {queryState(claims, {
+          loading: "Reading the claims…",
+          render: (rows) =>
+            rows.length === 0 ? (
+              <Quiet>Never asked the petty cash for anything.</Quiet>
+            ) : (
+              <>
+                <KeyValue term="Approved, not yet paid">
+                  {owed === 0 ? "nothing" : money(owed)}
+                </KeyValue>
+                <MiniTable
+                  head={[
+                    "Claim",
+                    { label: "Filed", align: "left" },
+                    { label: "Claimed", align: "right" },
+                    { label: "Sanctioned", align: "right" },
+                  ]}
+                >
+                  {rows.map((row) => (
+                    <MiniRow key={row.claim_id}>
+                      <MiniCell>
+                        <span className="block font-mono text-[0.875rem] text-ink">
+                          {row.claim_number}
+                        </span>
+                        <span className="font-mono text-[0.875rem] text-mute">
+                          {claimStateLabel(row.state)}
+                          {row.decided_by !== null && ` · ${row.decided_by}`}
+                        </span>
+                      </MiniCell>
+                      <MiniCell>{day(row.posted_on)}</MiniCell>
+                      <MiniCell align="right">
+                        {money(row.claimed_minor)}
+                      </MiniCell>
+                      {/* Absent until decided, and a dash rather than a zero:
+                          not yet sanctioned is not the same fact as sanctioned
+                          to nothing. */}
+                      <MiniCell align="right">
+                        {row.sanctioned_minor === null ? (
+                          <span className="text-mute">—</span>
+                        ) : (
+                          money(row.sanctioned_minor)
+                        )}
+                      </MiniCell>
+                    </MiniRow>
+                  ))}
+                </MiniTable>
+              </>
+            ),
+        })}
+      </div>
+
+      <div>
+        <SubHead>Advances</SubHead>
+        {queryState(advances, {
+          loading: "Reading the advances…",
+          render: (rows) =>
+            rows.length === 0 ? (
+              <Quiet>Holding none of the company's money.</Quiet>
+            ) : (
+              <MiniTable
+                head={[
+                  "Advance",
+                  { label: "Out since", align: "left" },
+                  { label: "Settled", align: "right" },
+                  { label: "Refunded", align: "right" },
+                  { label: "Dipulihkan via gaji", align: "right" },
+                  { label: "Outstanding", align: "right" },
+                ]}
+              >
+                {rows.map((row) => (
+                  <MiniRow key={row.advance_id}>
+                    <MiniCell>
+                      <span className="block font-mono text-[0.875rem] text-ink">
+                        {row.advance_number}
+                      </span>
+                      <span className="font-mono text-[0.875rem] text-mute">
+                        {row.status.toLowerCase()}
+                      </span>
+                    </MiniCell>
+                    <MiniCell>{day(row.paid_at)}</MiniCell>
+                    <MiniCell align="right">
+                      {money(row.settled_minor)}
+                    </MiniCell>
+                    <MiniCell align="right">
+                      {money(row.refunded_minor)}
+                    </MiniCell>
+                    {/* The wage leg: repaid out of a run the place filed and
+                        head office approved. A zero is honest here — nothing
+                        recovered yet is a fact a reader checks against the
+                        outstanding beside it. */}
+                    <MiniCell align="right">
+                      {money(row.recovered_minor)}
+                    </MiniCell>
+                    <MiniCell align="right">
+                      {money(row.outstanding_minor)}
+                    </MiniCell>
+                  </MiniRow>
+                ))}
+              </MiniTable>
+            ),
+        })}
+      </div>
+    </div>
+  )
+}
+
+/// What this person left behind: the interview and the statement.
+///
+/// Shown only for the terminated — the tab is offered only when the record
+/// says TERMINATED — and read-only, like the Claims tab beside which it sits:
+/// conducting an interview and settling a statement are the Exits screen's
+/// work, and a sheet that offered a second place to do them would be a second
+/// place to get a different answer. The statement rows link there, one click,
+/// because DESIGN.md asks for no dead ends.
+///
+/// # The statement is the employer's read
+///
+/// Reading statements needs `people.fnf.settle`, which is head office's; a
+/// place manager's tab shows the interview and stops there, rather than
+/// fetching a guaranteed refusal on every open.
+function ExitTab({
+  employeeId,
+  employer,
+}: {
+  employeeId: string
+  employer: boolean
+}) {
+  const interviews = useQuery({
+    queryKey: exitKeys.of(employeeId),
+    queryFn: ({ signal }) =>
+      listExitInterviews({ employee: employeeId }, signal),
+  })
+  const statements = useQuery({
+    queryKey: fnfKeys.of(employeeId),
+    queryFn: ({ signal }) => listFnF(employeeId, signal),
+    enabled: employer,
+  })
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div>
+        <SubHead>Exit interview</SubHead>
+        {queryState(interviews, {
+          loading: "Reading the interview…",
+          render: (rows) => {
+            const one = rows[0] ?? null
+            return one === null ? (
+              <Quiet>
+                No exit interview — they left before the hook existed, and head
+                office can open one on the Exits screen.
+              </Quiet>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 py-1">
+                  <Pill tone={exitInterviewStateTone(one.state)}>
+                    {exitInterviewStateLabel(one.state)}
+                  </Pill>
+                  {one.state === "COMPLETED" && (
+                    <span className="text-meta text-body">
+                      {exitStanceLabel(one.employee_stance)}
+                    </span>
+                  )}
+                </div>
+                <KeyValue term="Left">{day(one.created_at)}</KeyValue>
+                {one.completed_at !== null && (
+                  <KeyValue term="Conducted">
+                    {one.conducted_by} · {moment(one.completed_at)}
+                  </KeyValue>
+                )}
+                {one.state === "CANCELLED" && (
+                  <KeyValue term="Cancelled">
+                    {one.cancelled_by} · {one.cancel_reason}
+                  </KeyValue>
+                )}
+                {one.interview_summary !== null && (
+                  <p className="mt-2 whitespace-pre-wrap text-body">
+                    {one.interview_summary}
+                  </p>
+                )}
+              </>
+            )
+          },
+        })}
+      </div>
+
+      {employer && (
+        <div>
+          <SubHead>Full & final</SubHead>
+          {queryState(statements, {
+            loading: "Reading the statements…",
+            render: (rows) =>
+              rows.length === 0 ? (
+                <Quiet>Nothing settled with this leaver yet.</Quiet>
+              ) : (
+                <MiniTable
+                  head={[
+                    "Statement",
+                    { label: "State", align: "left" },
+                    { label: "Net", align: "right" },
+                  ]}
+                >
+                  {rows.map((row) => (
+                    <MiniRow key={row.fnf_id}>
+                      <MiniCell>
+                        {day(row.transaction_on)}
+                        <span className="block font-mono text-[0.875rem] text-mute">
+                          {moment(row.created_at)} · {row.created_by}
+                        </span>
+                      </MiniCell>
+                      <MiniCell>
+                        <Pill tone={fnfStateTone(row.state)}>
+                          {fnfStateLabel(row.state)}
+                        </Pill>
+                      </MiniCell>
+                      <MiniCell align="right">
+                        <span className="tabular-nums">
+                          {money(row.net_payable_minor)}
+                        </span>
+                      </MiniCell>
+                    </MiniRow>
+                  ))}
+                </MiniTable>
+              ),
+          })}
+        </div>
+      )}
     </div>
   )
 }

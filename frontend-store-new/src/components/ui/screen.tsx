@@ -1,68 +1,88 @@
+import { useRouterState } from "@tanstack/react-router"
+
+import { PageHeader } from "@/components/ui/page-header"
+import { titleForPath } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 
-/// What a screen must leave clear at its foot, so the last card fades under the
-/// furniture as a scroll cue rather than being hidden behind it.
+/// What a screen must leave clear at its foot, so the last card is not hidden
+/// behind something fixed over it.
 ///
-///  - `tabs` — the floating squircles and their 18px float.
-///  - `both` — the squircles *and* a floating summary bar above them.
-///  - `none` — a pushed screen, which has neither; it owns its own foot.
+///  - `tabs` — nothing floats over the page; the hub's gutter is enough.
+///  - `both` — a `FloatingBar` summary sits over the foot of the page.
+///  - `none` — the screen owns its foot (an `ActionBar` below it).
+///
+/// The phone's bottom bar is not in this list: the shell pads its scroll area
+/// clear of it, so no screen has to know it is there.
 const CLEARANCE = {
-  // Written against the home indicator, not beside it. `FloatingBar` and
-  // `TabBar` both offset themselves by `env(safe-area-inset-bottom)`, so a
-  // fixed padding here is short by exactly that inset on every phone that has
-  // one — and what gets clipped is the last card's controls, under an opaque
-  // bar, where they cannot be tapped.
-  tabs: "pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))]",
-  both: "pb-[calc(16rem+env(safe-area-inset-bottom,0px))]",
+  tabs: "pb-10 md:pb-14",
+  both: "pb-[calc(9rem+env(safe-area-inset-bottom,0px))]",
   none: "pb-6",
 } as const
 
-/// The scrolling body of a screen.
+/// The scrolling body of a screen — the hub's `PageContent` measure and
+/// gutters (`frontend-hub/src/components/shell/app-shell.tsx`), with the page's
+/// title drawn by the hub's `PageHeader` on a desk.
 ///
-/// The page never scrolls; this does. That is what keeps the app-bar pinned and
-/// the tab bar floating instead of both being dragged up the screen by a rubber
-/// band.
+/// It scrolls itself rather than leaning on the shell's scroll area, because
+/// the screens that are *worked* rather than read keep something fixed under
+/// the column — the basket's total, the payment button — as a sibling after
+/// it, and that sibling only stays put when this box is the one that moves.
+///
+/// The header is desk-only: on a phone the bar already says the screen's name
+/// in the same words, and a second copy directly under it is a line of
+/// nothing on a 375px screen.
 export function Screen({
   foot = "tabs",
   counter = false,
+  header = true,
+  title,
+  sub,
+  actions,
   className,
+  children,
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & {
+}: Omit<React.HTMLAttributes<HTMLDivElement>, "title"> & {
   foot?: keyof typeof CLEARANCE
   /// Let this screen use the whole counter monitor instead of the reading
-  /// measure.
-  ///
-  /// The cap below is right for everything that is *read* — a form, a report, a
-  /// product. It is wrong for the two screens that are *worked*: a till at
-  /// 1440px with a 960px column has the basket and the number a cashier is
-  /// watching in one narrow strip down the middle, and the scan field scrolled
-  /// off the top. Those two lay themselves out in panes instead, and say so
-  /// here rather than fighting the cap with negative margins.
+  /// measure. The till and the payment step are worked, not read: a basket in
+  /// a 960px strip down the middle of a 1440px monitor is a basket somebody
+  /// scrolls while a customer waits.
   counter?: boolean
+  /// `false` for a screen that draws its own heading — a product's card, whose
+  /// title is the product rather than the word "Product".
+  header?: boolean
+  /// Overrides the nav entry's label as the page title.
+  title?: React.ReactNode
+  sub?: React.ReactNode
+  actions?: React.ReactNode
 }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
   return (
     <div
-      className={cn(
-        // 16px side gutters, matching the frames. The list runs to the edges of
-        // that gutter and no further; nothing here is inset twice.
-        "min-h-0 flex-1 overflow-y-auto px-4",
-        // On a counter screen the column stops growing. DESIGN.md caps the
-        // content column and centres it; without that a two-field form is
-        // 1440px of white with a hairline somewhere in the middle, which is
-        // what a phone layout looks like when nobody stopped it.
-        counter
-          ? "md:mx-auto md:w-full md:max-w-[60rem] md:px-7 lg:max-w-[96rem] lg:px-8"
-          : "md:mx-auto md:w-full md:max-w-[60rem] md:px-7",
-        CLEARANCE[foot],
-        className,
-      )}
+      className={cn("min-h-0 flex-1 overflow-y-auto", CLEARANCE[foot])}
       {...props}
-    />
+    >
+      <div
+        className={cn(
+          "mx-auto w-full px-4 pt-4 md:px-[1.875rem] md:pt-6",
+          counter ? "max-w-[100rem]" : "max-w-[72rem]",
+          className,
+        )}
+      >
+        {header && (
+          <PageHeader
+            className="max-md:hidden"
+            title={title ?? titleForPath(pathname)}
+            sub={sub}
+            actions={actions}
+          />
+        )}
+        {children}
+      </div>
+    </div>
   )
 }
 
-/// A titled group inside a screen. Whitespace separates; one hairline divides;
-/// nothing gets a box around it just for being a group.
 export function Section({
   title,
   action,
@@ -79,7 +99,7 @@ export function Section({
       {(title !== undefined || action !== undefined) && (
         <div className="mb-2.5 flex min-h-6 items-center justify-between gap-3">
           {title !== undefined ? (
-            <h2 className="text-section font-medium text-mute">{title}</h2>
+            <h2 className="text-section font-semibold text-ink">{title}</h2>
           ) : (
             <span />
           )}
@@ -91,7 +111,7 @@ export function Section({
   )
 }
 
-/// A stack of record cards — the one list grammar this app has.
+/// Records one under the other, the gap a card list uses everywhere.
 export function CardList({
   className,
   ...props
@@ -99,17 +119,9 @@ export function CardList({
   return <div className={cn("flex flex-col gap-2.5", className)} {...props} />
 }
 
-/// The summary-and-action card that floats over a top-level screen.
-///
-/// This is DESIGN.md's **floating card** — all corners rounded at `{r.sheet}`,
-/// ~16px side margins, clear of the home indicator, no drag handle — used for
-/// what a phone-shaped till needs at the foot of a basket: the number, and the
-/// one filled button.
-///
-/// It floats rather than being a sticky opaque bar because the tab bar is
-/// already down there, and two full-width bars stacked at the foot of a phone
-/// is the shape this language spent its whole responsive section avoiding. A
-/// card above the squircles reads as one system; a bar above them reads as two.
+/// A summary that floats over the foot of the page — the basket's running
+/// total while more is scanned. Over the phone's bottom bar there, level with
+/// the page's own foot on a desk.
 export function FloatingBar({
   className,
   children,
@@ -120,21 +132,19 @@ export function FloatingBar({
   return (
     <div
       className={cn(
-        // 54px squircle + its 18px float + 12px of air, then the home indicator.
-        "fixed inset-x-4 bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] z-40",
-        "overflow-hidden rounded-sheet border border-hairline bg-canvas shadow-float",
+        "fixed inset-x-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] z-20",
+        "md:sticky md:inset-x-auto md:bottom-4 md:mx-auto md:w-full md:max-w-[72rem] md:px-[1.875rem]",
         className,
       )}
     >
-      {children}
+      <div className="overflow-hidden rounded-card border border-hairline bg-canvas shadow-float">
+        {children}
+      </div>
     </div>
   )
 }
 
-/// The foot of a **pushed** screen, where there is no tab bar to make room for.
-///
-/// Opaque rather than a fade, because what sits above it is a number somebody
-/// is about to take money against, and a gradient over that is unreadable.
+/// The one action a screen ends on, pinned under its column.
 export function ActionBar({
   className,
   children,
@@ -145,16 +155,11 @@ export function ActionBar({
   return (
     <div
       className={cn(
-        "pb-safe sticky bottom-0 z-20 shrink-0 border-t border-hairline bg-canvas px-4 pt-3",
+        "pb-safe sticky bottom-0 z-20 shrink-0 border-t border-hairline bg-canvas px-4 pt-3 md:px-[1.875rem]",
         className,
       )}
     >
-      {/* Capped to the same measure as `Screen`, so the one action lines up
-          with the column above it instead of stretching the full width of a
-          counter monitor. */}
-      <div className="mx-auto w-full max-w-[60rem] pb-3 md:px-3">
-        {children}
-      </div>
+      <div className="mx-auto w-full max-w-[72rem] pb-3">{children}</div>
     </div>
   )
 }

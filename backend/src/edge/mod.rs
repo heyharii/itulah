@@ -6,10 +6,20 @@
 pub mod attendance;
 pub mod auth;
 pub mod contracts;
+pub mod diagnose;
 pub mod domain;
+pub mod enrolment;
 pub mod escpos;
 pub mod fingerprint;
 pub mod http;
+/// Deliveries head office announced to this shop, counted blind on arrival.
+pub mod inbound;
+pub mod node;
+pub mod console;
+pub mod heartbeat;
+pub mod status;
+#[cfg(windows)]
+pub mod winservice;
 pub mod outbound;
 /// The shop's small money: the petty cash float head office hands over, and
 /// what it buys. Never the drawer — see the module note for the three pots.

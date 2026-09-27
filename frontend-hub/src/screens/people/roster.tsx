@@ -278,7 +278,7 @@ export function Roster() {
         {live.length > 0 && (
           <div className="flex flex-wrap items-end gap-x-4 gap-y-3 border-b border-hairline px-4 pb-3.5">
             <div className="flex flex-col gap-[0.4375rem]">
-              <span className="text-[0.75rem] font-medium text-text">
+              <span className="text-[0.875rem] font-medium text-text">
                 Put on
               </span>
               <Segmented
@@ -290,7 +290,7 @@ export function Roster() {
                     label: (
                       <span className="flex items-baseline gap-1">
                         {shift.name}
-                        <span className="text-[0.6875rem] text-mute">
+                        <span className="text-[0.875rem] text-mute">
                           {shift.starts_at}–{shift.ends_at}
                         </span>
                       </span>
@@ -375,7 +375,7 @@ export function Roster() {
                             {person.full_name ?? person.employee_code}
                           </span>
                           {person.full_name !== null && (
-                            <span className="block truncate text-[0.6875rem] text-mute">
+                            <span className="block truncate text-[0.875rem] text-mute">
                               {person.employee_code}
                             </span>
                           )}

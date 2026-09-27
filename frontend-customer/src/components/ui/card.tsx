@@ -1,19 +1,14 @@
 import { cn } from "@/lib/utils"
 
-/// White card, one hairline, 16px corners, whisper shadow.
-///
-/// Cards are lifted by their border and not by shadow: the shadow token exists
-/// to stop a white edge disappearing into a white page, not to float anything.
+/// A white card standing on the grey page. Borderless: the edge is the change
+/// of surface and a shadow too soft to see as one.
 export function Card({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn(
-        "rounded-card border border-hairline bg-canvas shadow-soft",
-        className,
-      )}
+      className={cn("rounded-card bg-canvas shadow-soft", className)}
       {...props}
     />
   )
@@ -25,7 +20,7 @@ export function CardHeader({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("flex flex-col gap-1 px-4 pt-4 pb-1", className)}
+      className={cn("flex flex-col gap-1 px-5 pt-5 pb-1", className)}
       {...props}
     />
   )
@@ -54,11 +49,34 @@ export function CardContent({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("px-4 py-4", className)} {...props} />
+  return <div className={cn("px-5 py-5", className)} {...props} />
 }
 
-/// The tinted band a record card opens with: a full-bleed `{soft}` strip
-/// carrying what the record is, with the body staying white below it.
+/// The grey label a group of rows sits under, inside its card — "Cashback",
+/// "Fees" in the reference. Quieter than a title: it names the group, the rows
+/// carry the content.
+export function CardLabel({
+  className,
+  children,
+  aside,
+}: {
+  className?: string
+  children: React.ReactNode
+  aside?: React.ReactNode
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 px-5 pt-5 pb-2",
+        className,
+      )}
+    >
+      <p className="text-section text-body">{children}</p>
+      {aside}
+    </div>
+  )
+}
+
 export function CardStrip({
   className,
   ...props
@@ -66,7 +84,7 @@ export function CardStrip({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-3 rounded-t-card border-b border-hairline bg-soft px-4 py-3",
+        "flex items-center justify-between gap-3 px-5 pt-5 pb-3",
         className,
       )}
       {...props}

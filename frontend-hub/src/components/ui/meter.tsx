@@ -6,18 +6,30 @@ import { cn } from "@/lib/utils"
 /// The fill comes from the saturated `fill-*` family rather than the status
 /// hues: a status colour on a meter would claim the number is a *state*, when
 /// what a meter says is "how much".
+///
+/// Said to a screen reader as a percentage — 0–100 with the figure spelled out
+/// in `aria-valuetext` — because a raw 0–1 is read aloud as "zero point seven
+/// eight". What it measures comes from `label` or `labelledBy` when the caller
+/// has words for it; `<Progress>` hands over its own.
 export function Meter({
   value,
   tone = "accent",
+  label,
+  labelledBy,
   className,
 }: {
   /// 0–1. Clamped, because a server that reports 1.4 sell-through should draw a
   /// full bar, not a bar wider than its track.
   value: number
   tone?: "accent" | "ok" | "warn" | "bad"
+  /// What the bar measures, for the screen reader ("Sell-through").
+  label?: string
+  /// The id of a visible label that already says it.
+  labelledBy?: string
   className?: string
 }) {
   const clamped = Math.max(0, Math.min(1, value))
+  const percent = Math.round(clamped * 100)
   return (
     <span
       className={cn(
@@ -25,9 +37,12 @@ export function Meter({
         className
       )}
       role="meter"
-      aria-valuenow={clamped}
+      aria-label={label}
+      aria-labelledby={labelledBy}
+      aria-valuenow={percent}
       aria-valuemin={0}
-      aria-valuemax={1}
+      aria-valuemax={100}
+      aria-valuetext={`${percent}%`}
     >
       <span
         className={cn(
@@ -51,6 +66,10 @@ export function Meter({
 /// to its own number, not a chart, and it is deliberately too small to be read
 /// as one.
 ///
+/// Hidden from the screen reader for the same reason it has no label: the
+/// number it sits beside already says it, and a second, unlabelled reading of
+/// the same figure is noise.
+///
 /// Colours come from the tokens directly rather than from `stroke-*` classes,
 /// which is what every other SVG in this app does — see `ui/chart.tsx`.
 export function Dial({
@@ -70,10 +89,7 @@ export function Dial({
     <svg
       viewBox="0 0 16 16"
       className={cn("size-4 shrink-0 -rotate-90", className)}
-      role="meter"
-      aria-valuenow={clamped}
-      aria-valuemin={0}
-      aria-valuemax={1}
+      aria-hidden
     >
       <circle
         cx="8"

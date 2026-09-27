@@ -31,7 +31,7 @@ const DISABLED =
   "disabled:pointer-events-none disabled:border-transparent disabled:bg-soft-2 disabled:text-mute disabled:shadow-none disabled:[&_svg]:text-faint"
 
 const button = cva(
-  `inline-flex shrink-0 items-center justify-center gap-2 rounded-inner font-medium whitespace-nowrap transition-colors select-none active:brightness-95 ${DISABLED} [&_svg]:shrink-0`,
+  `inline-flex shrink-0 items-center justify-center gap-2 rounded-inner font-medium whitespace-nowrap transition-[color,background-color,border-color,filter,scale] duration-(--t-press) ease-(--ease-out) select-none active:scale-[0.97] active:brightness-95 ${DISABLED} [&_svg]:shrink-0`,
   {
     variants: {
       variant: {
@@ -79,14 +79,13 @@ export function Button({
   )
 }
 
-/// The frosted icon chip: a 44px white square with a hairline and a soft
-/// shadow, carrying one pale line-icon.
+/// The app-bar's icon button: a 44px target carrying one line-icon, with no
+/// box drawn around it.
 ///
-/// DESIGN.md gives it three jobs on a phone and this app uses two of them — the
-/// app-bar's left and right zones, and the filter control beside a search
-/// field. It survives as its own component rather than a `Button` variant
-/// because it is the one control whose target is set by the app-bar's height
-/// rather than by what is written in it.
+/// It was a white squircle with a hairline and a shadow. On a phone bar that
+/// is two framed boxes either side of the title, and the hub's own phone bar —
+/// the other app on the same phone — draws bare glyphs there, the way iOS and
+/// Android both do. The press is a soft round fill, and the glyph dips.
 export function Chip({
   className,
   ...props
@@ -95,7 +94,7 @@ export function Chip({
     <button
       type="button"
       className={cn(
-        "grid size-11 shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-line-ico shadow-soft transition-colors select-none active:bg-soft-2 [&_svg]:size-[1.125rem]",
+        "grid size-11 shrink-0 place-items-center rounded-full text-ink transition-[background-color,scale] duration-(--t-press) ease-(--ease-out) select-none active:scale-[0.94] active:bg-soft-2 [&_svg]:size-[1.375rem]",
         className,
       )}
       {...props}

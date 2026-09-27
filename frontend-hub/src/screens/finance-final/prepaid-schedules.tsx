@@ -11,7 +11,14 @@ import {
   domainKeys,
   listPrepaidSchedules,
 } from "@/lib/queries/finance-domains"
-import { Code, Grid, Note, NumberCard, Td, Th } from "@/screens/finance-final/parts"
+import {
+  Code,
+  Grid,
+  Note,
+  NumberCard,
+  Td,
+  Th,
+} from "@/screens/finance-final/parts"
 
 /// Prepaid schedules — what was paid for in advance, and the months it belongs
 /// to.
@@ -35,7 +42,8 @@ export function PrepaidSchedules() {
   })
 
   const allocate = useMutation({
-    mutationFn: () => allocatePrepaidMonth({ year: month.year, month: month.month }),
+    mutationFn: () =>
+      allocatePrepaidMonth({ year: month.year, month: month.month }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["finance"] })
     },
@@ -93,13 +101,14 @@ export function PrepaidSchedules() {
 
       {allocate.data === undefined ? null : (
         <Note>
-          {allocate.data.posted} jadwal diposting, {allocate.data.already_posted}{" "}
-          sudah ada sebelumnya, {allocate.data.completed} selesai. Total{" "}
+          {allocate.data.posted} jadwal diposting,{" "}
+          {allocate.data.already_posted} sudah ada sebelumnya,{" "}
+          {allocate.data.completed} selesai. Total{" "}
           {money(allocate.data.amount_minor)}.
         </Note>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {["ACTIVE", "COMPLETED", "CANCELLED", undefined].map((option) => (
           <button
             key={option ?? "ALL"}
@@ -145,13 +154,13 @@ export function PrepaidSchedules() {
                 <Td>{row.site_id}</Td>
                 <Td>
                   {row.prepaid_account_name}
-                  <div className="text-mute text-[0.6875rem]">
+                  <div className="text-[0.875rem] text-mute">
                     → {row.expense_account_name}
                   </div>
                 </Td>
                 <Td>
                   {row.start_period.slice(0, 7)} — {row.end_period.slice(0, 7)}
-                  <div className="text-mute text-[0.6875rem]">
+                  <div className="text-[0.875rem] text-mute">
                     {row.periods_allocated}/{row.periods} bulan
                   </div>
                 </Td>

@@ -3,7 +3,12 @@
 /**
  * One line of a receipt.
  */
-export type CustomerTransactionLine = { sku_code: string, quantity: number, 
+export type CustomerTransactionLine = { sku_code: string, 
+/**
+ * What the garment is called, when the centre knows the SKU. A shopper
+ * reading a receipt recognises a name, not an eleven-digit code.
+ */
+name: string | null, quantity: number, 
 /**
  * The shelf-edge price of one unit, before any promotion.
  */

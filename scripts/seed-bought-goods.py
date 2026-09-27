@@ -315,7 +315,7 @@ def handoff(cloud: Node, dc: Node, args, items, per_style, order) -> int:
             {
                 "receipt_line_id": pending["receipt_line_id"],
                 "article_name": name,
-                "division_code": pending.get("division_code") or "MENSWEAR",
+                "division_code": pending.get("division_code") or "PRIA",
                 "tags": pending.get("tags") or [],
                 # The photograph, carried onto the article. This is the only
                 # path in the system that writes `article.image_url`.

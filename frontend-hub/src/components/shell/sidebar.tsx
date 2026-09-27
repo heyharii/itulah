@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router"
-import { HelpCircle, LogOut, X } from "lucide-react"
+import { LogOut, X } from "lucide-react"
 
 import { count } from "@/lib/format"
 import {
@@ -8,10 +8,11 @@ import {
   modulesOfDomain,
   moduleForPath,
   shown,
+  visibleItems,
   type AppModule,
   type NavItem,
 } from "@/lib/navigation"
-import { useIdentity, useNodeIdentity, useSignOut } from "@/lib/session"
+import { useIdentity, useSignOut } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
 /// The sidebar — one module's screens, and only ever one module's.
@@ -61,8 +62,8 @@ export function Sidebar({
   // one-screen modules whose rows already say what the headings would — see
   // `flatDomain`.
   const grouped = owned.length > 1 && !flatDomain(owned)
+  const conciseGa = domain?.id === "ga"
   const identity = useIdentity()
-  const where = useNodeIdentity()
   const signOut = useSignOut()
 
   return (
@@ -90,26 +91,16 @@ export function Sidebar({
       <div className="-mx-[0.1875rem] -mt-[0.8125rem] flex h-13 shrink-0 items-center gap-1 border-b border-hairline">
         <Link
           to="/"
-          aria-label="Wira Makmur — home"
+          aria-label="Central — home"
           className="flex min-w-0 flex-1 items-center gap-2.5 rounded-inner px-1.5 py-1 transition-colors hover:bg-soft-2"
         >
-          <span className="grid size-7 shrink-0 place-items-center rounded-[0.4375rem] bg-dark text-[0.625rem] font-semibold tracking-[0.02em] text-on-dark shadow-[inset_0_0_0_1px_rgb(255_255_255/8%)]">
-            WM
+          <span className="grid size-7 shrink-0 place-items-center rounded-[0.4375rem] bg-dark text-[0.875rem] font-semibold tracking-[0.02em] text-on-dark shadow-[inset_0_0_0_1px_rgb(255_255_255/8%)]">
+            C
           </span>
           <span className="min-w-0 flex-1 leading-tight">
-            <b className="block truncate text-[0.8125rem] font-semibold tracking-[-0.01em] text-ink">
-              Wira Makmur
+            <b className="block truncate text-[0.875rem] font-semibold tracking-[-0.01em] text-ink">
+              Central
             </b>
-            <small className="flex items-center gap-1 truncate text-[0.6875rem] text-mute">
-              <span
-                aria-hidden
-                className={cn(
-                  "size-1.5 shrink-0 rounded-full",
-                  where.data ? "bg-ok" : "bg-faint"
-                )}
-              />
-              {where.data?.node_id ?? "connecting…"}
-            </small>
           </span>
         </Link>
         {/* Only the drawer closes itself here. The docked column's switch is
@@ -158,58 +149,71 @@ export function Sidebar({
 
             Whether those modules are drawn as labelled groups or as one flat
             list is `flatDomain`'s question, not this file's. */}
-        {owned.map((module) => (
-          <div key={module.id} className="flex flex-col gap-px">
-            {grouped && (
-              <span className="px-[0.5625rem] pt-4 pb-[0.3125rem] text-section font-semibold tracking-[0.05em] text-mute uppercase">
-                {module.label}
-              </span>
-            )}
-            <ModuleScreens key={module.id} module={module} />
-          </div>
-        ))}
+        {owned.map((module, index) => {
+          const sectionStarts =
+            module.sidebarSection !== undefined &&
+            owned[index - 1]?.sidebarSection !== module.sidebarSection
+          const needsModuleHeading =
+            grouped && (!conciseGa || visibleItems(module).length > 1)
+
+          return (
+            <div key={module.id} className="flex flex-col gap-px">
+              {sectionStarts && (
+                <span className="px-[0.5625rem] pt-4 pb-[0.3125rem] text-section font-semibold tracking-[0.05em] text-mute uppercase">
+                  {module.sidebarSection}
+                </span>
+              )}
+              {needsModuleHeading && (
+                <span className="px-[0.5625rem] pt-4 pb-[0.3125rem] text-section font-semibold tracking-[0.05em] text-mute uppercase">
+                  {module.label}
+                </span>
+              )}
+              <ModuleScreens key={module.id} module={module} />
+            </div>
+          )
+        })}
       </nav>
 
-      <div className="mt-auto flex flex-col gap-px pt-2.5">
-        <button
-          type="button"
-          title={open ? undefined : "Help & resources"}
-          className={cn(
-            "flex items-center gap-2.5 rounded-lg py-1.5 text-meta font-normal text-body transition-colors hover:bg-soft-2 hover:text-ink pointer-coarse:min-h-tap",
-            open ? "px-[0.5625rem]" : "justify-center px-0"
-          )}
-        >
-          <HelpCircle className="size-[0.9375rem] shrink-0 text-line-ico" />
-          {open && "Help & resources"}
-        </button>
+      <div className="-mx-[0.1875rem] mt-auto border-t border-hairline pt-2">
         <div
           className={cn(
-            "mt-1.5 flex items-center gap-2.5 rounded-inner",
-            open && "border border-hairline p-[0.4375rem_0.5rem]",
-            !open && "justify-center"
+            "flex items-center gap-2.5 rounded-inner py-1.5",
+            open ? "px-1.5" : "justify-center px-0"
           )}
         >
-          <span className="size-[1.625rem] shrink-0 rounded-full bg-linear-to-br from-avatar-from to-avatar-to" />
+          {/* The person, as a way to their own records: attendance, leave,
+              pay (`/me`, which on a phone is the Profile tab). */}
+          <Link
+            to={"/me" as string}
+            title={open ? undefined : "Profile"}
+            className={cn(
+              "flex min-w-0 items-center gap-2.5 rounded-lg transition-colors hover:bg-soft-2",
+              open && "-m-1 flex-1 p-1"
+            )}
+          >
+            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-linear-to-br from-avatar-from to-avatar-to text-[0.875rem] font-semibold text-ink">
+              {(identity.data?.display_name ?? identity.data?.username ?? "?")
+                .trim()
+                .charAt(0)
+                .toUpperCase()}
+            </span>
+            {open && (
+              <span className="min-w-0 flex-1 truncate text-[0.875rem] font-medium text-ink">
+                {identity.data?.display_name ?? identity.data?.username ?? "—"}
+              </span>
+            )}
+          </Link>
           {open && (
             <>
-              <span className="min-w-0 flex-1 text-[0.78125rem] leading-tight font-medium">
-                <span className="block truncate">
-                  {identity.data?.display_name ??
-                    identity.data?.username ??
-                    "—"}
-                </span>
-                <small className="block truncate text-[0.6875rem] font-normal text-mute">
-                  {where.data?.node_id ?? "cloud"}
-                </small>
-              </span>
               <button
                 type="button"
                 aria-label="Sign out"
+                title="Sign out"
                 onClick={() => signOut.mutate()}
                 disabled={signOut.isPending}
-                className="grid size-[1.625rem] shrink-0 place-items-center rounded-lg text-line-ico transition-colors hover:bg-soft-2 hover:text-text disabled:opacity-50"
+                className="grid size-7 shrink-0 place-items-center rounded-lg text-line-ico transition-colors hover:bg-soft-2 hover:text-text disabled:opacity-50"
               >
-                <LogOut className="size-4 stroke-[1.7]" />
+                <LogOut className="size-[0.9375rem] stroke-[1.7]" />
               </button>
             </>
           )}
@@ -237,7 +241,15 @@ export function Sidebar({
 /// A module with one visible screen draws that screen and no heading. It is
 /// still drawn: the row is where you are, and an empty panel beside a lit rail
 /// tile reads as a screen that failed to load.
-function ModuleScreens({ module }: { module: AppModule }) {
+export function ModuleScreens({
+  module,
+  touch = false,
+}: {
+  module: AppModule
+  /// Rows sized for a thumb in a phone's sheet (`AppSheet`): 48px, 15px
+  /// text, a 20px icon. The sidebar's own rows stay as they are.
+  touch?: boolean
+}) {
   // Called unconditionally and before anything branches on it. Which module is
   // on screen changes, so a hook called only by the modules that declare one
   // would change the hook order between renders; `key`ing this component by
@@ -271,11 +283,12 @@ function ModuleScreens({ module }: { module: AppModule }) {
           {section.items.map((item) => (
             <ScreenRow
               key={item.path}
+              touch={touch}
               item={item}
               // Only the module's own landing screen needs an exact match: it
               // is a prefix of every other path in the module, so a loose
               // match would light it on all of them.
-              exact={item.path === module.home}
+              exact={item.path === module.home || item.path === module.base}
               // A row whose child is not under its own path — Utilities under
               // Langganan — says so itself, because Router cannot know it.
               lit={litByHand(pathname, item)}
@@ -306,9 +319,11 @@ function ScreenRow({
   exact,
   lit = false,
   soon = false,
+  touch = false,
 }: {
   item: NavItem
   exact: boolean
+  touch?: boolean
   /// Whether this row is the parent of where the reader is, for a child Router
   /// cannot see from here. See `NavItem.alsoLights`.
   lit?: boolean
@@ -339,12 +354,15 @@ function ScreenRow({
       aria-current={lit ? "page" : undefined}
       className={cn(
         "group flex items-center gap-2.5 rounded-lg px-[0.5625rem] py-[0.4375rem] text-nav font-medium text-text transition-colors hover:bg-soft-2 hover:text-ink data-[status=active]:bg-soft-2 data-[status=active]:font-semibold data-[status=active]:text-ink pointer-coarse:min-h-tap",
+        touch &&
+          "min-h-12 gap-3.5 rounded-xl px-3 text-[0.9375rem] active:bg-soft-2",
         lit && "bg-soft-2 font-semibold text-ink"
       )}
     >
       <Icon
         className={cn(
           "size-[1.0625rem] shrink-0 stroke-[1.55] text-line-ico group-data-[status=active]:text-ink",
+          touch && "size-5",
           lit && "text-ink"
         )}
       />
@@ -382,7 +400,7 @@ function Badge({
   return (
     <span
       className={cn(
-        "shrink-0 rounded-full px-[0.375rem] py-px text-[0.65625rem] font-semibold tabular-nums",
+        "shrink-0 rounded-full px-[0.375rem] py-px text-[0.875rem] font-semibold tabular-nums",
         tint === "bad" ? "bg-bad-bg text-bad-fg" : "bg-warn-bg text-warn-fg"
       )}
     >

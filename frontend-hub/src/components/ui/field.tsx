@@ -3,6 +3,8 @@ import { Select as BaseSelect } from "@base-ui/react/select"
 import { Check, ChevronDown } from "lucide-react"
 import * as React from "react"
 
+import { PickerSheet } from "@/components/ui/picker-sheet"
+import { usePickerSheet } from "@/lib/layout"
 import { ITEM, PANEL } from "@/lib/filter-chrome"
 import { cn } from "@/lib/utils"
 
@@ -15,11 +17,22 @@ export function Field({
   label,
   hint,
   problem,
+  aside,
   children,
   className,
 }: {
   label: React.ReactNode
   hint?: React.ReactNode
+  /// A short fact ABOUT the question, set beside the label instead of under
+  /// the answer.
+  ///
+  /// Brief §10.2, and it is a real rule rather than a style preference: a
+  /// caption under an input is read every time the field is read, and a form
+  /// of nine of them becomes a page of nine-point grey. The same words beside
+  /// the label are read once and stop being furniture. The `hint` slot is
+  /// still there for the one case that genuinely belongs under the answer —
+  /// a figure the reader is meant to compare against.
+  aside?: React.ReactNode
   /// The server's sentence, or a validator's. Never a code.
   problem?: React.ReactNode
   children: React.ReactNode
@@ -27,12 +40,21 @@ export function Field({
 }) {
   return (
     <label className={cn("flex flex-col gap-[0.4375rem]", className)}>
-      <span className="text-[0.75rem] font-medium text-text">{label}</span>
+      <span className="flex items-baseline justify-between gap-2">
+        <span className="min-w-0 text-[0.875rem] font-medium text-text">
+          {label}
+        </span>
+        {aside && (
+          <span className="shrink-0 truncate rounded-inner bg-soft-2 px-[0.375rem] text-[0.875rem] text-body">
+            {aside}
+          </span>
+        )}
+      </span>
       {children}
       {problem ? (
-        <span className="text-[0.71875rem] text-bad">{problem}</span>
+        <span className="text-[0.875rem] text-bad">{problem}</span>
       ) : hint ? (
-        <span className="text-[0.71875rem] text-mute">{hint}</span>
+        <span className="text-[0.875rem] text-mute">{hint}</span>
       ) : null}
     </label>
   )
@@ -125,7 +147,7 @@ export function Checkbox({
           box and toggles it exactly once. */}
       <label
         className={cn(
-          "inline-flex items-center gap-2 text-[0.78125rem] text-text",
+          "inline-flex items-center gap-2 text-[0.875rem] text-text",
           disabled === true ? "opacity-55" : "cursor-pointer"
         )}
       >
@@ -147,7 +169,7 @@ export function Checkbox({
         {label}
       </label>
       {hint !== undefined && (
-        <span className="text-[0.71875rem] text-mute">{hint}</span>
+        <span className="text-[0.875rem] text-mute">{hint}</span>
       )}
     </span>
   )
@@ -271,7 +293,7 @@ export function Money({
     // so a narrowed box wants no prefix or suffix.
     <span className="relative flex w-full min-w-0 items-center">
       {prefix !== undefined && (
-        <span className="pointer-events-none absolute left-3.5 text-[0.84375rem] text-mute">
+        <span className="pointer-events-none absolute left-3.5 text-[0.875rem] text-mute">
           {prefix}
         </span>
       )}
@@ -307,7 +329,7 @@ export function Money({
         )}
       />
       {suffix !== undefined && (
-        <span className="pointer-events-none absolute right-3.5 text-[0.84375rem] text-mute">
+        <span className="pointer-events-none absolute right-3.5 text-[0.875rem] text-mute">
           {suffix}
         </span>
       )}
@@ -401,6 +423,40 @@ export function Select({
   "aria-label"?: string
 }) {
   const items = choices(children)
+  const sheet = usePickerSheet()
+  const [open, setOpen] = React.useState(false)
+
+  // A phone: the same sheet `<PickOne>` opens. The desk's panel overlaps the
+  // trigger and its 30px rows were drawn for a pointer.
+  if (sheet) {
+    const chosen = items.find((one) => one.value === value)
+    return (
+      <>
+        <button
+          type="button"
+          aria-label={label}
+          aria-haspopup="dialog"
+          disabled={disabled}
+          onClick={() => setOpen(true)}
+          className={cn(
+            "flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas px-3 text-left text-[0.875rem] text-ink disabled:opacity-50",
+            className
+          )}
+        >
+          <span className="min-w-0 flex-1 truncate">{chosen?.label}</span>
+          <ChevronDown className="ml-2 size-3.5 shrink-0 text-line-ico" />
+        </button>
+        <PickerSheet
+          open={open}
+          onOpenChange={setOpen}
+          title={label ?? "Choose one"}
+          options={items}
+          selected={[value]}
+          onPick={onChange}
+        />
+      </>
+    )
+  }
 
   return (
     <BaseSelect.Root

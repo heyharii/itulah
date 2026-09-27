@@ -15,9 +15,12 @@ import { useState } from "react"
 import { Mark } from "@/components/shell/mark"
 import { AppBar } from "@/components/ui/app-bar"
 import { Chip } from "@/components/ui/button"
+import { ConfirmHost } from "@/components/ui/confirm"
+import { NoticeHost } from "@/components/ui/notice"
 import { Drawer, DrawerItem, DrawerSection } from "@/components/ui/drawer"
 import { Pill } from "@/components/ui/pill"
 import { TabBar } from "@/components/ui/tab-bar"
+import { confirm } from "@/lib/confirm"
 import { useGo } from "@/lib/go"
 import {
   pushedForPath,
@@ -103,6 +106,8 @@ export function FloorShell() {
       )}
 
       <FloorDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />
+      <ConfirmHost />
+      <NoticeHost />
     </div>
   )
 }
@@ -208,18 +213,20 @@ function FloorDrawer({
         label="Keluar"
         tone={unsent > 0 ? "bad" : "normal"}
         detail={unsent > 0 ? <Signal className="size-4 text-bad" /> : undefined}
-        onClick={() => {
+        onClick={async () => {
           // Signing out with work still on this device is worth one question.
           // The queue survives it — it is on disk, not in the session — but the
           // next person holding this phone will not know to look, and the work
           // will sit there until somebody does.
-          if (
-            unsent > 0 &&
-            !window.confirm(
-              `${count(unsent)} pekerjaan di HP ini belum sampai ke node. Semuanya tersimpan dan akan terkirim begitu jaringan kembali. Tetap keluar?`,
-            )
-          ) {
-            return
+          if (unsent > 0) {
+            onOpenChange(false)
+            const out = await confirm({
+              title: "Tetap keluar?",
+              body: `${count(unsent)} pekerjaan di HP ini belum sampai ke node. Semuanya tersimpan dan akan terkirim begitu jaringan kembali.`,
+              yes: "Keluar",
+              danger: true,
+            })
+            if (!out) return
           }
           signOut.mutate()
         }}

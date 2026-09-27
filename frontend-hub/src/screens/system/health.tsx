@@ -27,7 +27,7 @@ import { ExceptionQueue, type Exception } from "@/components/ui/exception-queue"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { MiniTable } from "@/components/ui/rows"
+import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Banner } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { ago, count, day, moment, type Tone } from "@/lib/format"
@@ -138,7 +138,7 @@ export function Health() {
         sub="Whether data is moving between the centre and every node, in both directions, and whether it is safe to leave running."
         actions={
           <>
-            <span className="text-[0.75rem] text-mute tabular-nums">
+            <span className="text-[0.875rem] text-mute tabular-nums">
               {health.dataUpdatedAt > 0
                 ? `Checked ${sinceMs(now - health.dataUpdatedAt)} · every ${REFRESH_MS / 1000} s`
                 : "Checking…"}
@@ -260,12 +260,16 @@ function Board({
 
   const talking = data.fleet.healthy + data.fleet.lagging
 
+  // One rhythm for the whole board: every block sits 12px from the next, so
+  // the shared pieces' own bottom margins are zeroed rather than stacked. The
+  // board is also the container the breakpoints below measure — the page sits
+  // beside two sidebars, so the window's width says little about this one.
   return (
-    <>
+    <div className="@container flex flex-col gap-3">
       <Verdict data={data} />
 
       {!data.security.auth_enabled && (
-        <Banner tone="bad" className="mb-3">
+        <Banner tone="bad">
           Sign-in is switched off on this node: every request is treated as an
           administrator. Fine on a laptop; never on a fleet.
         </Banner>
@@ -275,9 +279,10 @@ function Board({
         title="Nodes needing a person"
         exceptions={exceptions}
         empty="No node is stuck, silent, or waiting to be brought up."
+        className="mb-0"
       />
 
-      <KpiStrip>
+      <KpiStrip className="mb-0">
         <Kpi
           label="Nodes talking"
           value={`${count(talking)} / ${count(data.fleet.origins)}`}
@@ -303,17 +308,18 @@ function Board({
           thing to go. The chart and the positions share the row under it. */}
       <Lanes data={data} />
 
-      <div className="mt-3 grid gap-3 xl:grid-cols-2">
+      <div className="grid gap-3 @4xl:grid-cols-2">
         <Throughput data={data} />
         <Positions
           positions={positions}
           failed={positionsFailed}
           upstream={data.upstream}
+          origins={data.origins}
         />
       </div>
 
-      <Security data={data} className="mt-3" />
-    </>
+      <Security data={data} />
+    </div>
   )
 }
 
@@ -322,8 +328,8 @@ function Board({
 function Verdict({ data }: { data: SyncFleetHealth }) {
   const verdict = VERDICT[data.verdict]
   return (
-    <Card className="mb-3 overflow-hidden">
-      <div className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+    <Card className="overflow-hidden">
+      <div className="grid gap-4 px-5 py-4 @2xl:grid-cols-[minmax(0,1fr)_auto] @2xl:items-start">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
             <span
@@ -346,7 +352,7 @@ function Verdict({ data }: { data: SyncFleetHealth }) {
               {data.reasons.map((reason) => (
                 <li
                   key={reason}
-                  className="flex items-start gap-2 text-[0.8125rem] text-ink"
+                  className="flex items-start gap-2 text-[0.875rem] text-ink"
                 >
                   <span
                     className={cn(
@@ -360,21 +366,16 @@ function Verdict({ data }: { data: SyncFleetHealth }) {
             </ul>
           )}
         </div>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-[0.75rem] md:min-w-[17rem]">
+        {/* Three clocks, one row. The centre's sender is not repeated here:
+            it is the centre's own state and sits on the centre's panel. */}
+        <dl className="grid grid-cols-3 gap-x-6 text-[0.875rem] @2xl:border-l @2xl:border-hairline @2xl:pl-6">
           <Reading term="Last fact in">
             {ago(data.upstream.last_fact_at)}
           </Reading>
           <Reading term="Last command out">
             {ago(data.downstream.last_issued_at)}
           </Reading>
-          <Reading term="Last acknowledgement">
-            {ago(data.downstream.last_ack_at)}
-          </Reading>
-          <Reading term="Centre's sender">
-            <Pill tone={data.sync_state === "OK" ? "ok" : "bad"}>
-              {data.sync_state === "OK" ? "OK" : "Degraded"}
-            </Pill>
-          </Reading>
+          <Reading term="Last ack">{ago(data.downstream.last_ack_at)}</Reading>
         </dl>
       </div>
     </Card>
@@ -391,7 +392,7 @@ function Reading({
   return (
     <div className="min-w-0">
       <dt className="text-mute">{term}</dt>
-      <dd className="mt-0.5 truncate text-[0.8125rem] text-ink tabular-nums">
+      <dd className="mt-0.5 truncate text-[0.875rem] text-ink tabular-nums">
         {children}
       </dd>
     </div>
@@ -477,28 +478,41 @@ function Lane({
           tone === "neutral" ? "text-faint" : "text-line-ico"
         )}
       />
-      <span className="truncate text-[0.75rem] text-body">{text}</span>
+      <span className="truncate text-[0.875rem] text-body">{text}</span>
     </div>
   )
 }
+
+/// The columns the lane header and every node row share, from the width where
+/// a name and two lane sentences fit side by side.
+const ROW_GRID =
+  "@2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_6.5rem] @2xl:gap-x-4"
 
 function Lanes({ data }: { data: SyncFleetHealth }) {
   return (
     <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle>Centre ↔ nodes</CardTitle>
-        <span className="text-[0.75rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           silent after {span(data.silent_after_seconds)}
         </span>
       </CardHeader>
-      <div className="grid gap-4 border-t border-hairline p-4 lg:grid-cols-[12.5rem_minmax(0,1fr)]">
+      {/* The centre on top, the nodes under it, both the card's full width.
+          Side by side, the centre's six readings stood in a column taller than
+          a small fleet's whole table and left the table half empty. */}
+      <div className="flex flex-col gap-3 border-t border-hairline p-4">
         <Centre data={data} />
         <div className="min-w-0 overflow-hidden rounded-inner border border-hairline">
-          <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-3 border-b border-hairline bg-soft px-3.5 py-2 text-[0.75rem] font-medium text-body md:grid">
+          <div
+            className={cn(
+              ROW_GRID,
+              "hidden border-b border-hairline bg-soft px-3.5 py-2 text-[0.875rem] font-medium text-body @2xl:grid"
+            )}
+          >
             <span>Node</span>
             <span>Centre → node</span>
             <span>Node → centre</span>
-            <span className="w-[6.5rem]">State</span>
+            <span>State</span>
           </div>
           {data.origins.length === 0 ? (
             <p className="px-4 py-8 text-center text-meta text-body">
@@ -524,22 +538,20 @@ function Lanes({ data }: { data: SyncFleetHealth }) {
 function Centre({ data }: { data: SyncFleetHealth }) {
   const up = data.upstream
   return (
-    <div className="flex flex-col gap-3 rounded-inner border border-hairline bg-soft p-3.5">
-      <div className="flex items-center gap-2">
-        <span className="grid size-[1.875rem] place-items-center rounded-inner bg-canvas text-line-ico shadow-soft">
+    <div className="flex flex-col gap-3 rounded-inner border border-hairline bg-soft p-3.5 @4xl:flex-row @4xl:items-center @4xl:gap-6">
+      <div className="flex items-center gap-2.5 @4xl:w-[13rem] @4xl:shrink-0">
+        <span className="grid size-[1.875rem] shrink-0 place-items-center rounded-inner bg-canvas text-line-ico shadow-soft">
           <Building2 className="size-4" />
         </span>
-        <div className="min-w-0">
-          <div className="text-[0.84375rem] font-medium text-ink">Centre</div>
-          <div className="text-[0.6875rem] text-mute">head office</div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[0.875rem] font-medium text-ink">Centre</div>
+          <div className="text-[0.875rem] text-mute">head office</div>
         </div>
+        <Pill tone={data.sync_state === "OK" ? "ok" : "bad"} withDot>
+          {data.sync_state === "OK" ? "Sender OK" : "Sender degraded"}
+        </Pill>
       </div>
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-[0.6875rem] lg:grid-cols-1">
-        <Reading term="Sender">
-          <Pill tone={data.sync_state === "OK" ? "ok" : "bad"}>
-            {data.sync_state === "OK" ? "OK" : "Degraded"}
-          </Pill>
-        </Reading>
+      <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-2.5 text-[0.875rem] @lg:grid-cols-3 @4xl:grid-cols-5 @4xl:border-l @4xl:border-hairline @4xl:pl-6">
         <Reading term="Breaker">
           {up.own_breaker_open ? "Open" : "Closed"}
         </Reading>
@@ -551,7 +563,7 @@ function Centre({ data }: { data: SyncFleetHealth }) {
         </Reading>
       </dl>
       {up.own_last_error && (
-        <p className="text-[0.6875rem] text-bad-fg">
+        <p className="text-[0.875rem] text-bad-fg">
           Last error: {up.own_last_error}
         </p>
       )}
@@ -570,8 +582,15 @@ function NodeRow({
   const down = downLane(node)
   const up = upLane(node, silentAfter)
   const Icon = node.node_role === "DC" ? Warehouse : StoreIcon
+  // Narrow, the name and its state share the first line and the two lanes
+  // run under it; wide, the four sit in the header's columns.
   return (
-    <div className="grid gap-2 border-b border-hairline px-3.5 py-2.5 last:border-b-0 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center md:gap-3">
+    <div
+      className={cn(
+        ROW_GRID,
+        "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
+      )}
+    >
       <div className="flex min-w-0 items-center gap-2.5">
         <span
           className={cn(
@@ -589,11 +608,11 @@ function NodeRow({
           <AppLink
             to="/system"
             sheet={{ key: "origin", value: node.origin_id }}
-            className="block truncate text-[0.84375rem] font-medium text-ink hover:underline"
+            className="block truncate text-[0.875rem] font-medium text-ink hover:underline"
           >
             {node.label ?? node.origin_id}
           </AppLink>
-          <div className="flex items-center gap-1.5 text-[0.6875rem] text-mute">
+          <div className="flex items-center gap-1.5 text-[0.875rem] text-mute">
             {node.site_id && <Tag>{node.site_id}</Tag>}
             <span className="truncate">
               {node.last_contact_at
@@ -603,12 +622,14 @@ function NodeRow({
           </div>
         </div>
       </div>
-      <Lane direction="down" tone={down.tone} text={down.text} />
-      <Lane direction="up" tone={up.tone} text={up.text} />
-      <div className="md:w-[6.5rem]">
-        <Pill tone={state.tone} withDot>
-          {state.word}
-        </Pill>
+      <Pill tone={state.tone} withDot className="@2xl:order-last">
+        {state.word}
+      </Pill>
+      <div className="col-span-2 pl-[2.375rem] @2xl:col-span-1 @2xl:pl-0">
+        <Lane direction="down" tone={down.tone} text={down.text} />
+      </div>
+      <div className="col-span-2 pl-[2.375rem] @2xl:col-span-1 @2xl:pl-0">
+        <Lane direction="up" tone={up.tone} text={up.text} />
       </div>
     </div>
   )
@@ -635,15 +656,30 @@ function Throughput({ data }: { data: SyncFleetHealth }) {
   )
   const quiet = rows.every((row) => row.facts === 0 && row.commands === 0)
   return (
-    <Card className="overflow-hidden">
-      <CardHeader>
+    <Card className="flex flex-col overflow-hidden">
+      <CardHeader className="min-h-[3.25rem]">
         <CardTitle>Last 24 hours</CardTitle>
-        <span className="text-[0.75rem] text-mute">per hour</span>
+        <span className="text-[0.875rem] text-mute">per hour</span>
       </CardHeader>
-      <div className="border-t border-hairline px-4 pt-3 pb-4">
+      {/* Issued, not delivered — the schema keeps no delivery time and the
+          acknowledgement cursor is overwritten every cycle, so "delivered
+          per hour" is a question the database cannot answer yet. Said here
+          so the chart is not read as reach. */}
+      <Figures>
+        <Reading term="Facts accepted">
+          {count(data.upstream.accepted_24h)}
+        </Reading>
+        <Reading term="Facts refused">
+          {count(data.upstream.rejected_24h)}
+        </Reading>
+        <Reading term="Commands issued">
+          {count(data.downstream.issued_24h)}
+        </Reading>
+      </Figures>
+      <div className="flex flex-1 flex-col border-t border-hairline px-4 pt-3 pb-4">
         <ChartLegend series={TRAFFIC} />
         {quiet ? (
-          <p className="py-10 text-center text-meta text-body">
+          <p className="grid flex-1 place-items-center py-10 text-center text-meta text-body">
             Nothing moved in either direction in the last day.
           </p>
         ) : (
@@ -656,23 +692,19 @@ function Throughput({ data }: { data: SyncFleetHealth }) {
             className="h-[11rem]"
           />
         )}
-        {/* Issued, not delivered — the schema keeps no delivery time and the
-            acknowledgement cursor is overwritten every cycle, so "delivered
-            per hour" is a question the database cannot answer yet. Said here
-            so the chart is not read as reach. */}
-        <dl className="mt-3 grid grid-cols-3 gap-3 border-t border-hairline pt-3 text-[0.6875rem]">
-          <Reading term="Facts accepted">
-            {count(data.upstream.accepted_24h)}
-          </Reading>
-          <Reading term="Facts refused">
-            {count(data.upstream.rejected_24h)}
-          </Reading>
-          <Reading term="Commands issued">
-            {count(data.downstream.issued_24h)}
-          </Reading>
-        </dl>
       </div>
     </Card>
+  )
+}
+
+/// The three figures a lower card opens with, in a band of their own under
+/// the header — the same height in both cards, so the two bands line up
+/// across the row.
+function Figures({ children }: { children: React.ReactNode }) {
+  return (
+    <dl className="grid grid-cols-3 gap-3 border-t border-hairline px-4 py-3 text-[0.875rem]">
+      {children}
+    </dl>
   )
 }
 
@@ -700,16 +732,16 @@ function Security({
           />
           <CardTitle>Is it safe</CardTitle>
         </div>
-        <span className="text-[0.75rem] text-mute tabular-nums">
+        <span className="text-[0.875rem] text-mute tabular-nums">
           {count(security.accounts_active)} accounts ·{" "}
           {count(security.live_sessions)} signed in ·{" "}
           {count(security.requests_24h)} requests today
         </span>
       </CardHeader>
-      {/* Two abreast on a wide screen: ten checks in one column is a page,
-          and the reader wants them at a glance. Each row keeps its own rule
-          so the columns do not need one between them. */}
-      <div className="grid border-t border-hairline lg:grid-cols-2 lg:gap-x-6 lg:px-0">
+      {/* Two abreast on a wide card: ten checks in one column is a page, and
+          the reader wants them at a glance. Each row draws the rule ABOVE it,
+          so a band or footer that follows never doubles the last row's. */}
+      <div className={CHECK_GRID}>
         {security.checks.map((check) => (
           <CheckRow key={check.id} check={check} />
         ))}
@@ -719,14 +751,14 @@ function Security({
           <div className="border-t border-hairline bg-soft px-4 py-2 text-eyebrow font-medium text-body uppercase">
             Known from the code, not measured
           </div>
-          <div className="grid lg:grid-cols-2 lg:gap-x-6">
+          <div className={CHECK_GRID}>
             {security.exposures.map((check) => (
               <CheckRow key={check.id} check={check} />
             ))}
           </div>
         </>
       )}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-hairline px-4 py-2.5 text-[0.71875rem] text-mute">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-hairline px-4 py-2.5 text-[0.875rem] text-mute">
         <AppLink to="/system/account" className="hover:text-ink">
           Accounts
         </AppLink>
@@ -741,10 +773,14 @@ function Security({
   )
 }
 
+/// The right-hand column carries a rule on its left, so two columns read as
+/// one table rather than two lists with a gutter between them.
+const CHECK_GRID = "grid @3xl:grid-cols-2 @3xl:[&>*:nth-child(even)]:border-l"
+
 function CheckRow({ check }: { check: SecurityCheck }) {
   const shown = CHECK[check.tone]
   return (
-    <div className="flex items-start gap-3 border-b border-hairline px-4 py-2.5">
+    <div className="flex items-start gap-3 border-t border-hairline px-4 py-2.5">
       <span
         className={cn(
           "mt-[0.4375rem] size-1.5 shrink-0 rounded-full",
@@ -752,21 +788,21 @@ function CheckRow({ check }: { check: SecurityCheck }) {
         )}
       />
       <div className="min-w-0 flex-1">
-        <div className="text-[0.84375rem] font-medium text-ink">
+        <div className="text-[0.875rem] font-medium text-ink">
           {check.label}
         </div>
-        <div className="text-[0.71875rem] leading-relaxed text-mute">
+        <div className="text-[0.875rem] leading-relaxed text-mute">
           {check.detail}
         </div>
       </div>
-      {check.count !== null && (
-        <span className="shrink-0 pt-px text-[0.84375rem] font-semibold text-ink tabular-nums">
-          {count(check.count)}
-        </span>
-      )}
-      <Pill tone={shown.tone} className="shrink-0">
-        {shown.word}
-      </Pill>
+      {/* Fixed widths for the figure and the word, so every row's count
+          stands in one column however wide its pill is. */}
+      <span className="w-10 shrink-0 pt-px text-right text-[0.875rem] font-semibold text-ink tabular-nums">
+        {check.count !== null && count(check.count)}
+      </span>
+      <span className="flex w-[3.5rem] shrink-0 justify-end">
+        <Pill tone={shown.tone}>{shown.word}</Pill>
+      </span>
     </div>
   )
 }
@@ -780,10 +816,12 @@ function Positions({
   positions,
   failed,
   upstream,
+  origins,
 }: {
   positions: Awaited<ReturnType<typeof reconciliation>> | null
   failed: boolean
   upstream: SyncFleetHealth["upstream"]
+  origins: readonly SyncOriginHealth[]
 }) {
   const worst = useMemo(
     () =>
@@ -792,9 +830,17 @@ function Positions({
         .slice(0, 6),
     [positions]
   )
+  // The node by the name the board above calls it, not by its key.
+  const labelOf = useMemo(
+    () =>
+      new Map(
+        origins.map((node) => [node.origin_id, node.label ?? node.origin_id])
+      ),
+    [origins]
+  )
   return (
-    <Card className="overflow-hidden">
-      <CardHeader>
+    <Card className="flex flex-col overflow-hidden">
+      <CardHeader className="min-h-[3.25rem]">
         <CardTitle>Do the numbers agree</CardTitle>
         {positions && (
           <Pill tone={positions.reconciled ? "ok" : "bad"}>
@@ -804,16 +850,14 @@ function Positions({
           </Pill>
         )}
       </CardHeader>
-      <div className="border-t border-hairline px-4 py-3">
-        <dl className="mb-3 grid grid-cols-3 gap-3 text-[0.6875rem]">
-          <Reading term="Checkpoints current">
-            {count(upstream.checkpoints_current)}
-          </Reading>
-          <Reading term="Stale">{count(upstream.checkpoints_stale)}</Reading>
-          <Reading term="Missing">
-            {count(upstream.checkpoints_missing)}
-          </Reading>
-        </dl>
+      <Figures>
+        <Reading term="Checkpoints current">
+          {count(upstream.checkpoints_current)}
+        </Reading>
+        <Reading term="Stale">{count(upstream.checkpoints_stale)}</Reading>
+        <Reading term="Missing">{count(upstream.checkpoints_missing)}</Reading>
+      </Figures>
+      <div className="flex-1 border-t border-hairline px-4 py-3">
         {failed ? (
           <p className="text-meta text-bad">
             The reconciliation could not be read. The lanes above are still what
@@ -827,33 +871,34 @@ function Positions({
             the centre derived from that node's own facts.
           </p>
         ) : (
-          <MiniTable head={["Node", "Pool", "Centre", "Node says", "Gap"]}>
+          <MiniTable
+            head={[
+              "Node",
+              { label: "Pool", align: "left" },
+              "Centre",
+              "Node says",
+              "Gap",
+            ]}
+          >
             {worst.map((row) => (
-              <tr
-                key={`${row.origin_id}:${row.pool_id}`}
-                className="border-t border-hairline"
-              >
-                <td className="py-1.5 pr-2 text-[0.75rem] text-ink">
-                  {row.origin_id}
-                </td>
-                <td className="py-1.5 pr-2">
+              <MiniRow key={`${row.origin_id}:${row.pool_id}`}>
+                <MiniCell className="text-ink">
+                  {labelOf.get(row.origin_id) ?? row.origin_id}
+                </MiniCell>
+                <MiniCell>
                   <Tag>{row.pool_id}</Tag>
-                </td>
-                <td className="py-1.5 text-right text-[0.75rem] tabular-nums">
-                  {count(row.computed_on_hand)}
-                </td>
-                <td className="py-1.5 text-right text-[0.75rem] tabular-nums">
-                  {count(row.observed_on_hand)}
-                </td>
-                <td className="py-1.5 text-right text-[0.75rem] font-medium text-bad-fg tabular-nums">
+                </MiniCell>
+                <MiniCell align="right">{count(row.computed_on_hand)}</MiniCell>
+                <MiniCell align="right">{count(row.observed_on_hand)}</MiniCell>
+                <MiniCell align="right" className="font-medium text-bad-fg">
                   {count(row.difference)}
-                </td>
-              </tr>
+                </MiniCell>
+              </MiniRow>
             ))}
           </MiniTable>
         )}
       </div>
-      <div className="border-t border-hairline px-4 py-2.5 text-[0.71875rem] text-mute">
+      <div className="border-t border-hairline px-4 py-2.5 text-[0.875rem] text-mute">
         <AppLink to="/system/sync" className="hover:text-ink">
           Reconciliation, dead letters and commands
         </AppLink>

@@ -7,7 +7,7 @@ import {
 import {
   financeAttention,
   financeKeys,
-  type AccountMapView,
+  postingReadiness,
 } from "@/lib/queries/finance"
 
 /// The counts the sidebar draws beside three finance entries, and the one
@@ -39,7 +39,9 @@ import {
 /// the cache and false of the wire: the sidebar is mounted on EVERY screen, so
 /// every cold load of the journal, of Sales, of anything at all pulled the
 /// bill list, the period list and the whole account map — 695 mappings, 165 KB
-/// — to arrive at three integers. Counting belongs where the rows are.
+/// — to arrive at three integers. Counting belongs where the rows are. (The
+/// gap count now comes from the readiness matrix; see
+/// `useUnmappedMeaningCount`.)
 ///
 /// What is lost is the warm cache on the three screens the badges point at:
 /// they now fetch their own lists when opened. That is one request on the
@@ -50,65 +52,21 @@ import {
 /// showed the second as the first would blink on at every page load.
 
 // ---------------------------------------------------------------------------
-// The account map, counted once
+// Posting readiness, counted once
 // ---------------------------------------------------------------------------
 
-/// Which meanings have no account, at which locations.
+/// The readiness matrix, under the key the Posting readiness screen and the
+/// Account links screen both read — so the number on the sidebar and the
+/// number on the screen it links to are one answer, not two derivations.
 ///
-/// A *pair*, not a row: the posting rules ask for a meaning at a location, and
-/// `bank_savings` legitimately holds five accounts at one site — one per bank.
-/// Counting rows would report a site as five-sixths finished on the strength of
-/// one meaning, and counting keys would report a meaning as done when it is set
-/// at one location out of fourteen.
-///
-/// This lived in three places before it lived here: the overview's exception
-/// queue, the account map's own table, and then the sidebar badge wanted it
-/// too. Three copies of a derivation is three chances for the number on the
-/// sidebar to disagree with the number on the screen it links to.
-export interface MapGaps {
-  /// Every location the books are kept for.
-  readonly sites: readonly string[]
-  /// Semantic key → the locations it is not set at.
-  readonly missingByKey: ReadonlyMap<string, readonly string[]>
-  /// Unmapped meaning × location pairs, which is what "how much is left" means.
-  readonly pairs: number
-  /// Pairs required in total, and pairs answered.
-  readonly required: number
-  readonly set: number
-}
-
-const NO_GAPS: MapGaps = {
-  sites: [],
-  missingByKey: new Map(),
-  pairs: 0,
-  required: 0,
-  set: 0,
-}
-
-export function accountMapGaps(view: AccountMapView | undefined): MapGaps {
-  if (view === undefined) return NO_GAPS
-
-  const sites = view.locations.map((location) => location.site_id)
-  const have = new Set(
-    view.rows.map((row) => `${row.semantic_key} ${row.site_id}`)
-  )
-
-  const missingByKey = new Map<string, readonly string[]>()
-  for (const doc of view.required_keys) {
-    missingByKey.set(
-      doc.key,
-      sites.filter((site) => !have.has(`${doc.key} ${site}`))
-    )
-  }
-  // The COUNT comes from the server, which computed it over the whole map
-  // rather than over the rows in hand. The per-key lists above still need
-  // every mapping — which is why `accountMap()` asks for the ceiling — but the
-  // one number a badge draws should not depend on this browser having received
-  // all of them.
-  const pairs = view.unmapped_pairs
-
-  const required = view.required_keys.length * sites.length
-  return { sites, missingByKey, pairs, required, set: required - pairs }
+/// A (role, source, site) that resolves nowhere is a gap. That is the server's
+/// count, taken over everything; the browser does not re-derive it.
+export function usePostingReadiness() {
+  return useQuery({
+    queryKey: financeKeys.postingReadiness(),
+    queryFn: ({ signal }) => postingReadiness(signal),
+    staleTime: 60_000,
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -167,13 +125,18 @@ export function useUnansweredChargeCount(): number | null {
   return count === null || count === 0 ? null : count
 }
 
-/// Meanings with no account behind them, counted per location.
+/// Roles with no account behind them, counted per (role, source, site).
 ///
 /// Drawn as `bad` and not `warn`: every posting that needs one of these is
 /// refused outright, so this is not a backlog, it is a stoppage.
+///
+/// From `posting-readiness` and not from `attention`: the readiness gaps are
+/// the ones the Account links and Posting readiness screens show, and a badge
+/// that counted a different set would send somebody to a screen that
+/// disagreed with it. It costs the sidebar one more read than the other three.
 export function useUnmappedMeaningCount(): number | null {
-  const attention = useAttention()
-  return attention.data?.unmapped_pairs ?? null
+  const readiness = usePostingReadiness()
+  return readiness.data?.gaps ?? null
 }
 
 /// One, when this calendar month is not open for posting.
@@ -205,5 +168,13 @@ export function useMonthNotOpenCount(): number | null {
 /// load rather than counting up as each query lands.
 export function useFinanceAttentionCount(): number | null {
   const attention = useAttention()
-  return attention.data?.attention ?? null
+  const readiness = usePostingReadiness()
+  if (attention.data === undefined) return null
+  // The server's `attention` counts the old pairs; the gaps are the
+  // readiness matrix's, so the module row agrees with its own sub-item.
+  return (
+    attention.data.overdue_bills +
+    attention.data.month_not_open +
+    (readiness.data?.gaps ?? 0)
+  )
 }

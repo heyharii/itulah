@@ -53,3 +53,20 @@ export function punchSource(sources: readonly string[]): string {
   }
   return "Nothing recorded"
 }
+
+/// A day's outcomes, minus the ones that are not true yet.
+///
+/// The server derives today like any other day, so a shift still in progress
+/// reads as a missing clock-out — and before it starts, as absent. Neither is
+/// a finding until the day is over.
+export function settledOutcomes(
+  day: { date: string; departure: string | null; outcomes: readonly string[] },
+  today: string
+): readonly string[] {
+  if (day.date !== today || day.departure !== null) {
+    return day.outcomes
+  }
+  return day.outcomes.filter(
+    (outcome) => outcome !== "MISSING_PUNCH" && outcome !== "ABSENT"
+  )
+}

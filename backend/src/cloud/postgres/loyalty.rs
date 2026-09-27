@@ -16,8 +16,9 @@
 //! appeared is money taken from a shopper for nothing.
 
 use crate::cloud::application::AppError;
-use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use crate::security;
+use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
@@ -177,6 +178,37 @@ pub async fn reverse_for_return(
         "RETURN_REVERSAL",
         -points_awarded,
         PointsCause::Return(return_id),
+        actor,
+        None,
+    )
+    .await
+}
+
+/// Take back what a VOIDED sale had earned.
+///
+/// The same ruling as a return: the figure comes from what was AWARDED — read
+/// off the centre's own `edge_sale` row, never recomputed — and the debit may
+/// drive the balance negative, because the points may already have been spent.
+/// Keyed on the sale, so a redelivered void fact takes back once: the partial
+/// unique index on `(sale_id) WHERE entry_type = 'VOID_REVERSAL'` decides,
+/// exactly as `ux_points_ledger_earn` decides for the award it undoes.
+pub async fn reverse_for_void(
+    tx: &mut Transaction<'_, Postgres>,
+    customer_id: &str,
+    sale_id: Uuid,
+    points_awarded: i64,
+    actor: &str,
+) -> Result<Option<Uuid>, AppError> {
+    if points_awarded <= 0 {
+        return Ok(None);
+    }
+    lock_account(tx, customer_id).await?;
+    append(
+        tx,
+        customer_id,
+        "VOID_REVERSAL",
+        -points_awarded,
+        PointsCause::Sale(sale_id),
         actor,
         None,
     )
@@ -405,6 +437,410 @@ pub async fn redeem_points_to_voucher(
         "balance_points": balance - request.points,
         "replayed": false,
     }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A request starts a redemption; confirming it is what finishes one.
+//
+// `redeem_points_to_voucher` above has always been reachable in one call by
+// whoever is signed in as an operator — the rate is theirs to decide, on
+// purpose (see the module doc). Nothing there could ever be reached by a
+// shopper's own app, because deciding a rate is not a shopper's decision to
+// make. This is the other half: a shopper asks for a number of points, a
+// cashier standing at the till reads back the code and confirms, and
+// confirming is what applies the rate — fixed here at 1 point = Rp 1 and
+// nowhere else, the same way [`confirm_redeem_request`] says.
+//
+// See migration 0349 for why this is a row per request (a shopper's own
+// history screen needs one) rather than the one-slot-per-member shape
+// `member_pairing_code` uses.
+
+/// How long a redeem request lives before a cashier has to ask again.
+///
+/// Same ten minutes as a pairing code, and the same reasoning: long enough to
+/// survive a walk to the till, short enough that a code read out is not still
+/// good for the next shopper in the queue.
+pub const REDEEM_REQUEST_TTL_MINUTES: i64 = 10;
+
+/// Guesses a cashier gets against one member's live request before it locks.
+///
+/// Same five as a pairing code, same reason — see `postgres/member.rs`.
+pub const REDEEM_REQUEST_MAX_ATTEMPTS: i32 = 5;
+
+/// Where a request is in its own life, worked out from its own timestamps and
+/// attempt count rather than stored — the same reasoning `ChangeStatus`
+/// (`postgres/price_changes.rs`) uses a status column would go stale the
+/// instant the clock passed `expires_at` with nobody writing a row to say so.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RedeemRequestStatus {
+    /// Live: not yet confirmed, not cancelled, not expired, not locked out.
+    Pending,
+    Confirmed,
+    Cancelled,
+    /// Covers both a request whose `expires_at` has passed and one that has
+    /// been guessed against too many times — a shopper reading their own
+    /// history has no reason to tell those two apart, and a status that split
+    /// them would be a status this screen never uses.
+    Expired,
+}
+
+impl RedeemRequestStatus {
+    fn of(
+        confirmed_at: Option<DateTime<Utc>>,
+        cancelled_at: Option<DateTime<Utc>>,
+        expires_at: DateTime<Utc>,
+        attempts: i32,
+        now: DateTime<Utc>,
+    ) -> Self {
+        if confirmed_at.is_some() {
+            Self::Confirmed
+        } else if cancelled_at.is_some() {
+            Self::Cancelled
+        } else if expires_at <= now || attempts >= REDEEM_REQUEST_MAX_ATTEMPTS {
+            Self::Expired
+        } else {
+            Self::Pending
+        }
+    }
+
+    fn is_live(self) -> bool {
+        matches!(self, Self::Pending)
+    }
+}
+
+/// A request to turn points into a voucher — reused for a shopper's own
+/// history and for what a cashier's lookup answers with. Never carries the
+/// code: see [`IssuedRedeemRequest`] for the one response that does.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[derive(Clone, Debug, Serialize)]
+pub struct RedeemRequest {
+    pub request_id: Uuid,
+    pub points: i64,
+    pub status: RedeemRequestStatus,
+    pub requested_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub redemption_id: Option<Uuid>,
+}
+
+/// A request, the one moment its code is knowable.
+///
+/// The same shape `IssuedPairingCode` is, and for the same reason: the six
+/// digits are in this response and in no table anywhere — what is stored is a
+/// hash, and a code lost before it is shown to a cashier is replaced, not
+/// looked up.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[derive(Clone, Debug, Serialize)]
+pub struct IssuedRedeemRequest {
+    pub request_id: Uuid,
+    pub points: i64,
+    pub code: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Ask to turn `points` into a voucher.
+///
+/// Refuses a second live request rather than queuing one behind it — a
+/// cashier reading a member's current ask must never have to choose between
+/// two, and a member with one already waiting is told to use or let that one
+/// lapse first, not handed a second code.
+///
+/// The balance is checked here so a request nobody could ever honour is never
+/// shown to a shopper as "asked". It is checked again, inside a lock, at
+/// confirm time — this call only says the ask was reasonable when it was
+/// made, not that it still will be when a cashier gets to it.
+pub async fn create_redeem_request(
+    pool: &PgPool,
+    member_id: &str,
+    points: i64,
+) -> Result<IssuedRedeemRequest, AppError> {
+    let member_id = member_id.trim();
+    if points <= 0 {
+        return Err(AppError::Validation(
+            "a redemption has to ask for at least one point".into(),
+        ));
+    }
+
+    let balance: Option<i64> =
+        sqlx::query_scalar("SELECT balance_points FROM points_account WHERE customer_id = $1")
+            .bind(member_id)
+            .fetch_optional(pool)
+            .await?;
+    if balance.unwrap_or(0) < points {
+        return Err(AppError::Conflict(format!(
+            "that member has {} points and the request asked for {points}",
+            balance.unwrap_or(0)
+        )));
+    }
+
+    let now = Utc::now();
+    let live = sqlx::query(
+        "SELECT confirmed_at, cancelled_at, expires_at, attempts
+           FROM member_redeem_request
+          WHERE member_id = $1
+          ORDER BY requested_at DESC
+          LIMIT 1",
+    )
+    .bind(member_id)
+    .fetch_optional(pool)
+    .await?
+    .is_some_and(|row| {
+        let status = RedeemRequestStatus::of(
+            row.get("confirmed_at"),
+            row.get("cancelled_at"),
+            row.get("expires_at"),
+            row.get("attempts"),
+            now,
+        );
+        status.is_live()
+    });
+    if live {
+        return Err(AppError::Conflict(
+            "a redemption is already waiting to be confirmed".into(),
+        ));
+    }
+
+    let request_id = Uuid::new_v4();
+    let code = security::random_digits(6);
+    let expires_at = now + Duration::minutes(REDEEM_REQUEST_TTL_MINUTES);
+    sqlx::query(
+        "INSERT INTO member_redeem_request
+             (request_id, member_id, points, code_sha256, expires_at)
+         VALUES ($1,$2,$3,$4,$5)",
+    )
+    .bind(request_id)
+    .bind(member_id)
+    .bind(points)
+    .bind(security::sha256_hex(&code))
+    .bind(expires_at)
+    .execute(pool)
+    .await?;
+
+    Ok(IssuedRedeemRequest {
+        request_id,
+        points,
+        code,
+        expires_at,
+    })
+}
+
+/// A member's own requests, newest first — the "list redeem poin mereka"
+/// screen.
+pub async fn list_redeem_requests(
+    pool: &PgPool,
+    member_id: &str,
+) -> Result<Vec<RedeemRequest>, AppError> {
+    let now = Utc::now();
+    let rows = sqlx::query(
+        "SELECT request_id, points, requested_at, expires_at, attempts,
+                confirmed_at, cancelled_at, redemption_id
+           FROM member_redeem_request
+          WHERE member_id = $1
+          ORDER BY requested_at DESC
+          LIMIT 200",
+    )
+    .bind(member_id.trim())
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let confirmed_at: Option<DateTime<Utc>> = row.get("confirmed_at");
+            let cancelled_at: Option<DateTime<Utc>> = row.get("cancelled_at");
+            let expires_at: DateTime<Utc> = row.get("expires_at");
+            let attempts: i32 = row.get("attempts");
+            RedeemRequest {
+                request_id: row.get("request_id"),
+                points: row.get("points"),
+                status: RedeemRequestStatus::of(
+                    confirmed_at,
+                    cancelled_at,
+                    expires_at,
+                    attempts,
+                    now,
+                ),
+                requested_at: row.get("requested_at"),
+                expires_at,
+                redemption_id: row.get("redemption_id"),
+            }
+        })
+        .collect())
+}
+
+/// The one answer every failed lookup gives.
+///
+/// Unknown member, no live request, wrong code, expired code and a locked-out
+/// code are one sentence — the same reasoning `pairing_refused` in
+/// `postgres/member.rs` gives: a cashier's lookup form must not become a way
+/// to learn which card numbers hold a request.
+fn redeem_request_refused() -> AppError {
+    AppError::Unauthorized("that member has no live redemption request matching that code".into())
+}
+
+/// A cashier's guess at a shopper's code, against that member's current live
+/// request — there can be at most one, by construction of
+/// [`create_redeem_request`], so naming the member is enough to name the
+/// request.
+///
+/// Mirrors `redeem_pairing_code`'s attempt counting exactly, and for the same
+/// reason: a counter not written inside the same transaction as the compare
+/// is a counter an attacker can race.
+pub async fn lookup_redeem_request(
+    pool: &PgPool,
+    member_id: &str,
+    code: &str,
+) -> Result<RedeemRequest, AppError> {
+    let member_id = member_id.trim();
+    let code = code.trim();
+    if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(redeem_request_refused());
+    }
+
+    let mut tx = pool.begin().await?;
+    let Some(row) = sqlx::query(
+        "SELECT request_id, points, code_sha256, requested_at, expires_at,
+                attempts, confirmed_at, cancelled_at, redemption_id
+           FROM member_redeem_request
+          WHERE member_id = $1
+          ORDER BY requested_at DESC
+          LIMIT 1
+          FOR UPDATE",
+    )
+    .bind(member_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        return Err(redeem_request_refused());
+    };
+
+    let confirmed_at: Option<DateTime<Utc>> = row.get("confirmed_at");
+    let cancelled_at: Option<DateTime<Utc>> = row.get("cancelled_at");
+    let expires_at: DateTime<Utc> = row.get("expires_at");
+    let attempts: i32 = row.get("attempts");
+    let stored: String = row.get("code_sha256");
+    let request_id: Uuid = row.get("request_id");
+    let now = Utc::now();
+
+    if !RedeemRequestStatus::of(confirmed_at, cancelled_at, expires_at, attempts, now).is_live() {
+        return Err(redeem_request_refused());
+    }
+
+    if !security::constant_time_eq(&security::sha256_hex(code), &stored) {
+        // Recorded and committed even on a wrong guess — returning early
+        // without committing would make the counter a suggestion, exactly as
+        // `redeem_pairing_code` says.
+        sqlx::query(
+            "UPDATE member_redeem_request SET attempts = attempts + 1 WHERE request_id = $1",
+        )
+        .bind(request_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        return Err(redeem_request_refused());
+    }
+
+    tx.commit().await?;
+    Ok(RedeemRequest {
+        request_id,
+        points: row.get("points"),
+        status: RedeemRequestStatus::Pending,
+        requested_at: row.get("requested_at"),
+        expires_at,
+        redemption_id: row.get("redemption_id"),
+    })
+}
+
+/// Turn a confirmed request into a voucher: the request's own confirmation
+/// and the debit-and-issue underneath it, safe to retry as one call.
+///
+/// Drives [`redeem_points_to_voucher`] directly with the request's own id as
+/// the idempotency key, so a relay call retried after a lost response — the
+/// shop's line dropping between the cashier's tap and the till hearing back —
+/// is answered from what was already written rather than issuing a second
+/// voucher.
+///
+/// This is the one place the rate is decided: 1 point buys Rp 1, applied here
+/// and asserted nowhere else in this codebase. The module doc above explains
+/// why `redeem_points_to_voucher` itself refuses to know a rate; this
+/// function is the loyalty scheme that doc says the rate belongs to.
+pub async fn confirm_redeem_request(
+    pool: &PgPool,
+    request_id: Uuid,
+    actor: &str,
+) -> Result<Value, AppError> {
+    let mut tx = pool.begin().await?;
+    let Some(row) = sqlx::query(
+        "SELECT member_id, points, expires_at, attempts, confirmed_at, cancelled_at
+           FROM member_redeem_request
+          WHERE request_id = $1
+          FOR UPDATE",
+    )
+    .bind(request_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        return Err(AppError::NotFound("redeem request".into()));
+    };
+
+    let confirmed_at: Option<DateTime<Utc>> = row.get("confirmed_at");
+    let cancelled_at: Option<DateTime<Utc>> = row.get("cancelled_at");
+    let expires_at: DateTime<Utc> = row.get("expires_at");
+    let attempts: i32 = row.get("attempts");
+    let member_id: String = row.get("member_id");
+    let points: i64 = row.get("points");
+
+    // Already confirmed is not refused — a retry has to land on the voucher
+    // already issued, and `redeem_points_to_voucher`'s own idempotency check
+    // below is what answers it correctly either way. Only a request that was
+    // never confirmed can still be cancelled or expired out from under this
+    // call.
+    if confirmed_at.is_none() {
+        if cancelled_at.is_some() {
+            return Err(AppError::Conflict("that request was cancelled".into()));
+        }
+        if expires_at <= Utc::now() || attempts >= REDEEM_REQUEST_MAX_ATTEMPTS {
+            return Err(AppError::Conflict("that request has expired".into()));
+        }
+    }
+    tx.commit().await?;
+
+    let outcome = redeem_points_to_voucher(
+        pool,
+        RedeemPointsRequest {
+            customer_id: member_id,
+            points,
+            // The rate this whole function exists to apply — see the doc
+            // above.
+            voucher_value_minor: points,
+            actor_id: actor.to_string(),
+            idempotency_key: request_id.to_string(),
+            expires_at: None,
+        },
+    )
+    .await?;
+
+    let redemption_id: Uuid = outcome
+        .get("redemption_id")
+        .and_then(Value::as_str)
+        .and_then(|s| Uuid::parse_str(s).ok())
+        .ok_or_else(|| {
+            AppError::Configuration("a redemption did not come back with its own id".into())
+        })?;
+
+    sqlx::query(
+        "UPDATE member_redeem_request
+            SET confirmed_at = now(), confirmed_by = $2, redemption_id = $3
+          WHERE request_id = $1 AND confirmed_at IS NULL",
+    )
+    .bind(request_id)
+    .bind(actor)
+    .bind(redemption_id)
+    .execute(pool)
+    .await?;
+
+    Ok(outcome)
 }
 
 /// A member's balance and the entries behind it.

@@ -596,6 +596,24 @@ pub async fn corrections_at_places(
     places: &[String],
     pending_only: bool,
 ) -> Result<Vec<CorrectionRow>, AppError> {
+    corrections_where(pool, places, None, pending_only).await
+}
+
+/// One person's own corrections, wherever they were filed.
+pub async fn corrections_of_employee(
+    pool: &PgPool,
+    employee_id: &str,
+    pending_only: bool,
+) -> Result<Vec<CorrectionRow>, AppError> {
+    corrections_where(pool, &[], Some(employee_id), pending_only).await
+}
+
+async fn corrections_where(
+    pool: &PgPool,
+    places: &[String],
+    employee_id: Option<&str>,
+    pending_only: bool,
+) -> Result<Vec<CorrectionRow>, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT c.{}, e.code AS employee_code,
                 coalesce(p.full_name, e.code) AS display_name
@@ -603,6 +621,7 @@ pub async fn corrections_at_places(
            JOIN employee e ON e.id = c.employee_id
            LEFT JOIN employee_profile p ON p.employee_id = c.employee_id
           WHERE ($1::text[] IS NULL OR c.place_id = ANY($1))
+            AND ($3::text IS NULL OR c.employee_id = $3)
             AND ($2 = false OR c.state = 'PENDING')
           ORDER BY c.business_date DESC, c.chain_seq DESC",
         CORRECTION_COLUMNS.replace(", ", ", c.")
@@ -613,6 +632,7 @@ pub async fn corrections_at_places(
         Some(places)
     })
     .bind(pending_only)
+    .bind(employee_id)
     .fetch_all(pool)
     .await?;
 

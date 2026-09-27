@@ -3,6 +3,10 @@ import { Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import {
+  SupplierBankAccountsPanel,
+  SupplierContactsPanel,
+} from "@/components/suppliers/panels"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Field, Input, Select } from "@/components/ui/field"
@@ -11,6 +15,7 @@ import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { count } from "@/lib/format"
 import { queryState } from "@/lib/query-state"
 import {
@@ -19,7 +24,6 @@ import {
   setSupplierStatus,
   supplierPage,
   updateSupplier,
-  SUPPLIER_CATEGORY_LABEL,
   type SupplierCategory,
 } from "@/lib/queries/procurement"
 import { useSheet } from "@/lib/sheets"
@@ -62,6 +66,36 @@ import type { Supplier } from "@itulah/contract"
 /// Fourteen PLN bills a month, each of which has to name the account it debits.
 /// Typing it fourteen times is how the fourteenth gets it wrong. A vendor that
 /// names its usual account fills that in for every bill it sends.
+///
+/// # Why the picker is a list and not the chart
+///
+/// These ten are the vendors' consumable accounts in the client's own chart
+/// (0348) — stationery, household, fuel, tyres, tools — and the only ones a
+/// DEFAULT here is allowed to name. Everything else a vendor's bill could
+/// debit is reached through a mapping Finance keeps: prepaid and rent by
+/// contract type, repairs by the object that broke, asset purchases by the
+/// asset class. Offering those here would be a second, rival route to an
+/// answer that already has one. The names are the client's verbatim, misspelt
+/// "Expences" and all — an accountant looks for their word, not ours.
+const DEFAULT_ACCOUNTS: readonly { code: string; label: string }[] = [
+  { code: "6041", label: "Alat Tulis Kantor & Barang Cetakan" },
+  { code: "6042", label: "Biaya Rumah Tangga" },
+  { code: "6050", label: "Computer Expenses" },
+  { code: "6052", label: "Biaya Perlengkapan Toko dan Kantor" },
+  { code: "6054", label: "Biaya Peralatan Listrik" },
+  { code: "6055", label: "Tire & Tubes Expences" },
+  { code: "6056", label: "Fuel & Oil Expences" },
+  { code: "6057", label: "Tools (Peralatan) Expences" },
+  { code: "6059", label: "Biaya Telephone Equipment" },
+  { code: "6063", label: "Biaya Perlengkapan Mess atau Rumah Dinas" },
+]
+
+const CATEGORY_WORDS: Record<SupplierCategory, string> = {
+  EXPENSE: "Operasional",
+  AFFILIATE: "Afiliasi",
+  MERCHANDISE: "Dagangan",
+}
+
 export function Vendors() {
   const editing = useSheet("supplier")
   const [book, setBook] = useState<SupplierCategory>("EXPENSE")
@@ -84,20 +118,20 @@ export function Vendors() {
   return (
     <PageContent>
       <PageHeader
-        crumb="GA"
-        title="Vendors"
-        sub="Everybody we owe who does not sell us clothes — the meter, the landlord, the workshop, and the other units of the group."
+        crumb="Vendor"
+        title="Vendor"
+        sub="Kelola pihak penyedia listrik, sewa tempat, perbaikan, dan layanan lainnya."
         actions={
           <>
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Code, name or contact"
+              placeholder="Kode, nama, atau kontak"
               className="h-8 w-56"
             />
             <Button variant="primary" onClick={() => setAdding(true)}>
               <Plus />
-              New vendor
+              Tambah vendor
             </Button>
           </>
         }
@@ -109,8 +143,8 @@ export function Vendors() {
             this screen exists instead of. */}
         <Segmented
           options={[
-            { value: "EXPENSE" as const, label: "Expense" },
-            { value: "AFFILIATE" as const, label: "Affiliate" },
+            { value: "EXPENSE" as const, label: "Operasional" },
+            { value: "AFFILIATE" as const, label: "Afiliasi" },
           ]}
           value={book}
           onChange={setBook}
@@ -121,35 +155,35 @@ export function Vendors() {
             <b className="font-medium text-ink">
               {count(vendors.data.rows.length)}
             </b>{" "}
-            {vendors.data.rows.length === 1 ? "vendor" : "vendors"}
+            vendor
           </span>
         )}
       </Toolbar>
 
       {queryState(vendors, {
-        loading: "Opening the book…",
+        loading: "Memuat daftar vendor…",
         render: (page) =>
           page.rows.length === 0 ? (
             <Card>
               <EmptyState
                 action={
                   <Button variant="ghost" onClick={() => setAdding(true)}>
-                    Add the first one
+                    Tambah vendor pertama
                   </Button>
                 }
               >
                 {book === "EXPENSE"
-                  ? "Nobody is filed here yet. PLN, PDAM, the telephone company, the landlord, the cleaners — the parties whose bills post to 2012001003."
-                  : "No unit of the group is filed here yet. These are the fourteen places that owe each other: head office and the thirteen shops."}
+                  ? "Belum ada vendor operasional. Tambahkan penyedia layanan atau pihak yang mengirim tagihan."
+                  : "Belum ada vendor afiliasi. Tambahkan unit lain dalam grup perusahaan yang bertransaksi dengan perusahaan ini."}
               </EmptyState>
             </Card>
           ) : (
             <Card className="overflow-hidden">
               <div className="grid h-10 grid-cols-[7rem_minmax(0,1fr)_11rem_9rem_6rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-                <span>Code</span>
+                <span>Kode</span>
                 <span>Vendor</span>
-                <span>Bills usually post to</span>
-                <span>Contact</span>
+                <span>Akun beban</span>
+                <span>Kontak</span>
                 <span>Status</span>
               </div>
               {page.rows.map((row) => (
@@ -212,7 +246,7 @@ function VendorRow({
       </span>
       <span>
         <Pill tone={vendor.status === "ACTIVE" ? "ok" : "neutral"}>
-          {vendor.status === "ACTIVE" ? "Active" : "Retired"}
+          {vendor.status === "ACTIVE" ? "Aktif" : "Nonaktif"}
         </Pill>
       </span>
     </div>
@@ -220,6 +254,12 @@ function VendorRow({
 }
 
 /// One vendor, made or changed.
+///
+/// An existing record has three faces — the details, the bank accounts, the
+/// contacts — because registering the vendor and keeping its payment and
+/// people details current are three questions asked on different days. A NEW
+/// vendor has one face only: there is nothing yet to put an account beside,
+/// and the panels' own Add buttons are how the rest arrives.
 function VendorSheet({
   open,
   vendor,
@@ -233,11 +273,20 @@ function VendorSheet({
 }) {
   const client = useQueryClient()
   const [form, setForm] = useState<Record<string, string>>({})
+  const [tab, setTab] = useState("details")
 
   // The row being edited, or the blanks a new one starts from. Keyed by the
   // vendor below, so switching rows does not carry the last one's typing.
   const value = (key: keyof Supplier, fallback = "") =>
     form[key] ?? (vendor?.[key] as string | null) ?? fallback
+
+  // The picker's value, and whether the list names it. A code set before the
+  // picker existed — the old field took the whole chart — has to stay
+  // visible in the Select rather than read as empty.
+  const currentAccount = value("expense_account_code").trim()
+  const currentIsListed = DEFAULT_ACCOUNTS.some(
+    (one) => one.code === currentAccount
+  )
 
   const refresh = () => {
     void client.invalidateQueries({ queryKey: procurementKeys.suppliers() })
@@ -303,30 +352,42 @@ function VendorSheet({
       key={vendor?.supplier_id ?? "new"}
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      title={vendor === null ? "New vendor" : vendor.name}
+      title={vendor === null ? "Tambah vendor" : vendor.name}
       footer={
-        <div className="flex items-center justify-between gap-3">
-          {vendor !== null ? (
+        // Save and Retire are the DETAILS' acts — the form's. The bank and
+        // contact panels write as they go, each request carrying its own
+        // idempotency key, so a footer Save down here would be a button that
+        // does nothing and a lie about how the data got there.
+        vendor === null || tab === "details" ? (
+          <div className="flex items-center justify-between gap-3">
+            {vendor !== null ? (
+              <Button
+                variant="ghost"
+                onClick={() => retire.mutate()}
+                disabled={retire.isPending}
+              >
+                {vendor.status === "ACTIVE"
+                  ? "Nonaktifkan"
+                  : "Aktifkan kembali"}
+              </Button>
+            ) : (
+              <span className="text-pill text-mute">
+                Lengkapi data vendor untuk membuatnya.
+              </span>
+            )}
             <Button
-              variant="ghost"
-              onClick={() => retire.mutate()}
-              disabled={retire.isPending}
+              variant="primary"
+              disabled={!ready || save.isPending}
+              onClick={() => save.mutate()}
             >
-              {vendor.status === "ACTIVE" ? "Retire" : "Bring back"}
+              {save.isPending ? "Menyimpan…" : "Simpan"}
             </Button>
-          ) : (
-            <span className="text-pill text-mute">
-              Its bills post to 2012001003.
-            </span>
-          )}
-          <Button
-            variant="primary"
-            disabled={!ready || save.isPending}
-            onClick={() => save.mutate()}
-          >
-            {save.isPending ? "Saving…" : "Save"}
-          </Button>
-        </div>
+          </div>
+        ) : (
+          <span className="text-pill text-mute">
+            Perubahan di bagian ini tersimpan otomatis.
+          </span>
+        )
       }
     >
       <div className="flex flex-col gap-4">
@@ -334,88 +395,131 @@ function VendorSheet({
           <Banner tone="bad">{save.error.message}</Banner>
         )}
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Code">
-            <Input
-              value={value("supplier_code")}
-              onChange={(event) =>
-                setForm((f) => ({ ...f, supplier_code: event.target.value }))
-              }
-              placeholder="PLN-01"
-            />
-          </Field>
-          <Field label="Kind">
-            <Select
-              value={form.category ?? vendor?.category ?? book}
-              onChange={(next) => setForm((f) => ({ ...f, category: next }))}
-              aria-label="Kind"
+        {vendor !== null && (
+          <SubTabs
+            className="mb-0"
+            tabs={[
+              { value: "details", label: "Detail" },
+              { value: "bank", label: "Rekening" },
+              { value: "contacts", label: "Kontak" },
+            ]}
+            value={tab}
+            onChange={setTab}
+          />
+        )}
+
+        {vendor !== null && tab === "bank" && (
+          <SupplierBankAccountsPanel supplierId={vendor.supplier_id} />
+        )}
+
+        {vendor !== null && tab === "contacts" && (
+          <SupplierContactsPanel supplierId={vendor.supplier_id} />
+        )}
+
+        {(vendor === null || tab === "details") && (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Kode">
+                <Input
+                  value={value("supplier_code")}
+                  onChange={(event) =>
+                    setForm((f) => ({
+                      ...f,
+                      supplier_code: event.target.value,
+                    }))
+                  }
+                  placeholder="PLN-01"
+                />
+              </Field>
+              <Field label="Jenis">
+                <Select
+                  value={form.category ?? vendor?.category ?? book}
+                  onChange={(next) =>
+                    setForm((f) => ({ ...f, category: next }))
+                  }
+                  aria-label="Kind"
+                >
+                  <option value="EXPENSE">
+                    {CATEGORY_WORDS.EXPENSE} — penyedia yang mengirim tagihan
+                  </option>
+                  <option value="AFFILIATE">
+                    {CATEGORY_WORDS.AFFILIATE} — unit lain dalam grup
+                  </option>
+                  <option value="MERCHANDISE">
+                    {CATEGORY_WORDS.MERCHANDISE} — memasok barang untuk dijual
+                    kembali
+                  </option>
+                </Select>
+              </Field>
+            </div>
+
+            <Field label="Nama">
+              <Input
+                value={value("name")}
+                onChange={(event) =>
+                  setForm((f) => ({ ...f, name: event.target.value }))
+                }
+                placeholder="PT PLN (Persero)"
+              />
+            </Field>
+
+            <Field
+              label="Akun beban bawaan"
+              hint="Akun ini terisi otomatis pada tagihan vendor dan masih dapat diubah saat tagihan ditinjau."
             >
-              <option value="EXPENSE">
-                {SUPPLIER_CATEGORY_LABEL.EXPENSE} — sends bills
-              </option>
-              <option value="AFFILIATE">
-                {SUPPLIER_CATEGORY_LABEL.AFFILIATE} — another unit of the group
-              </option>
-              <option value="MERCHANDISE">
-                {SUPPLIER_CATEGORY_LABEL.MERCHANDISE} — sells goods for resale
-              </option>
-            </Select>
-          </Field>
-        </div>
+              <Select
+                value={value("expense_account_code")}
+                onChange={(next) =>
+                  setForm((f) => ({ ...f, expense_account_code: next }))
+                }
+                aria-label="Akun beban bawaan"
+              >
+                <option value="">Belum dipilih</option>
+                {/* A value set before the picker existed — free text accepted
+                    the whole chart — stays visible and saveable rather than
+                    silently reading as empty. */}
+                {currentAccount !== "" && !currentIsListed && (
+                  <option value={currentAccount}>
+                    {currentAccount} (saat ini)
+                  </option>
+                )}
+                {DEFAULT_ACCOUNTS.map((one) => (
+                  <option key={one.code} value={one.code}>
+                    {one.code} · {one.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
 
-        <Field label="Name">
-          <Input
-            value={value("name")}
-            onChange={(event) =>
-              setForm((f) => ({ ...f, name: event.target.value }))
-            }
-            placeholder="PT PLN (Persero)"
-          />
-        </Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Kontak">
+                <Input
+                  value={value("contact_name")}
+                  onChange={(event) =>
+                    setForm((f) => ({ ...f, contact_name: event.target.value }))
+                  }
+                />
+              </Field>
+              <Field label="Telepon">
+                <Input
+                  value={value("phone")}
+                  onChange={(event) =>
+                    setForm((f) => ({ ...f, phone: event.target.value }))
+                  }
+                />
+              </Field>
+            </div>
 
-        <Field
-          label="Bills usually post to"
-          hint="The client's own account code. A bill still carries the account and a person may still change it — this only saves typing it every month."
-        >
-          <Input
-            value={value("expense_account_code")}
-            onChange={(event) =>
-              setForm((f) => ({
-                ...f,
-                expense_account_code: event.target.value,
-              }))
-            }
-            placeholder="6010310…"
-          />
-        </Field>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Contact">
-            <Input
-              value={value("contact_name")}
-              onChange={(event) =>
-                setForm((f) => ({ ...f, contact_name: event.target.value }))
-              }
-            />
-          </Field>
-          <Field label="Phone">
-            <Input
-              value={value("phone")}
-              onChange={(event) =>
-                setForm((f) => ({ ...f, phone: event.target.value }))
-              }
-            />
-          </Field>
-        </div>
-
-        <Field label="Address">
-          <Input
-            value={value("address")}
-            onChange={(event) =>
-              setForm((f) => ({ ...f, address: event.target.value }))
-            }
-          />
-        </Field>
+            <Field label="Alamat">
+              <Input
+                value={value("address")}
+                onChange={(event) =>
+                  setForm((f) => ({ ...f, address: event.target.value }))
+                }
+              />
+            </Field>
+          </>
+        )}
       </div>
     </Sheet>
   )

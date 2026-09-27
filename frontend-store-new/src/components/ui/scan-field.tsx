@@ -58,6 +58,7 @@ export function ScanField({
         <Search className="size-[1.125rem] shrink-0 text-line-ico" />
         <input
           ref={input}
+          data-scan=""
           value={value}
           onChange={(event) => setValue(event.target.value)}
           placeholder={placeholder}

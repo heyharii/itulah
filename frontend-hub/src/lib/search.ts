@@ -120,7 +120,7 @@ export const searchSources: readonly SearchSource[] = [
           id: entry.entry_id,
           title: entry.entry_number,
           subtitle: entry.memo ?? entry.source_kind,
-          to: "/finance/journal",
+          to: "/finance/accounting/journal-entries",
           sheet: { key: "entry" as const, value: entry.entry_id },
         }))
     },
@@ -147,7 +147,7 @@ export const searchSources: readonly SearchSource[] = [
           id: bill.invoice_id,
           title: bill.invoice_number,
           subtitle: bill.supplier_name ?? bill.supplier_id,
-          to: "/finance/bills",
+          to: "/finance/payables/bills",
           sheet: { key: "bill" as const, value: bill.invoice_id },
         }))
     },
@@ -186,7 +186,7 @@ export const searchSources: readonly SearchSource[] = [
             payment.allocations[0]?.supplier_name ??
             payment.allocations[0]?.invoice_number ??
             payment.method,
-          to: "/finance/payments",
+          to: "/finance/payables/payments",
           sheet: { key: "payment" as const, value: payment.payment_id },
         }))
     },
@@ -208,7 +208,7 @@ export const searchSources: readonly SearchSource[] = [
           id: asset.asset_id,
           title: asset.name,
           subtitle: asset.asset_number,
-          to: "/finance/assets",
+          to: "/finance/assets/capitalization",
           sheet: { key: "asset" as const, value: asset.asset_id },
         }))
     },
@@ -230,7 +230,7 @@ export const searchSources: readonly SearchSource[] = [
         id: account.account_code,
         title: account.account_code,
         subtitle: account.name,
-        to: "/finance/accounts",
+        to: "/finance/accounting/chart-of-accounts",
         sheet: { key: "account" as const, value: account.account_code },
       }))
     },

@@ -2,7 +2,25 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover so full-screen sheets can pad away from the notch and
+         home bar themselves (`env(safe-area-inset-*)` is 0 without it);
+         interactive-widget so Android's keyboard shrinks the layout the way
+         iOS's does, and a bottom-pinned button rises with it. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" content="#ffffff" />
+    <!-- Installable (see `pwa` in vite.config.ts). The manifest link is added
+         by the build. iOS still reads these rather than the manifest: without
+         `apple-mobile-web-app-capable` "Add to Home Screen" makes a bookmark,
+         and a bookmark cannot receive Web Push. -->
+    <link rel="icon" type="image/png" href="/pwa-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Central" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Central Dashboard</title>
   </head>
   <body>

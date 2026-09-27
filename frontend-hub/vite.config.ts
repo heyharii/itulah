@@ -2,6 +2,7 @@ import path from "path"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
+import { VitePWA } from "vite-plugin-pwa"
 
 // This surface talks to the CLOUD node.
 //
@@ -45,15 +46,6 @@ const backends = {
     secure: false,
     rewrite: (path: string) => path.replace(/^\/edge/, ""),
   },
-  // The PO import ingest service (services/po-import): the Node process that
-  // parses uploaded documents and asks Jev what is usable. Keys live there,
-  // never here; the prefix is stripped for the same reason /edge's is.
-  "/po-import": {
-    target: process.env.VITE_PO_IMPORT_TARGET ?? "http://127.0.0.1:8094",
-    changeOrigin: true,
-    secure: false,
-    rewrite: (path: string) => path.replace(/^\/po-import/, ""),
-  },
 }
 
 /// Hosts the built surface will answer to.
@@ -64,8 +56,103 @@ const backends = {
 /// HTTPS, so that suffix — and nothing wider — is what has to be allowed.
 const previewHosts = [".localhost"]
 
+/// The hub as an installable app, with a service worker of its own.
+///
+/// `injectManifest` rather than a generated worker because the reason for the
+/// worker is Web Push: `src/sw.ts` shows a notification when the cloud pushes
+/// one and opens the right screen when it is tapped, and a generated worker
+/// has nowhere to put that.
+///
+/// `prompt`, not `autoUpdate`: a new build is announced in a toast and loaded
+/// when the person says so (`lib/pwa.ts`). Reloading under somebody halfway
+/// through a goods receipt is not an update, it is lost work.
+///
+/// The worker precaches the APP SHELL only — `index.html` and what it loads
+/// before anything else — not every screen's chunk. The screens are split so a
+/// phone opening Profile does not download Finance (`routes.tsx`); precaching
+/// all of them on install would undo that on the first visit. `/api` and
+/// `/edge` are never cached and never answered with the shell.
+let outDir = path.resolve(__dirname, "dist")
+const pwa = VitePWA({
+  strategies: "injectManifest",
+  srcDir: "src",
+  filename: "sw.ts",
+  registerType: "prompt",
+  injectRegister: false,
+  // `public/` holds the icons (`scripts/pwa-icons.mjs` draws them).
+  includeAssets: ["apple-touch-icon.png", "pwa-badge-96.png"],
+  manifest: {
+    name: "Central Dashboard",
+    short_name: "Central",
+    description: "Head office, shops and warehouses in one place.",
+    id: "/",
+    start_url: "/",
+    scope: "/",
+    display: "standalone",
+    // The page's own white, so the splash an installed app opens on is the
+    // colour of the screen that replaces it rather than a flash of another.
+    background_color: "#ffffff",
+    theme_color: "#ffffff",
+    icons: [
+      { src: "/pwa-192.png", sizes: "192x192", type: "image/png" },
+      { src: "/pwa-512.png", sizes: "512x512", type: "image/png" },
+      {
+        src: "/pwa-maskable-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
+    ],
+  },
+  injectManifest: {
+    globPatterns: ["**/*.{js,css,html}"],
+    // The entry chunk carries React, Router and Query; over workbox's 2 MB
+    // default it would be left out of the precache with only a warning.
+    maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+    manifestTransforms: [
+      async (entries) => {
+        // What `index.html` itself loads — its entry script, the chunks it
+        // preloads and its stylesheet. Everything else is a screen, fetched
+        // when it is first visited. (The plugin adds the manifest and the
+        // icons itself.)
+        const { readFile } = await import("node:fs/promises")
+        const html = await readFile(
+          path.join(outDir, "index.html"),
+          "utf8"
+        ).catch(() => "")
+        const linked = new Set(
+          [...html.matchAll(/(?:src|href)="\/?([^"]+)"/g)].map((m) => m[1])
+        )
+        const manifest = entries.filter(
+          (entry) => entry.url === "index.html" || linked.has(entry.url)
+        )
+        return { manifest, warnings: [] }
+      },
+    ],
+  },
+  devOptions: {
+    // The worker in `npm run dev` as well, so push can be tried without a
+    // build. `module` because the source is TypeScript with imports.
+    enabled: true,
+    type: "module",
+    navigateFallback: "index.html",
+  },
+})
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    pwa,
+    {
+      // Where the build is written, for the shell list above: `--outDir`
+      // moves it.
+      name: "pwa-out-dir",
+      configResolved(config) {
+        outDir = path.resolve(config.root, config.build.outDir)
+      },
+    },
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

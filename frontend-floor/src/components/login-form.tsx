@@ -51,12 +51,17 @@ export function LoginForm({
     onSubmit: ({ value }) => signIn.mutate(value),
   })
 
+  // A refused password is the server's sentence to say. A node that is not
+  // answering is not: the proxy's "Bad Gateway" reached the login screen
+  // verbatim, and nobody on a warehouse floor can act on it.
   const signInProblem =
     signIn.error === null
       ? null
-      : signIn.error instanceof ApiError
+      : signIn.error instanceof ApiError &&
+          signIn.error.status > 0 &&
+          signIn.error.status < 500
         ? signIn.error.message
-        : "node gudang ini tidak bisa dihubungi"
+        : "Server gudang belum tersambung. Pastikan HP terhubung ke WiFi gudang, lalu coba lagi."
 
   return (
     <div className="pt-safe pb-safe grid h-full place-items-center px-5">

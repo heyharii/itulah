@@ -110,7 +110,10 @@ const BASKET_SELECT: &str = "SELECT b.quantity AS b_quantity,
             -- too: the sourcing search was updated and this one was not, so
             -- every basket read answered 500 while the search beside it worked.
             s.category AS s_category,
-            s.expense_account_code AS s_expense_account_code
+            s.expense_account_code AS s_expense_account_code,
+            s.npwp AS s_npwp,
+            s.is_pkp AS s_is_pkp,
+            s.default_payment_terms_code AS s_default_payment_terms_code
        FROM sourcing_basket_line b
        JOIN supplier_item i ON i.supplier_item_id = b.supplier_item_id
        JOIN supplier s ON s.supplier_id = i.supplier_id";

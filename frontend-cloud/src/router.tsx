@@ -4,7 +4,6 @@ import { ChatView } from "@/components/chat/chat-view"
 import { FleetView } from "@/components/commercial/fleet-view"
 import { BookComposer } from "@/components/commercial/book-composer"
 import { PriceBooksView } from "@/components/commercial/price-books-view"
-import { AccountMapScreen } from "@/components/finance/account-map"
 import { ChartOfAccounts } from "@/components/finance/chart-of-accounts"
 import { GeneralLedgerScreen } from "@/components/finance/general-ledger"
 import { JournalScreen } from "@/components/finance/journal"
@@ -13,6 +12,7 @@ import { PeriodsScreen } from "@/components/finance/periods"
 import { AssetRegisterScreen } from "@/components/finance/asset-register"
 import { BankReconciliationScreen } from "@/components/finance/bank-reconciliation"
 import { PositionScreen } from "@/components/finance/position"
+import { ProfitLossScreen, UnitResultsScreen } from "@/components/finance/profit-loss"
 import { StatementScreen } from "@/components/finance/statement"
 import { SupplierBillsScreen } from "@/components/finance/supplier-bills"
 import { TrialBalanceScreen } from "@/components/finance/trial-balance"
@@ -313,12 +313,6 @@ const financeAccountsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/accounts",
   component: ChartOfAccounts,
-})
-
-const financeAccountMapRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/finance/account-map",
-  component: AccountMapScreen,
 })
 
 const financeJournalRoute = createRoute({
@@ -650,9 +644,10 @@ const financeBillsRoute = createRoute({
   component: SupplierBillsScreen,
 })
 
-/// The statements. Two shapes and five screens: an expense report and a
-/// fixed-asset report are the same statement narrowed to the client's own root
-/// classes, not separate reports that could drift from it.
+/// The statements. The balance sheet, an expense report and a fixed-asset
+/// report are the same statement narrowed to the client's own root classes; the
+/// profit and loss and its by-location view read the client's layers (Laba
+/// Kotor, GOP, NOP, NPBT, NPAT) from the server's `ProfitAndLoss`/`UnitResult`.
 const reportBalanceSheetRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/reports/balance-sheet",
@@ -664,15 +659,13 @@ const reportBalanceSheetRoute = createRoute({
 const reportProfitLossRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/reports/profit-loss",
-  component: () => <StatementScreen kind="PROFIT_LOSS" title="Profit & Loss" />,
+  component: () => <ProfitLossScreen title="Profit & Loss" />,
 })
 
 const reportByLocationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/reports/by-location",
-  component: () => (
-    <StatementScreen kind="PROFIT_LOSS" title="P&L by Location" byLocation />
-  ),
+  component: () => <UnitResultsScreen title="P&L by Location" />,
 })
 
 const reportExpensesRoute = createRoute({
@@ -741,7 +734,6 @@ const routeTree = rootRoute.addChildren([
   salesRoute,
   financeRoute,
   financeAccountsRoute,
-  financeAccountMapRoute,
   financeJournalRoute,
   financeLedgerRoute,
   financeTrialBalanceRoute,

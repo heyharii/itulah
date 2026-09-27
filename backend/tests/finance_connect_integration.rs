@@ -107,7 +107,7 @@ async fn every_site_balances_in_its_own_books(pool: &PgPool) {
     assert!(out.is_empty(), "entries out of balance at a site: {out:?}");
     let affiliate: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(debit_minor - credit_minor), 0)::bigint FROM journal_line
-          WHERE account_code IN ('1057', '1058', '1059', '2028', '2029')",
+          WHERE account_code IN ('1057', '1058', '1059', '2028', '2029', '2030')",
     )
     .fetch_one(pool)
     .await
@@ -150,18 +150,18 @@ async fn every_meaning_a_writer_names_resolves_at_every_site(pool: PgPool) {
         ("expense_electricity", ""), ("expense_water", ""), ("expense_telephone", ""),
         ("expense_household", ""), ("expense_stationery", ""), ("expense_repairs", ""),
         ("expense_transport", ""), ("expense_cleaning", ""), ("expense_misc", ""),
-        ("affiliate_receivable", "LAIN:dc"), ("affiliate_payable", "LAIN:dc"),
+        ("affiliate_receivable", "LAIN"), ("affiliate_payable", "LAIN"),
     ];
     let mut missing = Vec::new();
     for (key, qualifier) in named {
         let unresolved: Vec<String> = sqlx::query_scalar(
             "SELECT s.id FROM site s
               WHERE NOT EXISTS (
-                  SELECT 1 FROM account_map m
+                  SELECT 1 FROM account_resolution m
                     JOIN ledger_account a ON a.account_code = m.account_code
-                   WHERE m.semantic_key = $1 AND m.site_id = s.id AND m.qualifier = $2
-                     AND a.is_active AND NOT a.is_group AND m.category_code IS NULL)
-                AND NOT ($2 LIKE 'LAIN:%' AND s.id = split_part($2, ':', 2))",
+                   WHERE m.role = $1 AND m.site_id = s.id AND m.source_type = 'COMPANY'
+                     AND m.source_id = $2
+                     AND a.is_active AND NOT a.is_group AND m.category_code IS NULL)",
         )
         .bind(key)
         .bind(qualifier)
@@ -176,7 +176,7 @@ async fn every_meaning_a_writer_names_resolves_at_every_site(pool: PgPool) {
 
     // And no map row points anywhere but an active 267 leaf.
     let retired: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::bigint FROM account_map m JOIN ledger_account a USING (account_code)
+        "SELECT COUNT(*)::bigint FROM account_link m JOIN ledger_account a USING (account_code)
           WHERE NOT a.is_active OR a.is_group",
     )
     .fetch_one(&pool)
@@ -203,10 +203,10 @@ async fn each_source_kind_posts_through_the_client_chart(pool: PgPool) {
         // pair, which is why the company-wide affiliate nets to zero.
         ("STORE_DEPOSIT", vec![
             PostingLine::debit("affiliate_receivable", SITE, 100_000)
-                .with_qualifier("PEMBIAYAAN:dc")
+                .with_qualifier("PEMBIAYAAN")
                 .with_counter_site("dc"),
             PostingLine::credit("affiliate_payable", "dc", 100_000)
-                .with_qualifier("PEMBIAYAAN:store-01")
+                .with_qualifier("PEMBIAYAAN")
                 .with_counter_site(SITE),
         ]),
         ("STORE_EXPENSE", vec![d("expense_electricity", SITE, ""), c("petty_cash", SITE, "")]),
@@ -215,7 +215,8 @@ async fn each_source_kind_posts_through_the_client_chart(pool: PgPool) {
         ("TAX_SETTLEMENT", vec![d("pph21_payable", "dc", ""), c("bank_giro", "dc", "BCA")]),
         ("SUPPLIER_ADVANCE", vec![d("advance_purchase", "dc", ""), c("bank_giro", "dc", "BCA")]),
         ("EQUITY_MOVEMENT", vec![d("bank_giro", "dc", "BCA"), c("capital_contributed", "dc", "")]),
-        ("TRANSFER", vec![d("owner_drawings", "dc", ""), c("bank_giro", "dc", "BCA")]),
+        // 3004 Prive is reached by EQUITY_MOVEMENT and HO journals only (0380).
+        ("TRANSFER", vec![d("inventory", "dc", ""), c("inventory", "dc", "")]),
         ("ASSET_DISPOSAL", vec![d("asset_disposal_loss", "dc", ""), c("work_in_progress", "dc", "")]),
         ("AMORTIZATION_RUN", vec![d("amortisation_expense", SITE, "PRE_OPENING"), c("accumulated_amortisation", SITE, "PRE_OPENING")]),
         ("PREPAID_ALLOCATION", vec![d("expense_misc", SITE, ""), c("prepaid_expense", SITE, "")]),
@@ -337,8 +338,9 @@ async fn a_mixed_day_posts_once_and_parks_what_it_cannot_place(pool: PgPool) {
     assert_eq!(balance(&pool, "1021", Some(SITE)).await, 2_220_000 + 555_000);
     assert!(balance(&pool, "4006", Some(SITE)).await < 0, "BNI debit-card sales carry the QRIS");
     assert_eq!(balance(&pool, "1020", Some(SITE)).await, 3_330_000);
-    // The free voucher and the promotion are both discounts.
-    assert!(balance(&pool, "4012", Some(SITE)).await >= 200_000 + 111_000);
+    // The free voucher is a discount; the promotion is not — it is inside the
+    // price charged (owner decision 25 Sep 2026), so 4012 holds the voucher only.
+    assert_eq!(balance(&pool, "4012", Some(SITE)).await, 200_000);
     assert_eq!(balance(&pool, "2033", None).await, 0, "no voucher liability");
     assert_eq!(balance(&pool, "4009", None).await + balance(&pool, "4010", None).await, 0);
 
@@ -456,7 +458,8 @@ async fn every_crossing_goes_through_the_affiliate_accounts(pool: PgPool) {
     bank_account(&pool, "1005", "dc", "BCA", "8880012345").await;
 
     // A unit pays head office's supplier out of its sales cash: HO Dr 2002 /
-    // Cr 2028 (counter unit); unit Dr 1057 (counter HO) / Cr 1002.
+    // Cr 1057 (counter unit); unit Dr 2028 (counter HO) / Cr 1002. The unit
+    // side is always hutang, head office's always piutang (owner, 25 Sep).
     let paid = post(
         &pool,
         &intent(
@@ -472,8 +475,8 @@ async fn every_crossing_goes_through_the_affiliate_accounts(pool: PgPool) {
     assert_eq!(
         legs_of(&pool, paid).await,
         vec![
-            ("dc".into(), "2028".into(), SITE.into(), -750_000),
-            (SITE.into(), "1057".into(), "dc".into(), 750_000),
+            ("dc".into(), "1057".into(), SITE.into(), -750_000),
+            (SITE.into(), "2028".into(), "dc".into(), 750_000),
         ]
     );
 
@@ -513,7 +516,8 @@ async fn every_crossing_goes_through_the_affiliate_accounts(pool: PgPool) {
         .iter()
         .all(|(_, code, _, _)| code == "1058" || code == "2029"));
 
-    // A fixed asset moved: Lain-lain, 1059 on both sides.
+    // A fixed asset moved: Lain-lain, 1059 at head office and 2030 at the unit
+    // (owner decision 25 Sep, 0380).
     let asset = post(
         &pool,
         &intent(
@@ -526,10 +530,18 @@ async fn every_crossing_goes_through_the_affiliate_accounts(pool: PgPool) {
     )
     .await
     .unwrap_or_else(|error| panic!("asset transfer: {error}"));
-    assert!(legs_of(&pool, asset)
-        .await
-        .iter()
-        .all(|(_, code, _, _)| code == "1059"));
+    let asset_legs = legs_of(&pool, asset).await;
+    assert_eq!(asset_legs.len(), 2, "{asset_legs:?}");
+    assert!(
+        asset_legs.iter().all(|(site, code, _, _)| {
+            if site == "dc" {
+                code == "1059"
+            } else {
+                code == "2030"
+            }
+        }),
+        "Lain-lain is 1059 at HO and 2030 at the unit: {asset_legs:?}"
+    );
 
     every_site_balances_in_its_own_books(&pool).await;
 }
@@ -592,6 +604,36 @@ async fn slip_line(pool: &PgPool, run: &str, employee_id: &str, n: i32, kind: &s
 /// Three people, two at a store and one at head office. Month end charges
 /// each component to the store or head-office leaf against 2017; paying
 /// (store from petty cash, head office from the bank) leaves 2017 at zero.
+/// An employer BPJS component is the company's insurance cost (6017 at a
+/// shop, 6031 at head office) — not salary, and not a medical cost, although
+/// `BPJS_KESEHATAN` contains the word for health.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_employer_bpjs_component_lands_on_the_insurance_expense(pool: PgPool) {
+    cloud::open_period(&pool, 2026, 9)
+        .await
+        .unwrap_or_else(|error| panic!("open: {error}"));
+    employee(&pool, "emp-a").await;
+    sqlx::query(
+        "INSERT INTO payroll_run (id, place_id, period, state, complete, history)
+         VALUES ('run-bpjs', $1, '2026-09-01', 'APPROVED', true, '[]'::jsonb)",
+    )
+    .bind(SITE)
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("run: {error}"));
+    slip(&pool, "run-bpjs", "emp-a", 4_000_000, 4_280_000, 0).await;
+    slip_line(&pool, "run-bpjs", "emp-a", 1, "EARNING", "BPJS_KESEHATAN_PERUSAHAAN", 160_000).await;
+    slip_line(&pool, "run-bpjs", "emp-a", 2, "EARNING", "BPJS_TK_PERUSAHAAN", 120_000).await;
+
+    cloud::payroll_accrual_post(&pool, "run-bpjs", SITE, ACTOR)
+        .await
+        .unwrap_or_else(|error| panic!("accrual: {error}"));
+
+    assert_eq!(balance(&pool, "6017", Some(SITE)).await, 280_000, "employer BPJS");
+    assert_eq!(balance(&pool, "6016", Some(SITE)).await, 0, "not a medical cost");
+    assert_eq!(balance(&pool, "6012", Some(SITE)).await, 4_000_000, "salary is only the base");
+}
+
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn payroll_accrues_by_component_and_payment_clears_the_payable(pool: PgPool) {
     cloud::open_period(&pool, 2026, 9)

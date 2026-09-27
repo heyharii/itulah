@@ -4,7 +4,7 @@ import { useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Field, Input } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Banner } from "@/components/ui/states"
 import { node } from "@/lib/api"
@@ -61,12 +61,10 @@ export function SalesSetup() {
     account_no: "",
     account_holder: "",
   })
-  const [added, setAdded] = useState<AddBankOutcome | null>(null)
   const addBank = useMutation({
     mutationFn: (request: AddBankRequest) =>
       node.post<AddBankOutcome>("/api/v1/finance/banks/add", request),
-    onSuccess: (outcome) => {
-      setAdded(outcome)
+    onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["finance"] })
     },
   })
@@ -113,7 +111,7 @@ export function SalesSetup() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="flex flex-col gap-3 p-4">
           <h2 className="text-[0.9375rem] font-semibold text-ink">Tambah bank</h2>
-          <p className="text-[0.8125rem] text-body">
+          <p className="text-[0.875rem] text-body">
             Creates the bank&apos;s leaves in the right groups (Cash In Bank Giro /
             Tabungan, Outstanding Giro, Penjualan Debit Card), maps them by the
             bank&apos;s code, registers the account and — QRIS on this
@@ -145,7 +143,7 @@ export function SalesSetup() {
               />
             </Field>
           </div>
-          <div className="flex flex-wrap gap-4 text-[0.8125rem] text-text">
+          <div className="flex flex-wrap gap-4 text-[0.875rem] text-text">
             {(["giro", "savings", "debit_card"] as const).map((flag) => (
               <label key={flag} className="flex items-center gap-2">
                 <input
@@ -178,18 +176,11 @@ export function SalesSetup() {
             </Button>
           </div>
           {addBank.isError && <Banner tone="bad">{problemText(addBank.error)}</Banner>}
-          {added && (
-            <Banner tone="ok">
-              {added.bank_code}: {added.accounts_created.length} account(s) created
-              {added.accounts_created.length > 0 && ` (${added.accounts_created.join(", ")})`},{" "}
-              {added.mappings_written} mapping(s).
-            </Banner>
-          )}
         </Card>
 
         <Card className="flex flex-col gap-3 p-4">
           <h2 className="text-[0.9375rem] font-semibold text-ink">EDC terminals</h2>
-          <table className="text-[0.8125rem]">
+          <table className="text-[0.875rem]">
             <thead className="text-left text-mute">
               <tr>
                 <th>Site</th>
@@ -234,10 +225,10 @@ export function SalesSetup() {
 
         <Card className="flex flex-col gap-3 p-4">
           <h2 className="text-[0.9375rem] font-semibold text-ink">MDR rates</h2>
-          <p className="text-[0.8125rem] text-body">
+          <p className="text-[0.875rem] text-body">
             Final rates: the bank&apos;s MDR already includes VAT.
           </p>
-          <table className="text-[0.8125rem]">
+          <table className="text-[0.875rem]">
             <thead className="text-left text-mute">
               <tr>
                 <th>Bank</th>
@@ -263,15 +254,15 @@ export function SalesSetup() {
               value={rate.bank_code}
               onChange={(e) => setRate({ ...rate, bank_code: e.target.value.toUpperCase() })}
             />
-            <select
-              className="h-10 rounded-inner border border-hairline-2 bg-canvas px-2 text-[0.8125rem]"
+            <Select
+              aria-label="Fee kind"
               value={rate.fee_kind}
-              onChange={(e) => setRate({ ...rate, fee_kind: e.target.value })}
+              onChange={(fee_kind) => setRate({ ...rate, fee_kind })}
             >
               {["DEBIT_ON_US", "DEBIT_OFF_US", "CREDIT", "QRIS"].map((kind) => (
-                <option key={kind}>{kind}</option>
+                <option key={kind} value={kind}>{kind}</option>
               ))}
-            </select>
+            </Select>
             <Input
               placeholder="0.15"
               value={rate.rate_percent}
@@ -293,7 +284,7 @@ export function SalesSetup() {
 
         <Card className="flex flex-col gap-3 p-4">
           <h2 className="text-[0.9375rem] font-semibold text-ink">Finance settings</h2>
-          <table className="text-[0.8125rem]">
+          <table className="text-[0.875rem]">
             <tbody>
               {(settings.data ?? []).map((row) => (
                 <tr key={row.setting_key}>

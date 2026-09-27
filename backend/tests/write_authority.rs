@@ -102,6 +102,43 @@ const MATRIX: &[Authority] = &[
                  A second writer would be a count nobody could reconcile",
     },
     Authority {
+        table: "commercial_usage_local",
+        writers: &["src/edge/pricing.rs", "src/edge/sync.rs"],
+        reason: "a till's own count of what it gave away, written in the sale's \
+                 transaction beside the fact the centre will count it from, and \
+                 deleted only when the centre's usage message says it has — \
+                 migration 0043. A third writer would be a count that never \
+                 reaches the centre or leaves the till",
+    },
+    Authority {
+        table: "commercial_usage_allowance",
+        writers: &["src/edge/sync.rs"],
+        reason: "a shop's allowance under a split limit is the centre's to \
+                 grant and arrives only on the usage message — edge 0044. A \
+                 till that wrote its own would be granting itself money",
+    },
+    Authority {
+        table: "commercial_cap_allocation",
+        writers: &["src/cloud/postgres/cap_allocation.rs"],
+        reason: "one module grants allowances and its upsert only ever raises \
+                 them; 0387's trigger refuses the rest. A second writer is \
+                 how an allowance gets taken back from a shop that has \
+                 already used it offline",
+    },
+    Authority {
+        table: "commercial_cap_allocation_policy",
+        writers: &["src/cloud/postgres/cap_allocation.rs"],
+        reason: "which limits are split is decided in one place, beside the \
+                 checks that refuse a limit too small to split",
+    },
+    Authority {
+        table: "commercial_cap_alert",
+        writers: &["src/cloud/postgres/marketing_watch.rs"],
+        reason: "the memory of which crossings head office has been told \
+                 about; written only where the notice is raised, in the same \
+                 transaction — 0386",
+    },
+    Authority {
         table: "commercial_usage_customer",
         writers: &["src/cloud/postgres/sync.rs"],
         reason: "as commercial_usage, and only at the centre: a shop counts its \

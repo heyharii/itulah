@@ -372,7 +372,7 @@ export function Composer({
             }
           }}
           placeholder={uploading ? "Uploading…" : placeholder}
-          className="max-h-40 w-full resize-none overflow-y-auto rounded-inner border border-hairline-2 bg-canvas px-3.5 py-2 text-[0.84375rem] leading-normal text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-strong"
+          className="max-h-40 w-full resize-none overflow-y-auto rounded-inner border border-hairline-2 bg-canvas px-3.5 py-2 text-[0.875rem] leading-normal text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-strong"
         />
 
         <Button
@@ -409,7 +409,7 @@ export function AttachmentLink({
 }) {
   const inner = (
     <>
-      <span className="grid size-7 shrink-0 place-items-center rounded-inner bg-soft-2 font-mono text-[0.5625rem] text-body">
+      <span className="grid size-7 shrink-0 place-items-center rounded-inner bg-soft-2 font-mono text-[0.875rem] text-body">
         {fileKind(name)}
       </span>
       <span className="min-w-0 flex-1">
@@ -444,7 +444,7 @@ export function AttachmentLink({
 /// The small square that stands in for a file preview.
 export function FileTile({ name }: { name: string }) {
   return (
-    <span className="grid size-8 shrink-0 place-items-center rounded-inner bg-soft-2 font-mono text-[0.5625rem] text-body">
+    <span className="grid size-8 shrink-0 place-items-center rounded-inner bg-soft-2 font-mono text-[0.875rem] text-body">
       {fileKind(name)}
     </span>
   )

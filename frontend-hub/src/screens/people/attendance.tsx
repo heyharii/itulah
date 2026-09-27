@@ -363,12 +363,6 @@ function NewVersion({
         className="flex flex-col gap-3.5 border-t border-hairline p-4"
       >
         {write.isError && <ErrorState error={write.error} />}
-        {write.isSuccess && (
-          <Banner tone="ok">
-            Written. The version it supersedes was closed the day before this
-            one starts, in the same transaction.
-          </Banner>
-        )}
 
         <form.Subscribe
           selector={(state) => policyProblems(state.values, openFrom)}

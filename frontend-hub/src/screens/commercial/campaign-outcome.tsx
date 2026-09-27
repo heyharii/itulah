@@ -212,7 +212,7 @@ function Figure({
         {value}
       </div>
       {note !== undefined && (
-        <div className="mt-1 truncate text-[0.71875rem] text-mute">{note}</div>
+        <div className="mt-1 truncate text-[0.875rem] text-mute">{note}</div>
       )}
     </div>
   )
@@ -238,7 +238,7 @@ function Against({
   const name = before.name ?? before.campaign_id
   if (before.reading.sale_count === 0) {
     return (
-      <p className="mt-3 text-[0.71875rem] leading-relaxed text-mute">
+      <p className="mt-3 text-[0.875rem] leading-relaxed text-mute">
         {before.note ??
           `Nothing was sold against ${name} in its own window, so there is nothing to read this against.`}
       </p>
@@ -251,7 +251,7 @@ function Against({
           Against {name}
         </span>
         {before.comparable && (
-          <span className="text-[0.71875rem] text-mute tabular-nums">
+          <span className="text-[0.875rem] text-mute tabular-nums">
             {count(window.days_elapsed)} days vs{" "}
             {count(before.window.days_elapsed)}
           </span>
@@ -284,7 +284,7 @@ function Against({
         before.revenue_per_day_bps !== null &&
         mine.per_day !== null &&
         before.reading.per_day !== null && (
-          <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
+          <p className="mt-2 text-[0.875rem] leading-relaxed text-mute">
             Per day, that is{" "}
             <span className="text-text tabular-nums">
               {money(mine.per_day.basket_revenue_minor)}
@@ -455,19 +455,10 @@ function Objective({
         )}
 
         {stated.note !== null && (
-          <p className="mt-2 text-[0.71875rem] leading-relaxed text-warn-fg">
+          <p className="mt-2 text-[0.875rem] leading-relaxed text-warn-fg">
             {stated.note}
           </p>
         )}
-
-        {stated.success_metric === "SELL_THROUGH" &&
-          stated.current !== null && (
-            <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
-              Over the styles its offers name, counting full-price sales too — a
-              clearance succeeded if the stock cleared. Stock on hand is read
-              today, not as at the window's end.
-            </p>
-          )}
       </div>
     </div>
   )
@@ -609,7 +600,7 @@ function IntentEditor({
     actor === ""
       ? "Nobody is signed in, so no command can name who did this."
       : value === null || Number.isNaN(value)
-        ? "A target is a number. What that number means is decided by the metric and the model above."
+        ? "Set a target."
         : unit === "bps" && value > 10_000
           ? "A target in basis points cannot pass 100%."
           : shape?.needsBaseline === true && baseline === ""
@@ -626,18 +617,12 @@ function IntentEditor({
   return (
     <div>
       <SubHead>What it is for</SubHead>
+      {/* A campaign without an objective is a folder of promotions. This
+          says what it is chasing and how it will be judged — it changes no
+          price and reaches no shop. */}
       <div className="rounded-card border border-hairline px-3.5 py-3">
-        <p className="mb-3 text-[0.71875rem] leading-relaxed text-mute">
-          A campaign without an objective is a folder of promotions, and a
-          folder does not need a menu. Say what this one is chasing and how it
-          will be judged — it changes no price and reaches no shop.
-        </p>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field
-            label="Objective"
-            hint={objectiveOf(objective)?.hint}
-            className="sm:col-span-2"
-          >
+          <Field label="Objective" className="sm:col-span-2">
             <Select
               value={objective}
               onChange={(next) => {
@@ -662,7 +647,7 @@ function IntentEditor({
             </Select>
           </Field>
 
-          <Field label="Success metric" hint={chosen?.hint}>
+          <Field label="Success metric">
             <Select
               value={metric}
               onChange={(next) => {
@@ -683,7 +668,7 @@ function IntentEditor({
             </Select>
           </Field>
 
-          <Field label="Measured as" hint={shape?.hint}>
+          <Field label="Measured as">
             <Select value={model} onChange={setModel}>
               {offered.map((one) => (
                 <option key={one.value} value={one.value}>
@@ -701,29 +686,19 @@ function IntentEditor({
                     chosen?.direction === "AT_MOST" ? "at most" : "at least"
                   })`
             }
-            hint={
-              unit === "bps"
-                ? model === "BEAT_BASELINE"
-                  ? "Basis points better than the precedent: 2000 is twenty per cent."
-                  : "Basis points: 8000 is 80%."
-                : unit === "money"
-                  ? model === "REACH_PER_DAY"
-                    ? "Whole rupiah, per day of the campaign."
-                    : "Whole rupiah."
-                  : "A whole number."
-            }
           >
             <Money
               value={target}
               onChange={setTarget}
               prefix={unit === "money" ? "Rp" : undefined}
               suffix={unit === "bps" ? "bps" : undefined}
+              placeholder="Not set"
               label="Target"
             />
           </Field>
 
           {shape?.needsUpper === true && (
-            <Field label="Band, to" hint="The far end, above the floor.">
+            <Field label="Band, to">
               <Money
                 value={upper}
                 onChange={setUpper}
@@ -734,11 +709,9 @@ function IntentEditor({
             </Field>
           )}
 
-          <Field
-            label="Read against"
-            hint="A campaign, not a period — Lebaran moves every year, so the month before it is ordinary trading."
-            className="sm:col-span-2"
-          >
+          {/* A campaign, not a period — Lebaran moves every year, so the
+              month before it is ordinary trading. */}
+          <Field label="Compared with" className="sm:col-span-2">
             <Select value={baseline} onChange={setBaseline}>
               <option value="">Nothing — judge it on its own</option>
               {campaigns
@@ -759,7 +732,7 @@ function IntentEditor({
         )}
 
         <div className="mt-3 flex items-center justify-between gap-3">
-          <span className="min-w-0 text-[0.71875rem] text-bad">
+          <span className="min-w-0 text-[0.875rem] text-bad">
             {problem ?? ""}
           </span>
           <span className="flex shrink-0 items-center gap-2">

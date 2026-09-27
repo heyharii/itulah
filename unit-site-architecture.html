@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unit, Site, Node, Device</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;
+  --canvas:#fff;--soft:#f8f9fb;--soft-2:#f0f2f5;--hairline:#e7eaf0;--hairline-2:#dce1e8;--hairline-strong:#c7ced8;
+  --accent:#2563eb;--accent-bg:#eff5ff;
+  --ok-fg:#15803d;--ok-bg:#d9f4d2;--warn-fg:#b45309;--warn-bg:#faeacd;--bad-fg:#be123c;--bad-bg:#fbeaea;
+  --a-orange:#e0823c;--a-green:#46a06a;--a-blue:#4a82f0;--a-violet:#8a6cf0;--a-pink:#d65b95;
+  --r-card:12px;--r-inner:7px;
+  --unit:#4a82f0;--site:#46a06a;--node:#e0823c;--device:#8a6cf0;--pool:#737c89;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--soft);color:var(--text);font:14px/1.5 Inter,system-ui,sans-serif}
+.wrap{max-width:1120px;margin:0 auto;padding:28px 16px 64px}
+h1{font-size:22px;color:var(--ink);margin:0 0 4px;font-weight:650;letter-spacing:-.01em}
+.lede{color:var(--body);margin:0 0 20px;max-width:760px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--hairline-2);margin-bottom:20px;overflow-x:auto}
+.tab{appearance:none;border:0;background:none;font:inherit;color:var(--body);padding:8px 12px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;font-weight:500}
+.tab[aria-selected=true]{color:var(--ink);border-color:var(--ink)}
+.panel{display:none}.panel.on{display:block}
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:18px}
+.grid2{display:grid;grid-template-columns:320px 1fr;gap:16px}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+.cap{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:600;margin:0 0 10px}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--hairline-2);border-radius:999px;padding:1px 9px;font-size:12px;color:var(--text);background:var(--canvas);white-space:nowrap}
+.pill i{width:5px;height:5px;border-radius:50%;background:var(--c,var(--mute))}
+
+/* ladder */
+.ladder{display:flex;flex-direction:column;align-items:stretch}
+.rung{border:1px solid var(--hairline);border-left:3px solid var(--c);border-radius:var(--r-inner);padding:10px 12px;background:var(--canvas)}
+.rung b{color:var(--ink);font-size:15px}
+.rung small{display:block;color:var(--body);font-size:12.5px}
+.rung .own{margin-top:6px;display:flex;flex-wrap:wrap;gap:4px}
+.link{display:flex;align-items:center;gap:8px;padding:4px 0 4px 18px;color:var(--mute);font-size:12px}
+.link:before{content:"";width:1px;height:18px;background:var(--hairline-strong)}
+.link.muted{font-style:italic}
+
+/* example tree */
+.tree{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:620px){.tree{grid-template-columns:1fr}}
+.co{grid-column:1/-1;text-align:center;border:1px dashed var(--hairline-strong);border-radius:var(--r-inner);padding:8px;color:var(--body);font-size:13px}
+.box{border:1px solid var(--hairline);border-radius:var(--r-inner);padding:10px;background:var(--soft)}
+.box.u{border-top:3px solid var(--unit)}
+.hd{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.hd b{color:var(--ink)}
+.kids{margin:8px 0 0 10px;padding-left:10px;border-left:1px solid var(--hairline-2);display:flex;flex-direction:column;gap:8px}
+.n{background:var(--canvas);border:1px solid var(--hairline);border-left:3px solid var(--c);border-radius:var(--r-inner);padding:8px 10px}
+.n .hd b{font-size:13px}
+.n p{margin:2px 0 0;font-size:12px;color:var(--body)}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.note{margin-top:14px;padding:10px 12px;border-radius:var(--r-inner);background:var(--accent-bg);color:#1e3a8a;font-size:13px}
+.note.warn{background:var(--warn-bg);color:#7c3a06}
+
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-weight:600;color:var(--body);font-size:12px;padding:8px 10px;border-bottom:1px solid var(--hairline-2);white-space:nowrap}
+td{padding:9px 10px;border-bottom:1px solid var(--hairline);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td b{color:var(--ink)}
+.old{color:var(--bad-fg);text-decoration:line-through;text-decoration-color:rgba(190,18,60,.4)}
+.new{color:var(--ok-fg);font-weight:500}
+.drop{color:var(--bad-fg);font-weight:500}
+.scroll{overflow-x:auto}
+.rules{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+@media(max-width:860px){.rules{grid-template-columns:1fr 1fr}}
+.rule{background:var(--canvas);border:1px solid var(--hairline);border-top:3px solid var(--c);border-radius:var(--r-inner);padding:10px 12px}
+.rule b{color:var(--ink);display:block}
+.rule span{font-size:12.5px;color:var(--body)}
+.sim{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;font-size:13px;color:var(--body)}
+.btn{appearance:none;border:1px solid var(--hairline-strong);background:var(--canvas);border-radius:var(--r-inner);padding:6px 12px;font:inherit;font-size:13px;color:var(--ink);cursor:pointer;font-weight:500}
+.btn:hover{background:var(--soft-2)}
+.addr.moved{border-color:var(--a-orange);background:#fdf1e6}
+ol.q{margin:0;padding-left:18px}ol.q li{margin-bottom:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Unit, Site, Node, Device</h1>
+  <p class="lede">Satu kata per konsep. <b>Unit</b> dipakai untuk organisasinya: buku, orang, dan uang. <b>Site</b> dipakai untuk tempat fisik tempat barang berada. <b>Node</b> adalah mesin yang sync, dan <b>Device</b> adalah alat yang dicolok ke node. <code class="mono">org_place</code> dihapus.</p>
+
+  <div class="rules">
+    <div class="rule" style="--c:var(--unit)"><b>Unit</b><span>Buku, karyawan, uang, laporan, hak akses</span></div>
+    <div class="rule" style="--c:var(--site)"><b>Site</b><span>Tempat fisik: kantor, gudang, toko. Alamat, mesin, dan barang kalau ada</span></div>
+    <div class="rule" style="--c:var(--node)"><b>Node</b><span>Sync, SQLite, pemilik ledger stok</span></div>
+    <div class="rule" style="--c:var(--device)"><b>Device</b><span>Kasir, EDC, reader RFID, handheld, printer, mesin absen. Periferal ikut kasirnya</span></div>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-p="model">Model</button>
+    <button class="tab" role="tab" aria-selected="false" data-p="data">Data nempel di mana</button>
+    <button class="tab" role="tab" aria-selected="false" data-p="migrasi">Sebelum → sesudah</button>
+    <button class="tab" role="tab" aria-selected="false" data-p="device">Device &amp; login</button>
+    <button class="tab" role="tab" aria-selected="false" data-p="dinamis">Supaya dinamis</button>
+    <button class="tab" role="tab" aria-selected="false" data-p="putus">Keputusan</button>
+  </div>
+
+  <!-- MODEL -->
+  <section class="panel on" id="model">
+    <div class="grid2">
+      <div class="card">
+        <p class="cap">Hierarki</p>
+        <div class="ladder">
+          <div class="rung" style="--c:var(--faint)"><b>Perusahaan</b><small>Cuma satu, jadi tidak perlu tabel. Tetap jadi <span class="mono">dimension='company'</span> di COA.</small></div>
+          <div class="link">1 → 15</div>
+          <div class="rung" style="--c:var(--unit)"><b>Unit</b><small>Unit organisasi dan akuntansi, yaitu HO, Online, dan Store 01–13. Jenisnya HO, ONLINE, atau STORE. Tiap unit punya buku sendiri dan harus seimbang per unit. Interunit terjadi antar unit.</small></div>
+          <div class="link">1 → 0..n &nbsp;·&nbsp; tiap site milik tepat 1 unit</div>
+          <div class="rung" style="--c:var(--site)"><b>Site</b><small>Tempat fisik: kantor, gudang, atau toko. Alamat adalah atribut site. Dua site boleh punya alamat yang sama (kantor HO dan gudang hari ini), dan kalau salah satu pindah cukup alamatnya yang diganti. Yang menyimpan barang punya pool.</small></div>
+          <div class="link">1 → n pool</div>
+          <div class="rung" style="--c:var(--pool)"><b>Pool</b><small>Tahapan fisik di dalam site, misalnya rak, lantai toko, atau reject. Sudah ada di glosarium.</small></div>
+          <div class="link muted">site 1 → 1..n node, tepat 1 pemilik stok</div>
+          <div class="rung" style="--c:var(--node)"><b>Node</b><small>Satu mesin (binary <span class="mono">store</span>) yang sync ke cloud. Di wire, id-nya disebut <span class="mono">origin_id</span>.</small></div>
+          <div class="link">1 → n</div>
+          <div class="rung" style="--c:var(--device)"><b>Device</b><small>Alat yang terdaftar ke node: kasir, EDC, reader RFID jaringan, handheld, printer jaringan, dan mesin absen. <b>Periferal</b> (layar pelanggan, reader meja USB R3, laci uang, scanner, printer USB) adalah atribut satu kasir. HP dan laptop orang <b>bukan</b> device, melainkan sesi.</small></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <p class="cap">Contoh nyata</p>
+        <div class="tree">
+          <div class="co">Perusahaan · 1 buku besar · 15 unit: HO, Online, Store 01–13</div>
+
+          <div class="box u">
+            <div class="hd"><b>Unit HO</b><span class="mono">ho</span></div>
+            <div class="chips"><span class="pill" style="--c:var(--unit)"><i></i>buku HO</span><span class="pill" style="--c:var(--unit)"><i></i>hutang supplier</span><span class="pill" style="--c:var(--unit)"><i></i>karyawan HO + gudang</span></div>
+            <div class="kids">
+              <div class="n" style="--c:var(--site)">
+                <div class="hd"><b>Site Kantor HO</b><span class="mono">ho-kantor</span></div>
+                <p>OFFICE · tanpa pool, tidak menyimpan barang</p>
+                <div class="chips"><span class="pill addr" data-a="office" style="--c:var(--site)"><i></i><span>Alamat A</span></span><span class="pill" style="--c:var(--device)"><i></i>mesin absen (opsional)</span></div>
+              </div>
+              <div class="n" style="--c:var(--site)">
+                <div class="hd"><b>Site Gudang</b><span class="mono">ho-gudang</span></div>
+                <p>WAREHOUSE · pool: pending, warehouse, outbound, reject</p>
+                <div class="chips"><span class="pill" style="--c:var(--site)"><i></i>Alamat A</span></div>
+                <div class="kids">
+                  <div class="n" style="--c:var(--node)">
+                    <div class="hd"><b>Node</b><span class="mono">ho-gudang-edge</span></div>
+                    <div class="chips"><span class="pill" style="--c:var(--device)"><i></i>handheld RFID ×n</span><span class="pill" style="--c:var(--device)"><i></i>printer ZPL</span><span class="pill" style="--c:var(--device)"><i></i>mesin absen</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="box u">
+            <div class="hd"><b>Unit Store 03</b><span class="mono">store-03</span></div>
+            <div class="chips"><span class="pill" style="--c:var(--unit)"><i></i>buku toko</span><span class="pill" style="--c:var(--unit)"><i></i>kas, setoran, giro</span><span class="pill" style="--c:var(--unit)"><i></i>karyawan toko</span></div>
+            <div class="kids">
+              <div class="n" style="--c:var(--site)">
+                <div class="hd"><b>Site Toko 03</b><span class="mono">store-03</span></div>
+                <p>Pool: lantai toko, gudang belakang</p>
+                <div class="kids">
+                  <div class="n" style="--c:var(--node)">
+                    <div class="hd"><b>Node</b><span class="mono">store-03-edge</span></div>
+                    <div class="kids">
+                      <div class="n" style="--c:var(--device)">
+                        <div class="hd"><b>Kasir 1</b><span class="mono">device</span></div>
+                        <div class="chips"><span class="pill"><i></i>layar pelanggan</span><span class="pill"><i></i>reader meja R3 (USB)</span><span class="pill"><i></i>laci uang</span><span class="pill"><i></i>printer struk</span><span class="pill"><i></i>EDC</span></div>
+                      </div>
+                      <div class="n" style="--c:var(--device)">
+                        <div class="hd"><b>Kasir 2</b><span class="mono">device</span></div>
+                        <div class="chips"><span class="pill"><i></i>layar pelanggan</span><span class="pill"><i></i>reader meja R3 (USB)</span><span class="pill"><i></i>printer struk</span></div>
+                      </div>
+                      <div class="chips"><span class="pill" style="--c:var(--device)"><i></i>handheld RFID</span><span class="pill" style="--c:var(--device)"><i></i>printer label</span><span class="pill" style="--c:var(--device)"><i></i>mesin absen</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="box u" style="grid-column:1/-1">
+            <div class="hd"><b>Unit Online</b><span class="mono">online</span></div>
+            <div class="chips"><span class="pill" style="--c:var(--unit)"><i></i>buku sendiri</span><span class="pill" style="--c:var(--unit)"><i></i>channel: online sendiri, marketplace</span><span class="pill" style="--c:var(--unit)"><i></i>tim online</span></div>
+            <div class="kids">
+              <div class="n" style="--c:var(--site)">
+                <div class="hd"><b>Site stok online</b><span class="mono">online-stok</span></div>
+                <p>Belum diputuskan: stok sendiri (bisa satu alamat dengan gudang), atau diambil dari gudang/toko per pesanan lewat interunit BARANG.</p>
+                <div class="chips"><span class="pill" style="--c:var(--site)"><i></i>Alamat A?</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="sim"><button id="move" class="btn">Simulasikan: kantor HO pindah</button><span id="simtxt">Sekarang kantor HO dan gudang ada di <b>Alamat A</b>.</span></div>
+        <div class="note">Aturan kuncinya: <b>barang bergerak antar site, nilainya dibukukan di unit pemilik site itu</b> (<span class="mono">site.unit_id</span>). Kirim barang dari Gudang ke Toko 03 artinya stok pindah dari site ke site, lalu buku mencatat HO → Store 03 lewat interunit BARANG.</div>
+        <div class="note warn">Untuk toko, unit dan site sekarang 1:1 dan boleh pakai id yang sama (<span class="mono">store-03</span>). Keduanya tetap dua konsep berbeda. Kalau nanti satu toko buka gudang kedua atau gedungnya dipakai bersama, cukup tambah baris site.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DATA -->
+  <section class="panel" id="data">
+    <div class="card scroll">
+      <table>
+        <thead><tr><th>Menempel ke</th><th>Data</th><th>Kenapa di sini</th></tr></thead>
+        <tbody>
+          <tr><td><span class="pill" style="--c:var(--unit)"><i></i>Unit</span></td><td><span class="mono">journal_line</span> (+ counter unit), laporan laba rugi per unit, interunit, rekening bank, giro, pajak, uang toko (setoran, kas kecil, remitansi), karyawan, jadwal, cuti, lembur, absensi per periode, payroll, kop surat</td><td>Ini semua soal tanggung jawab organisasi: siapa yang punya buku, uang, dan orangnya. <b>Hak akses (Reach)</b> juga di sini: manajer Store 07 hanya bisa bertindak di unit Store 07.</td></tr>
+          <tr><td><span class="pill" style="--c:var(--site)"><i></i>Site</span></td><td>pool, movement, delivery dan nomor delivery, blind count, hitung stok, observasi RFID, tujuan PO, alokasi dan pengiriman antar site, lokasi GA</td><td>Barang ada secara fisik di satu tempat. Truk datang ke alamat, bukan ke unit. Zona waktu juga milik site, karena hari bisnis mengikuti jam lokal.</td></tr>
+          <tr><td><span class="pill" style="--c:var(--node)"><i></i>Node</span></td><td>kredensial sync, fact, checkpoint, heartbeat, insiden, sampel kesehatan, enrolment</td><td>Ini soal mesin: mesin mana yang online, mana yang tertinggal, mana yang diganti.</td></tr>
+          <tr><td><span class="pill" style="--c:var(--device)"><i></i>Device</span></td><td>terminal POS, EDC, reader RFID, handheld, mesin absen, printer</td><td>Alat yang dipasang ke node dan bisa dicabut atau diganti tanpa mengubah site.</td></tr>
+          <tr><td><span class="pill" style="--c:var(--unit)"><i></i>Unit</span> via site</td><td>nilai persediaan di neraca</td><td>Diturunkan dari <span class="mono">movement.site → site.unit_id</span> dan tidak disimpan dua kali.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- MIGRASI -->
+  <section class="panel" id="migrasi">
+    <div class="card scroll">
+      <table>
+        <thead><tr><th>Sekarang</th><th>Jadi</th><th>Catatan</th></tr></thead>
+        <tbody>
+          <tr><td class="mono old">site (dc, store-01..13)</td><td class="mono new">unit + site</td><td>Tabel <span class="mono">unit</span> baru berisi 14 baris. <span class="mono">site</span> tetap ada sebagai tempat fisik dan ditambah kolom <span class="mono">unit_id</span>.</td></tr>
+          <tr><td class="mono old">org_place</td><td class="drop">dihapus</td><td>Isinya sudah 1:1 dengan unit. Tidak ada lagi dua id untuk HO.</td></tr>
+          <tr><td class="mono old">place_id / from_place_id / to_place_id (HR)</td><td class="mono new">unit_id / from_unit_id / to_unit_id</td><td>±15 tabel HR. Kata "place" tinggal satu arti, yaitu alamat movement stok.</td></tr>
+          <tr><td class="mono old">journal_line.site_id, counter_site_id</td><td class="mono new">unit_id, counter_unit_id</td><td>Uang toko, interunit, laporan, dan <span class="mono">UnitResult</span> ikut pindah.</td></tr>
+          <tr><td class="mono old">store_deposit.site_id dll.</td><td class="mono new">unit_id</td><td>Semua tabel uang toko.</td></tr>
+          <tr><td class="mono old">dc · dc-01 · dc-edge-01 · ho</td><td class="mono new">ho (unit) · gudang (site) · gudang-edge (node)</td><td>Kata "dc" hilang, sesuai keputusan owner. Pool <span class="mono">dc.warehouse</span> jadi <span class="mono">gudang.warehouse</span>.</td></tr>
+          <tr><td class="mono old">site.kind HO|STORE, SiteKind::Dc, EdgeRole::Dc</td><td class="mono new">unit.kind HO|ONLINE|STORE · site.kind OFFICE|WAREHOUSE|SHOP</td><td>Jenis organisasi dipisah dari jenis bangunan.</td></tr>
+          <tr><td class="mono old">site.edge_node_id</td><td class="drop">dihapus</td><td>Pemilik stok cukup ditentukan oleh unique index di <span class="mono">sync_origin_credential</span>.</td></tr>
+          <tr><td class="mono old">{store} {store_id} {place} {site} di URL</td><td class="mono new">{unit_id} atau {site_id}</td><td>Pilih sesuai datanya: uang atau orang pakai unit, barang pakai site.</td></tr>
+          <tr><td class="mono old">SiteId ×2 (edge + cloud), "dc" ×4</td><td class="mono new">UnitId, SiteId, NodeId, satu modul</td><td>Newtype dipakai bersama. Konstanta HO cukup satu.</td></tr>
+          <tr><td class="mono old">C001 (kode klien)</td><td class="mono new">unit.client_code</td><td>Kode cabang klien disimpan sebagai atribut unit, bukan sebagai id.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- DEVICE -->
+  <section class="panel" id="device">
+    <div class="rules" style="grid-template-columns:repeat(3,1fr)">
+      <div class="rule" style="--c:var(--device)"><b>Device toko</b><span>Kasir, handheld, reader RFID jaringan, printer jaringan, EDC, mesin absen. Terdaftar ke node, lalu site dan unit diwarisi otomatis.</span></div>
+      <div class="rule" style="--c:var(--faint)"><b>Periferal</b><span>Layar pelanggan, reader meja R3 (USB), laci uang, scanner, printer USB. Atribut satu kasir; pindah kasir berarti ikut pindah.</span></div>
+      <div class="rule" style="--c:var(--unit)"><b>Perangkat orang</b><span>HP karyawan, laptop hub, aplikasi pelanggan. Bukan device, melainkan sesi milik seseorang.</span></div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <p class="cap">Tambah kasir, otomatis</p>
+        <ol class="q">
+          <li>Aplikasi kasir baru dinyalakan dan <b>menemukan server toko sendiri</b> lewat LAN (mDNS).</li>
+          <li>Layar kasir menampilkan kode.</li>
+          <li>Supervisor di toko <b>menyetujui dengan satu ketukan dan sidik jari</b>.</li>
+          <li>Kasir terdaftar ke node, jadi site dan unit ikut otomatis. Label jadi "Kasir 3", dan kasir langsung muncul di daftar perangkat hub.</li>
+        </ol>
+        <div class="note">Tidak perlu ketik IP, tidak ada batas jumlah kasir di kode, dan tidak perlu orang IT. Persetujuan satu orang tetap wajib, karena kasir yang terdaftar berhak menyatakan "ini sidik jari si A".</div>
+      </div>
+      <div class="card scroll">
+        <p class="cap">Sekarang</p>
+        <table>
+          <thead><tr><th>Perangkat</th><th>Dicatat</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><b>Kasir</b></td><td class="mono">edge_terminal (SQLite toko)</td><td>Didaftar manual; cloud tidak tahu</td></tr>
+            <tr><td><b>Reader RFID / handheld</b></td><td class="mono">rfid_device + pool</td><td class="new">Paling rapi</td></tr>
+            <tr><td><b>Printer</b></td><td>tidak dicatat</td><td class="drop">IP:port dikirim tiap request</td></tr>
+            <tr><td><b>EDC</b></td><td class="mono">edc_terminal</td><td>Hanya terminal → bank, tanpa kasir</td></tr>
+            <tr><td><b>Mesin absen</b></td><td class="mono">attendance_terminal</td><td>Terikat ke org_place (akan dihapus)</td></tr>
+            <tr><td><b>Layar pelanggan</b></td><td>jendela kedua pos-desktop</td><td class="new">Sudah benar: periferal</td></tr>
+          </tbody>
+        </table>
+        <p class="cap" style="margin-top:18px">1 user 1 device</p>
+        <table>
+          <tbody>
+            <tr><td><b>Hub / cloud</b></td><td class="new">Sudah jalan (0395): login baru mengakhiri sesi lain</td></tr>
+            <tr><td><b>Server toko</b></td><td class="drop">Belum: sesi edge tidak mengakhiri yang lain</td></tr>
+            <tr><td><b>Aplikasi pelanggan</b></td><td>Tidak berlaku (keputusan 27 Sep)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- DINAMIS -->
+  <section class="panel" id="dinamis">
+    <div class="card scroll">
+      <p class="cap">Hubungan disimpan sebagai baris data, bukan dikunci di kode</p>
+      <table>
+        <thead><tr><th>Kalau nanti…</th><th>Yang diubah</th><th>Yang tidak tersentuh</th></tr></thead>
+        <tbody>
+          <tr><td><b>Kantor HO pindah</b></td><td>Alamat di baris <span class="mono">ho-kantor</span></td><td>Unit HO, buku, gudang, stok</td></tr>
+          <tr><td><b>Gudang pindah</b></td><td>Alamat <span class="mono">ho-gudang</span>. Mesinnya enrol ulang (generation +1)</td><td>Unit HO, buku, pool, riwayat stok</td></tr>
+          <tr><td><b>Ada gudang kedua</b></td><td>Tambah site baru dengan <span class="mono">unit_id = ho</span>, node, dan pool</td><td>Semua yang lama</td></tr>
+          <tr><td><b>Gudang jadi unit sendiri</b> (buku terpisah)</td><td>Tambah unit baru, lalu <span class="mono">site.unit_id</span> dipindah lewat <b>dokumen serah-terima</b> yang menjurnal nilai stok HO → unit baru</td><td>Site, node, pool, riwayat movement</td></tr>
+          <tr><td><b>Toko pindah ruko</b></td><td>Alamat site toko</td><td>Unit toko dan bukunya</td></tr>
+          <tr><td><b>Buka toko baru</b></td><td>Satu aksi di hub: unit, site, pool dari template, pool reject di gudang, dan akun. Tanpa migrasi</td><td>Kode</td></tr>
+          <tr><td><b>Toko di WITA / WIT</b></td><td><span class="mono">site.timezone</span></td><td>Query hari bisnis</td></tr>
+          <tr><td><b>Tambah kasir</b></td><td>Enrol ke node, supervisor setuju</td><td>Kode, konfigurasi</td></tr>
+        </tbody>
+      </table>
+      <p class="cap" style="margin-top:20px">Syaratnya: hapus semua yang di-hardcode</p>
+      <table>
+        <thead><tr><th>Sekarang</th><th>Jadi</th></tr></thead>
+        <tbody>
+          <tr><td class="mono old">HEAD_OFFICE_SITE_ID = "dc" (×4 file)</td><td>Dicari dari data: <span class="mono">unit where kind = 'HO'</span>, dijaga tepat satu oleh unique index</td></tr>
+          <tr><td class="mono old">SiteId menebak jenis dari awalan id (dc / store-*)</td><td>Id hanya label. Jenis dibaca dari kolom <span class="mono">kind</span> di barisnya</td></tr>
+          <tr><td class="mono old">counter-site interunit selalu "dc"</td><td>Counter = unit HO yang dicari dari data</td></tr>
+          <tr><td class="mono old">pool id "dc.warehouse"</td><td>Pool id boleh apa saja, dengan <span class="mono">site_id</span> di kolom sendiri</td></tr>
+          <tr><td class="mono old">UTC+7 ditulis di query (make_interval 420)</td><td>Dibaca dari <span class="mono">site.timezone</span></td></tr>
+          <tr><td class="mono old">generate_series(1, 13) untuk pool dan akun toko</td><td>Template toko, dibuat saat unit baru dibuat</td></tr>
+          <tr><td class="mono old">site.edge_node_id (1 site = 1 node, dikunci)</td><td>Enrolment node → site, dengan pemilik stok dijaga unique index</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- PUTUS -->
+  <section class="panel" id="putus">
+    <div class="grid2">
+      <div class="card">
+        <p class="cap">Sudah diputuskan · 27 Sep 2026</p>
+        <ol class="q">
+          <li><b>Unit</b> dipakai untuk organisasi dan buku: HO, <b>Online</b>, Store 01–13. <span class="mono">org_place</span> dihapus.</li>
+          <li><b>Site</b> adalah tempat fisik, terpisah dari unit. Kantor HO dan gudang jadi dua site walaupun satu alamat.</li>
+          <li><b>Penjualan online adalah unit sendiri</b>, bukan HO. Online sendiri dan marketplace menjadi channel di dalamnya.</li>
+          <li><b>Hak akses (Reach)</b> pindah dari <span class="mono">org_place</span> ke unit.</li>
+          <li>Semuanya <b>dibaca dari data</b>: HO, jenis, counter interunit, zona waktu, dan pembuatan toko. Tidak ada id yang di-hardcode.</li>
+          <li><b>Zona waktu</b> jadi atribut site.</li>
+          <li><b>Tambah toko</b> dan <b>tambah kasir</b> tanpa migrasi dan tanpa deploy.</li>
+          <li><b>Device</b> terdaftar ke node. Periferal (layar pelanggan, reader meja R3, laci) ikut kasirnya. HP dan laptop orang adalah sesi, bukan device.</li>
+          <li><b>1 user 1 device</b> berlaku untuk staf, tidak untuk aplikasi pelanggan.</li>
+          <li>Tidak perlu: libur regional, grup unit, multi-company.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <p class="cap">Masih terbuka</p>
+        <ol class="q">
+          <li><b>Stok online:</b> punya site sendiri, atau ambil dari gudang/toko per pesanan?</li>
+          <li><b>1 user 1 device di server toko:</b> apakah login di kasir mengeluarkan sesi di hub?</li>
+          <li><b>Id:</b> <span class="mono">ho-kantor</span>, <span class="mono">ho-gudang</span>, <span class="mono">online</span>. Oke, atau pakai nama daerah?</li>
+        </ol>
+        <p class="cap" style="margin-top:18px">Urutan kerja</p>
+        <ol class="q">
+          <li>Glosarium di CONTEXT.md</li>
+          <li>Tabel <span class="mono">unit</span>, HR dan Reach pindah ke unit, <span class="mono">org_place</span> dihapus</li>
+          <li>Buang hardcode HO dan UTC+7 (<span class="mono">site.timezone</span>)</li>
+          <li>Buku pindah ke <span class="mono">unit_id</span>, lalu rename dc</li>
+          <li>Registri device dan tambah kasir otomatis</li>
+          <li>Buat toko dari hub</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+</div>
+<script>
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.setAttribute('aria-selected',x===t));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id===t.dataset.p));
+}));
+const mv=document.getElementById('move'),tx=document.getElementById('simtxt'),ad=document.querySelector('.addr');let moved=false;
+mv.addEventListener('click',()=>{moved=!moved;ad.classList.toggle('moved',moved);ad.querySelector('span').textContent=moved?'Alamat B':'Alamat A';
+mv.textContent=moved?'Kembalikan':'Simulasikan: kantor HO pindah';
+tx.innerHTML=moved?'Satu kolom alamat berubah. Unit HO, buku, gudang, node, dan stok <b>tidak tersentuh</b>.':'Sekarang kantor HO dan gudang ada di <b>Alamat A</b>.';});
+</script>
+</body>
+</html>

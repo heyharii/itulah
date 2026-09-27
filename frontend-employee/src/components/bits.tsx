@@ -1,5 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { ApiError } from "@itulah/contract/client"
 
@@ -22,17 +21,42 @@ export function Panel({
   className?: string
 }) {
   return (
-    <Card size="sm" className={cn("gap-3", className)}>
+    <Card className={className}>
       {title !== undefined && (
-        <CardHeader className="flex flex-row items-center gap-2">
-          <CardTitle className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            {title}
-          </CardTitle>
-          {action !== undefined && <div className="ml-auto">{action}</div>}
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+          {action}
         </CardHeader>
       )}
-      <CardContent className="flex flex-col gap-3">{children}</CardContent>
+      <div
+        className={cn(
+          "flex flex-col gap-3 px-4 pb-4",
+          title === undefined && "pt-4"
+        )}
+      >
+        {children}
+      </div>
     </Card>
+  )
+}
+
+/// Items separated by a hairline, without a separator element between each.
+export function List({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col divide-y divide-hairline [&>*]:py-3 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0",
+        className
+      )}
+    >
+      {children}
+    </div>
   )
 }
 
@@ -48,29 +72,20 @@ export function Row({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
-      <span className="text-[13px] text-muted-foreground">{label}</span>
-      <span className="text-[13px] font-medium">{children}</span>
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 text-cell">
+      <span className="text-body">{label}</span>
+      <span className="num font-medium text-ink">{children}</span>
     </div>
   )
 }
 
 export function Empty({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="py-6 text-center text-[13px] text-muted-foreground">
-      {children}
-    </p>
-  )
+  return <p className="py-6 text-center text-meta text-body">{children}</p>
 }
 
-export function Loading({ rows = 3 }: { rows?: number }) {
-  return (
-    <div className="flex flex-col gap-2" aria-hidden>
-      {Array.from({ length: rows }, (_, index) => (
-        <Skeleton key={index} className="h-14 w-full" />
-      ))}
-    </div>
-  )
+/// A quiet sentence, not a skeleton: a spinner on a 400ms fetch is a flash.
+export function Loading() {
+  return <p className="py-6 text-center text-meta text-body">Loading…</p>
 }
 
 /// A failure, in the server's own words.
@@ -80,7 +95,7 @@ export function Loading({ rows = 3 }: { rows?: number }) {
 /// `ApiError` never reached the server at all, and says so.
 export function Failure({ error }: { error: unknown }) {
   return (
-    <p role="alert" className="py-6 text-center text-[13px] text-destructive">
+    <p role="alert" className="py-6 text-center text-meta text-bad">
       {error instanceof ApiError
         ? error.message
         : "Could not reach the server."}

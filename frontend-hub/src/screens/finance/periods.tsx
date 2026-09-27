@@ -19,13 +19,15 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { Lifecycle } from "@/components/ui/timeline"
 import { count, day, label, money, moment, toneFor } from "@/lib/format"
 import {
-  accountMap,
+  assetDepreciationStatus,
   closePeriod,
   financeKeys,
   listBankStatements,
   listBills,
   listPeriods,
   openPeriod,
+  periodChecklist,
+  previewDepreciation,
   runDepreciation,
   trialBalance,
 } from "@/lib/queries/finance"
@@ -33,7 +35,7 @@ import { useFilters } from "@/lib/filters"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { accountMapGaps } from "@/screens/finance/badges"
+import { usePostingReadiness } from "@/screens/finance/badges"
 import { isoDay, monthLabel, monthOf } from "@/screens/finance/chart"
 import type { DepreciationRun, FiscalPeriod } from "@itulah/contract"
 
@@ -252,7 +254,7 @@ export function Periods() {
             caution that was here — "closing is not undoable" — is now said in
             the sheet where closing actually happens, which is where somebody
             about to do it will read it. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {monthLabel(year, month)} · {count(rows.length)} months opened
           {already ? "" : " · this one is not"}
         </span>
@@ -299,9 +301,8 @@ export function Periods() {
 
 /// One month, and the one irreversible thing that can be done to it.
 ///
-/// There is no per-period read on the node, so this selects out of the same
-/// list the table drew — the same query key, so it costs nothing and cannot
-/// disagree with the row that was clicked.
+/// The row summary comes from the same period list the table drew. The cloud's
+/// per-period close checklist is fetched separately and gates the seal action.
 function PeriodSheet({
   id,
   onClose,
@@ -320,6 +321,11 @@ function PeriodSheet({
   })
 
   const period = periods.data?.find((row) => periodId(row) === id)
+  const closeChecks = useQuery({
+    queryKey: financeKeys.closeChecklist(id),
+    queryFn: ({ signal }) => periodChecklist(id!, signal),
+    enabled: id !== null,
+  })
 
   const close = useMutation({
     mutationFn: () => closePeriod(period!.year, period!.month),
@@ -329,10 +335,12 @@ function PeriodSheet({
       // Sealing does not move a single figure — it only stops new ones being
       // written into the month — so the calendar is the only stale read.
       client.invalidateQueries({ queryKey: financeKeys.periods() })
+      client.invalidateQueries({ queryKey: financeKeys.closeChecklist(id) })
     },
   })
 
   const isOpen = period?.status?.toUpperCase() === "OPEN"
+  const mayClose = isOpen && closeChecks.data?.may_close === true
 
   return (
     <Sheet
@@ -350,7 +358,7 @@ function PeriodSheet({
         period && isOpen ? (
           confirming ? (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[0.71875rem] text-body">
+              <span className="text-[0.875rem] text-body">
                 Seal {count(period.entry_count)}{" "}
                 {period.entry_count === 1 ? "entry" : "entries"}? Nothing can be
                 posted into this month again.
@@ -361,7 +369,7 @@ function PeriodSheet({
                 </Button>
                 <Button
                   variant="danger"
-                  disabled={close.isPending}
+                  disabled={close.isPending || !mayClose}
                   onClick={() => close.mutate()}
                 >
                   {close.isPending ? "Sealing…" : "Seal"}
@@ -369,7 +377,11 @@ function PeriodSheet({
               </div>
             </div>
           ) : (
-            <Button variant="danger" onClick={() => setConfirming(true)}>
+            <Button
+              variant="danger"
+              disabled={!mayClose}
+              onClick={() => setConfirming(true)}
+            >
               Close this month
             </Button>
           )
@@ -414,9 +426,18 @@ function PeriodSheet({
                 <Fact term="Closed at">{moment(period.closed_at)}</Fact>
               </Facts>
 
-              <Checklist period={period} />
+              {isOpen &&
+                closeChecks.data !== undefined &&
+                !closeChecks.data.may_close && (
+                  <Banner tone="warn">
+                    Sealing is blocked by:{" "}
+                    {closeChecks.data.blocked_by.join(", ")}.
+                  </Banner>
+                )}
 
-              <p className="text-[0.71875rem] text-body">
+              <Checklist key={periodId(period)} period={period} />
+
+              <p className="text-[0.875rem] text-body">
                 {isOpen
                   ? "Closing seals every entry already posted into this month. A close and a posting cannot interleave — the database serialises them — so the number above is the number that will be sealed."
                   : "This month is sealed. There is no reopen: a correction is posted into an open month, the way a wrong entry is answered by its mirror rather than edited away."}
@@ -434,28 +455,24 @@ function PeriodSheet({
 
 /// What is worth being true before a month is sealed.
 ///
-/// # Why it is a checklist and not a gate
+/// # What this checklist is responsible for
 ///
-/// Nothing here blocks the Close button, and that is deliberate. The server
-/// enforces what the server enforces — a month cannot be sealed while an entry
-/// is mid-flight, and every entry in it balanced at COMMIT or it would not be
-/// there. Everything below is *judgement*: an unposted bill in a month you are
-/// closing is usually a mistake and occasionally the right answer, and a
-/// browser is not the thing that gets to decide which. So this screen says
-/// what it can see and lets a person close the month anyway.
+/// This is a readable work summary, not a second close rule. The sheet asks
+/// the cloud's period checklist before enabling Close; the same verdict is
+/// checked again when the month is sealed.
 ///
-/// A client-side gate would also be a lie about where the rules live. The one
-/// thing worse than a missing check is a check that somebody trusts and that
-/// the server does not share.
+/// This screen adds the asset-specific preview because the accountant needs
+/// to inspect the exact monthly charges before posting them.
 ///
-/// # Why every read here is one somebody else already made
+/// # Why these finance reads share their keys
 ///
-/// The four queries are the exact keys the four screens they link to use, so
-/// opening this panel warms them and following a link finds its answer in
-/// hand. Nothing is counted here that is not counted the same way there.
+/// These reads use the keys their destination screens use, so following a link
+/// finds the same answer. Asset readiness and the close verdict are period
+/// specific and come from their own cloud endpoints.
 function Checklist({ period }: { period: FiscalPeriod }) {
   const client = useQueryClient()
   const [report, setReport] = useState<DepreciationRun | null>(null)
+  const [reportKind, setReportKind] = useState<"preview" | "posted">("preview")
 
   // The month as two dates. `new Date(year, month, 0)` is the last day of
   // `month` on a 1-based month number, which is the one date arithmetic in
@@ -463,38 +480,52 @@ function Checklist({ period }: { period: FiscalPeriod }) {
   const first = isoDay(new Date(period.year, period.month - 1, 1))
   const last = isoDay(new Date(period.year, period.month, 0))
 
-  const map = useQuery({
-    queryKey: financeKeys.accountMap(null),
-    queryFn: ({ signal }) => accountMap(undefined, signal),
-  })
+  const readiness = usePostingReadiness()
   const bills = useQuery({
     queryKey: financeKeys.bills(null),
     queryFn: ({ signal }) => listBills({}, signal).then((page) => page.rows),
   })
+  // Page in the cache, rows selected — the shape every other reader of this
+  // key stores. See the same query on Overview.
   const statements = useQuery({
     queryKey: financeKeys.bankStatements(),
-    queryFn: ({ signal }) =>
-      listBankStatements(signal).then((page) => page.rows),
+    queryFn: ({ signal }) => listBankStatements(signal),
+    select: (page) => page.rows,
   })
   const balance = useQuery({
     queryKey: financeKeys.trialBalance(last, null),
     queryFn: ({ signal }) => trialBalance({ as_of: last }, signal),
   })
 
+  const depreciationStatus = useQuery({
+    queryKey: financeKeys.depreciationStatus(period.year, period.month),
+    queryFn: ({ signal }) =>
+      assetDepreciationStatus(period.year, period.month, signal),
+  })
+
+  const rehearsal = useMutation({
+    mutationFn: () => previewDepreciation(period.year, period.month),
+    onSuccess: (run) => {
+      setReport(run)
+      setReportKind("preview")
+    },
+  })
+
   const depreciate = useMutation({
-    // The month this sheet is about, not the calendar's. The old button on the
-    // asset register always charged the current month, which is the wrong one
-    // for anybody closing August on the third of September.
+    // The month this sheet is about, not the calendar's. The cloud records
+    // every attempt so the close checklist can distinguish "not run" from
+    // "ran and had nothing to charge".
     mutationFn: () => runDepreciation(period.year, period.month),
     onSuccess: (run) => {
       setReport(run)
-      // A run posts one entry per capitalised asset, so the register, the
-      // journal and every balance moved with it.
+      setReportKind("posted")
+      // Refresh the register, the journal, balances and the server's answer
+      // about what this month still owes.
       client.invalidateQueries({ queryKey: financeKeys.all })
     },
   })
 
-  const gaps = map.data === undefined ? null : accountMapGaps(map.data).pairs
+  const gaps = readiness.data === undefined ? null : readiness.data.gaps
 
   const unpostedBills =
     bills.data === undefined
@@ -528,18 +559,22 @@ function Checklist({ period }: { period: FiscalPeriod }) {
       </h4>
       <div className="overflow-hidden rounded-inner border border-hairline">
         <Row
-          title="Account map complete"
+          title="Every role reaches an account"
           state={gaps === null ? "pending" : gaps === 0 ? "ok" : "todo"}
           note={
             gaps === null
-              ? "Reading the map…"
+              ? "Reading the account links…"
               : gaps === 0
-                ? "Every meaning the posting rules ask for has an account, at every location."
-                : `${count(gaps)} meaning-and-location pairs have no account. Every posting that needs one is refused.`
+                ? "Every role the posting rules ask for resolves to an account, at every location."
+                : `${count(gaps)} role-and-location combinations have no account. Every posting that needs one is refused.`
           }
           action={
-            <AppLink to="/finance/account-map" variant="quiet" size="sm">
-              Account map
+            <AppLink
+              to="/finance/setup/posting-readiness"
+              variant="quiet"
+              size="sm"
+            >
+              Posting readiness
             </AppLink>
           }
         />
@@ -561,7 +596,7 @@ function Checklist({ period }: { period: FiscalPeriod }) {
                 : `${count(unpostedBills)} bills invoiced in this month are recorded but not posted. Holding one on purpose is a legitimate answer.`
           }
           action={
-            <AppLink to="/finance/bills" variant="quiet" size="sm">
+            <AppLink to="/finance/payables/bills" variant="quiet" size="sm">
               Supplier bills
             </AppLink>
           }
@@ -580,7 +615,11 @@ function Checklist({ period }: { period: FiscalPeriod }) {
                 : `${count(openLines)} lines are unagreed on statements whose period overlaps this month — either still in transit, or never booked.`
           }
           action={
-            <AppLink to="/finance/bank" variant="quiet" size="sm">
+            <AppLink
+              to="/finance/cash-bank/bank-reconciliation"
+              variant="quiet"
+              size="sm"
+            >
               Bank
             </AppLink>
           }
@@ -588,36 +627,55 @@ function Checklist({ period }: { period: FiscalPeriod }) {
 
         <Row
           title="Depreciation charged"
-          // Never "done". There is no endpoint that says whether a month's
-          // depreciation has run: `AssetRow` carries an accumulated total but
-          // not the periods it was built from, and `DepreciationRun` is only
-          // ever the answer to a POST — nothing on the node reports a past
-          // run. Drawing a tick from a guess would be worse than drawing
-          // nothing, so the state stays "not recorded" even immediately after
-          // a run, and what is shown instead is that run's own receipt.
-          //
-          // It is safe to press regardless: a unique index on (asset, period)
-          // refuses a second charge, so a repeat reports every asset as
-          // already done rather than doubling the month.
-          state={report === null ? "unknown" : "ran"}
+          state={
+            depreciationStatus.data === undefined
+              ? "pending"
+              : depreciationStatus.data.complete
+                ? "ok"
+                : "todo"
+          }
           note={
-            report === null
-              ? "Nothing on the server records whether this month has been charged, so this cannot be ticked. Running it twice is safe — the second charge is refused per asset, not doubled."
-              : `Charged ${count(report.posted_count)} of ${count(report.posted_count + report.skipped_count)} assets, ${money(report.posted_total_minor)} in total. ${
-                  report.skipped_count > 0
-                    ? `${count(report.skipped_count)} were skipped, each with a reason.`
-                    : "Nothing was skipped."
-                }`
+            depreciationStatus.data === undefined
+              ? "Checking the asset register…"
+              : depreciationStatus.data.complete
+                ? `${count(depreciationStatus.data.posted_count)} of ${count(depreciationStatus.data.assets_due)} due assets are charged (${money(depreciationStatus.data.posted_total_minor)}).`
+                : `${count(depreciationStatus.data.missing.length)} of ${count(depreciationStatus.data.assets_due)} due assets are still waiting: ${depreciationStatus.data.missing
+                    .slice(0, 3)
+                    .map((asset) => asset.asset_number)
+                    .join(
+                      ", "
+                    )}${depreciationStatus.data.missing.length > 3 ? "…" : ""}.`
           }
           action={
-            <Button
-              variant="quiet"
-              size="sm"
-              disabled={depreciate.isPending}
-              onClick={() => depreciate.mutate()}
-            >
-              {depreciate.isPending ? "Charging…" : "Run"}
-            </Button>
+            <div className="flex gap-1.5">
+              <Button
+                variant="quiet"
+                size="sm"
+                disabled={
+                  rehearsal.isPending ||
+                  depreciate.isPending ||
+                  period.status.toUpperCase() !== "OPEN"
+                }
+                onClick={() => rehearsal.mutate()}
+              >
+                {rehearsal.isPending ? "Previewing…" : "Preview"}
+              </Button>
+              {reportKind === "preview" &&
+                report !== null &&
+                report.blocked_count === 0 &&
+                report.posted_count > 0 &&
+                depreciationStatus.data?.complete === false &&
+                period.status.toUpperCase() === "OPEN" && (
+                  <Button
+                    variant="quiet"
+                    size="sm"
+                    disabled={depreciate.isPending}
+                    onClick={() => depreciate.mutate()}
+                  >
+                    {depreciate.isPending ? "Posting…" : "Post preview"}
+                  </Button>
+                )}
+            </div>
           }
         />
 
@@ -638,7 +696,11 @@ function Checklist({ period }: { period: FiscalPeriod }) {
                 : `Debits ${money(balance.data.total_debit_minor)} against credits ${money(balance.data.total_credit_minor)}. Every entry is checked at COMMIT, so this means something got past the database.`
           }
           action={
-            <AppLink to="/finance/ledger" variant="quiet" size="sm">
+            <AppLink
+              to="/finance/accounting/general-ledger"
+              variant="quiet"
+              size="sm"
+            >
               Ledger
             </AppLink>
           }
@@ -653,15 +715,24 @@ function Checklist({ period }: { period: FiscalPeriod }) {
         </Banner>
       )}
 
+      {rehearsal.isError && (
+        <Banner tone="bad" className="mt-2">
+          {rehearsal.error instanceof Error
+            ? rehearsal.error.message
+            : "The depreciation preview could not be prepared."}
+        </Banner>
+      )}
+
       {report && (
         <div className="mt-3 rounded-inner border border-hairline p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <h5 className="text-[0.78125rem] font-semibold text-ink">
+            <h5 className="text-[0.875rem] font-semibold text-ink">
               {/* The month the run charged, as a month. The server names it
                   by its first day — `2026-09-01` — and printing that raw put
                   an ISO date under a heading nothing else on this screen dates
                   that way. */}
-              Depreciation · {monthOf(report.period_month)}
+              {reportKind === "preview" ? "Preview · " : "Posted · "}
+              {monthOf(report.period_month)}
             </h5>
             {/* The run wrote one journal entry per asset and the report does
                 not say which: `DepreciationLine` carries the asset, the charge
@@ -674,22 +745,34 @@ function Checklist({ period }: { period: FiscalPeriod }) {
                 cannot carry the month either. It lands on the journal's
                 default window, which is the open period — usually this one. */}
             <AppLink
-              to="/finance/journal"
-              className="text-[0.71875rem] font-medium text-accent hover:underline"
+              to="/finance/accounting/journal-entries"
+              className="text-[0.875rem] font-medium text-accent hover:underline"
             >
               Open the journal
             </AppLink>
           </div>
+          <p className="mb-2 text-[0.875rem] text-body">
+            {reportKind === "preview"
+              ? `${count(report.posted_count)} assets can post ${money(report.posted_total_minor)}. ${count(report.skipped_count)} need no entry.${report.blocked_count > 0 ? ` ${count(report.blocked_count)} are blocked; see each asset line for the reason before posting.` : " Review the lines, then post this preview."}`
+              : `${count(report.posted_count)} assets posted ${money(report.posted_total_minor)}. ${count(report.skipped_count)} needed no entry.`}
+          </p>
           <MiniTable
-            head={["Asset", { label: "Charge" }, { label: "Skipped because" }]}
+            head={[
+              "Asset",
+              { label: reportKind === "preview" ? "Would post" : "Charge" },
+              {
+                label:
+                  reportKind === "preview" ? "Not posted" : "Skipped because",
+              },
+            ]}
           >
             {report.lines.map((line) => (
               <tr key={line.asset_id} className="border-t border-hairline">
                 <td className="py-2 pr-2">
-                  <span className="block text-[0.8125rem] text-ink">
+                  <span className="block text-[0.875rem] text-ink">
                     {line.name}
                   </span>
-                  <span className="font-mono text-[0.65625rem] text-mute">
+                  <span className="font-mono text-[0.875rem] text-mute">
                     {line.asset_number}
                   </span>
                 </td>
@@ -700,8 +783,8 @@ function Checklist({ period }: { period: FiscalPeriod }) {
                     money(line.amount_minor)
                   )}
                 </td>
-                <td className="py-2 text-right text-[0.71875rem] text-body">
-                  {line.skipped_because ?? "—"}
+                <td className="py-2 text-right text-[0.875rem] text-body">
+                  {line.blocked_because ?? line.skipped_because ?? "—"}
                 </td>
               </tr>
             ))}
@@ -743,10 +826,10 @@ function Row({
     <div className="flex items-start gap-2.5 border-b border-hairline px-3 py-2.5 last:border-b-0">
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
-          <span className="text-[0.8125rem] font-medium text-ink">{title}</span>
+          <span className="text-[0.875rem] font-medium text-ink">{title}</span>
           <Pill tone={pill.tone}>{pill.text}</Pill>
         </span>
-        <span className="mt-0.5 block text-[0.71875rem] text-body">{note}</span>
+        <span className="mt-0.5 block text-[0.875rem] text-body">{note}</span>
       </span>
       <span className="shrink-0 pt-0.5">{action}</span>
     </div>

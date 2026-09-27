@@ -1524,6 +1524,22 @@ pub async fn get_availability(pool: &PgPool, query: AvailabilityQuery) -> Result
             .fetch_optional(pool)
             .await?
             .ok_or_else(|| AppError::NotFound("active placement source pool".into()))?;
+    // A site owned by an Edge node has two inventory representations: its
+    // authoritative positions in `edge_inventory_fact_position`, and any
+    // Cloud-native movements left by older workflows. Allotment creation
+    // already validates against the Edge positions, so presenting the Cloud
+    // ledger here would show zero (or a stale duplicate) for the same shelf.
+    // Resolve the same owner and Edge spelling used by that write path.
+    let source_site_id: String = source.get("site_id");
+    let mut ownership_tx = pool.begin().await?;
+    let edge_origin_id = inventory_dc_owner_tx(&mut ownership_tx, &source_site_id).await?;
+    let edge_source_pool_id = if let Some(origin_id) = edge_origin_id.as_deref() {
+        let owner_site_id = origin_site_id_tx(&mut ownership_tx, origin_id).await?;
+        Some(pool_id_for_site(&source_pool_id, &owner_site_id))
+    } else {
+        None
+    };
+    ownership_tx.commit().await?;
     let rows = sqlx::query(r#"
 WITH eligible_pool AS (
     -- Supply and commitment must be measured over the SAME scope, or the
@@ -1561,11 +1577,39 @@ WITH eligible_pool AS (
     JOIN inventory_place place ON place.id=movement.from_place_id
     WHERE place.pool_id IN (SELECT id FROM eligible_pool) AND place.state IN ('NORMAL','MISSING')
       AND subject.sku_id IS NOT NULL AND movement.occurred_at <= $1
-), ledger_balance AS (
+), cloud_ledger_balance AS (
     SELECT sku_id,
            COALESCE(SUM(delta) FILTER(WHERE state='NORMAL'),0)::bigint normal_quantity,
            COALESCE(SUM(delta) FILTER(WHERE state='MISSING'),0)::bigint missing_quantity
     FROM ledger_delta GROUP BY sku_id
+), edge_ledger_balance AS (
+    -- The Edge projection carries pool and state in `place_id`. Warehouse
+    -- availability includes the warehouse plus picking and already-picked
+    -- shelves, and reports missing units as stock but never as spendable.
+    SELECT sku.id sku_id,
+           COALESCE(SUM(position.quantity) FILTER(WHERE split_part(position.place_id,':',2)='on_hand'),0)::bigint normal_quantity,
+           COALESCE(SUM(position.quantity) FILTER(WHERE split_part(position.place_id,':',2)='missing'),0)::bigint missing_quantity
+    FROM edge_inventory_fact_position position
+    JOIN sku ON sku.sku_code=position.sku_code
+    WHERE position.origin_id=$8
+      AND (position.place_id=$9||':on_hand' OR position.place_id=$9||':missing'
+           OR ($9 LIKE '%.warehouse'
+               AND (position.place_id=split_part($9,'.',1)||'.outbound.picking:on_hand'
+                    OR position.place_id=split_part($9,'.',1)||'.outbound.picking:missing'
+                    OR position.place_id LIKE split_part($9,'.',1)||'.outbound.picked%:on_hand'
+                    OR position.place_id LIKE split_part($9,'.',1)||'.outbound.picked%:missing')))
+    GROUP BY sku.id
+), ledger_balance AS (
+    -- Edge owns the supply when registered; otherwise retain the Cloud
+    -- movement ledger used by non-Edge sites.
+    SELECT sku.id sku_id,
+           CASE WHEN $8::text IS NULL THEN COALESCE(cloud.normal_quantity,0)
+                ELSE COALESCE(edge.normal_quantity,0) END::bigint normal_quantity,
+           CASE WHEN $8::text IS NULL THEN COALESCE(cloud.missing_quantity,0)
+                ELSE COALESCE(edge.missing_quantity,0) END::bigint missing_quantity
+    FROM sku
+    LEFT JOIN cloud_ledger_balance cloud ON cloud.sku_id=sku.id
+    LEFT JOIN edge_ledger_balance edge ON edge.sku_id=sku.id
 ), allotted_balance AS (
     -- What this pool still has to put into cartons, SKU by SKU: `to_pack_qty`
     -- out of the one commitment view.
@@ -1667,6 +1711,8 @@ LIMIT $5
         .bind(fetch_limit)
         .bind(query.held.unwrap_or(false))
         .bind(query.shortfall.unwrap_or(false))
+        .bind(edge_origin_id.as_deref())
+        .bind(edge_source_pool_id.as_deref())
         .fetch_all(pool)
         .await?;
     let has_more = !query.unbounded && rows.len() > limit as usize;

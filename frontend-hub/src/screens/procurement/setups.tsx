@@ -291,7 +291,7 @@ export function SetupSheets() {
             aria-label="Purchase orders"
             className="flex min-w-0 flex-col gap-1 @3xl:sticky @3xl:top-0 @3xl:h-full @3xl:self-start @3xl:border-r @3xl:border-hairline @3xl:pr-5"
           >
-            <span className="px-2 pb-1 text-[0.6875rem] font-semibold tracking-[0.06em] text-mute uppercase">
+            <span className="px-2 pb-1 text-[0.875rem] font-semibold tracking-[0.06em] text-mute uppercase">
               Purchase order
             </span>
             {/* "All" first — it is where somebody starts, and naming it is
@@ -334,7 +334,7 @@ export function SetupSheets() {
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search"
                   aria-label="Search the deliveries waiting"
-                  className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink outline-none placeholder:text-body focus:border-accent"
+                  className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink outline-none placeholder:text-body focus:border-accent"
                 />
               </span>
             )}
@@ -345,7 +345,7 @@ export function SetupSheets() {
                 on the one thing that does not vary. */}
             <div className="flex min-w-0 flex-col gap-1">
               {shown.length === 0 ? (
-                <p className="px-1 py-2 text-[0.71875rem] text-mute">
+                <p className="px-1 py-2 text-[0.875rem] text-mute">
                   {waiting.length === 0
                     ? "Nothing is waiting."
                     : "Nothing here matches that."}
@@ -366,14 +366,14 @@ export function SetupSheets() {
                         : "border-transparent hover:bg-soft-2"
                     )}
                   >
-                    <span className="truncate text-[0.8125rem] font-medium text-ink">
+                    <span className="truncate text-[0.875rem] font-medium text-ink">
                       {row.article_name}
                     </span>
                     <span className="flex items-baseline justify-between gap-2">
-                      <span className="truncate font-mono text-[0.625rem] text-mute">
+                      <span className="truncate font-mono text-[0.875rem] text-mute">
                         {row.supplier_article_code}
                       </span>
-                      <span className="shrink-0 text-[0.6875rem] text-body tabular-nums">
+                      <span className="shrink-0 text-[0.875rem] text-body tabular-nums">
                         {count(row.quantity)}
                       </span>
                     </span>
@@ -388,7 +388,7 @@ export function SetupSheets() {
                 button on its record will finish it. */}
             {stalled.length > 0 && (
               <div className="flex min-w-0 flex-col gap-1 border-t border-hairline pt-3">
-                <span className="px-1 pb-0.5 text-[0.6875rem] font-semibold tracking-[0.06em] text-warn-fg uppercase">
+                <span className="px-1 pb-0.5 text-[0.875rem] font-semibold tracking-[0.06em] text-warn-fg uppercase">
                   Not minted
                 </span>
                 {stalled.map((row) => (
@@ -406,10 +406,10 @@ export function SetupSheets() {
                         : "border-transparent hover:bg-soft-2"
                     )}
                   >
-                    <span className="truncate text-[0.8125rem] font-medium text-ink">
+                    <span className="truncate text-[0.875rem] font-medium text-ink">
                       {row.article_name}
                     </span>
-                    <span className="truncate font-mono text-[0.625rem] text-mute">
+                    <span className="truncate font-mono text-[0.875rem] text-mute">
                       {row.article_code}
                     </span>
                   </button>
@@ -495,14 +495,14 @@ function RailRow({
     >
       <span
         className={cn(
-          "min-w-0 flex-1 truncate text-[0.8125rem]",
+          "min-w-0 flex-1 truncate text-[0.875rem]",
           mono && "font-mono text-id",
           on && "font-medium"
         )}
       >
         {label}
       </span>
-      <span className="shrink-0 text-[0.6875rem] text-mute tabular-nums">
+      <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
         {count(tally)}
       </span>
     </button>
@@ -637,7 +637,7 @@ function Matrix({
                 scope="row"
                 className="sticky left-0 z-10 border-t border-r border-hairline bg-canvas px-3 py-1.5 text-left font-normal"
               >
-                <span className="block truncate text-[0.78125rem] font-medium text-ink">
+                <span className="block truncate text-[0.875rem] font-medium text-ink">
                   {colour.label}
                 </span>
               </th>
@@ -652,7 +652,7 @@ function Matrix({
                   {cell(colour, size)}
                 </td>
               ))}
-              <td className="h-9 border-t border-l border-hairline px-3 text-right text-[0.78125rem] font-medium text-ink tabular-nums">
+              <td className="h-9 border-t border-l border-hairline px-3 text-right text-[0.875rem] font-medium text-ink tabular-nums">
                 {rowTotal(colour)}
               </td>
             </tr>
@@ -671,14 +671,14 @@ function Matrix({
               <td
                 key={size.code}
                 className={cn(
-                  "h-9 border-t border-hairline bg-soft-2 px-2 text-right text-[0.78125rem] text-text tabular-nums",
+                  "h-9 border-t border-hairline bg-soft-2 px-2 text-right text-[0.875rem] text-text tabular-nums",
                   at > 0 && "border-l"
                 )}
               >
                 {columnTotal(size)}
               </td>
             ))}
-            <td className="h-9 border-t border-l border-hairline bg-soft-2 px-3 text-right text-[0.78125rem] font-semibold text-ink tabular-nums">
+            <td className="h-9 border-t border-l border-hairline bg-soft-2 px-3 text-right text-[0.875rem] font-semibold text-ink tabular-nums">
               {total}
             </td>
           </tr>
@@ -786,8 +786,8 @@ function SessionRecord({
     colours.map(([digit]) => photographOf.get(digit)).find((url) => url) ?? null
 
   /// The words a division and a tag are READ by. The record stores codes —
-  /// `KIDS`, `KAUS_KAKI` — because a code is what survives a rename; a person
-  /// reads "Kids" and "Kaus Kaki", which is what the form they filled in
+  /// `ANAK_LAKI`, `KAUS_KAKI` — because a code is what survives a rename; a person
+  /// reads "Anak Laki-laki" and "Kaus Kaki", which is what the form they filled in
   /// showed them. The same query the panel already made, so this costs
   /// nothing.
   const vocabulary = useQuery({
@@ -928,12 +928,13 @@ function SessionRecord({
                   the weight a label over a table wants: present, and plainly
                   subordinate to the name. */}
               <div className="mb-2 flex items-baseline justify-between gap-2">
-                <h4 className="text-[0.8125rem] font-medium text-body">
+                <h4 className="text-[0.875rem] font-medium text-body">
                   Variants
                 </h4>
                 {session.variants.length > 0 && (
-                  <span className="text-[0.71875rem] text-mute tabular-nums">
-                    {count(session.variants.length)} SKUs
+                  <span className="text-[0.875rem] text-mute tabular-nums">
+                    {count(session.variants.length)}{" "}
+                    {session.variants.length === 1 ? "SKU" : "SKUs"}
                   </span>
                 )}
               </div>
@@ -1005,7 +1006,7 @@ function SessionRecord({
                                     variant is not "White M", it is a white
                                     medium OF something, and this table is
                                     read a row at a time. */}
-                                <span className="min-w-0 truncate text-[0.8125rem] text-ink">
+                                <span className="min-w-0 truncate text-[0.875rem] text-ink">
                                   {session.article_name} {variant.colour_label}{" "}
                                   {variant.size_label}
                                 </span>
@@ -1014,7 +1015,7 @@ function SessionRecord({
                             <td className="border-t border-l border-hairline px-3 py-1.5 font-mono text-id text-body">
                               {variant.sku_code}
                             </td>
-                            <td className="border-t border-l border-hairline px-3 py-1.5 text-right text-[0.8125rem] font-medium text-ink tabular-nums">
+                            <td className="border-t border-l border-hairline px-3 py-1.5 text-right text-[0.875rem] font-medium text-ink tabular-nums">
                               {count(variant.quantity)}
                             </td>
                           </tr>
@@ -1027,7 +1028,7 @@ function SessionRecord({
                           All
                         </td>
                         <td className="border-t border-l border-hairline bg-soft-2 px-3 py-2" />
-                        <td className="border-t border-l border-hairline bg-soft-2 px-3 py-2 text-right text-[0.8125rem] font-semibold text-ink tabular-nums">
+                        <td className="border-t border-l border-hairline bg-soft-2 px-3 py-2 text-right text-[0.875rem] font-semibold text-ink tabular-nums">
                           {count(
                             session.variants.reduce(
                               (sum, one) => sum + one.quantity,
@@ -1048,7 +1049,7 @@ function SessionRecord({
                 stands at the foot of it. */}
             {session.status === "OPEN" && (
               <div className="sticky bottom-0 -mx-1 flex flex-col gap-2.5 border-t border-hairline bg-canvas px-1 pt-3.5 pb-1 @xl:flex-row @xl:items-center @xl:justify-between">
-                <p className="min-w-0 text-[0.71875rem] leading-relaxed text-mute">
+                <p className="min-w-0 text-[0.875rem] leading-relaxed text-mute">
                   Nothing has been drawn against this session yet. Minting draws
                   the SKUs, their serial ranges and their EPCs in one
                   transaction and sends the tagging job to {session.site_id}.
@@ -1139,7 +1140,7 @@ function ColourwayPhoto({
         <Camera className="size-3.5 text-line-ico" />
       )}
       {upload.isPending && (
-        <span className="absolute inset-0 grid place-items-center bg-canvas/75 text-[0.5625rem] font-medium text-body">
+        <span className="absolute inset-0 grid place-items-center bg-canvas/75 text-[0.875rem] font-medium text-body">
           …
         </span>
       )}
@@ -1343,6 +1344,14 @@ function SessionComposer({
       })),
     [vocabulary]
   )
+  /// The division carried from the order line counts only while it is still
+  /// offered. One retired since the order was raised (0382 retired all six
+  /// original divisions) reads as blank in the picker, and submitting it
+  /// anyway would mint a new article under a value nobody on this screen saw
+  /// or chose. Nothing here falls back to a default either: no division is
+  /// "Choose the division", never the first in the list.
+  const divisionChosen =
+    division !== "" && divisionChoices.some((one) => one.value === division)
 
   /// The sizes this company sells, from the size master and in the master's
   /// own order — XS before S before XXL, which is what makes a row of chips a
@@ -1400,7 +1409,7 @@ function SessionComposer({
       ? "Nobody is signed in, so there is nobody to record as having set it up."
       : name.trim() === ""
         ? "It needs a name — the one the business will use, not the supplier's."
-        : division === ""
+        : !divisionChosen
           ? "Choose the division it is filed under."
           : chosenColours.length === 0
             ? "Say which colours arrived."
@@ -1590,7 +1599,7 @@ function SessionComposer({
         </div>
 
         {rows.length === 0 || columns.length === 0 ? (
-          <p className="rounded-inner border border-dashed border-hairline-2 px-3.5 py-6 text-center text-[0.71875rem] text-mute">
+          <p className="rounded-inner border border-dashed border-hairline-2 px-3.5 py-6 text-center text-[0.875rem] text-mute">
             Choose the colours and the sizes above, and the grid to count them
             into appears here.
           </p>
@@ -1603,7 +1612,7 @@ function SessionComposer({
                 thing happens to be in. */}
             <p
               className={cn(
-                "mb-1.5 text-right text-[0.71875rem] font-medium tabular-nums",
+                "mb-1.5 text-right text-[0.875rem] font-medium tabular-nums",
                 over ? "text-bad" : balanced ? "text-ok-fg" : "text-warn-fg"
               )}
             >
@@ -1697,7 +1706,7 @@ function SessionComposer({
       <div className="sticky bottom-0 -mx-1 flex flex-col gap-3 border-t border-hairline bg-canvas px-1 pt-4 pb-1 @xl:flex-row @xl:items-center @xl:justify-between">
         <p
           className={cn(
-            "min-w-0 text-[0.71875rem] leading-relaxed",
+            "min-w-0 text-[0.875rem] leading-relaxed",
             over ? "text-bad" : "text-mute"
           )}
         >
@@ -1761,7 +1770,7 @@ export function SetupTrigger() {
         // On the fill rather than beside it: a warm pill on a blue button is
         // two statuses arguing. Glass over the button's own colour keeps the
         // count legible and keeps the button one thing.
-        <span className="ml-0.5 rounded-full bg-on-dark/20 px-[0.375rem] py-px text-[0.65625rem] font-semibold text-cta-fg tabular-nums">
+        <span className="ml-0.5 rounded-full bg-on-dark/20 px-[0.375rem] py-px text-[0.875rem] font-semibold text-cta-fg tabular-nums">
           {count(pending)}
         </span>
       )}

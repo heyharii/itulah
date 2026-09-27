@@ -102,7 +102,7 @@ pub struct SupplierPayment {
     pub method: String,
     /// The meaning the money left by — `bank_giro`, `cash` — and which bank.
     /// Not a client account code: that is resolved from these through
-    /// `account_map` at posting time, and storing the code here would be a
+    /// `account_resolution` at posting time, and storing the code here would be a
     /// second copy of the map that stops agreeing with it.
     pub account_key: String,
     pub account_qualifier: String,
@@ -254,14 +254,15 @@ const PAYMENT_COLUMNS: &str = "p.payment_id, p.payment_number, p.site_id, p.paym
          AS entry_number,
      m.account_code, a.name AS account_name";
 
-/// The map join is LEFT on purpose. The composite foreign key means the mapping
-/// existed when the payment was recorded; it does not promise it still does,
+/// The link join is LEFT on purpose. The trigger means the link existed when
+/// the payment was recorded; it does not promise it still does,
 /// and a payment that vanished from a list because Finance tidied the map would
 /// be a worse failure than one shown without its account name.
 const PAYMENT_FROM: &str = "FROM supplier_payment p
-     LEFT JOIN account_map m ON m.semantic_key = p.account_key
-                            AND m.site_id = p.site_id
-                            AND m.qualifier = p.account_qualifier
+     LEFT JOIN account_resolution m ON m.role = p.account_key
+                                   AND m.site_id = p.site_id
+                                   AND m.source_type = 'COMPANY'
+                                   AND m.source_id = p.account_qualifier
      LEFT JOIN ledger_account a ON a.account_code = m.account_code";
 
 fn to_payment(row: &sqlx::postgres::PgRow) -> Result<SupplierPayment, AppError> {
@@ -694,10 +695,9 @@ pub async fn record_payment(
         }
     }
 
-    // Checked here as well as by the composite foreign key on the table, for
-    // the same reason `set_account_mapping` checks the chart: a foreign-key
-    // violation is SQLSTATE 23503 and reaches a person as "database operation
-    // failed". `resolve_account_code` names the key, the site and the qualifier —
+    // Checked here as well as by the table's trigger (0460), so the refusal
+    // comes before anything is written rather than as a failed insert.
+    // `resolve_account_code` names the key, the site and the qualifier —
     // which is exactly what somebody has to go and fill in.
     let qualifier = request.account_qualifier.trim();
     super::ledger::resolve_account_code(pool, &key, &request.site_id, qualifier).await?;
@@ -786,7 +786,7 @@ pub async fn post_payment(
     // give for free.
     //
     // No account code is named here. Both payable meanings and the money key
-    // resolve through `account_map` for this site, so moving the BCA current
+    // resolve through `account_resolution` for this site, so moving the BCA current
     // account is a row somebody edits on a screen rather than a release.
     let mut lines = Vec::with_capacity(existing.allocations.len() + 1);
     for allocation in &existing.allocations {

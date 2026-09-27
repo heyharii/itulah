@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/inventory-time-machine", "crates/object-store", "crates/pricing-engine", "crates/tax"]
+members = [".", "crates/inventory-time-machine", "crates/object-store", "crates/pricing-engine", "crates/tax", "crates/sim"]
 default-members = ["."]
 resolver = "2"
 
@@ -51,7 +51,7 @@ ts-rs = { version = "=12.0.1", optional = true, features = ["uuid-impl", "chrono
 pricing-engine = { path = "crates/pricing-engine" }
 async-trait = "=0.1.88"
 argon2 = "=0.5.3"
-axum = { version = "=0.8.4", features = ["json", "macros"] }
+axum = { version = "=0.8.4", features = ["json", "macros", "multipart"] }
 # Server-sent events need a Stream; this is the one already in the tree.
 futures-util = "=0.3.34"
 calamine = { version = "=0.36.1", features = ["dates"] }
@@ -70,7 +70,7 @@ regex = "=1.13.1"
 http = "=1.3.1"
 # `stream` is what lets the assistant read Claude's answer as it is written
 # rather than after it is finished; see `cloud/http/assistant.rs`.
-reqwest = { version = "=0.12.24", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest = { version = "=0.12.24", default-features = false, features = ["json", "rustls-tls", "stream", "multipart"] }
 qrcode = { version = "=0.14.1", default-features = false, features = ["svg"] }
 # Sealing fingerprint templates at rest (`cloud/postgres/enrolment.rs`).
 # Biometric data is `data pribadi spesifik` under UU 27/2022, so the bytes in
@@ -80,8 +80,24 @@ qrcode = { version = "=0.14.1", default-features = false, features = ["svg"] }
 # a rustls dependency and is already compiled: naming it here adds a direct
 # edge to a graph it was in anyway, and resolves offline.
 ring = "=0.17.14"
-rusqlite = { version = "=0.32.1", features = ["bundled", "chrono"] }
+# Web Push to the hub on a phone (`cloud/push.rs`). `web-push-native` does the
+# RFC 8291 payload encryption and nothing else — no HTTP client, no TLS — so
+# the request it builds goes out through the `reqwest`/rustls already here
+# rather than a second stack (`web-push` itself drags in OpenSSL via `ece`).
+# 0.4.0 rather than 0.5 because 0.5 wants `http >= 1.4` and this tree pins
+# 1.3.1; default features off because they are `jwt-simple`, and the VAPID
+# token (RFC 8292) is one ES256 signature that `p256` below already makes.
+# `base64` is the URL-safe alphabet the browser hands keys over in; it was in
+# the lock file already, under reqwest.
+web-push-native = { version = "=0.4.0", default-features = false }
+p256 = { version = "=0.13.2", default-features = false, features = ["ecdsa", "std"] }
+base64 = "=0.22.1"
+rusqlite ={ version = "=0.32.1", features = ["bundled", "chrono"] }
 rust_decimal = { version = "=1.37.1", features = ["serde-with-str"] }
+# The virtual business clock guards its interior state with a parking_lot
+# Mutex: `now()` takes the same lock on every read and must stay
+# unwrap-free boilerplate (workspace denies unwrap).
+parking_lot = "=0.12.5"
 serde = { version = "=1.0.219", features = ["derive"] }
 retail-tax = { path = "crates/tax" }
 serde_json = "=1.0.140"
@@ -91,11 +107,25 @@ sqlx = { version = "=0.8.6", features = ["runtime-tokio-rustls", "postgres", "ch
 # and a patch bump of a derive macro is a cheaper way to get an encrypted
 # workbook open than a second error crate.
 thiserror = "=2.0.20"
-tokio = { version = "=1.45.1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "=1.45.1", features = ["macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tower-http = { version = "=0.6.6", features = ["cors", "fs", "trace"] }
 tracing = "=0.1.41"
-tracing-subscriber = { version = "=0.3.20", features = ["env-filter"] }
+# Daily log files for an installed node, kept 14 days, one JSON object per
+# line so a support bundle can be filtered by level and module without a
+# parser of our own. See `edge/node.rs`.
+tracing-appender = "=0.2.3"
+# Disk and memory for the store server's console and heartbeat. Disk and
+# system only: the defaults also pull in network, user and component probes
+# a shop node never reports.
+sysinfo = { version = "=0.39.6", default-features = false, features = ["disk", "system"] }
+tracing-subscriber = { version = "=0.3.20", features = ["env-filter", "json"] }
 uuid = { version = "=1.16.0", features = ["serde", "v4"] }
+
+# The store server as a Windows service: the SCM entry point, and installing
+# itself with restart-on-failure. Unix nodes are supervised by systemd and
+# need nothing here.
+[target.'cfg(windows)'.dependencies]
+windows-service = "=0.8.0"
 
 [[test]]
 name = "contract_types"

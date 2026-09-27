@@ -359,7 +359,7 @@ async fn signed_rfid_evidence_survives_offline_queue_and_reaches_cloud(pool: PgP
             &inventory_backend::security::sha256_hex(&body),
         ),
     };
-    let rfid = EdgeRfid::new(edge.connection(), store_node);
+    let rfid = EdgeRfid::new(edge.connection(), store_node, edge.clock());
     let response = rfid
         .ingest(proof, &body, Some("operator-07".into()))
         .unwrap_or_else(|error| panic!("offline RFID ingest: {error}"));

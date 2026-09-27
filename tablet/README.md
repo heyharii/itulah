@@ -84,11 +84,18 @@ Then sign in. The cashier is stamped onto every sale from the bearer token.
 
 ## Design
 
-Cloud Hub, the same language as `frontend-hub` — tokens copied from
-`frontend-hub/src/styles/index.css`, which is itself authored from
-`~/Documents/retail/cloud-app/ollama/DESIGN.md` v0.5. Inter and JetBrains Mono
-are bundled as TTF (220 KB) rather than fetched: this tablet is a Huawei with no
-Play Services, so a downloadable font is a font that never arrives.
+Two sources, one rule each. **Tokens** — colour, type, radii — are Cloud Hub,
+copied from `frontend-hub/src/styles/index.css` (the 2026-09-10 ruling: warm
+greys, accent `#2563eb`, radii 16/12/7) into `ui/Design.kt`. **Shape** is
+`pos-desktop`'s: the topbar and status bar, two white panes on the pale ground,
+the function board pinned under the scan field, and the payment page with the
+money rail on the right. Where the two disagree on a value the hub wins; sizes
+for a thumb come from `pos-desktop`'s own `body[data-device=tablet]` block.
+Each component in `ui/Kit.kt` names the `pos.css` class it draws.
+
+Inter and JetBrains Mono are bundled as TTF (220 KB) rather than fetched: this
+tablet is a Huawei with no Play Services, so a downloadable font is a font that
+never arrives.
 
 Two deliberate departures, and only two. Targets obey the system's own
 `--spacing-tap: 44px`, because this is worked standing up. And money is set

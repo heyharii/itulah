@@ -176,7 +176,7 @@ function Overview({
 
       <div className="flex items-center gap-2">
         <Pill tone={article.active ? "ok" : "neutral"}>
-          {article.active ? "Active" : "Retired"}
+          {article.active ? "Active" : "Cancelled"}
         </Pill>
         <Tag>{article.article_code}</Tag>
       </div>
@@ -321,7 +321,7 @@ function Colourway({
         </span>
       )}
       <ColourSwatch className="flex-1" hex={hex} label={label} code={code} />
-      <span className="shrink-0 text-right text-[0.65625rem] text-mute tabular-nums">
+      <span className="shrink-0 text-right text-[0.875rem] text-mute tabular-nums">
         {skus === 0 ? "no SKUs" : `${count(skus)} SKUs`}
       </span>
     </div>
@@ -353,7 +353,7 @@ function Skus({ article }: { article: ArticleDetail }) {
             <span className="block font-mono text-id text-ink">
               {sku.sku_code}
             </span>
-            <span className="block text-[0.65625rem] text-mute">
+            <span className="block text-[0.875rem] text-mute">
               {sku.colour_label ?? sku.colour_code ?? "no colour"} ·{" "}
               {sku.size_label ?? sku.size_code ?? "no size"}
             </span>
@@ -362,7 +362,7 @@ function Skus({ article }: { article: ArticleDetail }) {
               // because a person holding a printed tag is holding this string
               // and nothing else to search by.
               <span
-                className="block truncate font-mono text-[0.65625rem] text-faint"
+                className="block truncate font-mono text-[0.875rem] text-faint"
                 title={sku.qr_payload}
               >
                 {sku.qr_payload}
@@ -373,7 +373,7 @@ function Skus({ article }: { article: ArticleDetail }) {
             <span className="block">{money(sku.base_price_minor)}</span>
             {!sku.active && (
               <Pill tone="neutral" className="mt-1">
-                Retired
+                Cancelled
               </Pill>
             )}
           </MiniCell>
@@ -405,11 +405,11 @@ function Suppliers({ article }: { article: ArticleDetail }) {
             <AppLink
               to="/procurement/suppliers"
               sheet={{ key: "supplier", value: offer.supplier_id }}
-              className="block text-[0.78125rem] text-accent hover:underline"
+              className="block text-[0.875rem] text-accent hover:underline"
             >
               {offer.supplier_name}
             </AppLink>
-            <span className="block font-mono text-[0.65625rem] text-mute">
+            <span className="block font-mono text-[0.875rem] text-mute">
               {offer.supplier_article_code}
             </span>
           </MiniCell>

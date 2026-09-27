@@ -1,6 +1,8 @@
 package id.itulah.kasir.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,9 +12,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -108,155 +112,264 @@ fun TenderScreen(
     val covered = outstanding == 0L
     val partial = !covered && entered > 0 && entered < outstanding
 
-    Row(Modifier.fillMaxSize().background(Soft)) {
-        // ── Left: what the cashier does ──────────────────────────────────
-        Column(Modifier.fillMaxHeight().weight(0.55f).padding(16.dp)) {
-            if (covered) {
-                // Nothing here can still be filled in, and a row of live-looking
-                // controls that no longer change anything is the part of a till
-                // that gets tapped by mistake.
-                Settled(change)
-            } else {
-                SectionLabel("Cara bayar")
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Indigo, not ink. In this system indigo means *selected* and
-                    // nothing else; painting the chosen method black would borrow
-                    // the one colour reserved for the button that takes the money.
-                    Tender.METHODS.take(4).forEach { candidate ->
-                        GhostButton(
-                            candidate,
-                            { method = candidate },
-                            Modifier.weight(1f),
-                            selected = candidate == method,
-                        )
+    // CASH-only shortcuts, pos-desktop's rule: exactly what is owed, then the
+    // next note up that a customer is likely to be holding.
+    val presets = if (method != "CASH" || outstanding <= 0) emptyList() else
+        listOf(
+            outstanding,
+            ceilTo(outstanding, 50_000),
+            ceilTo(outstanding, 100_000),
+            500_000L,
+        ).filter { it >= outstanding }.distinct()
+
+    // `.pay-page`: the work on the left, the rail with the money on the right.
+    Row(
+        Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        // ── `.pay-main`: what the cashier does ───────────────────────────
+        Pane(Modifier.fillMaxHeight().weight(1f)) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 22.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Column(
+                    Modifier.widthIn(max = 560.dp).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    if (covered) {
+                        // Nothing here can still be filled in, and a row of
+                        // live-looking controls that no longer change anything
+                        // is the part of a till that gets tapped by mistake.
+                        Settled(change)
+                    } else {
+                        Column {
+                            SectionLabel("Metode pembayaran")
+                            Spacer(Modifier.height(8.dp))
+                            KeyRow(gap = 9.dp) {
+                                // Blue, not ink. The accent means *selected* and
+                                // nothing else.
+                                Tender.METHODS.take(4).forEach { candidate ->
+                                    ChoiceTile(
+                                        methodLabel(candidate),
+                                        selected = candidate == method,
+                                        onClick = { method = candidate },
+                                        modifier = Modifier.weight(1f),
+                                        height = 58.dp,
+                                    )
+                                }
+                            }
+                        }
+
+                        Column {
+                            SectionLabel("Nominal")
+                            Spacer(Modifier.height(8.dp))
+                            // `.amount-field`. Drawn, not an input: the keypad is
+                            // the only way in, so no IME ever covers it.
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(68.dp)
+                                    .background(Canvas, RoundedCornerShape(RInner))
+                                    .border(1.dp, if (typed.isBlank()) Hairline2 else Accent, RoundedCornerShape(RInner))
+                                    .padding(horizontal = 18.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("Rp", style = Type.metric.copy(fontSize = 16.sp, color = Faint))
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    Money.grouped(offered),
+                                    style = Type.money.copy(fontSize = 31.sp, color = if (typed.isBlank()) Body else Ink),
+                                )
+                            }
+                        }
+
+                        Keypad(onDigit = { typed = (typed + it).trimStart('0') }, onBackspace = { typed = typed.dropLast(1) })
+
+                        // Denominations beside the keypad: the note in the
+                        // customer's hand is one of a few, and tapping it is one
+                        // touch instead of six digits while everyone waits.
+                        if (presets.isNotEmpty()) {
+                            KeyRow {
+                                presets.forEach { value ->
+                                    ChoiceTile(
+                                        Money.format(value),
+                                        selected = entered == value,
+                                        onClick = { typed = value.toString() },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                repeat(4 - presets.size) { Spacer(Modifier.weight(1f)) }
+                            }
+                        }
                     }
                 }
+            }
 
-                Spacer(Modifier.height(16.dp))
-                SectionLabel("Jumlah")
-                Text(
-                    Money.format(offered),
-                    fontSize = 34.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace,
-                    color = if (typed.isBlank()) Body else Ink,
+            // `.pay-cta` — pinned, so the button is where the thumb left it
+            // however far the keypad above had to scroll.
+            Column(
+                Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, bottom = 18.dp, top = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Column(Modifier.widthIn(max = 560.dp).fillMaxWidth()) {
+                if (failure != null) {
+                    Notice(failure, bad = true, title = "Pembayaran ditolak")
+                    Spacer(Modifier.height(10.dp))
+                }
+                PrimaryButton(
+                    text = when {
+                        covered -> "Selesaikan transaksi"
+                        partial -> "Bayar sebagian ${Money.format(entered)}"
+                        else -> "Bayar ${Money.format(offered)} & selesaikan"
+                    },
+                    onClick = {
+                        when {
+                            // Everything is already covered by what was recorded.
+                            covered -> onConfirm(taken)
+                            // Part of it, in this method: record and stay, because
+                            // the rest still has to be taken somehow.
+                            partial -> {
+                                taken = taken + Tender(method, entered)
+                                typed = ""
+                            }
+                            // The ordinary sale: one tender, and the money is taken
+                            // and the sale closed by the same tap.
+                            else -> onConfirm(taken + Tender(method, offered))
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = offered > 0 || covered,
+                    busy = busy,
+                    height = 66.dp,
+                    fontSize = 17.sp,
                 )
-                Spacer(Modifier.height(10.dp))
-
-                // Denominations rather than a keypad alone: the note in the
-                // customer's hand is one of six, and tapping it is one touch
-                // instead of six digits at the moment everyone is waiting.
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(50_000L, 100_000L, 150_000L, 200_000L).forEach { note ->
-                        GhostButton(
-                            Money.grouped(note),
-                            { typed = note.toString() },
-                            Modifier.weight(1f),
-                        )
-                    }
                 }
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    GhostButton("Pas", { typed = outstanding.toString() }, Modifier.weight(1f))
-                    GhostButton("Hapus", { typed = "" }, Modifier.weight(1f))
-                }
-
-                Spacer(Modifier.height(10.dp))
-                Keypad(onDigit = { typed += it }, onBackspace = { typed = typed.dropLast(1) })
             }
         }
 
-        Box(Modifier.width(1.dp).fillMaxHeight().background(Hairline))
-
-        // ── Right: what it comes to ──────────────────────────────────────
-        // The same column the desk keeps its money in, so the figure a cashier
+        // ── `.pay-side`: what it comes to ────────────────────────────────
+        // The same side the desk keeps its money on, so the figure a cashier
         // watches does not move across the screen when the payment starts.
-        Column(Modifier.fillMaxHeight().weight(0.45f).padding(16.dp)) {
-            if (failure != null) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(BadBg, RoundedCornerShape(8.dp))
-                        .padding(12.dp),
-                ) {
-                    Text("Pembayaran ditolak", color = BadFg, fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                    Text(failure, style = Type.meta.copy(color = BadFg))
-                }
-                Spacer(Modifier.height(10.dp))
+        Pane(Modifier.fillMaxHeight().width(320.dp)) {
+            // `.pay-back`
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onCancel)
+                    .heightIn(min = 52.dp)
+                    .padding(horizontal = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("← Kembali ke keranjang", style = Type.control.copy(color = Body))
             }
-            KeyValue("Total", Money.format(totalMinor), strong = true)
-            Divider(Modifier.padding(vertical = 8.dp))
+            Divider()
 
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                SectionLabel("Barang")
+            // `.pay-summary`
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp)) {
+                KeyValue("Item", "${lines.size} unit")
                 Spacer(Modifier.height(6.dp))
+                Grand("TOTAL", Money.format(totalMinor), size = 24.sp)
+            }
+            Divider()
+
+            // `.pay-scroll`
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SectionLabel("Barang")
                 grouped(lines).forEach { group ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(
                             "${group.count}× ${group.name}",
-                            style = Type.cell,
+                            style = Type.meta.copy(color = Text),
                             modifier = Modifier.weight(1f).padding(end = 10.dp),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Text(Money.grouped(group.totalMinor), style = Type.cell)
+                        Text(Money.grouped(group.totalMinor), style = Type.meta.copy(color = Text))
                     }
                 }
 
                 if (taken.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(4.dp))
                     SectionLabel("Diterima")
-                    Spacer(Modifier.height(2.dp))
                     taken.forEach { tender ->
-                        KeyValue(tender.method, Money.grouped(tender.amountMinor))
+                        // `.recorded`
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(Soft, RoundedCornerShape(RInner))
+                                .border(1.dp, Hairline, RoundedCornerShape(RInner))
+                                .padding(horizontal = 12.dp, vertical = 11.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(methodLabel(tender.method), style = Type.meta.copy(color = Text))
+                            Text(
+                                Money.format(tender.amountMinor),
+                                style = Type.meta.copy(color = Ink, fontWeight = FontWeight.SemiBold),
+                            )
+                        }
+                    }
+                    if (!covered) {
+                        Text("← Boleh ganti metode untuk membayar sisa", style = Type.pill.copy(color = Mute))
                     }
                 }
             }
 
-            Divider(Modifier.padding(vertical = 8.dp))
-            KeyValue("Kurang", Money.format(outstanding), tone = if (outstanding > 0) BadFg else OkFg)
-            if (change > 0) {
-                KeyValue("Kembali", Money.format(change), strong = true, tone = OkFg)
-                Notes(change)
-            } else if (previewChange > 0) {
-                // Not yet owed — but it is what this tap will owe, and the
-                // cashier is already counting notes while the customer waits.
-                KeyValue("Kembali nanti", Money.format(previewChange), tone = Body)
-            }
-
-            Spacer(Modifier.height(10.dp))
-            PrimaryButton(
-                text = when {
-                    covered -> "Selesaikan"
-                    partial -> "Bayar sebagian ${Money.grouped(entered)}"
-                    else -> "Bayar ${Money.grouped(offered)} & selesaikan"
-                },
-                onClick = {
-                    when {
-                        // Everything is already covered by what was recorded.
-                        covered -> onConfirm(taken)
-                        // Part of it, in this method: record and stay, because
-                        // the rest still has to be taken somehow.
-                        partial -> {
-                            taken = taken + Tender(method, entered)
-                            typed = ""
-                        }
-                        // The ordinary sale: one tender, and the money is taken
-                        // and the sale closed by the same tap.
-                        else -> onConfirm(taken + Tender(method, offered))
+            // `.pay-due`
+            Divider()
+            Column(
+                Modifier.fillMaxWidth().background(Soft).padding(18.dp),
+            ) {
+                if (covered) {
+                    DueLine("Kembalian", Money.format(change), OkFg)
+                    if (change > 0) Notes(change)
+                } else {
+                    DueLine("Sisa", Money.format(outstanding), BadFg)
+                    if (previewChange > 0) {
+                        // Not yet owed — but it is what this tap will owe, and the
+                        // cashier is already counting notes while the customer waits.
+                        Spacer(Modifier.height(6.dp))
+                        KeyValue("Kembali nanti", Money.format(previewChange), tone = Body)
                     }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = offered > 0 || covered,
-                busy = busy,
-            )
-            Spacer(Modifier.height(8.dp))
-            GhostButton("Batal", onCancel, Modifier.fillMaxWidth())
+                }
+            }
         }
+    }
+}
+
+private fun ceilTo(value: Long, step: Long): Long = ((value + step - 1) / step) * step
+
+/** The words pos-desktop puts on each method. The wire keeps the codes. */
+private fun methodLabel(method: String): String = when (method) {
+    "CASH" -> "Tunai"
+    "CARD" -> "Kartu"
+    "QRIS" -> "QRIS"
+    "VOUCHER" -> "Voucher"
+    "OTHER" -> "Lainnya"
+    else -> method
+}
+
+/** `.due-line` — Sisa or Kembalian, the number between this customer and the next. */
+@Composable
+private fun DueLine(label: String, value: String, tone: androidx.compose.ui.graphics.Color) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = Type.cell.copy(color = Body, fontWeight = FontWeight.Medium))
+        Text(value, style = Type.money.copy(fontSize = 24.sp, color = tone))
     }
 }
 
@@ -278,7 +391,7 @@ private fun grouped(lines: List<BasketLine>): List<Group> =
 @Composable
 private fun Settled(change: Long) {
     Column(
-        Modifier.fillMaxSize(),
+        Modifier.fillMaxWidth().padding(vertical = 48.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -292,7 +405,7 @@ private fun Settled(change: Long) {
         Text("Nominal sudah lunas", style = Type.hero)
         Spacer(Modifier.height(6.dp))
         Text(
-            if (change > 0) "Kembalian ${Money.format(change)} — rinciannya di kanan."
+            if (change > 0) "Kembalian ${Money.format(change)} — rincian pecahannya di panel kanan."
             else "Tidak ada kembalian.",
             style = Type.meta,
         )
@@ -321,30 +434,36 @@ private fun Notes(change: Long) {
         }
     }
     if (counted.isEmpty()) return
-    Column(Modifier.padding(top = 4.dp)) {
+    Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        SectionLabel("Kembalikan")
         counted.forEach { (many, note) ->
             Row(
                 Modifier.fillMaxWidth().padding(vertical = 1.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("$many× ${Money.grouped(note)}", style = Type.pill)
-                Text(Money.grouped(many * note), style = Type.pill)
+                Text("$many× ${Money.format(note)}", style = Type.pill.copy(color = Body))
+                Text(Money.format(many * note), style = Type.pill.copy(color = Body))
             }
         }
     }
 }
 
+/** `.numpad` — pos-desktop's order: 7 8 9 on top, the way a till's keys run. */
 @Composable
 private fun Keypad(onDigit: (String) -> Unit, onBackspace: () -> Unit) {
-    val rows = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("000", "0", "⌫"))
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    val rows = listOf(listOf("7", "8", "9"), listOf("4", "5", "6"), listOf("1", "2", "3"), listOf("⌫", "0", "000"))
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         rows.forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            KeyRow {
                 row.forEach { key ->
-                    GhostButton(
+                    ChoiceTile(
                         key,
-                        { if (key == "⌫") onBackspace() else onDigit(key) },
-                        Modifier.weight(1f),
+                        selected = false,
+                        onClick = { if (key == "⌫") onBackspace() else onDigit(key) },
+                        modifier = Modifier.weight(1f),
+                        height = 56.dp,
+                        tone = if (key == "⌫") BadFg else Ink,
+                        style = Type.metric.copy(fontSize = 21.sp, fontWeight = FontWeight.Medium),
                     )
                 }
             }

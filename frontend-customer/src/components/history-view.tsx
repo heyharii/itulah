@@ -2,11 +2,12 @@ import { useCallback, useState } from "react"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { useWindowVirtualizer } from "@tanstack/react-virtual"
 
+import { ScreenTitle } from "@/components/app-shell"
 import { PullToRefresh } from "@/components/motion/pull-to-refresh"
 import { EmptyState, ErrorState, LoadingRows } from "@/components/states"
 import { TransactionRow } from "@/components/transaction-row"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { ListGroup } from "@/components/ui/list"
 import { cacheKey, member, type HistoryCursor } from "@/lib/api"
 import { dayKey, dayLabel } from "@/lib/dates"
 import { money, units } from "@/lib/money"
@@ -70,30 +71,44 @@ export function HistoryView() {
     scrollMargin: listTop,
   })
 
+  const title = <ScreenTitle>Riwayat</ScreenTitle>
+
   if (history.isPending) {
-    return <LoadingRows rows={6} />
+    return (
+      <>
+        {title}
+        <LoadingRows rows={6} />
+      </>
+    )
   }
 
   if (history.isError) {
     return (
-      <ErrorState
-        error={history.error}
-        onRetry={() => void history.refetch()}
-      />
+      <>
+        {title}
+        <ErrorState
+          error={history.error}
+          onRetry={() => void history.refetch()}
+        />
+      </>
     )
   }
 
   if (transactions.length === 0) {
     return (
-      <EmptyState
-        title="Riwayat masih kosong"
-        description="Setiap belanja yang kamu daftarkan dengan nomor member akan tercatat di sini, lengkap dengan poinnya."
-      />
+      <>
+        {title}
+        <EmptyState
+          title="Riwayat masih kosong"
+          description="Setiap belanja dengan kartu member kamu tercatat di sini, lengkap dengan poinnya."
+        />
+      </>
     )
   }
 
   return (
     <PullToRefresh onRefresh={refresh} busy={history.isRefetching}>
+      {title}
       <div className="flex flex-col gap-4">
         <div
           ref={measureTop}
@@ -114,8 +129,8 @@ export function HistoryView() {
               >
                 {/* The heading sticks under the app-bar so the reader can
                     always see which day they have scrolled into. */}
-                <div className="sticky top-[calc(4rem+env(safe-area-inset-top))] z-[5] flex items-baseline justify-between gap-3 bg-canvas/90 px-1 py-1.5 backdrop-blur md:top-0">
-                  <h2 className="text-section font-medium text-text">
+                <div className="sticky top-0 z-[5] -mx-1 flex items-baseline justify-between gap-3 bg-backdrop/85 px-2 pt-[calc(0.5rem+env(safe-area-inset-top))] pb-1.5 backdrop-blur-xl">
+                  <h2 className="text-nav font-semibold text-ink">
                     {dayLabel(day.at)}
                   </h2>
                   <p className="num text-meta text-body">
@@ -123,14 +138,14 @@ export function HistoryView() {
                     {day.points > 0 && <> · +{units(day.points)} poin</>}
                   </p>
                 </div>
-                <Card className="divide-y divide-hairline p-1.5">
+                <ListGroup>
                   {day.transactions.map((transaction) => (
                     <TransactionRow
                       key={transaction.sale_id}
                       transaction={transaction}
                     />
                   ))}
-                </Card>
+                </ListGroup>
               </section>
             )
           })}
@@ -138,6 +153,7 @@ export function HistoryView() {
 
         {history.hasNextPage && (
           <Button
+            variant="secondary"
             className="self-center"
             disabled={history.isFetchingNextPage}
             onClick={() => void history.fetchNextPage()}
@@ -181,6 +197,8 @@ function groupByDay(transactions: CustomerTransaction[]): Day[] {
       days.push(day)
     }
     day.transactions.push(transaction)
+    // A cancelled sale is listed under its day but adds nothing to it.
+    if (transaction.status === "VOIDED") continue
     day.total_minor += transaction.total_minor
     day.points += transaction.points_earned
   }

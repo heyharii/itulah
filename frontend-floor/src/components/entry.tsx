@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
-import { Delete } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { CountPad } from "@/components/ui/count-pad"
 import { Pill } from "@/components/ui/pill"
+import { BottomSheet } from "@/components/ui/picker-sheet"
 import { ScanField } from "@/components/ui/scan-field"
 import { Banner } from "@/components/ui/states"
 import { readScan } from "@/lib/epc"
@@ -42,7 +42,8 @@ export interface Known {
 /// So the entry is two steps and no list: a code (scanned off a hang tag, read
 /// off a carton, or typed), and a number on a keypad big enough to hit with a
 /// thumb. The phone keyboard is deliberately not used for the number — it covers
-/// half the screen, including the line being counted.
+/// half the screen, including the line being counted — and the pad comes up in
+/// a sheet (`CountPad` in a `BottomSheet`), the same one on every station.
 export function SkuEntry({
   placeholder,
   sku,
@@ -50,6 +51,7 @@ export function SkuEntry({
   lookup,
   onAdd,
   addLabel,
+  autoFocus = false,
   className,
 }: {
   placeholder: string
@@ -64,6 +66,10 @@ export function SkuEntry({
   lookup: (sku: string, quantity: number) => Known
   onAdd: (sku: string, quantity: number) => void
   addLabel: string
+  /// Put the caret in the scan box on arrival, for a handheld whose scanner
+  /// types wherever the caret is. Safe on a phone too: the box raises no
+  /// keyboard until it is tapped (see `ScanField`).
+  autoFocus?: boolean
   className?: string
 }) {
   const [typed, setTyped] = useState("")
@@ -95,145 +101,85 @@ export function SkuEntry({
   }
 
   const commit = () => {
-    if (sku === null || quantity <= 0) return
+    // The same test as the button's `disabled`: Enter on a desk's keyboard
+    // reaches here too, and must not add what the button would refuse.
+    if (sku === null || quantity <= 0 || known?.problem != null) return
     onAdd(sku, quantity)
+    onSku(null)
+    setTyped("")
+  }
+
+  const close = () => {
     onSku(null)
     setTyped("")
   }
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
-      <ScanField onScan={onScan} placeholder={placeholder} autoFocus={false} />
+      <ScanField
+        onScan={onScan}
+        placeholder={placeholder}
+        autoFocus={autoFocus}
+      />
 
       {problem !== null && <Banner tone="bad">{problem}</Banner>}
 
-      {sku !== null && (
-        <Card className="px-3.5 pt-3.5 pb-4">
-          <div className="flex items-start gap-3">
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium text-ink">
-                {name ??
-                  (names.isPending
-                    ? "…"
-                    : "Tidak ada di katalog node ini")}
-              </span>
-              <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="shrink-0 font-mono text-[0.65625rem] text-mute">
-                  {sku}
-                </span>
-                {known?.note}
-              </span>
+      {/* The number is asked for in a sheet over the station, not in a card
+          pushed into the middle of it: the list below stays where it was, the
+          pad lands under the thumb at the same height every time, and a swipe
+          down is "never mind". */}
+      <BottomSheet
+        open={sku !== null}
+        onOpenChange={(open) => {
+          if (!open) close()
+        }}
+        title={
+          name ??
+          (sku === null
+            ? ""
+            : names.isPending
+              ? "…"
+              : "Tidak ada di katalog node ini")
+        }
+      >
+        <div className="flex flex-col gap-3 px-4 pb-4">
+          <span className="-mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="shrink-0 font-mono text-[0.6875rem] text-mute">
+              {sku}
             </span>
-            <span className="text-total leading-none font-semibold text-ink tabular-nums">
-              {typed === "" ? "1" : count(quantity)}
-            </span>
-          </div>
+            {known?.note}
+          </span>
 
           {known?.problem != null && (
-            <Banner tone="bad" className="mt-3">
-              {known.problem}
-            </Banner>
+            <Banner tone="bad">{known.problem}</Banner>
           )}
 
-          <QuantityPad
-            className="mt-3.5"
-            onDigit={(digit) =>
-              // Four digits is ten thousand pieces of one SKU in one round;
-              // past that it is a fat thumb, not a warehouse.
-              setTyped((current) =>
-                (current + digit).replace(/^0+/, "").slice(0, 4),
-              )
-            }
-            onBackspace={() => setTyped((current) => current.slice(0, -1))}
+          <CountPad
+            label={`Jumlah untuk ${sku ?? ""}`}
+            value={typed}
+            onChange={setTyped}
+            onEnter={commit}
+            // Empty means one — see `quantity` above — so the empty pad says 1.
+            placeholder="1"
+            unit="potong"
+            maxDigits={4}
           />
 
-          <div className="mt-3 flex gap-2.5">
-            <Button
-              variant="ghost"
-              size="lg"
-              onClick={() => {
-                onSku(null)
-                setTyped("")
-              }}
-            >
-              Batal
-            </Button>
-            <Button
-              variant="primary"
-              size="lg"
-              block
-              // `Button` is `shrink-0` everywhere in this kit — a pill that squashes
-              // stops being a pill. In a row with a second button that makes
-              // `w-full` overflow the screen instead of sharing it, so this one
-              // is allowed to give way.
-              className="min-w-0 shrink"
-              disabled={quantity <= 0 || known?.problem != null}
-              onClick={commit}
-            >
-              {addLabel} {count(quantity)}
-            </Button>
-          </div>
-        </Card>
-      )}
+          <Button
+            variant="primary"
+            size="lg"
+            block
+            disabled={quantity <= 0 || known?.problem != null}
+            onClick={commit}
+          >
+            {addLabel} {count(quantity)}
+          </Button>
+        </div>
+      </BottomSheet>
     </div>
   )
 }
 
-/// The number pad, and it is not the till's.
-///
-/// That one has a `000` key because a cashier types rupiah; here `3` followed by
-/// `000` is three thousand garments, which is a mis-key nobody would catch until
-/// the racks came up short. Digits, a zero and a delete — nothing else.
-function QuantityPad({
-  onDigit,
-  onBackspace,
-  className,
-}: {
-  onDigit: (digit: string) => void
-  onBackspace: () => void
-  className?: string
-}) {
-  return (
-    <div className={cn("grid grid-cols-3 gap-2", className)}>
-      {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((key) => (
-        <Key key={key} onPress={() => onDigit(key)}>
-          {key}
-        </Key>
-      ))}
-      <span />
-      <Key onPress={() => onDigit("0")}>0</Key>
-      <Key onPress={onBackspace} aria-label="Hapus angka terakhir">
-        <Delete className="size-5 text-line-ico" />
-      </Key>
-    </div>
-  )
-}
-
-function Key({
-  onPress,
-  children,
-  ...props
-}: {
-  onPress: () => void
-  children: React.ReactNode
-} & React.ButtonHTMLAttributes<HTMLButtonElement>) {
-  return (
-    <button
-      type="button"
-      onClick={onPress}
-      className="pressable grid h-14 place-items-center rounded-inner bg-soft-2 text-[1.25rem] font-medium text-ink tabular-nums"
-      {...props}
-    >
-      {children}
-    </button>
-  )
-}
-
-/// A pill for a SKU nobody asked for.
-///
-/// Drawn the same way at both stations and meaning different things, which is
-/// why it is named for the fact rather than for the consequence: at picking it
-/// is a note, at packing it is the reason the node will refuse the carton.
 export function NotWanted({ tone = "warn" }: { tone?: "warn" | "bad" }) {
   return <Pill tone={tone}>tidak diminta toko</Pill>
 }

@@ -75,7 +75,7 @@ export function ScanField({
           spellCheck={false}
           className={cn(
             "h-tap min-w-0 flex-1 rounded-full border border-transparent bg-soft-2 px-4",
-            "font-mono text-[0.84375rem] tracking-[0.02em] text-ink transition-colors outline-none",
+            "font-mono text-[0.875rem] tracking-[0.02em] text-ink transition-colors outline-none",
             "placeholder:font-sans placeholder:tracking-normal placeholder:text-mute",
             "hover:border-hairline-2 hover:bg-soft-3 disabled:opacity-50"
           )}
@@ -84,7 +84,7 @@ export function ScanField({
           {action}
         </Button>
       </div>
-      {hint && <p className="text-[0.71875rem] text-mute">{hint}</p>}
+      {hint && <p className="text-[0.875rem] text-mute">{hint}</p>}
     </form>
   )
 }

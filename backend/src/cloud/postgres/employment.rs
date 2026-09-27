@@ -28,8 +28,8 @@
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     Address, AssignmentSpan, AssignmentTimeline, Authorization, Contact, Contract, ContractKind,
-    ContractTimeline, Employee, EmployeeCode, EmployeeId, EmploymentStatus, FullName, Grade, Nik,
-    PlaceId, Position, Profile,
+    ContractTimeline, Employee, EmployeeCode, EmployeeId, EmploymentStatus, EmploymentTransition,
+    FullName, Grade, Nik, PlaceId, Position, Profile,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -949,10 +949,77 @@ pub async fn register_employee(pool: &PgPool, employee: &Employee) -> Result<(),
 }
 
 /// Persist an employee whose state machine has already moved.
+///
+/// The TERMINATE event carries its exit interview with it: the same
+/// transaction that writes the terminated status opens the PENDING row the
+/// Exits screen waits on. There is no "between" — a person recorded as gone
+/// whose interview never appeared would be a gap somebody has to notice and
+/// backfill, and the machine does not hand out gaps it can avoid.
 pub async fn save_employee(pool: &PgPool, employee: &Employee) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     write_employee(&mut tx, employee).await?;
+    if employee.status() == EmploymentStatus::Terminated {
+        enqueue_exit_interview(&mut tx, employee).await?;
+    }
     tx.commit().await?;
+    Ok(())
+}
+
+/// The PENDING exit interview a departure opens, in the terminator's
+/// transaction.
+///
+/// # Who gets one, and where it sits
+///
+/// A departure — TERMINATE from ACTIVE or SUSPENDED, somebody who worked and
+/// went. A withdrawn offer (TERMINATE from CANDIDATE) is not a departure:
+/// nobody ever worked here, there is nothing for the person to have said at
+/// the door, and a PENDING interview for somebody never hired would be an
+/// appointment nobody can keep. Head office can still open one by hand for
+/// the rare edge via the exit-interview route, which is where the decision
+/// belongs.
+///
+/// The place is the person's own posting history — the open span, else the
+/// latest span ever — read here rather than taken from the caller, because
+/// the interview belongs to the place the person worked, not to the desk
+/// that filed the paperwork. A person genuinely never posted has no place
+/// and therefore no row; the backfill route refuses by name for the same
+/// reason rather than guessing `ho`.
+///
+/// `ON CONFLICT DO NOTHING` because the guarantee is the fold's and this
+/// table does not have to trust it: the employment machine cannot produce a
+/// second TERMINATE (TERMINATED is terminal, and a rehired person is a new
+/// record), so the conflict arm is the sound of the rule being stated a
+/// second time, not of work being lost.
+async fn enqueue_exit_interview(
+    tx: &mut Transaction<'_, Postgres>,
+    employee: &Employee,
+) -> Result<(), AppError> {
+    // Only a departure. The last TERMINATE event names where the person was
+    // before it; coming from CANDIDATE it is a withdrawn offer, not a leaver.
+    let departure = employee
+        .history()
+        .iter()
+        .rev()
+        .find(|event| event.transition() == EmploymentTransition::Terminate)
+        .is_some_and(|event| event.from() != EmploymentStatus::Candidate);
+    if !departure {
+        return Ok(());
+    }
+    let inserted = sqlx::query(
+        "INSERT INTO exit_interview (exit_id, employee_id, place_id)
+         SELECT $2::uuid, $1, a.place_id
+           FROM employee_assignment a
+          WHERE a.employee_id = $1
+          ORDER BY (a.valid_to IS NULL) DESC, a.valid_from DESC, a.id DESC
+          LIMIT 1
+         ON CONFLICT (employee_id) DO NOTHING",
+    )
+    .bind(employee.id().as_str())
+    .bind(Uuid::new_v4())
+    .execute(&mut **tx)
+    .await?
+    .rows_affected();
+    let _ = inserted; // no place to sit the interview in: the backfill route refuses by name
     Ok(())
 }
 

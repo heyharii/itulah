@@ -49,7 +49,7 @@ interface Row {
 }
 
 /// A picker compacted into a toolbar, the way the allotment matrix does it.
-const PICKER = "min-h-8 w-auto max-w-52 px-2.5 text-[0.78125rem]"
+const PICKER = "min-h-8 w-auto max-w-52 px-2.5 text-[0.875rem]"
 
 /// **The sheet both outbound documents are written on.**
 ///
@@ -131,8 +131,8 @@ export function DemandSheet({
   }, [rows, needle])
 
   /// Counted over the search and never over the selection, the rule Articles
-  /// and the allotment matrix both hold to: ticking MENSWEAR must not make
-  /// WOMENSWEAR vanish, or the second choice becomes unreachable.
+  /// and the allotment matrix both hold to: ticking PRIA must not make
+  /// WANITA vanish, or the second choice becomes unreachable.
   const facets = useMemo(() => {
     const byDivision = new Map<string, number>()
     const byTag = new Map<string, number>()
@@ -269,7 +269,7 @@ export function DemandSheet({
       title={title}
       footer={
         <div className="flex flex-wrap items-center gap-2.5">
-          <span className="text-[0.75rem] text-mute">
+          <span className="text-[0.875rem] text-mute">
             {lines.length === 0
               ? "Nothing drawn yet"
               : `${count(lines.length)} ${lines.length === 1 ? "line" : "lines"} · ${count(pieces)} pieces`}
@@ -296,7 +296,7 @@ export function DemandSheet({
         </div>
       }
     >
-      <p className="text-[0.78125rem] text-body">{sub}</p>
+      <p className="text-[0.875rem] text-body">{sub}</p>
 
       {header}
 
@@ -308,7 +308,7 @@ export function DemandSheet({
             onChange={(event) => setNeedle(event.target.value)}
             placeholder="Find an article or SKU"
             aria-label="Find an article or SKU"
-            className="h-8 w-52 rounded-full border border-transparent bg-soft-2 pr-3 pl-7 text-[0.78125rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 focus:border-hairline-strong focus:bg-canvas"
+            className="h-8 w-52 rounded-full border border-transparent bg-soft-2 pr-3 pl-7 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 focus:border-hairline-strong focus:bg-canvas"
           />
         </div>
         <PickMany
@@ -376,7 +376,7 @@ export function DemandSheet({
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="truncate text-[0.8125rem] font-medium text-ink">
+                      <span className="truncate text-[0.875rem] font-medium text-ink">
                         {group.name}
                       </span>
                       {group.division !== null && (
@@ -385,7 +385,7 @@ export function DemandSheet({
                     </div>
                     <div className="mt-0.5 flex items-center gap-1.5 overflow-hidden">
                       {group.code !== "" && (
-                        <span className="shrink-0 font-mono text-[0.65625rem] text-faint">
+                        <span className="shrink-0 font-mono text-[0.875rem] text-faint">
                           {group.code}
                         </span>
                       )}
@@ -395,22 +395,22 @@ export function DemandSheet({
                         </Tag>
                       ))}
                       {group.tags.length > 3 && (
-                        <span className="shrink-0 text-[0.65625rem] text-faint">
+                        <span className="shrink-0 text-[0.875rem] text-faint">
                           +{group.tags.length - 3}
                         </span>
                       )}
                     </div>
                   </div>
                 </div>
-                <div className="flex w-[5.5rem] shrink-0 items-center justify-end px-2 text-[0.8125rem] font-medium text-ink tabular-nums">
+                <div className="flex w-[5.5rem] shrink-0 items-center justify-end px-2 text-[0.875rem] font-medium text-ink tabular-nums">
                   {count(group.needed)}
                 </div>
                 {availableLabel !== undefined && (
-                  <div className="flex w-[5.5rem] shrink-0 items-center justify-end px-2 text-[0.8125rem] text-body tabular-nums">
+                  <div className="flex w-[5.5rem] shrink-0 items-center justify-end px-2 text-[0.875rem] text-body tabular-nums">
                     {group.available === null ? "—" : count(group.available)}
                   </div>
                 )}
-                <div className="flex w-[6rem] shrink-0 items-center justify-center px-2 text-[0.8125rem] font-medium tabular-nums">
+                <div className="flex w-[6rem] shrink-0 items-center justify-center px-2 text-[0.875rem] font-medium tabular-nums">
                   <ArticleTotal group={group} drawn={drawn} />
                 </div>
               </div>
@@ -484,7 +484,7 @@ function SkuRow({
             .filter(Boolean)
             .join(" · ") || "—"}
         </span>
-        <span className="shrink-0 font-mono text-[0.65625rem] text-faint">
+        <span className="shrink-0 font-mono text-[0.875rem] text-faint">
           {row.demand.sku_code}
         </span>
       </div>

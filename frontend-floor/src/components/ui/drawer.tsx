@@ -1,4 +1,4 @@
-import { Dialog } from "@base-ui/react/dialog"
+import { Drawer as BaseDrawer } from "@base-ui/react/drawer"
 
 import { cn } from "@/lib/utils"
 
@@ -8,6 +8,11 @@ import { cn } from "@/lib/utils"
 /// darkens — the content behind a drawer washes toward near-white and stays
 /// readable as a ghost. `bg-black/50` is the single most recognisable way a
 /// screen stops being Cloud Hub, and it is not written anywhere in this app.
+///
+/// Base UI's Drawer, not a Dialog, so it moves like the hub's sheets do: in
+/// from the left edge on the iOS sheet curve, out faster than it came, and a
+/// thumb can push it back off the glass (`swipeDirection="left"`) instead of
+/// hunting for the veil. It used to appear and vanish in a single frame.
 export function Drawer({
   open,
   onOpenChange,
@@ -20,24 +25,36 @@ export function Drawer({
   children: React.ReactNode
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-[var(--scrim)]" />
-        <Dialog.Popup
-          className={cn(
-            "pt-safe pb-safe fixed inset-y-0 left-0 z-50 flex w-[17.5rem] max-w-[85vw] flex-col",
-            "border-r border-hairline bg-canvas shadow-float",
-          )}
-        >
-          <Dialog.Title className="px-4 pt-5 pb-3 text-title font-semibold text-ink">
-            {title}
-          </Dialog.Title>
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-5">
-            {children}
-          </div>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <BaseDrawer.Root
+      open={open}
+      onOpenChange={onOpenChange}
+      swipeDirection="left"
+    >
+      <BaseDrawer.Portal>
+        <BaseDrawer.Backdrop className="fixed inset-0 z-40 bg-[var(--scrim)] opacity-[calc(1-var(--drawer-swipe-progress,0))] transition-opacity duration-(--t-drawer) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0 data-[swiping]:transition-none" />
+        <BaseDrawer.Viewport className="fixed inset-0 z-50 flex">
+          <BaseDrawer.Popup
+            className={cn(
+              "pt-safe pb-safe flex h-full w-[17.5rem] max-w-[85vw] flex-col outline-none",
+              "border-r border-hairline bg-canvas shadow-float",
+              // The finger's drag on `transform`, the enter/exit on
+              // `translate`, so a let-go mid-drag settles from where the
+              // panel is instead of snapping back to an edge first.
+              "[transform:translateX(var(--drawer-swipe-movement-x,0px))] transition-[translate,transform] duration-(--t-drawer) ease-(--ease-drawer) data-[ending-style]:duration-(--t-exit)",
+              "data-[ending-style]:-translate-x-full data-[starting-style]:-translate-x-full data-[swiping]:transition-none",
+              "motion-reduce:data-[ending-style]:translate-none motion-reduce:data-[starting-style]:translate-none",
+            )}
+          >
+            <BaseDrawer.Title className="px-4 pt-5 pb-3 text-title font-semibold text-ink">
+              {title}
+            </BaseDrawer.Title>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-5">
+              {children}
+            </div>
+          </BaseDrawer.Popup>
+        </BaseDrawer.Viewport>
+      </BaseDrawer.Portal>
+    </BaseDrawer.Root>
   )
 }
 

@@ -202,6 +202,30 @@ impl Reach {
         matches!(self, Self::Nowhere)
     }
 
+    /// This reach, cut down to one place — what a call relayed by a unit's own
+    /// node may touch, whoever it is relayed for.
+    ///
+    /// A store node proves which place it *is*; the person it relays for may
+    /// reach more (an Admin reaches everywhere) or somewhere else entirely (an
+    /// area supervisor posted to `ho`). Neither travels through the shop: a
+    /// head-office login signed in at store-07's till reaches store-07, and a
+    /// posting that is not store-07 reaches nothing there. `Everywhere` becomes
+    /// `Only(place)`, `Only(place)` stays, any other `Only` and `Nowhere` are
+    /// `Nowhere` — the intersection of the two bounds, and never wider than
+    /// either.
+    ///
+    /// Applied once, where reach is resolved, rather than by each handler: a
+    /// list that takes no place in its query is bounded by the node exactly as
+    /// one that does, because both read the same `Reach`.
+    #[must_use]
+    pub fn bounded_to(self, place: &PlaceId) -> Self {
+        match self {
+            Self::Everywhere => Self::Only(place.clone()),
+            Self::Only(mine) if &mine == place => Self::Only(mine),
+            Self::Only(_) | Self::Nowhere => Self::Nowhere,
+        }
+    }
+
     /// How to say this on the wire and in a refusal.
     pub const fn code(&self) -> &'static str {
         match self {
@@ -323,5 +347,46 @@ mod tests {
         assert_eq!(PlaceKind::HeadOffice.code(), "HO");
         assert_eq!(PlaceKind::DistributionCentre.code(), "DC");
         assert_eq!(PlaceKind::Store.code(), "STORE");
+    }
+
+    fn place(id: &str) -> PlaceId {
+        PlaceId::try_new(id).unwrap_or_else(|error| panic!("place: {error}"))
+    }
+
+    /// Head office HR signed in at store-07's till reaches store-07 through it,
+    /// and not the other twelve shops.
+    #[test]
+    fn a_relayed_admin_reaches_only_the_relaying_place() {
+        let reach = Reach::resolve(Role::Admin, None).bounded_to(&place("store-07"));
+        assert_eq!(reach, Reach::Only(place("store-07")));
+        assert!(reach.covers(Some("store-07")));
+        assert!(!reach.covers(Some("store-03")));
+        // Unposted strangers are Everywhere's, and a bounded reach is not.
+        assert!(!reach.covers(None));
+    }
+
+    /// A posting somewhere else reaches nothing at this node — not its own
+    /// place, and not this one.
+    #[test]
+    fn a_relayed_posting_elsewhere_reaches_nothing() {
+        let posted_elsewhere =
+            Reach::resolve(Role::Supervisor, Some(&posting("store-03", PlaceKind::Store)));
+        let reach = posted_elsewhere.bounded_to(&place("store-07"));
+        assert_eq!(reach, Reach::Nowhere);
+        assert!(!reach.covers(Some("store-03")));
+        assert!(!reach.covers(Some("store-07")));
+    }
+
+    #[test]
+    fn a_relayed_posting_here_stays_and_nowhere_stays_nowhere() {
+        let here = Reach::resolve(Role::Supervisor, Some(&posting("store-07", PlaceKind::Store)));
+        assert_eq!(
+            here.bounded_to(&place("store-07")),
+            Reach::Only(place("store-07"))
+        );
+        assert_eq!(
+            Reach::Nowhere.bounded_to(&place("store-07")),
+            Reach::Nowhere
+        );
     }
 }

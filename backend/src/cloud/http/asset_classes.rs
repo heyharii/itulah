@@ -40,6 +40,19 @@ pub async fn classes(
     ))
 }
 
+/// Add an asset class or change one (0467): Finance's, like every master
+/// that decides where money lands.
+pub async fn save_class(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<infrastructure::SaveAssetClassRequest>,
+) -> Result<Json<AssetClassList>, AppError> {
+    allowed(&principal, Role::Admin, "change the asset classes")?;
+    Ok(Json(
+        infrastructure::save_asset_class(&state.db, &request, &principal.username).await?,
+    ))
+}
+
 pub fn routes(router: Router<AppState>) -> Router<AppState> {
-    router.route("/api/v1/finance/asset-classes", get(classes))
+    router.route("/api/v1/finance/asset-classes", get(classes).post(save_class))
 }

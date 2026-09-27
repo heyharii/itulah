@@ -1104,7 +1104,7 @@ const MATCH_LABELS: Record<PromotionDraft["matches"], string> = {
 const MATCH_PLACEHOLDERS: Record<PromotionDraft["matches"], string> = {
   SKU: "KEM001, KEM002",
   ARTICLE: "KEMEJA-PUTIH",
-  DIVISION: "MENSWEAR",
+  DIVISION: "PRIA",
   TAG: "LEBARAN",
   WHOLE_CART: "",
 }

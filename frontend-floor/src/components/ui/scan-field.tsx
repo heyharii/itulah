@@ -17,6 +17,13 @@ import { cn } from "@/lib/utils"
 /// It is also **not** `type="search"` and not a native autocomplete: a history
 /// dropdown over a till, offering the last customer's barcode, is a mis-scan
 /// waiting to happen.
+///
+/// **No keyboard for a scanner.** While the caret is here only because the
+/// screen put it here — on arrival, after a submit — the field says
+/// `inputmode="none"`, so a handheld's scanner can type into it without the
+/// phone's own keyboard rising over the sheet. A finger on the field is a
+/// person about to type a code by hand, and that tap switches the keyboard back
+/// on until the field is left.
 export function ScanField({
   onScan,
   placeholder,
@@ -34,6 +41,7 @@ export function ScanField({
   className?: string
 }) {
   const [value, setValue] = useState("")
+  const [typing, setTyping] = useState(false)
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -58,6 +66,11 @@ export function ScanField({
         <Search className="size-[1.125rem] shrink-0 text-line-ico" />
         <input
           ref={input}
+          inputMode={typing ? "text" : "none"}
+          // Set before the focus that follows it, so the keyboard the tap
+          // asks for is the one that opens.
+          onPointerDown={() => setTyping(true)}
+          onBlur={() => setTyping(false)}
           value={value}
           onChange={(event) => setValue(event.target.value)}
           placeholder={placeholder}

@@ -1,3 +1,7 @@
+> **RETIRED 2026-09-26.** This app is no longer used or run. Its receiving,
+> counting and other DC stations now live in frontend-hub → **Operations**
+> (Receiving at `/operations/intake`). See [RETIRED.md](RETIRED.md).
+
 # frontend-floor
 
 **Lantai** — the warehouse floor on a phone. One app for the six stations goods

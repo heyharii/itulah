@@ -22,7 +22,7 @@
 //!
 //! The side a correction moves an amount ONTO is a meaning — `stock_loss`,
 //! `bad_debt_expense`, whatever the person chose — resolved through
-//! `account_map` for the location, exactly as a posting rule resolves one.
+//! `account_resolution` for the location, exactly as a posting rule resolves one.
 //!
 //! The side it moves an amount OFF, for a reclassification, is the ORIGINAL
 //! journal line's own account code, copied. Not re-resolved. This is
@@ -37,7 +37,7 @@
 //! transfer, and it has a document of its own. A reclassification that could
 //! touch `1011001001 Cash On Hand` would be a way to make the cash balance say
 //! something the cash count does not, with no counting anywhere in the story.
-//! The check reads `account_map` rather than a list of codes in Rust — the
+//! The check reads `account_resolution` rather than a list of codes in Rust — the
 //! client's codes are theirs to move, and a hard-coded prefix would stop being
 //! true the day Finance opened a second bank.
 
@@ -125,7 +125,7 @@ pub struct ReclassRequest {
     /// The journal line the amount is coming off.
     pub source_line_id: Uuid,
     /// Where it is going, as a meaning. Never an account code: choosing the
-    /// code is `account_map`'s job, and a reclassification that named one would
+    /// code is `account_link`'s job, and a reclassification that named one would
     /// be a second copy of the map living in a document.
     pub target_key: String,
     #[serde(default)]
@@ -326,8 +326,8 @@ async fn money_account_codes(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<Vec<(String, String)>, AppError> {
     let rows = sqlx::query(
-        "SELECT DISTINCT account_code, semantic_key FROM account_map
-          WHERE semantic_key = ANY($1)",
+        "SELECT DISTINCT account_code, role AS semantic_key FROM account_resolution
+          WHERE role = ANY($1)",
     )
     .bind(MONEY_KEYS)
     .fetch_all(&mut **tx)
@@ -680,6 +680,7 @@ fn meaning(key: &str, qualifier: &str) -> LineAccount {
     LineAccount::Meaning {
         semantic_key: key.to_string(),
         qualifier: qualifier.to_string(),
+        source_type: "COMPANY".into(),
     }
 }
 
@@ -913,6 +914,7 @@ pub async fn correction_post(
         memo: Some(sides.memo.clone()),
         lines: vec![
             PostingLine {
+                dimensions: Vec::new(),
                 account: sides.debit,
                 site_id: sides.debit_site,
                 // A correction may move a figure between two units, and where
@@ -921,18 +923,21 @@ pub async fn correction_post(
                 counter_site_id: None,
                 debit_minor: existing.amount_minor,
                 credit_minor: 0,
-                supplier_id: None,
+                party_type: None,
+                party_id: None,
                 asset_id: None,
                 bank_account_id: None,
                 memo: Some(sides.memo.clone()),
             },
             PostingLine {
+                dimensions: Vec::new(),
                 account: sides.credit,
                 site_id: sides.credit_site,
                 counter_site_id: None,
                 debit_minor: 0,
                 credit_minor: existing.amount_minor,
-                supplier_id: None,
+                party_type: None,
+                party_id: None,
                 asset_id: None,
                 bank_account_id: None,
                 memo: Some(sides.memo.clone()),

@@ -611,9 +611,23 @@ pub async fn list_sales(pool: &PgPool, query: SaleQuery) -> Result<Value, AppErr
             &((day + chrono::Duration::days(1)).and_time(chrono::NaiveTime::MIN) - shift),
         )
     });
-    let rows=sqlx::query("SELECT id,sale_number,site_id,channel,status,commercial_version,currency::text currency,total_minor,paid_minor,change_minor,movement_group_id,customer_id,created_at,completed_at FROM sale WHERE ($1::text IS NULL OR site_id=$1) AND ($2::text IS NULL OR status=$2) AND ($4::timestamptz IS NULL OR created_at >= $4) AND ($5::timestamptz IS NULL OR created_at < $5) ORDER BY created_at DESC LIMIT $3")
+    let rows=sqlx::query("WITH all_sales AS ( \
+        SELECT 'CENTRE'::text source,s.id,s.sale_number,s.site_id,s.channel,s.status,s.commercial_version,s.currency::text currency, \
+               s.total_minor,s.paid_minor,s.change_minor,s.movement_group_id,s.customer_id,s.created_at,s.completed_at \
+          FROM sale s \
+        UNION ALL \
+        SELECT 'EDGE'::text source,e.sale_id,'POS-'||LEFT(e.sale_id::text,8),e.site_id,'STORE',e.status, \
+               COALESCE(MAX(l.publication_version),0)::bigint,e.currency::text,e.total_minor,e.paid_minor,e.change_minor, \
+               e.movement_group_id,e.customer_id,e.occurred_at,e.occurred_at \
+          FROM edge_sale e LEFT JOIN edge_sale_line l ON l.sale_id=e.sale_id \
+         GROUP BY e.sale_id,e.site_id,e.currency,e.total_minor,e.paid_minor,e.change_minor,e.movement_group_id,e.customer_id,e.occurred_at \
+    ) SELECT source,id,sale_number,site_id,channel,status,commercial_version,currency,total_minor,paid_minor,change_minor, \
+             movement_group_id,customer_id,created_at,completed_at \
+        FROM all_sales WHERE ($1::text IS NULL OR site_id=$1) AND ($2::text IS NULL OR status=$2) \
+          AND ($4::timestamptz IS NULL OR created_at >= $4) AND ($5::timestamptz IS NULL OR created_at < $5) \
+        ORDER BY created_at DESC LIMIT $3")
         .bind(query.site_id).bind(query.status.map(|s|s.to_ascii_uppercase())).bind(limit).bind(start).bind(end).fetch_all(pool).await?;
-    let items:Vec<Value>=rows.into_iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"sale_number":row.get::<String,_>("sale_number"),"site_id":row.get::<String,_>("site_id"),"channel":row.get::<String,_>("channel"),"status":row.get::<String,_>("status"),"commercial_version":row.get::<i64,_>("commercial_version"),"currency":row.get::<String,_>("currency").trim(),"total_minor":row.get::<i64,_>("total_minor"),"paid_minor":row.get::<i64,_>("paid_minor"),"change_minor":row.get::<i64,_>("change_minor"),"movement_group_id":row.get::<Option<Uuid>,_>("movement_group_id"),
+    let items:Vec<Value>=rows.into_iter().map(|row|json!({"source":row.get::<String,_>("source"),"id":row.get::<Uuid,_>("id"),"sale_number":row.get::<String,_>("sale_number"),"site_id":row.get::<String,_>("site_id"),"channel":row.get::<String,_>("channel"),"status":row.get::<String,_>("status"),"commercial_version":row.get::<i64,_>("commercial_version"),"currency":row.get::<String,_>("currency").trim(),"total_minor":row.get::<i64,_>("total_minor"),"paid_minor":row.get::<i64,_>("paid_minor"),"change_minor":row.get::<i64,_>("change_minor"),"movement_group_id":row.get::<Option<Uuid>,_>("movement_group_id"),
         // Selected by `get_sale` since the column existed and never put on the
         // list's wire, so no register could say which receipts were a member's.
         "customer_id":row.get::<Option<String>,_>("customer_id"),"created_at":row.get::<DateTime<Utc>,_>("created_at"),"completed_at":row.get::<Option<DateTime<Utc>>,_>("completed_at")})).collect();

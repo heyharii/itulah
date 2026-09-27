@@ -1,9 +1,10 @@
 import { Dialog } from "@base-ui/react/dialog"
+import { Drawer } from "@base-ui/react/drawer"
 import { X } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import { RecordPanel } from "@/components/ui/record-panel"
-import { useLayout } from "@/lib/layout"
+import { useLayout, useRecordBeside } from "@/lib/layout"
 import { useSheetSpace } from "@/lib/sheet-space"
 import { cn } from "@/lib/utils"
 
@@ -17,7 +18,7 @@ import { cn } from "@/lib/utils"
 /// It sits on the WHITE veil: the list behind washes toward near-white and
 /// never darkens.
 ///
-/// **Under 48rem it arrives from the bottom instead.** A 27.5rem rail inset
+/// **Under 48rem it takes the whole screen instead.** A 27.5rem rail inset
 /// 16px from the right is a rail on a 375px screen: it covers everything and
 /// still leaves a 16px sliver of list nobody can read or tap. A record on a
 /// phone comes up over the list from the edge nearest the hand, stopping short
@@ -26,7 +27,7 @@ import { cn } from "@/lib/utils"
 /// phone has. Everything inside is unchanged: same header, same facts, same
 /// mini-table, same history.
 ///
-/// **And on a monitor (96rem up) it stops covering anything at all.** Same
+/// **And on a page 1300px wide it stops covering anything at all.** Same
 /// panel, same place on the glass — what changes is that the shell gives it a
 /// column and the list narrows into what is left, so a buyer can read the
 /// order and the twenty orders around it at once. That is the whole of what
@@ -173,8 +174,9 @@ export function Sheet({
           : []),
       ]
     : null
-  const here = sections?.find((s) => s.value === tab) ?? sections?.[0]
-  const beside = useLayout() === "monitor" && width === "rail"
+  const here = sections?.find((s) => s.value === tab) ?? sections?.[0] ?? null
+  const beside = useRecordBeside() && width === "rail"
+  const phone = useLayout() === "phone"
   // Claimed by a rail for as long as it is on screen, at every window width:
   // the shell is the one that decides what to do about it, and only the
   // monitor does anything. A wide sheet claims nothing — it never stands
@@ -182,6 +184,123 @@ export function Sheet({
   // canvas next to a veil. See `lib/sheet-space.ts` for why the panel is asked
   // rather than the URL read.
   useSheetSpace(open && width === "rail")
+
+  /// What the sheet holds — head, tabs, body, foot — drawn by either shell:
+  /// the desk's Dialog or the phone's Drawer, whose Title and Close parts are
+  /// passed in so each is wired to its own root.
+  const body = (Parts: {
+    Title: React.ElementType
+    Close: React.ElementType
+  }) => (
+    <>
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-4 px-4 py-3 md:px-7 md:py-3.5",
+          !sections && "border-b border-hairline"
+        )}
+      >
+        <div className="min-w-0 flex-1">
+          {id && <div className="mb-0.5 font-mono text-id text-body">{id}</div>}
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Parts.Title className="truncate text-[1.125rem] leading-[1.5625rem] font-semibold tracking-[-0.02em] text-ink">
+              {title}
+            </Parts.Title>
+            {badge}
+          </div>
+          {caption && (
+            <div className="mt-0.5 truncate text-meta text-mute">{caption}</div>
+          )}
+        </div>
+        {actions && (
+          <div className="flex shrink-0 items-center gap-1.5">
+            {actions}
+            <span aria-hidden className="mx-0.5 h-5 w-px bg-hairline" />
+          </div>
+        )}
+        <Parts.Close className="grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink pointer-coarse:size-tap">
+          <X className="size-4" />
+        </Parts.Close>
+      </div>
+      {sections && here && (
+        <nav
+          role="tablist"
+          aria-label="Record sections"
+          className="flex shrink-0 [scrollbar-width:none] items-stretch gap-0.5 overflow-x-auto border-b border-hairline px-4 md:px-7 [&::-webkit-scrollbar]:hidden"
+        >
+          {sections.map((section) => {
+            const current = section.value === here.value
+            return (
+              <button
+                key={section.value}
+                role="tab"
+                type="button"
+                aria-selected={current}
+                onClick={() => setTab(section.value)}
+                className={cn(
+                  "-mb-px inline-flex h-[2.625rem] shrink-0 items-center gap-1.5 border-b-2 px-2.5 text-[0.875rem] font-medium whitespace-nowrap transition-colors",
+                  current
+                    ? "border-accent font-semibold text-accent"
+                    : "border-transparent text-body hover:text-ink",
+                  "pointer-coarse:h-tap"
+                )}
+              >
+                {section.label}
+              </button>
+            )
+          })}
+        </nav>
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 md:px-7 md:py-6">
+        {sections && here ? here.content : children}
+        {!sections && subject && <RecordPanel subject={subject} />}
+      </div>
+      {footer && (
+        <div className="shrink-0 border-t border-hairline px-4 py-3 md:px-7 md:py-3.5">
+          {footer}
+        </div>
+      )}
+    </>
+  )
+
+  // A phone: a sheet in the Vaul sense. It rises from the bottom edge and
+  // stops short of the top — the page it came from still shows as a strip
+  // above it — carries a grip, and a pull down puts it away (Base UI's
+  // Drawer: the swipe, and the keyboard kept below the foot by
+  // `VirtualKeyboardProvider`). It replaced the full-screen panel, which
+  // could only be left by its ×. Everything inside is the same sheet.
+  if (phone) {
+    return (
+      <Drawer.Root open={open} onOpenChange={onOpenChange}>
+        <Drawer.VirtualKeyboardProvider>
+          <Drawer.Portal>
+            <Drawer.Backdrop
+              forceRender
+              className="fixed inset-0 z-40 bg-[var(--scrim)] opacity-[calc(1-var(--drawer-swipe-progress,0))] transition-opacity duration-(--t-drawer) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0 data-[swiping]:transition-none"
+            />
+            <Drawer.Viewport className="fixed inset-0 z-40 flex items-end pb-[var(--drawer-keyboard-inset,0px)]">
+              <Drawer.Popup
+                className={cn(
+                  "flex w-full flex-col overflow-hidden rounded-t-sheet border-t border-hairline bg-canvas pb-[env(safe-area-inset-bottom)] shadow-float outline-none",
+                  // Up to 12px under the notch, less whatever the keyboard
+                  // takes, so the foot's buttons ride above it.
+                  "h-[calc(100dvh-env(safe-area-inset-top,0px)-0.75rem-var(--drawer-keyboard-inset,0px))]",
+                  "[transform:translateY(var(--drawer-swipe-movement-y,0px))] transition-[translate,transform] duration-(--t-drawer) ease-(--ease-drawer) data-[ending-style]:duration-(--t-exit)",
+                  "data-[ending-style]:translate-y-full data-[starting-style]:translate-y-full data-[swiping]:transition-none",
+                  "motion-reduce:data-[ending-style]:translate-none motion-reduce:data-[starting-style]:translate-none",
+                  className
+                )}
+              >
+                <div aria-hidden className="flex shrink-0 justify-center pt-2">
+                  <span className="h-1 w-9 rounded-full bg-hairline-strong" />
+                </div>
+                {body(Drawer)}
+              </Drawer.Popup>
+            </Drawer.Viewport>
+          </Drawer.Portal>
+        </Drawer.VirtualKeyboardProvider>
+      </Drawer.Root>
+    )
+  }
 
   return (
     <Dialog.Root
@@ -195,19 +314,42 @@ export function Sheet({
             this is not what you are working on now", and beside the list that
             is a lie: it is exactly what somebody is working on. */}
         {!beside && (
-          <Dialog.Backdrop className="fixed inset-0 z-40 bg-[var(--scrim)]" />
+          <Dialog.Backdrop
+            className={cn(
+              "fixed inset-0 z-40 bg-[var(--scrim)]",
+              // One surface with the panel: the veil fades on the panel's own
+              // clock, in and out.
+              "transition-opacity duration-(--t-sheet) ease-(--ease-out) max-md:duration-(--t-drawer)",
+              "data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0"
+            )}
+          />
         )}
         <Dialog.Popup
           className={cn(
             "fixed z-40 flex flex-col overflow-hidden border border-hairline bg-canvas shadow-float",
-            // The phone: up from the bottom edge, 90% of the visible height at
-            // most, and `dvh` rather than `vh` because a mobile browser's
-            // toolbars slide and `vh` is the height it has when they are gone.
-            // The home-bar inset is padding rather than a margin so the sheet
-            // still reaches the bottom of the glass.
-            "inset-x-0 bottom-0 max-h-[90dvh] rounded-t-sheet pb-[env(safe-area-inset-bottom)]",
+            // The phone: the whole screen. A bottom sheet stopping at 90% left
+            // a strip of list nobody could use and, with the keyboard up, a
+            // form a few lines tall — and a PO is raised on the phone, at the
+            // supplier's counter. `dvh` rather than `vh` because a mobile
+            // browser's toolbars slide and `vh` is the height it has when they
+            // are gone; the notch and home-bar insets are padding so the head
+            // and the footer's buttons clear them.
+            "inset-0 h-dvh rounded-none border-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
             // The desk and the tablet: the floating rail, inset on three sides.
-            "md:inset-x-auto md:top-5 md:right-5 md:bottom-5 md:max-h-none md:max-w-[calc(100vw-2.5rem)] md:rounded-shell md:pb-0",
+            "md:inset-x-auto md:inset-y-auto md:top-5 md:right-5 md:bottom-5 md:h-auto md:max-w-[calc(100vw-2.5rem)] md:rounded-shell md:border md:pt-0 md:pb-0",
+            // Arriving from the edge it lives on, so where it came from is
+            // where it goes back to. The phone's sheet rises the full height
+            // of the glass, the way iOS presents a screen, on the iOS sheet
+            // curve at `--t-drawer`; the desk's rail slides in from the right,
+            // 20px of gutter included so it starts wholly off the glass, in
+            // `--t-sheet`. Both leave faster than they came (`--t-exit`).
+            // Translate only — no layout property moves. Reduced motion
+            // drops the travel and keeps a fade.
+            "transition-[translate,opacity] ease-(--ease-drawer)",
+            "duration-(--t-drawer) data-[ending-style]:duration-(--t-exit) md:duration-(--t-sheet) md:data-[ending-style]:duration-(--t-exit)",
+            "data-[ending-style]:translate-y-full data-[starting-style]:translate-y-full",
+            "md:data-[ending-style]:translate-x-[calc(100%+1.25rem)] md:data-[ending-style]:translate-y-0 md:data-[starting-style]:translate-x-[calc(100%+1.25rem)] md:data-[starting-style]:translate-y-0",
+            "motion-reduce:data-[ending-style]:translate-none motion-reduce:data-[ending-style]:opacity-0 motion-reduce:data-[starting-style]:translate-none motion-reduce:data-[starting-style]:opacity-0",
             width === "workspace"
               ? "md:w-[clamp(27.5rem,96vw,84rem)]"
               : width === "table"
@@ -218,76 +360,7 @@ export function Sheet({
             className
           )}
         >
-          <div
-            className={cn(
-              "flex shrink-0 items-center gap-4 px-7 py-3.5",
-              !sections && "border-b border-hairline"
-            )}
-          >
-            <div className="min-w-0 flex-1">
-              {id && (
-                <div className="mb-0.5 font-mono text-id text-body">{id}</div>
-              )}
-              <div className="flex min-w-0 items-center gap-2.5">
-                <Dialog.Title className="truncate text-[1.125rem] leading-[1.5625rem] font-semibold tracking-[-0.02em] text-ink">
-                  {title}
-                </Dialog.Title>
-                {badge}
-              </div>
-              {caption && (
-                <div className="mt-0.5 truncate text-meta text-mute">
-                  {caption}
-                </div>
-              )}
-            </div>
-            {actions && (
-              <div className="flex shrink-0 items-center gap-1.5">
-                {actions}
-                <span aria-hidden className="mx-0.5 h-5 w-px bg-hairline" />
-              </div>
-            )}
-            <Dialog.Close className="grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink">
-              <X className="size-4" />
-            </Dialog.Close>
-          </div>
-          {sections && (
-            <nav
-              role="tablist"
-              aria-label="Record sections"
-              className="flex shrink-0 [scrollbar-width:none] items-stretch gap-0.5 overflow-x-auto border-b border-hairline px-7 [&::-webkit-scrollbar]:hidden"
-            >
-              {sections.map((section) => {
-                const current = section.value === here.value
-                return (
-                  <button
-                    key={section.value}
-                    role="tab"
-                    type="button"
-                    aria-selected={current}
-                    onClick={() => setTab(section.value)}
-                    className={cn(
-                      "-mb-px inline-flex h-[2.625rem] shrink-0 items-center gap-1.5 border-b-2 px-2.5 text-[0.8125rem] font-medium whitespace-nowrap transition-colors",
-                      current
-                        ? "border-accent font-semibold text-accent"
-                        : "border-transparent text-body hover:text-ink",
-                      "pointer-coarse:h-tap"
-                    )}
-                  >
-                    {section.label}
-                  </button>
-                )
-              })}
-            </nav>
-          )}
-          <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6">
-            {sections ? here.content : children}
-            {!sections && subject && <RecordPanel subject={subject} />}
-          </div>
-          {footer && (
-            <div className="shrink-0 border-t border-hairline px-7 py-3.5">
-              {footer}
-            </div>
-          )}
+          {body(Dialog)}
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
@@ -325,7 +398,7 @@ export function Fact({
           the prototype: a fact's label there is Inter 12/18 in sentence case,
           and the mono micro-caps this used to wear made four ordinary words
           read as a machine's field names. */}
-      <dt className="text-[0.75rem] leading-[1.125rem] text-body">{term}</dt>
+      <dt className="text-[0.875rem] leading-[1.125rem] text-body">{term}</dt>
       <dd className="mt-[0.3125rem] truncate text-[0.875rem] leading-[1.375rem] text-ink tabular-nums">
         {children}
       </dd>

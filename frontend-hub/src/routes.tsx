@@ -2,6 +2,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   redirect,
 } from "@tanstack/react-router"
 
@@ -9,28 +10,7 @@ import { AppShell } from "@/components/shell/app-shell"
 import { allNavItems, asides, modules } from "@/lib/navigation"
 import { validateSheetSearch } from "@/lib/sheets"
 import { Placeholder } from "@/screens/placeholder"
-import { screens as assistant } from "@/screens/assistant"
-import { screens as master } from "@/screens/master"
-import { screens as commercial } from "@/screens/commercial"
-import { screens as allotment } from "@/screens/allotment"
-import { screens as finance } from "@/screens/finance"
-import { screens as financeLab } from "@/screens/finance-lab"
-import { screens as financeLab2 } from "@/screens/finance-lab-2"
-import { screens as financeFinal } from "@/screens/finance-final"
-import { screens as home } from "@/screens/home"
-import { screens as inventory } from "@/screens/inventory"
-import { screens as letters } from "@/screens/letters"
-import { screens as members } from "@/screens/members"
-import { screens as operations } from "@/screens/operations"
-import { screens as people } from "@/screens/people"
-import { screens as procurement } from "@/screens/procurement"
-import { screens as reports } from "@/screens/reports"
-import { screens as sales } from "@/screens/sales"
-import { screens as system } from "@/screens/system"
-import { screens as gaAssets } from "@/screens/assets"
-import { screens as gaOverview } from "@/screens/ga"
-import { screens as vendors } from "@/screens/vendors"
-import { screens as workplace } from "@/screens/workplace"
+import type { ScreenMap } from "@/screens/registry"
 
 /// The route tree, built from the navigation registry.
 ///
@@ -52,55 +32,73 @@ const rootRoute = createRootRoute({
   validateSearch: validateSheetSearch,
 })
 
-/// Screens that are written. Anything in the registry without an entry here
-/// renders `Placeholder`, so adding a screen is one line and removing a nav
-/// entry cannot leave an orphan route.
+/// Screens that are written, one module at a time and only when asked for.
 ///
-/// Keys must be paths that exist in `lib/navigation.ts`; `assertScreensAreRouted`
-/// below fails the build if one does not.
-const screens: Readonly<Record<string, () => React.ReactNode>> = {
-  ...home,
-  ...assistant,
-  ...commercial,
-  ...master,
-  ...inventory,
-  ...allotment,
-  ...procurement,
-  ...sales,
-  ...operations,
-  ...members,
-  ...finance,
-  ...financeLab,
-  ...financeLab2,
-  ...financeFinal,
-  ...people,
-  ...letters,
-  ...vendors,
-  ...gaAssets,
-  ...gaOverview,
-  ...workplace,
-  ...reports,
-  ...system,
+/// Every module's screen map (`src/screens/<folder>/index.ts`) used to be
+/// imported here up front, so the app shipped as one 4.7 MB script: a phone
+/// opening Profile to read a payslip downloaded Finance, Marketing and HR
+/// first. Now each folder is its own chunk, fetched the first time one of its
+/// paths is visited — or a moment before, when a link is hovered or pressed
+/// (`defaultPreload: "intent"` below).
+///
+/// A path belongs to the folder named by its first segment; the four that do
+/// not are listed. Anything in the registry without a screen renders
+/// `Placeholder`, so adding a screen is still one line and removing a nav
+/// entry cannot leave an orphan route.
+// `.tsx` as well: Operations wraps its screens in a gate, which is JSX, so its
+// map is `index.tsx` — and a `.ts`-only glob routed all fourteen of them to
+// `Placeholder`.
+const folders = import.meta.glob<{ screens: ScreenMap }>(
+  "./screens/*/index.{ts,tsx}"
+)
+const FOLDER_OF: Readonly<Record<string, string>> = {
+  "/apps": "mobile",
+  "/chat": "workplace",
+  "/discussions": "workplace",
+  "/library": "workplace",
+}
+function loaderFor(path: string) {
+  const folder = FOLDER_OF[path] ?? path.split("/")[1]
+  return (
+    folders[`./screens/${folder}/index.ts`] ??
+    folders[`./screens/${folder}/index.tsx`]
+  )
 }
 
 const routes = allNavItems.map((item) =>
   createRoute({
     getParentRoute: () => rootRoute,
     path: item.path,
-    component: screens[item.path] ?? Placeholder,
+    component: lazyRouteComponent(async () => {
+      const load = loaderFor(item.path)
+      const screen = load ? (await load()).screens[item.path] : undefined
+      return { default: screen ?? Placeholder }
+    }),
   })
 )
+const routed = new Set(allNavItems.map((item) => item.path))
 
 /// A screen registered under a path no nav entry claims would be unreachable,
-/// which is the failure this whole arrangement exists to prevent. Caught at
-/// module load rather than in review.
-const routed = new Set(allNavItems.map((item) => item.path))
-for (const path of Object.keys(screens)) {
-  if (!routed.has(path)) {
-    throw new Error(
-      `screens["${path}"] has no entry in lib/navigation.ts, so nothing links to it`
-    )
-  }
+/// and one filed in a folder its path does not name would never load — the
+/// failures this arrangement exists to prevent. Checked in development, where
+/// loading every folder costs nothing; a production build skips the block.
+if (import.meta.env.DEV) {
+  void Promise.all(
+    Object.entries(folders).map(async ([file, load]) => {
+      const folder = file.split("/")[2]
+      for (const path of Object.keys((await load()).screens)) {
+        if (!routed.has(path)) {
+          console.error(
+            `screens["${path}"] has no entry in lib/navigation.ts, so nothing links to it`
+          )
+        } else if (loaderFor(path) !== load) {
+          console.error(
+            `screens["${path}"] is in screens/${folder} but its path names another folder — add it to FOLDER_OF in routes.tsx`
+          )
+        }
+      }
+    })
+  )
 }
 
 /// `/` is not a screen of its own — it is a redirect into the first module in
@@ -112,7 +110,11 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   beforeLoad: () => {
-    throw redirect({ to: modules[0].home })
+    // A phone starts on its launcher (the bottom bar's first tab); a desk on
+    // the first module, as it always has. Asked of the window rather than of
+    // the layout hook because this runs before anything renders.
+    const phone = window.matchMedia("(width < 48rem)").matches
+    throw redirect({ to: phone ? "/apps" : modules[0].home })
   },
 })
 

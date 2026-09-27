@@ -1531,6 +1531,15 @@ pub async fn list_fleet_pools(
              UNION SELECT origin_id,pool_id FROM reservation
          )
          SELECT credential.origin_id,credential.site_id,credential.node_role,
+                -- The SITE's kind, not the node's role: since 0353 the
+                -- warehouse is `HO` while its node still runs as `DC`, and a
+                -- reader filtering pools by `site_kind` must see the same
+                -- value on the Edge row as on the Cloud row it shadows. A DC
+                -- node whose own spelling has no `site` row (`dc-01`) is that
+                -- same warehouse.
+                COALESCE(owner_site.kind,
+                         CASE WHEN credential.node_role='DC' THEN 'HO'
+                              ELSE credential.node_role END) AS site_kind,
                 credential.label,credential.active_generation,
                 scope.pool_id,COALESCE(balance.normal,0)::bigint AS normal,
                 COALESCE(balance.missing,0)::bigint AS missing,
@@ -1551,6 +1560,7 @@ pub async fn list_fleet_pools(
          FROM pool_scope scope
          JOIN sync_origin_credential credential
            ON credential.origin_id=scope.origin_id AND credential.inventory_enabled
+         LEFT JOIN site owner_site ON owner_site.id=credential.site_id
          LEFT JOIN fact_balance balance
            ON balance.origin_id=scope.origin_id AND balance.pool_id=scope.pool_id
          LEFT JOIN reservation
@@ -1582,6 +1592,7 @@ pub async fn list_fleet_pools(
         let origin_id: String = row.get("origin_id");
         let site_id: String = row.get("site_id");
         let role: String = row.get("node_role");
+        let site_kind: String = row.get("site_kind");
         if operational.site_id().as_str() != site_id {
             return Err(AppError::Conflict(format!(
                 "fact-derived Edge pool {pool_id} does not belong to owner site {site_id}"
@@ -1633,7 +1644,7 @@ pub async fn list_fleet_pools(
             "id": pool_id,
             "site_id": site_id,
             "site_name": owner_label,
-            "site_kind": role,
+            "site_kind": site_kind,
             "group": group,
             "pool_code": pool_code,
             "label": label,
@@ -1826,7 +1837,9 @@ pub async fn list_fleet_pools(
                 "id": format!("{site_id}.outbound.{slug}"),
                 "site_id": site_id,
                 "site_name": owner.get("owner_label").cloned().unwrap_or(Value::Null),
-                "site_kind": "DC",
+                // Only DC owners reach here, and the warehouse is kind `HO`
+                // (0353) — the same kind its leaf rows above carry.
+                "site_kind": "HO",
                 "group": "OUTBOUND",
                 "pool_code": stage,
                 "label": label,

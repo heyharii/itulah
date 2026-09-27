@@ -801,3 +801,88 @@ fn unique_canonical(values: &[String], field: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+// ---- Store inbound: what is on the lorry, told to the shop -----------------
+
+/// Cloud → Store Edge: a carton left the DC for this shop.
+///
+/// Issued once per koli, when the centre applies that koli's `IN_TRANSIT`
+/// fulfillment progress, and targeted only at the STORE origin registered for
+/// `destination_store_id`. The shop files the units under a delivery (one per
+/// surat jalan, or per koli when there is none) and keeps them out of sight
+/// until the delivery has been counted — the count is blind.
+///
+/// Deliberately no `deny_unknown_fields`: a newer centre adding a field must
+/// not block an older shop's command stream.
+pub const INVENTORY_STORE_INBOUND_ANNOUNCE_V1: &str = "inventory.store_inbound.announce.v1";
+
+/// What a shop edge advertises (in `/api/v1/health` → `capabilities`) once it
+/// understands [`INVENTORY_STORE_INBOUND_ANNOUNCE_V1`].
+pub const STORE_INBOUND_CAPABILITY: &str = "store.inbound";
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StoreInboundAnnounceUnit {
+    pub epc: String,
+    pub sku_code: String,
+    pub allotment_line_id: Uuid,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StoreInboundAnnouncePayload {
+    pub koli_id: Uuid,
+    pub source_site_id: String,
+    pub destination_store_id: String,
+    pub shipment_reference: Option<String>,
+    /// The koli's `IN_TRANSIT` fact's `occurred_at` — when it left the yard.
+    pub departed_at: DateTime<Utc>,
+    pub units: Vec<StoreInboundAnnounceUnit>,
+}
+
+impl StoreInboundAnnouncePayload {
+    /// Built from the centre's own applied fact, so it cannot disagree with it.
+    pub fn from_progress(progress: &FulfillmentProgressPayload) -> Self {
+        Self {
+            koli_id: progress.koli_id,
+            source_site_id: progress.source_site_id.clone(),
+            destination_store_id: progress.destination_store_id.clone(),
+            shipment_reference: progress.shipment_reference.clone(),
+            departed_at: progress.occurred_at,
+            units: progress
+                .units
+                .iter()
+                .map(|unit| StoreInboundAnnounceUnit {
+                    epc: unit.epc.clone(),
+                    sku_code: unit.sku_code.clone(),
+                    allotment_line_id: unit.allotment_line_id,
+                })
+                .collect(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        non_nil(self.koli_id, "koli_id")?;
+        required(&self.source_site_id, "source_site_id")?;
+        required(&self.destination_store_id, "destination_store_id")?;
+        if let Some(reference) = &self.shipment_reference {
+            required(reference, "shipment_reference")?;
+        }
+        if self.units.is_empty() {
+            return Err("an announced koli must carry at least one unit".into());
+        }
+        let mut epcs = HashSet::new();
+        for unit in &self.units {
+            canonical_upper(&unit.epc, "epc")?;
+            canonical_upper(&unit.sku_code, "sku_code")?;
+            non_nil(unit.allotment_line_id, "allotment_line_id")?;
+            if !epcs.insert(unit.epc.as_str()) {
+                return Err(format!("EPC {} is announced twice in one koli", unit.epc));
+            }
+        }
+        Ok(())
+    }
+}
+
+parser!(
+    parse_store_inbound_announcement,
+    StoreInboundAnnouncePayload
+);

@@ -7,6 +7,7 @@ import { KeyValue, MiniRow, MiniTable } from "@/components/ui/rows"
 import { ScanField } from "@/components/ui/scan-field"
 import { ActionBar, Screen, Section } from "@/components/ui/screen"
 import { Banner, EmptyState } from "@/components/ui/states"
+import { confirm } from "@/lib/confirm"
 import { dc } from "@/lib/api"
 import { useDraft } from "@/lib/draft"
 import { readScan } from "@/lib/epc"
@@ -181,8 +182,14 @@ export function OpnameLembar() {
                   action={
                     <Button
                       variant="quiet"
-                      onClick={() => {
-                        if (window.confirm("Buang hasil jalan ini?"))
+                      onClick={async () => {
+                        if (
+                          await confirm({
+                            title: "Buang hasil jalan ini?",
+                            yes: "Buang",
+                            danger: true,
+                          })
+                        )
                           clearFound()
                       }}
                     >
@@ -240,11 +247,13 @@ export function OpnameLembar() {
               disabled={
                 walked.length > 0 || pending.length > 0 || submit.isPending
               }
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  !window.confirm(
-                    "Tutup opname ini dan serahkan selisihnya untuk disetujui?",
-                  )
+                  !(await confirm({
+                    title: "Tutup opname ini?",
+                    body: "Selisihnya diserahkan untuk disetujui.",
+                    yes: "Tutup opname",
+                  }))
                 ) {
                   return
                 }

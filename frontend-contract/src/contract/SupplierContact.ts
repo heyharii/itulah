@@ -18,7 +18,12 @@ role: string | null,
  * Both optional individually, and at least one required by the table's
  * own CHECK: a contact with a name and no way to reach them is a note.
  */
-phone: string | null, email: string | null, note: string | null, 
+phone: string | null, email: string | null, 
+/**
+ * Where this person is, when it is not the company's own address.
+ * See migration 0396.
+ */
+address: string | null, note: string | null, 
 /**
  * The one a screen shows when it has room for exactly one. At most one
  * per supplier among the live contacts, and the database holds that

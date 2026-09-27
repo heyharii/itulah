@@ -7,13 +7,13 @@ import type {
 } from "@itulah/contract"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { AppLink } from "@/components/ui/app-link"
+import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/ui/dialog"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { money } from "@/lib/format"
 import {
@@ -43,7 +43,6 @@ export function BankAccounts() {
     queryKey: financeKeys.companyBankAccounts(null),
     queryFn: ({ signal }) => listCompanyBankAccounts(signal),
   })
-  const [tab, setTab] = useState<"ours" | "suppliers">("ours")
   const [editing, setEditing] = useState<{
     ledger_account_code: string
     site_id: string
@@ -77,24 +76,24 @@ export function BankAccounts() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance lab 2 · Cash &amp; Bank"
+        crumb="Finance · Cash &amp; Bank"
         title="Bank Accounts"
         sub="Every account the books keep money in, and what the bank knows it as."
       />
 
       <div className="flex flex-col gap-4">
+        {/* No Suppliers tab.
+            
+            It held one sentence pointing at the supplier record, which is a
+            signpost, not a view — and the signpost argued against the tab it
+            was standing in. A supplier's account is a PAYMENT DESTINATION on
+            the party we pay; this screen is the accounts we own and control.
+            Two different objects, and a tab made them look like two halves of
+            one. */}
         <Toolbar>
-          <Segmented
-            value={tab}
-            onChange={setTab}
-            options={[
-              { value: "ours", label: `Ours · ${ledger.length}` },
-              { value: "suppliers", label: "Suppliers" },
-            ]}
-          />
           <Toolbar.Spacer />
-          {tab === "ours" && undescribed > 0 && (
-            <span className="text-[0.71875rem] text-warn-fg">
+          {undescribed > 0 && (
+            <span className="text-[0.875rem] text-warn-fg">
               {undescribed} account(s) nobody has described
             </span>
           )}
@@ -104,18 +103,7 @@ export function BankAccounts() {
           <Banner tone="bad">{save.error.message}</Banner>
         )}
 
-        {tab === "suppliers" ? (
-          <EmptyState>
-            A supplier&rsquo;s accounts live on the supplier record, where
-            somebody paying a bill is already standing — open{" "}
-            <AppLink to="/procurement/suppliers" className="text-accent">
-              Procurement · Suppliers
-            </AppLink>{" "}
-            and read the Bank accounts panel. They are a register of their own
-            because a supplier has several, changes banks, and the account we
-            paid last March still has to be legible on that payment.
-          </EmptyState>
-        ) : pending ? (
+        {pending ? (
           <LoadingState>Reading the account map…</LoadingState>
         ) : ledger.length === 0 ? (
           <EmptyState>
@@ -124,101 +112,93 @@ export function BankAccounts() {
           </EmptyState>
         ) : (
           <>
-            <Grid>
-              <thead>
-                <tr>
-                  <Th>Bank</Th>
-                  <Th width="10rem">Number</Th>
-                  <Th width="11rem">Held by</Th>
-                  <Th width="6rem">Kind</Th>
-                  <Th width="9rem">Location</Th>
-                  <Th align="right" width="9.5rem">
-                    Per books
-                  </Th>
-                  <Th width="7rem" />
-                </tr>
-              </thead>
-              <tbody>
-                {ledger.map((row) => {
-                  const known = byBinding.get(
-                    `${row.account_code}@${row.site_id}`
-                  )
-                  return (
-                    <tr key={`${row.account_code}-${row.site_id}`}>
-                      <Td>
-                        <span className="font-medium text-ink">
-                          {known?.bank_name ?? (row.qualifier || "—")}
-                        </span>
-                        <span className="block text-[0.65625rem] text-mute">
-                          {row.account_name}
-                        </span>
-                      </Td>
-                      <Td
-                        className={
-                          known === undefined
-                            ? "text-warn-fg"
-                            : "font-mono text-[0.6875rem]"
-                        }
-                      >
-                        {known?.account_no ?? "not described yet"}
-                      </Td>
-                      <Td>
-                        {known?.account_holder ?? (
-                          <span className="text-mute">—</span>
-                        )}
-                        {known?.branch != null && (
-                          <span className="block text-[0.65625rem] text-mute">
-                            {known.branch}
+            <Card className="overflow-hidden">
+              <Grid>
+                <thead>
+                  <tr>
+                    {/* The bank and the number are one column, because they
+                      are one answer: "BCA 2233445566" is how somebody says
+                      which account, and splitting it made the eye travel to
+                      finish a phrase. */}
+                    <Th>Account</Th>
+                    <Th width="11rem">Held by</Th>
+                    <Th width="6rem">Type</Th>
+                    <Th width="9rem">Unit</Th>
+                    {/* The balance keeps its figures and loses its heading.
+                      "Per books" is bookkeeping's word for "what we think we
+                      have", and the column of money under it needs no label
+                      to be read as money. */}
+                    <Th align="right" width="9.5rem" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledger.map((row) => {
+                    const known = byBinding.get(
+                      `${row.account_code}@${row.site_id}`
+                    )
+                    return (
+                      <tr key={`${row.account_code}-${row.site_id}`}>
+                        <Td>
+                          <span className="font-medium text-ink">
+                            {known?.bank_name ?? (row.qualifier || "—")}
+                            {known !== undefined && (
+                              <span className="ml-2 font-mono text-[0.875rem] font-normal text-text">
+                                {known.account_no}
+                              </span>
+                            )}
                           </span>
-                        )}
-                      </Td>
-                      <Td>
-                        {known === undefined ? (
-                          <span className="text-mute">—</span>
-                        ) : (
-                          <Pill>
-                            {known.kind === "GIRO" ? "Giro" : "Tabungan"}
-                          </Pill>
-                        )}
-                      </Td>
-                      <Td>
-                        {siteName(row.site_id)}
-                        {known?.is_primary && (
-                          <span className="block text-[0.65625rem] text-ok-fg">
-                            primary here
-                          </span>
-                        )}
-                      </Td>
-                      <Td align="right">{money(row.per_books_minor)}</Td>
-                      <Td>
-                        <Button
-                          size="sm"
-                          variant={known === undefined ? "primary" : "ghost"}
-                          onClick={() =>
-                            setEditing({
-                              ledger_account_code: row.account_code,
-                              site_id: row.site_id,
-                              label: `${row.account_name} — ${siteName(row.site_id)}`,
-                              existing: known ?? null,
-                            })
-                          }
-                        >
-                          {known === undefined ? "Describe" : "Correct"}
-                        </Button>
-                      </Td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </Grid>
+                          {known === undefined ? (
+                            <span className="block text-[0.875rem] text-warn-fg">
+                              not described yet
+                            </span>
+                          ) : (
+                            <span className="block text-[0.875rem] text-mute">
+                              {row.account_name}
+                            </span>
+                          )}
+                        </Td>
+                        <Td>
+                          {known?.account_holder ?? (
+                            <span className="text-mute">—</span>
+                          )}
+                          {known?.branch != null && (
+                            <span className="block text-[0.875rem] text-mute">
+                              {known.branch}
+                            </span>
+                          )}
+                        </Td>
+                        <Td>
+                          {known === undefined ? (
+                            <span className="text-mute">—</span>
+                          ) : (
+                            <Pill>
+                              {known.kind === "GIRO" ? "Giro" : "Tabungan"}
+                            </Pill>
+                          )}
+                        </Td>
+                        <Td>
+                          {siteName(row.site_id)}
+                          {known?.is_primary && (
+                            <span className="block text-[0.875rem] text-ok-fg">
+                              primary here
+                            </span>
+                          )}
+                        </Td>
+                        <Td align="right">{money(row.per_books_minor)}</Td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </Grid>
+            </Card>
 
             <LabNote>
-              The bank column falls back to <code>account_map.qualifier</code> —
-              free text, retyped on every mapping row — until somebody describes
-              the account. Describing it is what gives the number, the holder,
-              the branch and the primary flag a home, and it is the same shape
-              0221 gave supplier accounts, on purpose: one bank name normalises
-              the same way on both halves.
+              The bank column falls back to <code>account_link.source_id</code>{" "}
+              — free text, typed on the link — until somebody describes the
+              account. Describing it is what gives the number, the holder, the
+              branch and the primary flag a home, and it is the same shape 0221
+              gave supplier accounts, on purpose: one bank name normalises the
+              same way on both halves.
             </LabNote>
           </>
         )}

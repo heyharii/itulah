@@ -83,7 +83,6 @@ interface Vocabulary {
   readonly sub: string
   /// Singular, for buttons and sheet titles.
   readonly one: string
-  readonly codeHint: string
   readonly codePlaceholder: string
   readonly labelPlaceholder: string
   /// Said in the empty state: what stops working while the list is empty.
@@ -107,8 +106,6 @@ const DIVISIONS: Vocabulary = {
   // description of a table rather than of a job.
   sub: "Top-level grouping for articles. Every article belongs to one division.",
   one: "division",
-  codeHint:
-    "What every article row points at. Not editable once saved — the goods are filed under it.",
   codePlaceholder: "OUTERWEAR",
   labelPlaceholder: "Outerwear",
   empty: "No division has been declared, so no article can be filed under one.",
@@ -120,11 +117,6 @@ const SIZES: Vocabulary = {
   title: "Sizes",
   sub: "Standard sizes used across articles. Each size has a fixed two-digit code.",
   one: "size",
-  // The one place the three genuinely differ in kind, and it is worth saying on
-  // the form rather than only in a validation message: the code is not a name
-  // somebody chooses, it is two characters of an eleven-digit SKU.
-  codeHint:
-    "Exactly two digits. It is the last two characters of every 11-digit SKU, so it is a position in a code rather than a name.",
   codePlaceholder: "03",
   labelPlaceholder: "M",
   empty: "No size has been declared, so no SKU can be minted.",
@@ -138,8 +130,6 @@ const TAGS: Vocabulary = {
   title: "Tags",
   sub: "Flexible labels used to describe and filter articles. An article can have multiple tags.",
   one: "tag",
-  codeHint:
-    "What every article row points at. Not editable once saved — the goods are filed under it.",
   codePlaceholder: "KEMEJA",
   labelPlaceholder: "Kemeja",
   empty: "No tag has been declared, so nothing can be classified yet.",
@@ -187,7 +177,7 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
       header: capitalise(vocabulary.one),
       size: 260,
       cell: ({ row }) => (
-        <span className="text-[0.8125rem] font-medium text-ink">
+        <span className="text-[0.875rem] font-medium text-ink">
           {row.original.term.label}
         </span>
       ),
@@ -212,7 +202,7 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
       size: 90,
       meta: { align: "right" },
       cell: ({ row }) => (
-        <span className="text-[0.8125rem] text-text tabular-nums">
+        <span className="text-[0.875rem] text-text tabular-nums">
           {row.original.order}
         </span>
       ),
@@ -241,8 +231,8 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
         <span
           className={
             row.original.term.in_use === 0
-              ? "text-[0.8125rem] text-mute tabular-nums"
-              : "text-[0.8125rem] text-text tabular-nums"
+              ? "text-[0.875rem] text-mute tabular-nums"
+              : "text-[0.875rem] text-text tabular-nums"
           }
         >
           {count(row.original.term.in_use)}
@@ -275,9 +265,9 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
           // the answer somebody is looking for.
           options: [
             { value: "ACTIVE", label: "Active" },
-            { value: "RETIRED", label: "Retired" },
+            { value: "RETIRED", label: "Cancelled" },
           ],
-          format: (value) => (value === "ACTIVE" ? "Active" : "Retired"),
+          format: (value) => (value === "ACTIVE" ? "Active" : "Cancelled"),
         },
       },
       //
@@ -291,7 +281,7 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
         row.original.active ? (
           <Pill tone="ok">Active</Pill>
         ) : (
-          <Pill tone="neutral">Retired</Pill>
+          <Pill tone="neutral">Cancelled</Pill>
         ),
     }
   )
@@ -380,7 +370,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
           with the same chrome as the article itself. Below that width the
           panel is the omnibox above the table, which is the same model drawn
           as a line. */}
-      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
           {/* One line, the width of the table, carrying everything that
               acts on it — the same line the order book wears, in the same
@@ -394,17 +384,17 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
             {/* The plain box, where the panel beside it is carrying the
                 filters. Below 1440 the panel is gone and the omnibox below
                 takes both jobs, so only one of the two is ever on screen. */}
-            <span className="relative mr-auto hidden min-[1440px]:block">
+            <span className="relative mr-auto hidden dock:block">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={`Search ${vocabulary.title.toLowerCase()}`}
                 aria-label={`Search ${vocabulary.title.toLowerCase()}`}
-                className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+                className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
             </span>
-            <span className="mr-auto text-[0.84375rem] text-body min-[1440px]:mr-0">
+            <span className="mr-auto text-[0.875rem] text-body dock:mr-0">
               <b className="font-medium text-ink">{count(all.length)}</b>{" "}
               {vocabulary.title.toLowerCase()} · {count(retired)} retired
             </span>
@@ -429,7 +419,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
             text={query === "" ? undefined : query}
             onText={(next) => setQuery(next ?? "")}
             placeholder={`Search ${vocabulary.title.toLowerCase()}, or filter`}
-            className="mb-3 min-[1440px]:hidden"
+            className="mb-3 dock:hidden"
           />
 
           <Card className="overflow-hidden">
@@ -472,12 +462,12 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
           kpis={[
             { label: capitalise(vocabulary.title), value: count(all.length) },
             {
-              label: "Retired",
+              label: "Cancelled",
               value: count(retired),
               note: "Terms no longer offered when an article is described.",
             },
           ]}
-          className="hidden min-[1440px]:flex"
+          className="hidden dock:flex"
         />
       </div>
 
@@ -693,11 +683,7 @@ function TermForm({
           <>
             <form.Field name="label">
               {(field) => (
-                <Field
-                  label="Label"
-                  hint="What everybody reads. Two terms may not share one."
-                  problem={problems.label}
-                >
+                <Field label="Label" problem={problems.label}>
                   <Input
                     value={field.state.value}
                     onBlur={field.handleBlur}
@@ -719,11 +705,7 @@ function TermForm({
 
             <form.Field name="code">
               {(field) => (
-                <Field
-                  label="Code"
-                  hint={vocabulary.codeHint}
-                  problem={problems.code}
-                >
+                <Field label="Code" problem={problems.code}>
                   <Input
                     value={field.state.value}
                     onBlur={field.handleBlur}
@@ -747,11 +729,7 @@ function TermForm({
             {vocabulary.ordered && (
               <form.Field name="order">
                 {(field) => (
-                  <Field
-                    label="Order"
-                    hint="Where it sits in every picker. Ties break by label."
-                    problem={problems.order}
-                  >
+                  <Field label="Order" problem={problems.order}>
                     <Input
                       value={field.state.value}
                       onBlur={field.handleBlur}
@@ -826,7 +804,6 @@ function TermLifecycle({
   return (
     <MasterLifecycle
       subject={vocabulary.one}
-      label={term.term.label}
       active={term.active}
       usage={usage}
       onSetActive={async (active) => {

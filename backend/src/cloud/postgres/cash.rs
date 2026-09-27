@@ -46,7 +46,7 @@ use uuid::Uuid;
 
 /// One side of a document, as a caller says it.
 ///
-/// Either a meaning resolved through `account_map` for that location, or a
+/// Either a meaning resolved through `account_resolution` for that location, or a
 /// client account code a person chose — the same choice `poster::LineAccount`
 /// models, for the same reason. The money side always has a meaning; the other
 /// side, when it is a bank charge or a donation, usually has none.
@@ -96,7 +96,7 @@ pub struct RecordCashDocumentRequest {
     pub amount_minor: i64,
     /// `SUPPLIER`, `EMPLOYEE` or `OTHER`.
     #[serde(default)]
-    pub party_kind: Option<String>,
+    pub party_type: Option<String>,
     pub supplier_id: Option<String>,
     pub employee_id: Option<String>,
     /// What the slip prints on the "dibayarkan kepada" line. Required, whatever
@@ -136,7 +136,7 @@ pub struct CashDocumentRow {
 
     pub amount_minor: i64,
     pub currency: String,
-    pub party_kind: String,
+    pub party_type: String,
     pub supplier_id: Option<String>,
     pub employee_id: Option<String>,
     pub party_name: String,
@@ -161,7 +161,7 @@ pub struct CashDocumentRow {
 const DOCUMENT_COLUMNS: &str = "d.document_id, d.kind, d.number, d.doc_date,
      d.from_key, d.from_qualifier, d.from_account_code, d.from_category_code, d.from_site,
      d.to_key, d.to_qualifier, d.to_account_code, d.to_category_code, d.to_site,
-     d.amount_minor, d.currency, d.party_kind, d.supplier_id, d.employee_id,
+     d.amount_minor, d.currency, d.party_type, d.supplier_id, d.employee_id,
      d.party_name, d.memo, d.attachment_file_id, d.statement_line_id,
      d.status, d.journal_entry_id, d.reversal_entry_id,
      d.created_by, d.created_at, d.approved_by, d.approved_at,
@@ -187,7 +187,7 @@ fn to_document(row: &sqlx::postgres::PgRow) -> Result<CashDocumentRow, AppError>
         to_site: row.try_get("to_site")?,
         amount_minor: row.try_get("amount_minor")?,
         currency: row.try_get("currency")?,
-        party_kind: row.try_get("party_kind")?,
+        party_type: row.try_get("party_type")?,
         supplier_id: row.try_get("supplier_id")?,
         employee_id: row.try_get("employee_id")?,
         party_name: row.try_get("party_name")?,
@@ -254,7 +254,7 @@ pub async fn cash_document_read(
 /// Asked of an account code a person chose, because the direction rule reads
 /// meanings and a person who types the BCA giro's own code would otherwise
 /// produce a "payment" out of the bank into the bank. Two meanings on one
-/// account at one location is a mistake on the Account Map and is refused
+/// account at one location is a mistake on the Account Links and is refused
 /// rather than guessed at — the same refusal `banking::statement_meaning`
 /// makes, for the same reason.
 async fn money_meaning_of(
@@ -263,8 +263,8 @@ async fn money_meaning_of(
     site_id: &str,
 ) -> Result<Option<String>, AppError> {
     let rows = sqlx::query(
-        "SELECT semantic_key FROM account_map
-          WHERE account_code = $1 AND site_id = $2 AND semantic_key = ANY($3)",
+        "SELECT role AS semantic_key FROM account_resolution
+          WHERE account_code = $1 AND site_id = $2 AND role = ANY($3)",
     )
     .bind(account_code)
     .bind(site_id)
@@ -310,7 +310,7 @@ async fn resolve_side(
             if let Some(named) = named_category {
                 return Err(AppError::Validation(format!(
                     "the {which} side names the meaning '{key}' and the category {named}; the \
-                     Account Map already chose a category for that meaning here, and a second \
+                     Account Links already chose a category for that meaning here, and a second \
                      answer could only disagree with it. Send the meaning, or send an account \
                      code and a category."
                 )));
@@ -368,7 +368,7 @@ async fn resolve_side(
 /// A side named by meaning, once its code is known.
 ///
 /// Separate from [`resolve_side`] because the bank-line path already holds an
-/// open transaction and has to resolve through it: reading `account_map` on the
+/// open transaction and has to resolve through it: reading `account_resolution` on the
 /// pool while a transaction is open would work, and would also be the kind of
 /// thing that stops working the day one of those rows is written inside the
 /// same transaction.
@@ -421,7 +421,7 @@ pub(super) struct CashDraft {
     pub to: ResolvedSide,
     pub direction: CashDirection,
     pub amount_minor: i64,
-    pub party_kind: String,
+    pub party_type: String,
     pub supplier_id: Option<String>,
     pub employee_id: Option<String>,
     pub party_name: String,
@@ -502,8 +502,8 @@ pub(super) async fn cash_draft_from(
         ))
     })?;
 
-    let party_kind = request
-        .party_kind
+    let party_type = request
+        .party_type
         .as_deref()
         .map(str::trim)
         .map(str::to_ascii_uppercase)
@@ -520,7 +520,7 @@ pub(super) async fn cash_draft_from(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
-    match party_kind.as_str() {
+    match party_type.as_str() {
         "SUPPLIER" => {
             let id = supplier_id.as_deref().ok_or_else(|| {
                 AppError::Validation("a supplier document must say which supplier".into())
@@ -555,8 +555,8 @@ pub(super) async fn cash_draft_from(
     // Cleared rather than carried, so what the table's CHECK insists on — a
     // supplier id exactly when the party is a supplier — is already true here
     // and the refusal comes from this function rather than from a constraint.
-    let supplier_id = supplier_id.filter(|_| party_kind == "SUPPLIER");
-    let employee_id = employee_id.filter(|_| party_kind == "EMPLOYEE");
+    let supplier_id = supplier_id.filter(|_| party_type == "SUPPLIER");
+    let employee_id = employee_id.filter(|_| party_type == "EMPLOYEE");
 
     Ok(CashDraft {
         doc_date: request.doc_date,
@@ -564,7 +564,7 @@ pub(super) async fn cash_draft_from(
         to,
         direction,
         amount_minor: request.amount_minor,
-        party_kind,
+        party_type,
         supplier_id,
         employee_id,
         party_name: party_name.to_string(),
@@ -586,7 +586,7 @@ pub(super) async fn cash_document_insert(
            (document_id, kind, doc_date,
             from_key, from_qualifier, from_account_code, from_category_code, from_site,
             to_key, to_qualifier, to_account_code, to_category_code, to_site,
-            amount_minor, currency, party_kind, supplier_id, employee_id, party_name,
+            amount_minor, currency, party_type, supplier_id, employee_id, party_name,
             memo, attachment_file_id, statement_line_id, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'IDR',
                  $15,$16,$17,$18,$19,$20,$21,$22)",
@@ -605,7 +605,7 @@ pub(super) async fn cash_document_insert(
     .bind(draft.to.category_code.as_deref())
     .bind(&draft.to.site_id)
     .bind(draft.amount_minor)
-    .bind(&draft.party_kind)
+    .bind(&draft.party_type)
     .bind(draft.supplier_id.as_deref())
     .bind(draft.employee_id.as_deref())
     .bind(&draft.party_name)
@@ -740,6 +740,7 @@ fn side_line(
         (Some(key), _) => LineAccount::Meaning {
             semantic_key: key.to_string(),
             qualifier: qualifier.to_string(),
+            source_type: "COMPANY".into(),
         },
         // The person's, stored on the document when they keyed it.
         (None, Some(code)) => LineAccount::Account {
@@ -753,6 +754,7 @@ fn side_line(
         },
     };
     PostingLine {
+        dimensions: Vec::new(),
         account,
         site_id: site_id.to_string(),
         // A cash document names both of its own sides, so there is no
@@ -760,7 +762,8 @@ fn side_line(
         counter_site_id: None,
         debit_minor: debit,
         credit_minor: credit,
-        supplier_id: None,
+        party_type: None,
+        party_id: None,
         asset_id: None,
         bank_account_id: None,
         memo: Some(memo.to_string()),
@@ -781,7 +784,7 @@ pub(super) async fn cash_document_post_in(
 ) -> Result<super::poster::Posted, AppError> {
     let row = sqlx::query(
         "SELECT kind, number, status, doc_date, amount_minor, currency, memo,
-                party_name, party_kind, supplier_id,
+                party_name, party_type, supplier_id,
                 from_key, from_qualifier, from_account_code, from_category_code, from_site,
                 to_key, to_qualifier, to_account_code, to_category_code, to_site
            FROM cash_document WHERE document_id = $1 FOR UPDATE",
@@ -862,12 +865,12 @@ pub(super) async fn cash_document_post_in(
     .execute(&mut **tx)
     .await?;
 
-    let party_kind: String = row.try_get("party_kind")?;
+    let party_type: String = row.try_get("party_type")?;
     let supplier_id: Option<String> = row.try_get("supplier_id")?;
     cash_document_settle_payment_ledger(
         tx,
         document_id,
-        &party_kind,
+        &party_type,
         supplier_id.as_deref(),
         // The side money went TO, which is the side the entry debited. A
         // document only settles a debt when that is where it landed.
@@ -933,7 +936,7 @@ const SETTLEABLE_KEYS: [&str; 2] = ["trade_payable", "non_merchandise_payable"];
 async fn cash_document_settle_payment_ledger(
     tx: &mut Transaction<'_, Postgres>,
     document_id: Uuid,
-    party_kind: &str,
+    party_type: &str,
     supplier_id: Option<&str>,
     to_key: Option<&str>,
     to_qualifier: &str,
@@ -946,7 +949,7 @@ async fn cash_document_settle_payment_ledger(
     // A document that names no party settles no debt. This is the whole of the
     // rule for four documents out of five, and it is deliberately stated rather
     // than left implied.
-    let (Some(supplier_id), "SUPPLIER") = (supplier_id, party_kind) else {
+    let (Some(supplier_id), "SUPPLIER") = (supplier_id, party_type) else {
         return Ok(());
     };
     let Some(key) = to_key.filter(|key| SETTLEABLE_KEYS.contains(key)) else {

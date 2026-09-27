@@ -175,14 +175,19 @@ pub async fn price_history(
     let instants_examined = i64::try_from(moments.len()).unwrap_or(i64::MAX);
 
     let mut periods: Vec<PricePeriod> = Vec::new();
+    // One read transaction for every instant, and the campaigns and tax rules
+    // once for all of them: neither depends on the instant, and loading them
+    // per instant made a long-lived product's history cost seven round trips
+    // for every book that ever touched it.
+    let mut tx = pool.begin().await?;
+    let common = super::pricing::load_price_book_common(&mut tx).await?;
     for moment in &moments {
-        let mut tx = pool.begin().await?;
         // Narrowed to the one product: a history of one shirt has no business
         // reading forty thousand rows once per instant.
         // Resolved before the loader is called, so the transaction is borrowed
         // once rather than twice in one expression.
         let activated = super::pricing::activated_versions(&mut tx, site_id, *moment).await?;
-        let pricing = super::pricing::load_site_price_book(
+        let pricing = super::pricing::load_site_price_book_with(
             &mut tx,
             site_id,
             channel,
@@ -197,9 +202,9 @@ pub async fn price_history(
             // built on the shop's would disagree about the same product on the
             // same screen, which is worse than either being wrong alone.
             &super::pricing::PriceBookScope::AsActivated(activated),
+            &common,
         )
         .await?;
-        tx.commit().await?;
 
         let mut context = crate::reporting::pricing_context(site_id, channel, *moment);
         context.at = *moment;
@@ -272,6 +277,7 @@ pub async fn price_history(
             published_at: None,
         });
     }
+    tx.commit().await?;
 
     // Who published each of those books, filled in once at the end rather than
     // per instant: the same version comes up repeatedly and the row does not

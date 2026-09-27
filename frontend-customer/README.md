@@ -18,19 +18,22 @@ VITE_API_TARGET=http://localhost:8080 npm run dev
 
 ## What it reads
 
-Three endpoints, all GET, all scoped by the member session rather than by
-anything in the URL (`backend/src/cloud/http/member.rs`):
+All scoped by the member session rather than by anything in the URL
+(`backend/src/cloud/http/member.rs`):
 
 | Path | Answers |
 | --- | --- |
-| `/api/v1/member/summary` | points earned, spend, savings, first and last purchase |
-| `/api/v1/member/transactions` | their purchases, newest first, cursor-paged |
-| `/api/v1/member/transactions/{sale_id}` | one receipt with its lines |
+| `GET /api/v1/member/summary` | spend, savings, first and last purchase, lifetime points — voided sales excluded |
+| `GET /api/v1/member/points` | the spendable balance and the ledger behind it |
+| `GET /api/v1/member/transactions` | their purchases, newest first, cursor-paged; a voided one is listed as `VOIDED` |
+| `GET /api/v1/member/transactions/{sale_id}` | one receipt with its lines |
+| `GET/POST /api/v1/member/points/redeem-requests` | ask to turn points into a voucher, and what became of each ask |
 
-Everything is derived from `edge_sale` — the sales the shops reported and the
-centre accepted — so a member's screen and the centre's revenue cannot
-disagree. Points come from `edge_sale.points_earned`, computed by the pricing
-engine at the till.
+Purchases come from `edge_sale` — the sales the shops reported and the centre
+accepted — so a member's screen and the centre's revenue cannot disagree.
+Points are earned into `points_ledger` when the centre accepts a sale (not at
+the till), debited when a cashier confirms a redemption, and taken back when a
+sale is voided.
 
 ## How a phone becomes paired
 
@@ -70,75 +73,83 @@ their being the **only** way, so that a shopper's own app had to borrow an
 operator's password — and so that anyone holding one could read anybody's
 history.
 
-## What this app is not, yet
+## Redeeming points
 
-**Points are earned, never spent.** `points_earned_total` is a lifetime total,
-not a balance: nothing in this system records a redemption yet. The wording on
-screen is deliberate — "Poin terkumpul", not "Saldo poin" — and should stay
-that way until a redemption ledger exists to subtract from it.
+The shopper asks for a number of points on **Tukar Poin** and is shown a
+six-digit code for ten minutes. The cashier types the member number and that
+code into the till's *Tukar poin* screen (`pos-desktop/ui/src/screens/redeem.tsx`),
+which the shop node relays to the centre; confirming debits the ledger and
+issues a voucher the till then takes as a *Voucher* tender. While a code is on
+screen this app polls, so the phone turns to "Berhasil ditukar" the moment the
+cashier confirms.
+
+The rate is decided at the centre, in one place
+(`backend/src/cloud/postgres/loyalty.rs::confirm_redeem_request`).
+
+The balance may go below nought: points already turned into a voucher are not
+clawed back when the sale that earned them is voided. Home says so in words.
 
 ## Shape
 
-- **Phone**: full-bleed. A borderless 3-zone app-bar on top (chip · centred
-  title · chip), and a floating row of three squircles at the bottom with no
-  containing bar — the active one solid indigo. A pushed receipt hides the
-  tabs and turns the left chip into a back arrow.
-- **Desktop** (`md` and up): the floating app-card on the neutral backdrop,
-  with the same three destinations as a sidebar down its left.
-
-One layout that fits its window, not a mobile app with a desktop variant
-bolted on.
+One phone-width column (max 30rem) on a pale grey page, at every window size,
+with a floating frosted tab bar — Beranda, Riwayat, Tukar, Profil. A receipt is
+pushed on top of history; the card (`/kartu`) is its own screen. Neither shows
+the tab bar.
 
 ## Design
 
-The **Cloud Hub / ollama** language, authored rather than remapped:
-`src/styles/index.css` holds the tokens and Tailwind's utilities are generated
-from them, so `bg-soft` and `text-ink` are the only spellings that exist.
-Source of truth is `~/Documents/retail/cloud-app/ollama/DESIGN.md` (v0.5), and
-`frontend-hub` is the sibling implementation to stay in step with. This app
-used to speak shadcn's slots (`--primary`, `--muted`, a `.dark` block); that is
-the two-vocabulary problem `CLOUDHUB-BRIEF.md` catalogues, and it is gone
-rather than mapped.
+A consumer-fintech register (the brief was Plasma One, screenshots in
+`~/Downloads/customer-app/`), not the operator console's:
 
-Two deliberate departures from `frontend-hub`, both because the reader here is
-a shopper holding a phone rather than an operator at a desk:
+- **Always light.** No dark mode and no dark screen; the member card is the
+  only dark object and it sits on a white page. `design-lint` refuses `dark:`.
+- Borderless white cards with 24px radii on a `#f1f1f3` page; a near-black
+  pill (`.cta-fill`) for the one action a screen holds; white pills for the
+  rest.
+- The number the app exists for (the points balance) is set at 56px with
+  negative tracking; screen titles are iOS-style large titles.
+- **The member card** (`components/member-card.tsx`), branded **Central**: a
+  graphite anodised face with brushed grain and a sheen that follows the tilt.
+  Central's red (`--brand-red`) is an accent, never the whole card — a
+  lacquered sash across the top-right corner, an ember glow in the opposite
+  corner, the dot in the mark, and a hairline under the magnetic stripe on the
+  back. The chrome stays ink and white, so red on screen always means either
+  "the brand" or "a notification badge", never a button.
+- The card tilts toward the finger, the pointer, or the phone itself
+  (`deviceorientation`; iOS asks permission on the first press of the card), a
+  band of light crosses it on arrival and again whenever points land, and on
+  `/kartu` it can be dragged or flicked over to its back. The barcode says
+  `M1:<card number>` (`lib/member-card.ts`, encoder in `lib/code128.ts`,
+  checked bit-for-bit against JsBarcode); the till's scan field reads that
+  prefix and fills the member number (`pos-desktop/ui/src/till.tsx`).
+- SF Pro first (the platform face on an iPhone), Inter everywhere else; three
+  weights only.
 
-- **Root stays 16px.** The workbench bakes the prototypes' `zoom:0.9` into
-  14.4px; DESIGN.md scopes that 0.9 to the *shell*, and applying it here would
-  set body copy at 12.6px on a 375px screen. Sizes are DESIGN.md's declared
-  values, unscaled.
-- **Buttons are 44px, not 32px.** DESIGN.md's phone rule is "touch targets
-  ≥ 44px"; the console's pill is a mouse target.
-
-**There is no dark mode, and the theme toggle that used to sit in Profil is
-gone.** "Always light. Nothing ever darkens" — every veil in this system is
-white. `npm run design-lint` fails on a `dark:` variant, a raw px type size, a
-hex colour, a fourth font weight, or a dark overlay, because prose in a
-markdown file is not a gate.
+Tokens live in `src/styles/index.css` and Tailwind's utilities are generated
+from them. `npm run design-lint` fails on a `dark:` variant, a raw px type
+size, a hex colour outside the token file, or a fourth font weight.
 
 ### Motion
 
-`motion` is a dependency here and deliberately is not one in `frontend-hub` —
-for the reason the hub's own note gives. The two cases it names as genuinely
-needing JS are both on this surface: a shared-layout indicator travelling
-between elements (the indigo tab squircle) and a drag gesture
-(pull-to-refresh). Everything else is CSS, on the `--ease-*` and `--t-*` tokens
-the two apps share.
+Emil Kowalski's rules (`~/.claude/skills/emil-design-eng`, `animate`) and
+Apple's fluid-interface ones (`apple-design`), named once in `lib/motion.ts`
+and the `--ease-*` / `--t-*` tokens:
 
-The curves, springs and the components adapted from them are
-[beUI](https://beui.dev)'s, credited in each file:
-
-| Where | What | Why here |
+| Where | What | Why |
 | --- | --- | --- |
-| `motion/number-ticker.tsx` | slot-machine digits | the points total — the one number the app exists to show |
-| `motion/animated-number.tsx` | spring count-up | the KPI tiles, so a refetch shows the difference |
-| `motion/pressable.tsx` | press spring + ripple from the touch point | DESIGN.md's one piece of motion guidance |
-| `motion/pull-to-refresh.tsx` | resistance, threshold, settle | a member picks the phone back up wanting one number |
-| `app-shell.tsx` | `layoutId` glide on the tab squircle | one tile moving says the selection moved |
+| every button, chip, preset | `scale(0.97)` on `:active`, 160ms, `cubic-bezier(0.23,1,0.32,1)` | feedback on pointer-down |
+| rows | tint on `:active`, no shrink | a row is part of a surface |
+| tabs | page fades 160ms; the white capsule glides (`layoutId`, critically damped spring) | tabs change often — no travel |
+| pushed screens | 220ms slide-in from 6% | where it came from |
+| first paint | 50ms stagger, 8px rise | once per screen, never blocks a tap |
+| member card | springs toward the pointer/finger; drag turns it 1:1, release projects momentum (Apple's projection) and hands the finger's velocity to the flip spring | a physical object |
+| balance | digit reel (`number-ticker.tsx`); KPIs count up | the one number people check |
+| redeem code | digits arrive 40ms apart out of a 6px blur; countdown drains linearly via `scaleX` | a freshly minted code; a clock does not ease |
+| success | disc springs in with bounce 0.3, tick draws after | rare — the delight budget lives here |
 
-Both number components take their value whole when `document.hidden` — a
-`requestAnimationFrame` animation frozen by a background tab leaves a *wrong*
-points total on screen looking like a fact.
+Only `transform`, `opacity` and (for the code) `filter` move. Reduced motion
+keeps the fades and drops every travel, tilt and flip; hidden tabs take numbers
+whole instead of freezing a reel mid-roll.
 
 ## Copy
 

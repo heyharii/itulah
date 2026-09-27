@@ -414,7 +414,7 @@ export function Payments() {
         {/* The window is stated rather than implied. The cap is not the
             window's: it is the server's, and a reader who has narrowed to a
             fortnight should still be told what was asked for. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {range.chip} · the newest {CAP} payments
         </span>
       </Toolbar>
@@ -432,7 +432,7 @@ export function Payments() {
         <Card className="mb-3">
           <CardHeader>
             <CardTitle>Outflow</CardTitle>
-            <span className="text-[0.71875rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               {count(outflow.payments)} posted payments ·{" "}
               <span className="font-medium text-ink tabular-nums">
                 {money(outflow.paid)}
@@ -604,7 +604,7 @@ function PaymentSheet({
       footer={
         payment && !posted ? (
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[0.71875rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               Posts on the payment date unless the month is closed.
             </span>
             <Button
@@ -688,7 +688,7 @@ function PaymentSheet({
               </Facts>
 
               {payment.note && (
-                <p className="text-[0.78125rem] text-body">{payment.note}</p>
+                <p className="text-[0.875rem] text-body">{payment.note}</p>
               )}
 
               <div>
@@ -700,7 +700,7 @@ function PaymentSheet({
                   What it paid
                 </SubHead>
                 {payment.allocations.length === 0 ? (
-                  <p className="text-[0.71875rem] text-mute">
+                  <p className="text-[0.875rem] text-mute">
                     Nothing is allocated, so this payment answers no debt. The
                     server refuses one like this, which means it was written
                     before that rule and is worth asking about.
@@ -716,14 +716,14 @@ function PaymentSheet({
                               key: "bill",
                               value: allocation.invoice_id,
                             }}
-                            className="block font-mono text-[0.75rem] text-accent hover:underline"
+                            className="block font-mono text-[0.875rem] text-accent hover:underline"
                           >
                             {allocation.invoice_number}
                           </AppLink>
                           <SupplierName
                             id={allocation.supplier_id}
                             name={allocation.supplier_name}
-                            className="block truncate text-[0.65625rem] text-mute"
+                            className="block truncate text-[0.875rem] text-mute"
                           />
                         </MiniCell>
                         <MiniCell align="right">
@@ -741,7 +741,7 @@ function PaymentSheet({
                     allocations' sum above it. They agree because the database
                     refuses a payment where they do not — showing both is how
                     a reader can see that rather than take it on trust. */}
-                <div className="mt-3 flex flex-col gap-1 border-t border-hairline pt-2.5 text-[0.78125rem]">
+                <div className="mt-3 flex flex-col gap-1 border-t border-hairline pt-2.5 text-[0.875rem]">
                   <div className="flex justify-between gap-3 text-body">
                     <span>Allocated</span>
                     <span className="tabular-nums">
@@ -887,7 +887,6 @@ function ComposerSheet({
   range: DateWindow
 }) {
   const client = useQueryClient()
-  const [receipt, setReceipt] = useState<string | null>(null)
   // Minted once per composer, not per attempt: a retry after a dropped
   // connection must land the same payment, and generating the key inside the
   // request would defeat the whole mechanism.
@@ -943,8 +942,7 @@ function ComposerSheet({
         key
       )
     },
-    onSuccess: (saved) => {
-      setReceipt(saved.payment_number)
+    onSuccess: () => {
       // Only what differs from payment to payment is cleared: the site, the
       // account and the method are almost always the next one's too.
       form.setFieldValue("allocations", [])
@@ -966,7 +964,9 @@ function ComposerSheet({
     defaultValues: {
       siteId: "",
       paymentDate: todayIso(),
-      method: "TRANSFER",
+      // Giro by default: Finance chooses the instrument at payment, and
+      // suppliers are paid by bilyet giro unless it says otherwise.
+      method: "GIRO",
       account: "",
       total: "",
       reference: "",
@@ -997,7 +997,7 @@ function ComposerSheet({
                 {/* The same sentence the journal composer writes, for the
                     same reason: a disabled button with nothing beside it
                     reads as broken, and "what is still wrong" is one line. */}
-                <span className="text-[0.71875rem] text-mute tabular-nums">
+                <span className="text-[0.875rem] text-mute tabular-nums">
                   {totals.ready
                     ? `Balanced at ${money(totals.allocated)}`
                     : draft.allocations.length === 0
@@ -1038,12 +1038,6 @@ function ComposerSheet({
         }}
         className="flex flex-col gap-4"
       >
-        {receipt && (
-          <Banner tone="ok" onDismiss={() => setReceipt(null)}>
-            {receipt} recorded. It is not in the books until somebody posts it,
-            and until then it is reserved against the bills it names.
-          </Banner>
-        )}
         {record.isError && (
           <Banner tone="bad">
             {record.error instanceof Error
@@ -1383,13 +1377,13 @@ function AllocationPicker({
       </SubHead>
 
       {loading ? (
-        <p className="text-[0.71875rem] text-mute">Loading the bills…</p>
+        <p className="text-[0.875rem] text-mute">Loading the bills…</p>
       ) : siteId === "" ? (
-        <p className="text-[0.71875rem] text-mute">
+        <p className="text-[0.875rem] text-mute">
           Choose a location first — a payment answers that location's debts.
         </p>
       ) : candidates.length === 0 ? (
-        <p className="text-[0.71875rem] text-mute">
+        <p className="text-[0.875rem] text-mute">
           Nothing posted at this location is still outstanding. A bill that has
           only been recorded is not in the books yet and cannot be paid.
         </p>
@@ -1414,7 +1408,7 @@ function AllocationPicker({
                     onChange={(next) => toggle(bill, next)}
                     label={
                       <span className="min-w-0">
-                        <span className="font-mono text-[0.75rem] text-body">
+                        <span className="font-mono text-[0.875rem] text-body">
                           {bill.invoice_number}
                         </span>{" "}
                         <SupplierName
@@ -1425,13 +1419,13 @@ function AllocationPicker({
                       </span>
                     }
                   />
-                  <span className="shrink-0 text-right text-[0.71875rem] text-mute tabular-nums">
+                  <span className="shrink-0 text-right text-[0.875rem] text-mute tabular-nums">
                     {money(bill.outstanding_minor)} out
                   </span>
                 </div>
 
                 {room <= 0 ? (
-                  <p className="mt-1.5 text-[0.71875rem] text-warn-fg">
+                  <p className="mt-1.5 text-[0.875rem] text-warn-fg">
                     A draft payment already has all of this bill. Post or change
                     that one first.
                   </p>
@@ -1449,8 +1443,8 @@ function AllocationPicker({
                       <span
                         className={
                           over
-                            ? "text-[0.71875rem] text-bad"
-                            : "text-[0.71875rem] text-mute"
+                            ? "text-[0.875rem] text-bad"
+                            : "text-[0.875rem] text-mute"
                         }
                       >
                         {over

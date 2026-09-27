@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils"
 /// so that is what is offered — the rest of StarterKit's marks stay reachable
 /// by keyboard for anybody who wants them, and nothing advertises them.
 const CONTENT_CSS =
-  "prose-letter min-h-[3rem] text-[0.8125rem] leading-[1.7] outline-none " +
+  "prose-letter min-h-[3rem] text-[0.875rem] leading-[1.7] outline-none " +
   "[&_p]:mb-2 [&_p:last-child]:mb-0 " +
   "[&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 " +
   "[&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-5 " +

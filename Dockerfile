@@ -15,7 +15,8 @@ RUN cargo fetch --locked --manifest-path backend/Cargo.toml
 
 COPY backend/src ./backend/src
 COPY backend/migrations ./backend/migrations
-RUN cargo build --locked --manifest-path backend/Cargo.toml --release --workspace --bins
+COPY backend/.sqlx ./backend/.sqlx
+RUN SQLX_OFFLINE=true cargo build --locked --manifest-path backend/Cargo.toml --release --workspace --bins
 
 FROM debian:bookworm-slim AS runtime
 

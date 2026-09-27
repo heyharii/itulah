@@ -19,9 +19,11 @@
 //! printer is on the shop's own LAN, which is the whole reason the edge does
 //! this and the centre cannot.
 //!
-//! Functions take a connection and nothing else, like `printing.rs` and
-//! `outbound.rs` beside them: it keeps them testable and keeps this out of a
-//! file several other workstreams are editing.
+//! Functions take a connection and the business instant as plain arguments,
+//! like `printing.rs` and `outbound.rs` beside them: it keeps them testable
+//! and keeps this out of a file several other workstreams are editing. The
+//! instant comes from the caller's clock (`SqliteEdge`), so a shift follows
+//! the business clock, not the wall (VIRTUAL-TIME-PLAN.md §3).
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -33,10 +35,6 @@ use super::escpos::{self, DrawerMode, PaperWidth, ReceiptDocument, ReceiptLine, 
 
 fn db(error: rusqlite::Error) -> EdgeError {
     super::sqlite::db(error)
-}
-
-fn now() -> DateTime<Utc> {
-    Utc::now()
 }
 
 fn stamp(value: DateTime<Utc>) -> String {
@@ -79,14 +77,28 @@ pub struct CashMovementRequest {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CloseShiftRequest {
-    /// What the cashier counted. Sent BEFORE the expected figure is disclosed;
-    /// the response is where the two meet.
+    /// What the cashier counted. Sent without the expected figure ever having
+    /// been disclosed — and a cashier is not shown it afterwards either (see
+    /// `ShiftReport`); the variance is the supervisor's to read.
     pub declared_cash_minor: i64,
+    /// The sheet the declared figure was added up from, one row per note or
+    /// coin. Optional — a till that counts only a total still closes — but
+    /// when it is sent it must add up to `declared_cash_minor` exactly.
+    #[serde(default)]
+    pub counted: Vec<CashCount>,
     #[serde(default)]
     pub note: Option<String>,
     #[serde(default)]
     pub actor_id: String,
     pub idempotency_key: String,
+}
+
+/// One line of a drawer count: this many pieces of this denomination.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CashCount {
+    pub value_minor: i64,
+    pub pieces: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -106,6 +118,17 @@ pub struct CashMovementView {
 /// Cash and non-cash are separated because only cash is in the drawer. A till
 /// whose report added a card sale to the expected float would report a
 /// shortage every single evening.
+///
+/// # Blind for the person who counts
+///
+/// The close is blind, and a close that is blind only on one screen is not
+/// blind: the same figures were a `GET` away. So a CASHIER is served this
+/// report with `blind: true` and every figure the expectation can be worked
+/// back from set to null — the takings by kind, the change, the refunds, the
+/// per-tender totals, the expectation and the variance (`http.rs`,
+/// `blind_for_cashier`). Supervisors and admins read it whole. The struct
+/// itself always carries the numbers; the fields marked `number | null` in
+/// the contract are the ones a cashier receives empty.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ShiftReport {
@@ -118,28 +141,42 @@ pub struct ShiftReport {
     pub closed_at: Option<String>,
     pub opening_float_minor: i64,
     pub sale_count: i64,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub sales_total_minor: i64,
     /// Rung and then reversed. Kept out of the totals but reported, because a
     /// shift with forty voids is a fact about the evening even when the money
     /// balances.
     pub voided_count: i64,
     pub voided_total_minor: i64,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub cash_sales_minor: i64,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub non_cash_minor: i64,
     /// Change handed back. Comes out of the drawer and is not part of any
     /// sale's total, so it has to be subtracted separately or every drawer is
     /// long by exactly the change given.
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub change_given_minor: i64,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub cash_refunds_minor: i64,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub non_cash_refunds_minor: i64,
     pub cash_movements_minor: i64,
     pub movements: Vec<CashMovementView>,
     /// Float + cash taken − change − cash refunded + signed movements.
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub expected_cash_minor: i64,
     pub declared_cash_minor: Option<i64>,
     pub variance_minor: Option<i64>,
     pub tenders: Vec<TenderTotal>,
     pub note: Option<String>,
+    /// The count sheet the close was declared from; empty while open, and on
+    /// a shift closed with a total only.
+    #[serde(default)]
+    pub counted: Vec<CashCount>,
+    /// True when the figures above were withheld from a cashier.
+    #[serde(default)]
+    pub blind: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -160,6 +197,7 @@ const CASH_KINDS: [&str; 5] = ["OPENING_FLOAT", "DROP", "PAYOUT", "PICKUP", "COR
 pub fn open_shift(
     tx: &Transaction<'_>,
     request: &OpenShiftRequest,
+    now: DateTime<Utc>,
 ) -> Result<ShiftReport, EdgeError> {
     let terminal = request.terminal_id.trim();
     if terminal.is_empty() {
@@ -180,7 +218,7 @@ pub fn open_shift(
     }
 
     let shift_id = Uuid::new_v4().to_string();
-    let opened_at = now();
+    let opened_at = now;
     tx.execute(
         "INSERT INTO cash_shift(id,idempotency_key,terminal_id,status,opened_by,opened_at,opening_float_minor)
          VALUES(?1,?2,?3,'OPEN',?4,?5,?6)",
@@ -253,6 +291,7 @@ pub fn record_cash_movement(
     tx: &Transaction<'_>,
     shift_id: &str,
     request: &CashMovementRequest,
+    now: DateTime<Utc>,
 ) -> Result<ShiftReport, EdgeError> {
     let kind = request.kind.trim().to_ascii_uppercase();
     if !CASH_KINDS.contains(&kind.as_str()) {
@@ -299,7 +338,7 @@ pub fn record_cash_movement(
             request.reason.trim(),
             request.actor_id.trim(),
             approved_by,
-            stamp(now())
+            stamp(now)
         ],
     )
     .map_err(db)?;
@@ -316,6 +355,7 @@ pub fn close_shift(
     tx: &Transaction<'_>,
     shift_id: &str,
     request: &CloseShiftRequest,
+    now: DateTime<Utc>,
 ) -> Result<ShiftReport, EdgeError> {
     if request.declared_cash_minor < 0 {
         return Err(EdgeError::Validation(
@@ -326,6 +366,46 @@ pub fn close_shift(
         return Err(EdgeError::Validation("actor_id is required".into()));
     }
     require_open(tx, shift_id)?;
+
+    // The sheet, when there is one, must be the figure declared beside it.
+    // A count that says 1,517,000 on top of rows adding to 1,516,000 is two
+    // declarations, and the audit would have to guess which one was meant.
+    if !request.counted.is_empty() {
+        let mut seen = std::collections::HashSet::new();
+        let mut sum: i64 = 0;
+        for line in &request.counted {
+            if line.value_minor <= 0 || line.pieces < 0 {
+                return Err(EdgeError::Validation(
+                    "a counted line needs a positive denomination and a non-negative number of pieces"
+                        .into(),
+                ));
+            }
+            if !seen.insert(line.value_minor) {
+                return Err(EdgeError::Validation(format!(
+                    "denomination {} is counted twice",
+                    line.value_minor
+                )));
+            }
+            sum = line
+                .value_minor
+                .checked_mul(line.pieces)
+                .and_then(|value| sum.checked_add(value))
+                .ok_or_else(|| EdgeError::Validation("the count is too large".into()))?;
+        }
+        if sum != request.declared_cash_minor {
+            return Err(EdgeError::Validation(format!(
+                "the counted lines add up to {sum}, not the {} declared",
+                request.declared_cash_minor
+            )));
+        }
+        for line in request.counted.iter().filter(|line| line.pieces > 0) {
+            tx.execute(
+                "INSERT INTO cash_shift_count(shift_id,value_minor,pieces) VALUES(?1,?2,?3)",
+                params![shift_id, line.value_minor, line.pieces],
+            )
+            .map_err(db)?;
+        }
+    }
 
     let running = report(tx, shift_id)?;
     let variance = request.declared_cash_minor - running.expected_cash_minor;
@@ -338,7 +418,7 @@ pub fn close_shift(
         params![
             shift_id,
             request.actor_id.trim(),
-            stamp(now()),
+            stamp(now),
             request.declared_cash_minor,
             running.expected_cash_minor,
             variance,
@@ -493,6 +573,23 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
         cash_movements_minor + cash_sales_minor - change_given_minor - cash_refunds_minor;
 
     let declared = head.7;
+    let counted = {
+        let mut statement = connection
+            .prepare(
+                "SELECT value_minor,pieces FROM cash_shift_count
+                  WHERE shift_id=?1 ORDER BY value_minor DESC",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([shift_id], |row| {
+                Ok(CashCount {
+                    value_minor: row.get(0)?,
+                    pieces: row.get(1)?,
+                })
+            })
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
     Ok(ShiftReport {
         shift_id: shift_id.to_string(),
         terminal_id: head.0,
@@ -524,6 +621,8 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
         },
         tenders,
         note: head.9,
+        counted,
+        blind: false,
     })
 }
 
@@ -634,6 +733,113 @@ pub fn verify_supervisor(
         return Err(refuse());
     }
     Ok(username)
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// The approvals a basket needs
+// ════════════════════════════════════════════════════════════════════════════
+
+/// The basket edits a supervisor has to see. Mirrors `till_approval.action`.
+const APPROVAL_ACTIONS: [&str; 3] = ["EDIT_CART", "CANCEL_BASKET", "DROP_HOLD"];
+
+/// A supervisor's yes to something done to an unsold basket.
+///
+/// The basket is the terminal's, so none of these has a sale row to carry the
+/// signature the way a void does. This is that row: the supervisor proves
+/// themselves exactly as for a void (`verify_supervisor` — a grant from a PIN
+/// or a finger, or a password), the grant is spent here, and what they agreed
+/// to is written beside their name.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TillApprovalRequest {
+    /// `EDIT_CART` (a unit taken off the basket), `CANCEL_BASKET`, or
+    /// `DROP_HOLD` (a parked basket thrown away).
+    pub action: String,
+    pub terminal_id: String,
+    /// What the supervisor was shown, in the words they were shown it.
+    pub detail: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// The tags involved, when there are any.
+    #[serde(default)]
+    pub epcs: Vec<String>,
+    /// The priced value involved, when the till knew it.
+    #[serde(default)]
+    pub amount_minor: Option<i64>,
+    pub supervisor: Supervisor,
+    #[serde(default)]
+    pub actor_id: String,
+    pub idempotency_key: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TillApproval {
+    pub approval_id: String,
+    pub action: String,
+    pub approved_by: String,
+    pub recorded_at: String,
+}
+
+pub fn record_approval(
+    tx: &Transaction<'_>,
+    request: &TillApprovalRequest,
+    now: DateTime<Utc>,
+) -> Result<TillApproval, EdgeError> {
+    let action = request.action.trim().to_ascii_uppercase();
+    if !APPROVAL_ACTIONS.contains(&action.as_str()) {
+        return Err(EdgeError::Validation(format!(
+            "unknown approval action {action}; expected one of {}",
+            APPROVAL_ACTIONS.join(", ")
+        )));
+    }
+    let terminal = request.terminal_id.trim();
+    if terminal.is_empty() {
+        return Err(EdgeError::Validation("terminal_id is required".into()));
+    }
+    let detail = request.detail.trim();
+    if detail.is_empty() || detail.chars().count() > 240 {
+        return Err(EdgeError::Validation(
+            "detail must say what was approved, in under 240 characters".into(),
+        ));
+    }
+    if request.actor_id.trim().is_empty() {
+        return Err(EdgeError::Validation("actor_id is required".into()));
+    }
+    let approved_by = verify_supervisor(tx, Some(&request.supervisor))?;
+    let approval_id = Uuid::new_v4().to_string();
+    let recorded_at = stamp(now);
+    tx.execute(
+        "INSERT INTO till_approval
+           (id,idempotency_key,action,terminal_id,actor_id,approved_by,detail,reason,
+            epcs_json,amount_minor,recorded_at)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        params![
+            approval_id,
+            request.idempotency_key,
+            action,
+            terminal,
+            request.actor_id.trim(),
+            approved_by,
+            detail,
+            request
+                .reason
+                .as_deref()
+                .map(str::trim)
+                .filter(|reason| !reason.is_empty()),
+            serde_json::to_string(&request.epcs)
+                .map_err(|error| EdgeError::Validation(error.to_string()))?,
+            request.amount_minor,
+            recorded_at,
+        ],
+    )
+    .map_err(db)?;
+    Ok(TillApproval {
+        approval_id,
+        action,
+        approved_by,
+        recorded_at,
+    })
 }
 
 // ════════════════════════════════════════════════════════════════════════════

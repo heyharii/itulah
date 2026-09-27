@@ -261,6 +261,7 @@ const CLEARANCE_ARM: &str = "
                  ON m.markdown_id = l.markdown_id
               WHERE l.markdown_id IS NOT NULL
                 AND l.base_unit_price_minor IS NOT NULL
+                AND ($5::text IS NULL OR m.campaign_id = $5)
                 AND s.occurred_at >= $1 AND s.occurred_at < $3
                 AND ($4::text IS NULL OR s.site_id = $4)
               GROUP BY m.campaign_id, l.sale_id, s.occurred_at, s.total_minor, s.customer_id";
@@ -288,17 +289,16 @@ const ARTICLE_COST: &str = "
               WHERE o.order_status IN ('ISSUED', 'CLOSED')
               ORDER BY l.article_code,
                        COALESCE(o.issued_at, o.created_at) DESC, l.line_number DESC
-         ), basket AS (
-             -- Per SALE, never per promotion: revenue here is attributed by
-             -- basket (see the module note), so what it is measured against has
-             -- to be the same basket. Costing only the discounted line against
-             -- the whole basket's revenue would report a margin no accountant
-             -- would recognise.
-             --
-             -- A line whose style was never ordered contributes its units and
-             -- NOT a cost — left out of the sum rather than counted as free,
-             -- which is the same rule `CLEARANCE_ARM` follows for a line with
-             -- no base price.
+         ),";
+
+/// Units and cost per basket, for every sale in the window.
+///
+/// The form for the whole table. Most baskets in a window carry some
+/// promotion, so one pass over the window's lines is cheaper than probing the
+/// line table basket by basket — measured at 100k sales, the probing form
+/// below touched seven times the blocks and ran a fifth slower.
+const BASKET_OF_WINDOW: &str = "
+         basket AS (
              SELECT l.sale_id,
                     sum(l.quantity)::bigint AS units,
                     COALESCE(sum(c.unit_price_minor * l.quantity)
@@ -315,6 +315,59 @@ const ARTICLE_COST: &str = "
               GROUP BY l.sale_id
          ),";
 
+/// Units and cost per basket, for the baskets one key's promotions touched.
+///
+/// The form for a single key (`only`). One campaign's baskets are a small part
+/// of the window, so costing them alone by index beats reading every line in
+/// it. The DISTINCT is load-bearing — a semi-join against the CTE is planned as
+/// a nested loop with no index to probe.
+const BASKET_OF_FOLDED: &str = "
+         basket AS (
+             -- Per SALE, never per promotion: revenue here is attributed by
+             -- basket (see the module note), so what it is measured against has
+             -- to be the same basket. Costing only the discounted line against
+             -- the whole basket's revenue would report a margin no accountant
+             -- would recognise.
+             --
+             -- A line whose style was never ordered contributes its units and
+             -- NOT a cost — left out of the sum rather than counted as free,
+             -- which is the same rule `CLEARANCE_ARM` follows for a line with
+             -- no base price.
+             SELECT l.sale_id,
+                    sum(l.quantity)::bigint AS units,
+                    COALESCE(sum(c.unit_price_minor * l.quantity)
+                        FILTER (WHERE c.unit_price_minor IS NOT NULL), 0)::bigint AS cost_minor,
+                    COALESCE(sum(l.quantity)
+                        FILTER (WHERE c.unit_price_minor IS NOT NULL), 0)::bigint AS costed_units
+               FROM (SELECT DISTINCT sale_id FROM folded) f
+               JOIN edge_sale_line l ON l.sale_id = f.sale_id
+               LEFT JOIN sku k ON k.sku_code = l.sku_code
+               LEFT JOIN article a ON a.id = k.article_id
+               LEFT JOIN article_cost c ON c.article_code = a.article_code
+              GROUP BY l.sale_id
+         ),";
+
+/// A shopper's first purchase anywhere, ever. Not filtered by site or by
+/// window on purpose: somebody who has shopped with us for years is not a new
+/// customer because this is their first visit to this branch.
+///
+/// For the whole table, one pass over `ix_edge_sale_customer_time` — an index
+/// only scan that stays cheap well past the size a probe per shopper wins.
+const FIRST_SALE_EVER: &str = "first_sale AS (
+             SELECT customer_id, min(occurred_at) AS first_at
+               FROM edge_sale WHERE customer_id IS NOT NULL GROUP BY customer_id";
+
+/// The same first purchase, asked only of the shoppers in one key's baskets:
+/// one index probe each. MATERIALIZED so the probe runs once per shopper, not
+/// once per basket that shopper appears in.
+const FIRST_SALE_OF_FOLDED: &str = "first_sale AS MATERIALIZED (
+             SELECT c.customer_id,
+                    (SELECT e.occurred_at FROM edge_sale e
+                      WHERE e.customer_id = c.customer_id
+                      ORDER BY e.occurred_at LIMIT 1) AS first_at
+               FROM (SELECT DISTINCT customer_id FROM folded
+                      WHERE customer_id IS NOT NULL) c";
+
 /// The one aggregate all three promotion menus are built from.
 ///
 /// It reads the two windows in a single pass. Written as two queries it was two
@@ -327,10 +380,16 @@ const ARTICLE_COST: &str = "
 /// summed. Without it a campaign carrying two rules that both fired on one
 /// basket would count that basket's revenue twice and its sale twice, and the
 /// number would look like a good week.
+///
+/// `only` narrows it to one key. Every figure is computed per key and nothing
+/// crosses between keys — `first_sale` is per shopper and the baskets are per
+/// sale — so one campaign read alone gets exactly the row it would have had in
+/// the full table, without paying for every other campaign's.
 async fn aggregate(
     pool: &PgPool,
     key: PromotionKey,
     window: &PerformanceWindow,
+    only: Option<&str>,
 ) -> Result<Vec<Aggregate>, AppError> {
     let column = key.column();
     // What a campaign gave up by CLEARING prices, beside what its promotions
@@ -356,6 +415,14 @@ async fn aggregate(
     // Always present, for all three menus: a coupon's baskets have a cost in
     // exactly the way a campaign's do.
     let cost = ARTICLE_COST;
+    // Two shapes of the same arithmetic, chosen by how much is being asked:
+    // the whole table reads the window in passes, one key probes by index.
+    // Both give the same row for any key; `one_campaign_reads_as_it_does_in_the_table`
+    // holds them to it.
+    let (basket, first_sale) = match only {
+        None => (BASKET_OF_WINDOW, FIRST_SALE_EVER),
+        Some(_) => (BASKET_OF_FOLDED, FIRST_SALE_OF_FOLDED),
+    };
     let sql = format!(
         "WITH {cost}
          scoped AS (
@@ -365,6 +432,7 @@ async fn aggregate(
                FROM edge_sale_promotion p
                JOIN edge_sale s ON s.sale_id = p.sale_id
               WHERE p.{column} IS NOT NULL
+                AND ($5::text IS NULL OR p.{column} = $5)
                 AND s.occurred_at >= $1 AND s.occurred_at < $3
                 AND ($4::text IS NULL OR s.site_id = $4)
               GROUP BY p.{column}, p.sale_id, s.occurred_at, s.total_minor, s.customer_id
@@ -381,7 +449,9 @@ async fn aggregate(
                     sum(clearance_minor)::bigint AS clearance_minor
                FROM scoped
               GROUP BY key, sale_id, occurred_at, total_minor, customer_id
-         ), costed AS (
+         ),
+         {basket}
+         costed AS (
              -- Joined AFTER the fold, so a campaign whose rule and markdown
              -- both hit one basket counts that basket\'s units and cost once.
              -- Joined before it, the union would have doubled them for exactly
@@ -391,13 +461,7 @@ async fn aggregate(
                     COALESCE(b.cost_minor, 0)   AS cost_minor,
                     COALESCE(b.costed_units, 0) AS costed_units
                FROM folded f LEFT JOIN basket b ON b.sale_id = f.sale_id
-         ), first_sale AS (
-             -- A shopper's first purchase anywhere, ever. Not filtered by site
-             -- or by window on purpose: somebody who has shopped with us for
-             -- years is not a new customer because this is their first visit to
-             -- this branch.
-             SELECT customer_id, min(occurred_at) AS first_at
-               FROM edge_sale WHERE customer_id IS NOT NULL GROUP BY customer_id
+         ), {first_sale}
          ), marked AS (
              SELECT costed.*, (f.first_at >= $2 AND f.first_at < $3) AS new_now,
                     (f.first_at >= $1 AND f.first_at < $2) AS new_before
@@ -456,6 +520,7 @@ async fn aggregate(
         .bind(window.from)
         .bind(window.to)
         .bind(window.site())
+        .bind(only)
         .fetch_all(pool)
         .await?;
     Ok(rows
@@ -703,8 +768,31 @@ pub async fn campaign_performance(
     pool: &PgPool,
     window: &PerformanceWindow,
 ) -> Result<Value, AppError> {
-    let rows = aggregate(pool, PromotionKey::Campaign, window).await?;
-    let described = campaigns_described(pool).await?;
+    campaign_performance_for(pool, window, None).await
+}
+
+/// `campaign_performance` for one campaign: the same envelope and the same row,
+/// computed for that campaign alone.
+///
+/// The outcome screen reads one campaign — twice, with its baseline — and used
+/// to aggregate every campaign in the estate each time to keep one row.
+pub async fn campaign_performance_of(
+    pool: &PgPool,
+    window: &PerformanceWindow,
+    campaign_id: &str,
+) -> Result<Value, AppError> {
+    campaign_performance_for(pool, window, Some(campaign_id)).await
+}
+
+async fn campaign_performance_for(
+    pool: &PgPool,
+    window: &PerformanceWindow,
+    only: Option<&str>,
+) -> Result<Value, AppError> {
+    let (rows, described) = tokio::try_join!(
+        aggregate(pool, PromotionKey::Campaign, window, only),
+        campaigns_described(pool),
+    )?;
     let campaigns = stitch(rows, described, campaign_undeclared);
     let mut body = window.envelope();
     if let Some(object) = body.as_object_mut() {
@@ -722,16 +810,17 @@ pub async fn rule_performance(
     pool: &PgPool,
     window: &PerformanceWindow,
 ) -> Result<Value, AppError> {
-    let rules = stitch(
-        aggregate(pool, PromotionKey::Rule, window).await?,
-        rules_described(pool).await?,
-        rule_undeclared,
-    );
-    let coupons = stitch(
-        aggregate(pool, PromotionKey::Coupon, window).await?,
-        coupons_described(pool).await?,
-        coupon_undeclared,
-    );
+    // Four independent reads, and the two aggregates are the heaviest queries
+    // any Marketing screen makes — awaited in turn they were the sum of both,
+    // run together they are the slower one.
+    let (rule_rows, rules_known, coupon_rows, coupons_known) = tokio::try_join!(
+        aggregate(pool, PromotionKey::Rule, window, None),
+        rules_described(pool),
+        aggregate(pool, PromotionKey::Coupon, window, None),
+        coupons_described(pool),
+    )?;
+    let rules = stitch(rule_rows, rules_known, rule_undeclared);
+    let coupons = stitch(coupon_rows, coupons_known, coupon_undeclared);
     let mut body = window.envelope();
     if let Some(object) = body.as_object_mut() {
         object.insert("rules".into(), Value::Array(rules));
@@ -781,8 +870,7 @@ pub async fn pricelist_performance(
           ORDER BY s.sku_code",
     )
     .bind(article_code)
-    .fetch_all(pool)
-    .await?;
+    .fetch_all(pool);
 
     let sold = sqlx::query(
         "SELECT l.sku_code, l.unit_price_minor, l.price_source, l.publication_version,
@@ -806,8 +894,7 @@ pub async fn pricelist_performance(
     .bind(window.from)
     .bind(window.to)
     .bind(window.site())
-    .fetch_all(pool)
-    .await?;
+    .fetch_all(pool);
 
     // Stock as the projection holds it: operational places only, and only the
     // ones in NORMAL state — a unit sitting in a MISSING place is not on hand,
@@ -828,12 +915,7 @@ pub async fn pricelist_performance(
     )
     .bind(article_code)
     .bind(window.site())
-    .fetch_all(pool)
-    .await?;
-    let on_hand: BTreeMap<String, i64> = on_hand
-        .into_iter()
-        .map(|row| (row.get("sku_code"), row.get("on_hand")))
-        .collect();
+    .fetch_all(pool);
 
     // What we last agreed to pay for this style. A draft order has not been
     // agreed and a cancelled one never was, so neither is evidence of a cost.
@@ -846,8 +928,15 @@ pub async fn pricelist_performance(
           LIMIT 1",
     )
     .bind(article_code)
-    .fetch_optional(pool)
-    .await?;
+    .fetch_optional(pool);
+
+    // The four reads above are independent of one another once the style is
+    // known to exist, so they run together rather than one after another.
+    let (skus, sold, on_hand, cost) = tokio::try_join!(skus, sold, on_hand, cost)?;
+    let on_hand: BTreeMap<String, i64> = on_hand
+        .into_iter()
+        .map(|row| (row.get("sku_code"), row.get("on_hand")))
+        .collect();
 
     let mut by_sku: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     for row in &sold {

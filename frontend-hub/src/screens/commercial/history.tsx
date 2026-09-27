@@ -154,12 +154,12 @@ export function History() {
           <button
             type="button"
             onClick={shop.close}
-            className="text-[0.75rem] text-mute underline underline-offset-2 hover:text-ink"
+            className="text-[0.875rem] text-mute underline underline-offset-2 hover:text-ink"
           >
             {shopName.get(shop.value) ?? shop.value} · show every shop
           </button>
         )}
-        <span className="text-[0.75rem] text-mute tabular-nums">
+        <span className="text-[0.875rem] text-mute tabular-nums">
           {count(entries.length)} entries
         </span>
       </Toolbar>
@@ -176,7 +176,7 @@ export function History() {
               <div className="flex flex-col">
                 {days.map(([date, rows]) => (
                   <section key={date}>
-                    <h3 className="sticky top-0 z-10 border-b border-hairline bg-soft-3 px-4 py-1.5 text-[0.6875rem] font-medium tracking-[0.06em] text-mute uppercase">
+                    <h3 className="sticky top-0 z-10 border-b border-hairline bg-soft-3 px-4 py-1.5 text-[0.875rem] font-medium tracking-[0.06em] text-mute uppercase">
                       {moment(rows[0].lead.at).split(",")[0] ?? date}
                     </h3>
                     {rows.map((entry) => (
@@ -231,18 +231,18 @@ function Row({
   return (
     <div className="border-b border-hairline-2 last:border-b-0">
       <div className="flex items-baseline gap-3 px-4 py-2 hover:bg-soft">
-        <span className="w-12 shrink-0 text-[0.6875rem] text-mute tabular-nums">
+        <span className="w-12 shrink-0 text-[0.875rem] text-mute tabular-nums">
           {moment(lead.at).split(", ").pop()}
         </span>
         <Pill tone={toneOf(lead.kind)} className="w-fit shrink-0">
           {describeEventKind(lead.kind)}
         </Pill>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[0.8125rem] text-ink">
+          <span className="block truncate text-[0.875rem] text-ink">
             {lead.publication_name}
           </span>
           {lead.detail !== null && (
-            <span className="block text-[0.6875rem] text-bad">
+            <span className="block text-[0.875rem] text-bad">
               {lead.detail}
             </span>
           )}
@@ -254,7 +254,7 @@ function Row({
           <button
             type="button"
             onClick={() => onPickShop(shops[0])}
-            className="shrink-0 text-[0.75rem] text-body underline-offset-2 hover:underline"
+            className="shrink-0 text-[0.875rem] text-body underline-offset-2 hover:underline"
           >
             {shopName.get(shops[0]) ?? shops[0]}
           </button>
@@ -264,18 +264,18 @@ function Row({
             type="button"
             onClick={() => setOpen((was) => !was)}
             aria-expanded={open}
-            className="shrink-0 text-[0.75rem] text-body underline-offset-2 hover:underline"
+            className="shrink-0 text-[0.875rem] text-body underline-offset-2 hover:underline"
           >
             {count(shops.length)} shops
           </button>
         )}
 
-        <span className="w-20 shrink-0 text-right text-[0.6875rem] text-mute tabular-nums">
+        <span className="w-20 shrink-0 text-right text-[0.875rem] text-mute tabular-nums">
           {prices > 0 ? `${count(prices)} prices` : ""}
         </span>
         {/* Who did it, and only where a PERSON did. On a shop event the actor
             is the till's origin, which the shop name beside it already says. */}
-        <span className="w-20 shrink-0 truncate text-right text-[0.6875rem] text-mute">
+        <span className="w-20 shrink-0 truncate text-right text-[0.875rem] text-mute">
           {shops.length === 0 ? (lead.actor ?? `v${lead.version}`) : ""}
         </span>
       </div>
@@ -287,7 +287,7 @@ function Row({
               key={siteId}
               type="button"
               onClick={() => onPickShop(siteId)}
-              className="rounded-inner border border-hairline-2 px-2 py-0.5 text-[0.6875rem] text-body transition-colors hover:border-hairline-strong hover:text-ink"
+              className="rounded-inner border border-hairline-2 px-2 py-0.5 text-[0.875rem] text-body transition-colors hover:border-hairline-strong hover:text-ink"
             >
               {shopName.get(siteId) ?? siteId}
             </button>

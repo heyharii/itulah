@@ -128,7 +128,7 @@ export function FindMany({
     >
       <Combobox.InputGroup
         className={cn(
-          "flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-[1.125rem] border border-hairline-2 bg-canvas px-2.5 py-1.5 text-left text-[0.78125rem] transition-colors",
+          "flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-[1.125rem] border border-hairline-2 bg-canvas px-2.5 py-1.5 text-left text-[0.875rem] transition-colors",
           "hover:bg-soft-2 has-[input:focus-visible]:border-accent has-[input:focus-visible]:bg-canvas",
           className
         )}
@@ -190,14 +190,14 @@ export function FindMany({
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate text-ink">{row.label}</span>
                       {row.note && (
-                        <span className="truncate text-[0.6875rem] text-mute">
+                        <span className="truncate text-[0.875rem] text-mute">
                           {row.note}
                         </span>
                       )}
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
                       {row.aside && (
-                        <span className="text-[0.6875rem] text-mute tabular-nums">
+                        <span className="text-[0.875rem] text-mute tabular-nums">
                           {row.aside}
                         </span>
                       )}
@@ -218,7 +218,7 @@ export function FindMany({
 
 function Note({ children }: { children: React.ReactNode }) {
   return (
-    <p className="px-2.5 py-3 text-center text-[0.71875rem] leading-relaxed text-mute">
+    <p className="px-2.5 py-3 text-center text-[0.875rem] leading-relaxed text-mute">
       {children}
     </p>
   )

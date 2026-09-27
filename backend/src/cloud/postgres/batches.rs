@@ -327,7 +327,7 @@ pub async fn payment_batch_create(
         (None, Some(named)) => {
             return Err(AppError::Validation(format!(
                 "this batch answers the meaning '{}' and also names the category {named}; the \
-                 Account Map already chose one for that meaning",
+                 account links already chose one for that role",
                 counter_key.as_deref().unwrap_or_default()
             )))
         }
@@ -947,7 +947,7 @@ async fn execute_one(
         counter_account_code,
         counter_category_code,
         amount_minor,
-        party_kind: party_type.clone(),
+        party_type: party_type.clone(),
         supplier_id: (party_type == "SUPPLIER").then(|| party_id.clone()),
         employee_id: (party_type == "EMPLOYEE").then(|| party_id.clone()),
         party_name: party_name.clone(),

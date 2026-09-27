@@ -26,13 +26,14 @@
 //! head office eleven million") and the only form in which comparing them means
 //! anything.
 //!
-//! # Why the sums come through `account_map`
+//! # Why the sums come through `account_resolution`
 //!
-//! Not from `counter_site_id` alone. 0122 gives every pair and every column its
-//! own leaf in the client's chart, so an account code IS a pair — and summing
-//! the account is what a trial balance does, which means this screen and the
-//! trial balance cannot disagree about a figure. `counter_site_id` is used for
-//! the movements below, where the question is "which entries", not "how much".
+//! The link says which leaf is an affiliate account at a site, per family
+//! (`PEMBIAYAAN`, `BARANG`, `LAIN`), and summing that leaf is what a trial
+//! balance does. Since 0380 a leaf is no longer a pair — a unit is always on
+//! its family's hutang leaf and head office always on its piutang leaf,
+//! whoever is on the other side (I7) — so the pair comes off the journal
+//! line's `counter_site_id`, and the link keeps only the family (0460).
 //!
 //! Reads only. The journal is written in `poster.rs` and nowhere else.
 
@@ -116,19 +117,17 @@ pub struct InterunitReport {
 /// which is the same rows with an opening balance and a running total.
 const RECENT: i64 = 20;
 
-/// The affiliate half of the account map, split back into its parts.
+/// The affiliate links, one row per role, site and family.
 ///
-/// `<KIND>:<counterparty>` is one string in `account_map` because the map is
-/// keyed on three columns and this is the third. It is two facts, and every
-/// query below wants them apart.
-const AFFILIATE: &str = "SELECT m.semantic_key,
-            m.site_id,
-            split_part(m.qualifier, ':', 1) AS kind,
-            split_part(m.qualifier, ':', 2) AS counter_site_id,
-            m.account_code
-       FROM account_map m
-      WHERE m.semantic_key IN ('affiliate_receivable', 'affiliate_payable')
-        AND m.qualifier LIKE '%:%'";
+/// The link's source is the family alone (0460); the counterparty is on the
+/// journal line, and the queries below take it from there.
+const AFFILIATE: &str = "SELECT r.role AS semantic_key,
+            r.site_id,
+            r.source_id AS kind,
+            r.account_code
+       FROM account_resolution r
+      WHERE r.role IN ('affiliate_receivable', 'affiliate_payable')
+        AND r.source_type = 'COMPANY'";
 
 /// One side of one pair, as the sums come back.
 struct Side {
@@ -142,19 +141,22 @@ struct Side {
 }
 
 async fn affiliate_sides(pool: &PgPool, semantic_key: &str) -> Result<Vec<Side>, AppError> {
-    // LEFT JOIN, so a pair that is mapped and has never been posted to comes
+    // Every other site is a possible counterparty of a linked family, and the
+    // LEFT JOIN means a pair that is linked and has never been posted to comes
     // back as zero rather than not coming back. "Nothing has moved between head
     // office and store 09" and "store 09 is not set up" are different answers,
     // and a screen that showed one for the other would hide the second.
     let sql = format!(
         "WITH affiliate AS ({AFFILIATE})
-         SELECT a.site_id, a.counter_site_id, a.kind, a.account_code,
+         SELECT a.site_id, c.id AS counter_site_id, a.kind, a.account_code,
                 COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS net_minor
            FROM affiliate a
+           JOIN site c ON c.id <> a.site_id
            LEFT JOIN journal_line l
                   ON l.account_code = a.account_code AND l.site_id = a.site_id
+                 AND l.counter_site_id = c.id
           WHERE a.semantic_key = $1
-          GROUP BY a.site_id, a.counter_site_id, a.kind, a.account_code"
+          GROUP BY a.site_id, c.id, a.kind, a.account_code"
     );
     let rows = sqlx::query(&sql).bind(semantic_key).fetch_all(pool).await?;
     rows.iter()
@@ -188,9 +190,11 @@ async fn recent_movements(
     store: Option<&str>,
     limit: i64,
 ) -> Result<Vec<InterunitMovement>, AppError> {
-    // The kind comes off the map rather than off the account code's shape. A
-    // LEFT JOIN so a line in an affiliate account that the map does not claim
-    // still appears — with no kind, which is the flag.
+    // The kind comes off the links rather than off the account code's shape. A
+    // LEFT JOIN so a line in an affiliate account that no link claims still
+    // appears — with no kind, which is the flag. DISTINCT because a unit's
+    // receivable and payable roles land on the same leaf, and joining both
+    // would list every line twice.
     let sql = format!(
         "WITH affiliate AS ({AFFILIATE})
          SELECT e.entry_id, e.entry_number, e.posting_date, e.source_kind, e.source_id,
@@ -200,8 +204,8 @@ async fn recent_movements(
            FROM journal_line l
            JOIN journal_entry e USING (entry_id)
            JOIN ledger_account acc ON acc.account_code = l.account_code
-           LEFT JOIN affiliate af ON af.account_code = l.account_code
-                                 AND af.site_id = l.site_id
+           LEFT JOIN (SELECT DISTINCT site_id, account_code, kind FROM affiliate) af
+                  ON af.account_code = l.account_code AND af.site_id = l.site_id
           WHERE l.counter_site_id IS NOT NULL
             AND ($1::text IS NULL OR l.site_id = $1 OR l.counter_site_id = $1)
           ORDER BY e.posting_date DESC, e.entry_number DESC, l.line_number

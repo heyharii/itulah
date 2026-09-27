@@ -8,7 +8,7 @@
 //! see: an expense in the right family and the wrong leaf still balances.
 //!
 //! So they pick a category — a word about the business — and
-//! `transaction_category` plus `account_map` plus the location turn it into the
+//! `transaction_category` plus `account_resolution` plus the location turn it into the
 //! twelve-digit code. Two lookups, both of them somebody else's decision made
 //! once. The code appears on the journal line and nowhere on the screen.
 //!
@@ -139,9 +139,10 @@ const CATEGORY_COLUMNS: &str = "c.code, c.display_name, c.family, c.direction,
 /// LEFT, and for the reason `bank_rules.rs` gives about its own: a category
 /// whose meaning nobody has mapped is exactly the one somebody has to see.
 const CATEGORY_FROM: &str = "FROM transaction_category c
-     LEFT JOIN account_map m ON m.semantic_key = c.semantic_key
-                            AND m.qualifier = c.qualifier
-                            AND m.site_id = $1
+     LEFT JOIN account_resolution m ON m.role = c.semantic_key
+                                   AND m.source_type = 'COMPANY'
+                                   AND m.source_id = c.qualifier
+                                   AND m.site_id = $1
      LEFT JOIN ledger_account a ON a.account_code = m.account_code
      -- What the quoted client code became, when it became one of the forty.
      -- LEFT, because an expectation naming an account the remap has no row for

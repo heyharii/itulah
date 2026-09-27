@@ -1010,6 +1010,9 @@ pub struct SimulateRequest {
 pub struct CommercialProductQuery {
     #[serde(default)]
     pub q: Option<String>,
+    /// Comma-separated style codes, matched exactly.
+    #[serde(default)]
+    pub article_codes: Option<String>,
     #[serde(default)]
     pub limit: Option<i64>,
 }
@@ -1028,7 +1031,7 @@ pub struct CommercialProductQuery {
 /// is never told the range is smaller than it is.
 ///
 /// `deny_unknown_fields` because a misspelled filter is worse than a refused
-/// one: `?divisionss=KIDS` narrows nothing, the caller believes a filter is
+/// one: `?divisionss=ANAK_LAKI` narrows nothing, the caller believes a filter is
 /// applied, and the screen prices the whole catalogue under it.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -120,7 +120,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
           <span className="truncate font-medium text-ink">
             {row.original.article.name}
           </span>
-          <span className="font-mono text-[0.65625rem] text-mute">
+          <span className="font-mono text-[0.875rem] text-mute">
             {row.original.article.article_code}
           </span>
         </span>
@@ -186,7 +186,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     size: 110,
     cell: ({ row }) => (
       <Pill tone={row.original.article.active ? "ok" : "neutral"}>
-        {row.original.article.active ? "Active" : "Retired"}
+        {row.original.article.active ? "Active" : "Cancelled"}
       </Pill>
     ),
   },
@@ -204,7 +204,7 @@ export function Articles() {
   /// rather than `oldest` when nobody has chosen: the plain URL is the plain
   /// catalogue, and one spelling of "no order chosen" is what stops two query
   /// keys standing for the same page.
-  const sort = useSheet("sort")
+  const articleOrder = useSheet("articleOrder")
 
   const [view, setView] = useState<"grid" | "table">("grid")
   const [sorting, setSorting] = useState<SortingState>([])
@@ -349,9 +349,9 @@ export function Articles() {
     () => ({
       ...articleScopeFromFilters(filters.filters),
       q: needle === "" ? undefined : needle,
-      sort: sort.value === "oldest" ? "oldest" : undefined,
+      sort: articleOrder.value === "oldest" ? "oldest" : undefined,
     }),
-    [filters.filters, needle, sort.value]
+    [filters.filters, needle, articleOrder.value]
   )
 
   const catalogue = useInfiniteQuery({
@@ -458,7 +458,7 @@ export function Articles() {
           discover that the thing they are after is filed under a division they
           had not thought of — which a panel they have to open first cannot do.
           Below 1440 it is the same model, reached from the omnibox. */}
-      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         {/* `@container` on the column the cards are laid out in, not on the
             page: this column's width is whatever the rail, the sidebar and the
             filter panel leave it, and a `md:` breakpoint reading the VIEWPORT
@@ -491,7 +491,7 @@ export function Articles() {
             {/* The plain box, where the panel beside it is carrying the
                 filters. Below 1440 the panel is gone and the omnibox below
                 takes both jobs, so only one of the two is ever on screen. */}
-            <span className="relative mr-auto hidden min-[1440px]:block">
+            <span className="relative mr-auto hidden dock:block">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
               <input
                 value={search.value ?? ""}
@@ -502,10 +502,10 @@ export function Articles() {
                 }
                 placeholder="Search article, SKU or QR"
                 aria-label="Search the article master — article code, SKU, name, QR payload or the supplier's own code"
-                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
             </span>
-            <span className="mr-auto text-[0.84375rem] text-body min-[1440px]:mr-0">
+            <span className="mr-auto text-[0.875rem] text-body dock:mr-0">
               <b className="font-medium text-ink">{count(articles.length)}</b>{" "}
               {filtered
                 ? catalogue.hasNextPage
@@ -529,9 +529,11 @@ export function Articles() {
                 beside them that sorts the whole thing. */}
             <ChoiceMenu
               heading="Order"
-              value={sort.value ?? null}
+              value={articleOrder.value ?? null}
               options={ORDERS}
-              onChange={(next) => (next ? sort.open(next) : sort.close())}
+              onChange={(next) =>
+                next ? articleOrder.open(next) : articleOrder.close()
+              }
             />
             {/* Only over the table. A grid of photographs has no columns to
                 hide, and a menu that can only disappoint is worse than no
@@ -575,7 +577,7 @@ export function Articles() {
             text={search.value ?? undefined}
             onText={(next) => (next ? search.open(next) : search.close())}
             placeholder="Search article, SKU, name, QR or supplier code, or filter"
-            className="mb-3 min-[1440px]:hidden"
+            className="mb-3 dock:hidden"
           />
 
           {queryState(catalogue, {
@@ -654,7 +656,7 @@ export function Articles() {
           kpis={catalogueKpis(searchable, facets)}
           id="articles"
           subject="Article"
-          className="hidden min-[1440px]:flex"
+          className="hidden dock:flex"
         />
       </div>
 
@@ -734,7 +736,7 @@ function ArticleCard({
             it belongs with the picture rather than in a list of facts below
             it. */}
         {article.division_code !== null && (
-          <span className="absolute top-2.5 left-2.5 inline-flex items-center rounded-full bg-canvas/95 px-2 py-[0.1875rem] text-[0.625rem] font-semibold text-ink shadow-[0_1px_3px_rgba(20,20,25,.1)] backdrop-blur-[5px]">
+          <span className="absolute top-2.5 left-2.5 inline-flex items-center rounded-full bg-canvas/95 px-2 py-[0.1875rem] text-[0.875rem] font-semibold text-ink shadow-[0_1px_3px_rgba(20,20,25,.1)] backdrop-blur-[5px]">
             {row.divisionLabel}
           </span>
         )}
@@ -744,7 +746,7 @@ function ArticleCard({
             of the card somebody actually looks at. */}
         {!article.active && (
           <span className="absolute top-2.5 right-2.5">
-            <Pill tone="neutral">Retired</Pill>
+            <Pill tone="neutral">Cancelled</Pill>
           </span>
         )}
       </Thumbnail>
@@ -753,7 +755,7 @@ function ArticleCard({
         <div className="truncate text-[0.875rem] font-medium text-ink">
           {article.name}
         </div>
-        <div className="mt-[0.1875rem] truncate font-mono text-[0.6875rem] text-mute">
+        <div className="mt-[0.1875rem] truncate font-mono text-[0.875rem] text-mute">
           {article.article_code}
         </div>
 
@@ -762,7 +764,7 @@ function ArticleCard({
             taller for no more meaning. */}
         <div className="mt-2.5 flex items-center gap-2">
           <Swatches colours={article.colours} cap={5} />
-          <span className="min-w-0 flex-1 truncate text-right text-[0.71875rem] text-body">
+          <span className="min-w-0 flex-1 truncate text-right text-[0.875rem] text-body">
             {row.sizes}
           </span>
         </div>
@@ -771,7 +773,7 @@ function ArticleCard({
           <span className="truncate text-[0.875rem] font-semibold text-ink tabular-nums">
             {priceSpan(article)}
           </span>
-          <span className="shrink-0 text-[0.6875rem] text-mute tabular-nums">
+          <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
             {count(article.sku_count)} SKU
           </span>
         </div>

@@ -1,13 +1,12 @@
 import { Link, useParams } from "@tanstack/react-router"
+import { ChevronLeft } from "lucide-react"
 
 import { Async, Empty, Panel, Row } from "@/components/bits"
-import { buttonVariants } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
+import { button } from "@/components/ui/button-style"
 import { money } from "@/lib/format"
 import type { AllowanceLine } from "@itulah/contract"
 import { readDays, readMinutes } from "@/lib/hr/days"
 import { usePaySlips } from "@/lib/hr/queries"
-import { cn } from "@/lib/utils"
 
 /// One month, as far as this system can honestly state it.
 ///
@@ -30,8 +29,12 @@ export function Payslip() {
     <div className="flex flex-col gap-4">
       <Link
         to="/pay"
-        className={cn(buttonVariants({ variant: "outline", size: "sm" }), "self-start")}
+        className={button({
+          variant: "quiet",
+          className: "-ml-2 self-start",
+        })}
       >
+        <ChevronLeft />
         All payslips
       </Link>
 
@@ -44,17 +47,15 @@ export function Payslip() {
           return (
             <>
               <Panel title="Agreed pay">
-                <Row label="Base">
-                  <span className="tabular-nums">{money(slip.base_minor)}</span>
-                </Row>
+                <Row label="Base">{money(slip.base_minor)}</Row>
                 {slip.fixed_allowances.map((line: AllowanceLine) => (
                   <Row key={line.code} label={line.code}>
-                    <span className="tabular-nums">{money(line.minor)}</span>
+                    {money(line.minor)}
                   </Row>
                 ))}
-                <Separator className="my-2" />
+                <hr className="border-hairline" />
                 <Row label="Base plus fixed allowances">
-                  <span className="font-semibold tabular-nums">
+                  <span className="font-semibold">
                     {money(slip.statutory_base_minor)}
                   </span>
                 </Row>
@@ -73,7 +74,7 @@ export function Payslip() {
               <Panel title="Paid to">
                 <Row label="Account">{slip.bank_account_masked ?? "—"}</Row>
                 {!slip.payable && (
-                  <p className="mt-2 text-[13px] text-muted-foreground">
+                  <p className="rounded-inner bg-warn-bg px-3.5 py-2.5 text-[0.71875rem] leading-relaxed text-warn-fg">
                     No account is on record, so nothing can be paid yet. Tell
                     your manager.
                   </p>
@@ -82,7 +83,7 @@ export function Payslip() {
 
               {/* Last, and unmissable. The alternative is somebody reading the
                   figure above as what lands in their account. */}
-              <p className="text-[13px] text-muted-foreground">
+              <p className="rounded-inner bg-info-bg px-3.5 py-2.5 text-[0.71875rem] leading-relaxed text-info-fg">
                 Tax and BPJS are not calculated by this system, so the figures
                 above are what was agreed rather than what will be transferred.
                 Your employer works the deductions out separately.

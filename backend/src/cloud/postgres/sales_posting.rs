@@ -53,7 +53,8 @@ use super::poster::{post, reverse, PostingIntent, PostingLine, HEAD_OFFICE_SITE}
 use super::stock_ledger::{self, StockOutflow};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::sales_posting::{
-    build, classify_card, exception_reason, CardKind, DayFigures, LedgerSide, RecordedVat,
+    build_with, classify_card, exception_reason, CardKind, DayFigures, DayRules, LedgerSide,
+    RecordedVat,
     TenderBucket, RETURN_CREDIT,
 };
 use crate::reporting::DEFAULT_UTC_OFFSET_MINUTES;
@@ -96,9 +97,13 @@ pub struct SalesPosting {
     pub gross_minor: i64,
     /// What the tenders came to, net of change given.
     pub settled_minor: i64,
+    /// What promotions took off, as the tills reported it. Reported only:
+    /// the receipts are already net of it and that net is the revenue posted,
+    /// so nothing of it reaches `sales_discount` (owner decision, 25 Sep 2026).
     pub discount_minor: i64,
     pub returns_minor: i64,
-    /// PPN taken, less PPN unwound by returns.
+    /// PPN posted. Nought while PPN is ignored (P11); the tax the day carried
+    /// is in `vat_recorded_minor` and `vat_recomputed_minor`.
     pub vat_minor: i64,
     /// What the day is worth to the income statement.
     pub revenue_minor: i64,
@@ -145,7 +150,9 @@ pub struct SalesPostingLine {
     pub card_kind_inferred: bool,
     pub gross_minor: i64,
     pub returns_minor: i64,
+    /// Nought: a promotion is inside the price this line was credited with.
     pub discount_minor: i64,
+    /// Nought while PPN is ignored (P11).
     pub vat_minor: i64,
     pub tender_count: i64,
 }
@@ -267,6 +274,19 @@ pub struct RetenderOutcome {
 // ---------------------------------------------------------------------------
 
 /// The instants a business date covers at a shop.
+/// Finance's settings that shape the day's entry (0468).
+async fn day_rules(pool: &PgPool) -> Result<DayRules, AppError> {
+    let discount_accounting: bool = sqlx::query_scalar(
+        "SELECT COALESCE((SELECT value_numeric <> 0 FROM finance_setting
+                           WHERE setting_key = 'sales.discount_accounting'), false)",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(DayRules {
+        discount_accounting,
+    })
+}
+
 fn day_window(business_date: NaiveDate) -> (DateTime<Utc>, DateTime<Utc>) {
     let midnight = business_date.and_time(NaiveTime::MIN);
     let start = Utc
@@ -447,6 +467,7 @@ impl Buckets {
                 receipts_minor: receipts,
                 refunds_minor: refunds,
                 tender_count: count,
+                direct_mdr_bps: None,
             });
         }
         // Change given, or takings no tender accounts for, with no cash bucket
@@ -468,6 +489,7 @@ impl Buckets {
                 receipts_minor: cash_adjustment,
                 refunds_minor: 0,
                 tender_count: 0,
+                direct_mdr_bps: None,
             });
         }
         Ok(out)
@@ -654,7 +676,10 @@ async fn read_day(
                 COUNT(*)::bigint AS tender_count
            FROM edge_sale_tender t
            JOIN edge_sale s ON s.sale_id = t.sale_id
+          -- The same sales the day's totals above count: a voided sale's
+          -- money went back to the customer and must not reach the day.
           WHERE s.site_id = $1 AND s.occurred_at >= $2 AND s.occurred_at < $3
+            AND s.status = 'COMPLETED'
           GROUP BY t.method, t.acquirer, t.reference, t.card_kind, t.terminal_id",
     )
     .bind(site_id)
@@ -817,10 +842,33 @@ async fn read_day(
 
     let recorded_vat = read_recorded_vat(pool, site_id, start, end).await?;
 
-    let (postable, exceptions): (Vec<TenderBucket>, Vec<TenderBucket>) = buckets
+    let (mut postable, exceptions): (Vec<TenderBucket>, Vec<TenderBucket>) = buckets
         .into_vec(untendered - change)?
         .into_iter()
         .partition(|bucket| exception_reason(&bucket.method, &bucket.acquirer).is_none());
+
+    // A payment method Finance set to settle straight into the bank (0468)
+    // books its MDR on the day, at the method's rate.
+    let direct: Vec<(String, String, i32)> = sqlx::query_as(
+        "SELECT tender_type, bank_code, mdr_bps FROM payment_method
+          WHERE is_active AND settlement_mode = 'DIRECT_TO_BANK'",
+    )
+    .fetch_all(pool)
+    .await?;
+    for bucket in &mut postable {
+        let tender = match (bucket.method.as_str(), bucket.card_kind) {
+            ("CARD", Some(CardKind::Credit)) => "CREDIT_CARD",
+            ("CARD", _) => "DEBIT_CARD",
+            ("QRIS", _) => "QRIS",
+            _ => "",
+        };
+        if let Some((_, _, bps)) = direct
+            .iter()
+            .find(|(kind, bank, _)| kind == tender && *bank == bucket.acquirer)
+        {
+            bucket.direct_mdr_bps = Some(*bps);
+        }
+    }
     let exceptions = exceptions
         .into_iter()
         .map(|bucket| {
@@ -1037,7 +1085,7 @@ pub async fn sales_posting_generate(
     }
 
     let reading = read_day(pool, &site_id, request.business_date).await?;
-    let posting = build(&reading.figures).map_err(AppError::Validation)?;
+    let posting = build_with(&reading.figures, day_rules(pool).await?).map_err(AppError::Validation)?;
 
     let posting_id = existing
         .as_ref()
@@ -1181,8 +1229,8 @@ pub async fn sales_posting_generate(
 /// The day it belongs to must already be posted — its figures are then fixed
 /// and this line is the only part of the day still outside the books. The
 /// entry is the same pair the day would have written: Dr the bank's debit-card
-/// receivable, Cr that bank's debit-card sales, and the VAT inside it at the
-/// day's rate to `vat_out` at head office. An online tender is not resolved
+/// receivable, Cr that bank's debit-card sales with the whole net — no tax line
+/// while PPN is ignored (P11). An online tender is not resolved
 /// here: the company does not sell online, so it is retendered at the source.
 pub async fn sales_posting_exception_resolve(
     pool: &PgPool,
@@ -1236,7 +1284,7 @@ pub async fn sales_posting_exception_resolve(
     let vat = 0i64;
     let _ = vat_rate_bps;
     let memo = format!("QRIS {bank} takings (exception resolved)");
-    let mut lines = vec![
+    let lines = vec![
         {
             let mut line = PostingLine::debit("card_receivable_debit", &site_id, net).with_qualifier(&bank);
             line.memo = Some(memo.clone());
@@ -1739,7 +1787,7 @@ pub async fn sales_posting_post(
         existing.posting.business_date,
     )
     .await?;
-    let built = build(&reading.figures).map_err(AppError::Validation)?;
+    let built = build_with(&reading.figures, day_rules(pool).await?).map_err(AppError::Validation)?;
     let unchanged = reading.gross_minor == existing.posting.gross_minor
         && reading.untendered_minor == existing.posting.untendered_minor
         && reading.sale_count == existing.posting.sale_count

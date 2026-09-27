@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The splash mark: the launcher's red tile and white C, on the system
+     splash's 288 dp canvas (the platform masks it to a 192 dp circle; the tile
+     fits inside). `Splash.kt` draws the same tile at the same size, so the hand
+     from the system splash to Compose does not move the logo. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:name="root"
+    android:width="288dp"
+    android:height="288dp"
+    android:viewportWidth="288"
+    android:viewportHeight="288">
+    <path
+        android:fillColor="#E11D2E"
+        android:pathData="M120,84 L168,84 A36,36 0 0,1 204,120 L204,168 A36,36 0 0,1 168,204 L120,204 A36,36 0 0,1 84,168 L84,120 A36,36 0 0,1 120,84 Z" />
+    <path
+        android:pathData="M166.38,121.62 A31.67,31.67 0 1,0 166.38,166.38"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="16.67"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+</vector>

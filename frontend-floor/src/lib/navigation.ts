@@ -76,10 +76,13 @@ export const stations: readonly NavItem[] = [
 
 /// Screens reached by pushing, not by tapping the bar.
 ///
-/// A drill-in is a full-screen push with a back arrow and **no tab bar**. That
-/// rule is what keeps a half-finished count sheet from being escapable by a
-/// stray thumb: the way out is Simpan or the back arrow, both of which say what
-/// happens to what was typed.
+/// A drill-in is a full-screen push with a back arrow and **no tab bar**.
+///
+/// The station records — a count, a verification, a pick round, a carton —
+/// moved into bottom sheets over their station on 2026-09-26, with drafts, so
+/// a stray swipe loses nothing. Their paths stay here only so old links and
+/// reloads still land: each of those screens redirects to its station with the
+/// sheet open. The rest are still pushed screens.
 export const pushed: readonly PushedItem[] = [
   { path: "/terima/hitung", label: "Hitung", icon: ClipboardList, back: "/terima" },
   { path: "/terima/periksa", label: "Periksa", icon: ClipboardCheck, back: "/terima" },

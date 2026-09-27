@@ -1,15 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ImagePlus, Trash2 } from "lucide-react"
+import { ImagePlus, Plus, Trash2 } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Field, Input, Money, Textarea } from "@/components/ui/field"
+import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
+import { Section } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import { ColourSwatch } from "@/components/ui/swatch"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { asJpeg, PICTURE_TYPES } from "@/lib/image"
+import { isPositiveDecimal, wholeProduct } from "@/lib/decimal"
+import { unitFactor, useUnits } from "@/lib/queries/units"
+import { PricingFields, VariantGrid } from "@/screens/procurement/line-pricing"
+import {
+  variantPieces,
+  variantRows,
+  type VariantDraft,
+} from "@/screens/procurement/line-pricing-model"
 import { colourKeys, listColours } from "@/lib/queries/colours"
 import {
   catalogueVocabulary,
@@ -20,9 +29,13 @@ import {
   updateSupplierItem,
   uploadSupplierItemImage,
 } from "@/lib/queries/procurement"
+import { count } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import { useIdempotencyKey } from "@/screens/procurement/shared"
-import type { SupplierItem } from "@itulah/contract"
+import {
+  useIdempotencyKey,
+  type PendingItem,
+} from "@/screens/procurement/shared"
+import type { CreateSupplierItemRequest, SupplierItem } from "@itulah/contract"
 
 /// Putting something into the sourcing catalogue, or correcting what is in it.
 ///
@@ -47,6 +60,16 @@ import type { SupplierItem } from "@itulah/contract"
 interface Draft {
   supplierId: string | null
   code: string
+  /// How many to order, in `orderUnit` — asked only from an order.
+  quantity: string
+  orderUnit: string
+  /// What it will sell for, and the markup over the price below.
+  markup: string
+  basePrice: string
+  /// The item's own pack sizes: a carton of it holds this many pieces.
+  units: readonly { unit_code: string; factor: string }[]
+  /// How many of each colour and size, when ordering an item that has them.
+  variants: readonly VariantDraft[]
   name: string
   description: string
   price: string
@@ -63,6 +86,12 @@ function blank(supplierId: string | null = null): Draft {
   return {
     supplierId,
     code: "",
+    quantity: "1",
+    orderUnit: "PCS",
+    markup: "",
+    basePrice: "",
+    units: [],
+    variants: [],
     name: "",
     description: "",
     price: "",
@@ -78,6 +107,12 @@ function from(item: SupplierItem): Draft {
   return {
     supplierId: item.supplier_id,
     code: item.supplier_item_code,
+    quantity: "1",
+    orderUnit: "PCS",
+    markup: "",
+    basePrice: "",
+    units: item.units ?? [],
+    variants: [],
     name: item.name,
     description: item.description ?? "",
     price: String(item.unit_price_minor),
@@ -95,6 +130,7 @@ export function ItemFormSheet({
   supplierId,
   onClose,
   onSaved,
+  onDraft,
 }: {
   open: boolean
   /// The item being corrected, or absent to add one.
@@ -108,6 +144,14 @@ export function ItemFormSheet({
   supplierId?: string
   onClose: () => void
   onSaved?: (item: SupplierItem) => void
+  /// Draft the new item instead of creating it — the order composer's way in.
+  ///
+  /// Given, "Add it to the order" writes nothing: the item goes back to the
+  /// caller as the request it will be, and is created when the order is. An
+  /// order abandoned halfway therefore leaves no items behind in the
+  /// catalogue. Corrections to an item that already exists (`item`) still
+  /// save straight away — that record is real either way.
+  onDraft?: (pending: PendingItem) => void
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
@@ -231,6 +275,29 @@ export function ItemFormSheet({
     enabled: open && draft.supplierId !== null,
   })
 
+  /// The item as the server will be asked to create it. One builder for the
+  /// two ways it is sent: now, from the catalogue, or later, with the order.
+  const newItemRequest = (): CreateSupplierItemRequest => ({
+    // The supplier's own code is optional now (owner, 2026-09-26): a blank one
+    // is given a unique code of ours, so the item can still be filed.
+    supplier_item_code: draft.code.trim() === "" ? autoItemCode() : draft.code.trim(),
+    name: draft.name.trim(),
+    description:
+      draft.description.trim() === "" ? null : draft.description.trim(),
+    // Nothing to name yet: a new item's picture is uploaded once the item
+    // exists — see `createSupplierItemWithPhoto`.
+    image_url: null,
+    unit_price_minor: Number.parseInt(draft.price, 10),
+    currency: "IDR",
+    internal_article_code: null,
+    status: "ACTIVE",
+    division_code: draft.division,
+    tags: [...draft.tags],
+    colour_codes: [...draft.colours],
+    size_codes: [...draft.sizes],
+    units: draft.units.filter((one) => isPositiveDecimal(one.factor)),
+  })
+
   const save = useMutation({
     // Wrapped rather than passed by reference: v5 hands a mutation context as
     // the second argument, which is not the `AbortSignal` the fetcher expects.
@@ -268,28 +335,14 @@ export function ItemFormSheet({
                 tags: [...draft.tags],
                 colour_codes: [...draft.colours],
                 size_codes: [...draft.sizes],
+                units: draft.units.filter((one) => isPositiveDecimal(one.factor)),
               },
               item.version,
               idempotency.key
             )
           : await createSupplierItem(
               draft.supplierId!,
-              {
-                supplier_item_code: draft.code.trim(),
-                name: draft.name.trim(),
-                description,
-                // Nothing to name yet: a new item's picture is uploaded once
-                // the item exists, immediately below.
-                image_url: null,
-                unit_price_minor: price,
-                currency: "IDR",
-                internal_article_code: null,
-                status: "ACTIVE",
-                division_code: draft.division,
-                tags: [...draft.tags],
-                colour_codes: [...draft.colours],
-                size_codes: [...draft.sizes],
-              },
+              newItemRequest(),
               idempotency.key
             )
 
@@ -368,13 +421,42 @@ export function ItemFormSheet({
   /// been broken down into variants when it is ordered, and a required picker
   /// would be answered with a guess.
   const price = Number.parseInt(draft.price, 10)
+  /// Opened from an order: the item goes straight onto it, with a quantity.
+  const ordering = onDraft !== undefined && !editing
+  const unitBook = useUnits()
+  /// Units this item can be ordered in: the base, the global conversions and
+  /// its own pack sizes typed above.
+  const orderUnits = unitBook.units.filter(
+    (one) =>
+      one.active &&
+      unitFactor(one.code, draft.units, unitBook.conversions, unitBook.baseUnit) !==
+        null
+  )
+  /// Every SKU the chosen colours and sizes make — the grid the owner asked
+  /// for when the item comes in variants.
+  const skuRows = variantRows(draft.colours, draft.sizes, draft.variants)
+  const byVariant = skuRows.length > 0
+  const factor = unitFactor(
+    draft.orderUnit,
+    draft.units,
+    unitBook.conversions,
+    unitBook.baseUnit
+  )
+  /// Pieces this order wants: the SKU rows added up, or the quantity typed in
+  /// its unit converted exactly.
+  const quantity = byVariant
+    ? variantPieces(skuRows)
+    : factor === null
+      ? null
+      : wholeProduct(draft.quantity, factor)
   const ready =
     draft.name.trim() !== "" &&
     Number.isFinite(price) &&
     price >= 0 &&
     draft.division !== null &&
     draft.tags.length > 0 &&
-    (editing || (draft.supplierId !== null && draft.code.trim() !== ""))
+    (!ordering || (quantity !== null && quantity > 0)) &&
+    (editing || draft.supplierId !== null)
 
   return (
     <Sheet
@@ -406,7 +488,31 @@ export function ItemFormSheet({
           <Button
             variant="primary"
             disabled={!ready || save.isPending}
-            onClick={() => save.mutate()}
+            onClick={() => {
+              if (onDraft !== undefined && !editing) {
+                // Nothing is written: the line carries the item until the
+                // order is raised. See `onDraft`.
+                onDraft({
+                  request: newItemRequest(),
+                  photo,
+                  key: crypto.randomUUID(),
+                  quantity: quantity ?? 1,
+                  unitCode: byVariant ? undefined : draft.orderUnit,
+                  unitQuantity: byVariant ? undefined : draft.quantity,
+                  basePrice: draft.basePrice,
+                  markup: draft.markup,
+                  variants: byVariant
+                    ? skuRows.filter(
+                        (one) => Number.parseInt(one.quantity, 10) > 0
+                      )
+                    : undefined,
+                })
+                setDraft(blank(supplierId ?? null))
+                close()
+                return
+              }
+              save.mutate()
+            }}
           >
             {save.isPending
               ? "Saving…"
@@ -431,11 +537,6 @@ export function ItemFormSheet({
           <Banner tone="warn" onDismiss={() => setPhotoTrouble(null)}>
             The item is saved, but its photograph is not: {photoTrouble}. Open
             the item from the catalogue to try the picture again.
-          </Banner>
-        )}
-        {save.isSuccess && !editing && supplierId === undefined && (
-          <Banner tone="ok" onDismiss={() => save.reset()}>
-            {save.data.name} is in the catalogue. Add another, or close this.
           </Banner>
         )}
 
@@ -463,7 +564,7 @@ export function ItemFormSheet({
                 {showing === null ? (
                   <span className="flex size-full flex-col items-center justify-center gap-1.5 text-mute">
                     <ImagePlus className="size-5" />
-                    <span className="text-[0.71875rem]">Choose a picture</span>
+                    <span className="text-[0.875rem]">Choose a picture</span>
                   </span>
                 ) : (
                   <Thumbnail
@@ -540,17 +641,17 @@ export function ItemFormSheet({
                     />
                   </Field>
                 )}
-                <Field label="Supplier's item code">
+                <Field label="Supplier's item code" aside="Optional">
                   <Input
                     value={draft.code}
                     onChange={(event) => set({ code: event.target.value })}
-                    placeholder="0293433029"
+                    placeholder="Given automatically when blank"
                   />
                 </Field>
               </div>
             )}
 
-            <Field label="Name">
+            <Field label={<Required>Name</Required>}>
               <Input
                 value={draft.name}
                 onChange={(event) => set({ name: event.target.value })}
@@ -562,16 +663,7 @@ export function ItemFormSheet({
                 figure somebody has to count the zeros of; `Rp 200.000.000` is
                 one they can read — and the money field hands back the digits
                 either way, so nothing downstream learns about separators. */}
-            <Field label="Unit price">
-              <Money
-                label="Unit price"
-                prefix="Rp"
-                value={draft.price}
-                onChange={(price) => set({ price })}
-                placeholder="31.000"
-                className="pl-10"
-              />
-            </Field>
+
           </div>
         </div>
 
@@ -590,7 +682,7 @@ export function ItemFormSheet({
             comparing them is the whole point of sourcing. Both are required:
             see the note on `ready`. */}
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Division">
+          <Field label={<Required>Division</Required>}>
             <PickOne
               label="Division"
               choices={divisionChoices}
@@ -599,7 +691,7 @@ export function ItemFormSheet({
               placeholder="Choose a division"
             />
           </Field>
-          <Field label="Tags">
+          <Field label={<Required>Tags</Required>}>
             <PickMany
               label="Tags"
               choices={tagChoices}
@@ -631,7 +723,180 @@ export function ItemFormSheet({
             />
           </Field>
         </div>
+
+        {/* What it costs and what it will sell for — the markup and the base
+            price move together, so they cannot disagree. */}
+        <Section title="Price">
+          <PricingFields
+            required
+            pricing={{
+              purchase: draft.price,
+              markup: draft.markup,
+              base: draft.basePrice,
+            }}
+            onChange={(next) =>
+              set({
+                price: next.purchase,
+                markup: next.markup,
+                basePrice: next.base,
+              })
+            }
+          />
+        </Section>
+
+        {/* The item's own pack sizes — a carton of THIS item holds 24 —
+            which override the global conversions (Lusin 12, Kodi 20) for this
+            item only. */}
+        <Section title="Pack sizes">
+          <div className="flex flex-col gap-2.5">
+            {draft.units.length === 0 && (
+              <p className="text-[0.875rem] text-body">
+                None. The global conversions apply — see Inventory → Units &
+                conversions.
+              </p>
+            )}
+            {draft.units.map((one, index) => (
+              <div key={index} className="flex items-end gap-2.5">
+                <Field label="Unit" className="w-[12rem]">
+                  <Select
+                    aria-label={`Pack unit ${index + 1}`}
+                    value={one.unit_code}
+                    onChange={(unit_code) =>
+                      set({
+                        units: draft.units.map((was, at) =>
+                          at === index ? { ...was, unit_code } : was
+                        ),
+                      })
+                    }
+                  >
+                    {unitBook.units
+                      .filter((unit) => unit.active && !unit.is_base)
+                      .map((unit) => (
+                        <option key={unit.code} value={unit.code}>
+                          {unit.label}
+                        </option>
+                      ))}
+                  </Select>
+                </Field>
+                <Field label="Pieces in one" className="w-[10rem]">
+                  <Input
+                    inputMode="decimal"
+                    value={one.factor}
+                    placeholder="24"
+                    onChange={(event) =>
+                      set({
+                        units: draft.units.map((was, at) =>
+                          at === index
+                            ? { ...was, factor: event.target.value }
+                            : was
+                        ),
+                      })
+                    }
+                    className="text-right tabular-nums"
+                  />
+                </Field>
+                <Button
+                  variant="quiet"
+                  aria-label={`Remove pack unit ${index + 1}`}
+                  className="size-10"
+                  onClick={() =>
+                    set({ units: draft.units.filter((_, at) => at !== index) })
+                  }
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            ))}
+            <div>
+              <Button
+                onClick={() => {
+                  const first = unitBook.units.find(
+                    (unit) =>
+                      unit.active &&
+                      !unit.is_base &&
+                      !draft.units.some((one) => one.unit_code === unit.code)
+                  )
+                  if (first !== undefined)
+                    set({
+                      units: [
+                        ...draft.units,
+                        { unit_code: first.code, factor: "" },
+                      ],
+                    })
+                }}
+              >
+                <Plus />
+                Add a pack size
+              </Button>
+            </div>
+          </div>
+        </Section>
+
+        {/* How many, when the item is going straight onto an order: one
+            quantity in any unit, or — when it comes in colours and sizes —
+            a quantity and a price per SKU. */}
+        {ordering && (
+          <Section title="Order">
+            {byVariant ? (
+              <VariantGrid
+                variants={skuRows}
+                onChange={(variants) => set({ variants })}
+                colourLabel={(code) =>
+                  colourTerms.find((one) => one.code === code)?.label ?? code
+                }
+                basePrice={draft.basePrice}
+              />
+            ) : (
+              <div className="grid gap-4 md:grid-cols-[10rem_12rem_1fr] md:items-end">
+                <Field label={<Required>Qty</Required>}>
+                  <Input
+                    inputMode="decimal"
+                    value={draft.quantity}
+                    onChange={(event) => set({ quantity: event.target.value })}
+                    className="text-right tabular-nums"
+                    aria-label="Quantity to order"
+                  />
+                </Field>
+                <Field label="Unit">
+                  <Select
+                    aria-label="Unit"
+                    value={draft.orderUnit}
+                    onChange={(orderUnit) => set({ orderUnit })}
+                  >
+                    {orderUnits.map((unit) => (
+                      <option key={unit.code} value={unit.code}>
+                        {unit.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <p className="pb-2.5 text-[0.875rem] text-body">
+                  {quantity === null
+                    ? "Not a whole number of pieces."
+                    : `${count(quantity)} pcs`}
+                </p>
+              </div>
+            )}
+          </Section>
+        )}
       </div>
     </Sheet>
   )
+}
+
+/// A field label with the star the owner uses for "required".
+function Required({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      {children}
+      <span className="ml-0.5 text-bad">*</span>
+    </>
+  )
+}
+
+/// A code for an item whose supplier gave none: `ITM-` and eight characters
+/// of a fresh uuid, uppercased — unique enough within one supplier's shelf,
+/// and the server's own uniqueness check is the backstop.
+function autoItemCode(): string {
+  return `ITM-${crypto.randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`
 }

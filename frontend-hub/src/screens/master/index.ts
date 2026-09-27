@@ -1,6 +1,7 @@
 import type { ScreenMap } from "@/screens/registry"
 import { Articles } from "@/screens/master/articles"
 import { Colours } from "@/screens/master/colours"
+import { PaymentTemplates } from "@/screens/master/payment-templates"
 import { Divisions, Sizes, Tags } from "@/screens/master/vocabulary"
 
 /// Screens this module has written. Keys must be paths declared in
@@ -19,4 +20,5 @@ export const screens: ScreenMap = {
   "/master/colours": Colours,
   "/master/sizes": Sizes,
   "/master/tags": Tags,
+  "/master/payment-templates": PaymentTemplates,
 }

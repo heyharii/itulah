@@ -32,6 +32,17 @@
 //! trigger — because the refusal has to name the run and the month in a
 //! sentence a person reads.
 //!
+//! # And when it repays an advance, it names the advance
+//!
+//! A *kasbon* instalment pays out; its repayment is this too — a positive
+//! figure under a DEDUCTION component, filed with the advance it repays. The
+//! advance-side rules (whose advance, money already out, enough outstanding)
+//! need the advance row, so they are checked in the request path that has
+//! read it, and the outstanding one again at approval, because filings sit
+//! while months move. The approval then inserts the `advance_settlement` rows
+//! that move the outstanding, in the same transaction as the decision itself;
+//! the reopen deletes them in the same transaction as its own.
+//!
 //! # It may only name a PER_OCCASION component
 //!
 //! The reference lets an `Additional Salary` *overwrite* a structure
@@ -40,12 +51,13 @@
 //! must have no standing figure, so no line on any slip is ever the answer to
 //! "which of these two won".
 
-use super::basis::ComponentShape;
+use super::basis::{ComponentKind, ComponentShape};
 use super::catalogue::{ComponentCode, PayComponent};
 use super::error::ComponentError;
 use crate::cloud::domain::employment::{Authorization, PlaceId};
 use pricing_engine::Money;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 pub const MAX_ADJUSTMENT_ID_LEN: usize = 64;
 
@@ -60,6 +72,9 @@ pub struct PayrollAdjustmentWire {
     pub employee_id: String,
     pub code: ComponentCode,
     pub amount: Money,
+    /// The advance this figure repays, when it is one. `None` is an ordinary
+    /// one-off; `Some` makes the filing a recovery.
+    pub advance_id: Option<Uuid>,
     pub filed: Authorization,
 }
 
@@ -72,6 +87,7 @@ pub struct PayrollAdjustment {
     employee_id: String,
     code: ComponentCode,
     amount: Money,
+    advance_id: Option<Uuid>,
     filed: Authorization,
 }
 
@@ -100,6 +116,7 @@ impl PayrollAdjustment {
         employee_id: impl Into<String>,
         component: &PayComponent,
         amount: Money,
+        advance: Option<Uuid>,
         filed: Authorization,
     ) -> Result<Self, ComponentError> {
         if component.shape() != ComponentShape::PerOccasion {
@@ -113,6 +130,15 @@ impl PayrollAdjustment {
                 code: component.code().to_string(),
             });
         }
+        // A recovery is money coming back out of a wage, so it can never ride
+        // an EARNING. The direction is this component's own fact, checked
+        // here; the advance-side rules are the request path's, which has read
+        // the advance row.
+        if advance.is_some() && component.kind() != ComponentKind::Deduction {
+            return Err(ComponentError::RecoveryNeedsDeduction {
+                code: component.code().to_string(),
+            });
+        }
         Self::try_new(PayrollAdjustmentWire {
             id: id.into(),
             place,
@@ -120,6 +146,7 @@ impl PayrollAdjustment {
             employee_id: employee_id.into(),
             code: component.code().clone(),
             amount,
+            advance_id: advance,
             filed,
         })
     }
@@ -166,6 +193,7 @@ impl PayrollAdjustment {
             employee_id: wire.employee_id,
             code: wire.code,
             amount: wire.amount,
+            advance_id: wire.advance_id,
             filed: wire.filed,
         })
     }
@@ -187,6 +215,9 @@ impl PayrollAdjustment {
     }
     pub const fn amount(&self) -> Money {
         self.amount
+    }
+    pub const fn advance_id(&self) -> Option<Uuid> {
+        self.advance_id
     }
     pub const fn filed(&self) -> &Authorization {
         &self.filed

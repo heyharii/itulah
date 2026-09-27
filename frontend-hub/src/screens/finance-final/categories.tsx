@@ -102,11 +102,11 @@ export function LineCategories() {
                     is our word, "Komponen gaji" is the thing. The identifier
                     stays because it is what the wire carries and what a
                     support conversation will be about. */}
-                <span className="text-[0.84375rem] font-semibold text-ink">
+                <span className="text-[0.875rem] font-semibold text-ink">
                   {group.label}
                 </span>
                 <Code>{group.family}</Code>
-                <span className="text-[0.71875rem] text-mute">
+                <span className="text-[0.875rem] text-mute">
                   {count(group.rows.length)} kategori
                 </span>
                 {/* The accounts that declare this family, read off the chart.
@@ -121,12 +121,12 @@ export function LineCategories() {
                     </Tag>
                   )) ?? null}
                   {chart.isPending ? (
-                    <span className="text-[0.65625rem] text-faint">
+                    <span className="text-[0.875rem] text-faint">
                       membaca bagan…
                     </span>
                   ) : (
                     (chart.byFamily.get(group.family) ?? []).length === 0 && (
-                      <span className="text-[0.65625rem] text-warn-fg">
+                      <span className="text-[0.875rem] text-warn-fg">
                         tidak ada akun yang memintanya
                       </span>
                     )

@@ -162,7 +162,7 @@ export function ProfitAndLoss() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Reports"
+        crumb="Finance · Reports"
         title="Profit & Loss"
         sub="What was earned and what it cost, over a window, by unit."
       />
@@ -185,7 +185,7 @@ export function ProfitAndLoss() {
         {/* The effective answer, in words, always. A date box left blank and a
             date box filled with today look identical to a reader; this
             sentence is what tells them which report they are looking at. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {range.chip}
           {byUnit ? (
             " · every unit, side by side"
@@ -371,14 +371,14 @@ export function ProfitAndLoss() {
                 asks for it. <b>Gross profit is the only derived number on the
                 page</b>: income less cost of goods sold, from two totals the
                 server computed. The bottom line is the server's own, taken from{" "}
-                <code className="font-mono text-[0.6875rem]">journal_line</code>{" "}
+                <code className="font-mono text-[0.875rem]">journal_line</code>{" "}
                 rather than by adding the sections up, so a disagreement with
                 the rows above it is a bug and not a rounding.
               </Note>
 
               <Note>
                 <b>Each column is its own request.</b>{" "}
-                <code className="font-mono text-[0.6875rem]">
+                <code className="font-mono text-[0.875rem]">
                   GET /finance/statement
                 </code>{" "}
                 takes one window and one unit — it has no <i>periodicity</i> and
@@ -524,9 +524,8 @@ function buildTree(
           rootClass: section.root_class,
           code: line.account_code,
           name: line.name,
-          // The section is its own row at level zero, so the first rung under
-          // one starts at one — which is exactly what `ladderLevel` returns
-          // for a three-digit code.
+          // The section is its own row at level zero, so its first child is
+          // indented once below it.
           level: ladderLevel(line.depth),
         })
       }

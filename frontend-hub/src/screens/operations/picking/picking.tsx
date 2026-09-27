@@ -121,7 +121,7 @@ export function Picking() {
       <Card className="overflow-hidden">
         <CardHeader>
           <CardTitle>Picklists</CardTitle>
-          <span className="text-[0.75rem] text-mute">
+          <span className="text-[0.875rem] text-mute">
             {count(rounds.length)} raised
           </span>
         </CardHeader>
@@ -170,7 +170,7 @@ export function Picking() {
                         <button
                           type="button"
                           onClick={() => opened.open(round.session.session_id)}
-                          className="text-[0.75rem] text-accent underline underline-offset-2"
+                          className="text-[0.875rem] text-accent underline underline-offset-2"
                         >
                           Read it
                         </button>
@@ -320,7 +320,7 @@ function NewPick({
                 owed:
                 <ul className="mt-1.5 flex flex-col gap-1">
                   {receipt.refused.map((line) => (
-                    <li key={line.sku_code} className="text-[0.71875rem]">
+                    <li key={line.sku_code} className="text-[0.875rem]">
                       <span className="font-mono">{line.sku_code}</span> ·{" "}
                       {line.reason}
                     </li>
@@ -333,7 +333,7 @@ function NewPick({
               <MiniTable head={["SKU", "Picked", "Trips"]}>
                 {receipt.summary.lines.map((line) => (
                   <MiniRow key={line.sku_code}>
-                    <MiniCell className="font-mono text-[0.71875rem]">
+                    <MiniCell className="font-mono text-[0.875rem]">
                       {line.sku_code}
                     </MiniCell>
                     <MiniCell align="right">{count(line.picked)}</MiniCell>
@@ -387,7 +387,7 @@ function Picklist({ id, onClose }: { id: string | null; onClose: () => void }) {
                 <MiniTable head={["SKU", "Picked", "Trips"]}>
                   {found.lines.map((line) => (
                     <MiniRow key={line.sku_code}>
-                      <MiniCell className="font-mono text-[0.71875rem]">
+                      <MiniCell className="font-mono text-[0.875rem]">
                         {line.sku_code}
                       </MiniCell>
                       <MiniCell align="right">{count(line.picked)}</MiniCell>

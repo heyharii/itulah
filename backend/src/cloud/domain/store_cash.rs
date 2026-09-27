@@ -351,6 +351,17 @@ pub const fn approval_level_for(amount_minor: i64) -> ApprovalLevel {
 ///
 /// Head office may approve anything a store manager may; the reverse is the
 /// whole control.
+pub const fn approval_is_sufficient_up_to(
+    level: ApprovalLevel,
+    amount_minor: i64,
+    manager_limit_minor: i64,
+) -> bool {
+    match level {
+        ApprovalLevel::Admin => true,
+        ApprovalLevel::Supervisor => amount_minor <= manager_limit_minor,
+    }
+}
+
 pub const fn approval_is_sufficient(level: ApprovalLevel, amount_minor: i64) -> bool {
     match level {
         ApprovalLevel::Admin => true,

@@ -134,7 +134,7 @@ function Row({
         <span className="text-ink">{pattern.name}</span>
         <span className="ml-2 font-mono text-id text-mute">{pattern.id}</span>
         {failed !== null && (
-          <span className="mt-0.5 block text-[0.6875rem] text-bad-fg">
+          <span className="mt-0.5 block text-[0.875rem] text-bad-fg">
             {failed}
           </span>
         )}
@@ -163,8 +163,8 @@ function Row({
       <MiniCell align="right">
         {asked ? (
           <span className="inline-flex items-center gap-1.5">
-            <span className="text-[0.6875rem] text-body">
-              Retire it? Rosters keep it.
+            <span className="text-[0.875rem] text-body">
+              Cancel it? Rosters keep it.
             </span>
             <Button size="sm" onClick={() => setAsked(false)}>
               No
@@ -175,12 +175,12 @@ function Row({
               disabled={retire.isPending}
               onClick={() => retire.mutate()}
             >
-              Retire
+              Cancel
             </Button>
           </span>
         ) : (
           <Button size="sm" onClick={() => setAsked(true)}>
-            Retire
+            Cancel
           </Button>
         )}
       </MiniCell>
@@ -208,18 +208,15 @@ function DefinePattern() {
   const client = useQueryClient()
   const [draft, setDraft] = useState<NewShift>(BLANK)
   const [failed, setFailed] = useState<string | null>(null)
-  const [written, setWritten] = useState(false)
 
   const define = useMutation({
     mutationFn: () => defineShift(draft),
     onSuccess: () => {
       setFailed(null)
-      setWritten(true)
       setDraft(BLANK)
       void client.invalidateQueries({ queryKey: rosterKeys.shifts() })
     },
     onError: (error: Error) => {
-      setWritten(false)
       setFailed(error.message)
     },
   })
@@ -239,11 +236,6 @@ function DefinePattern() {
         <CardTitle>Define a pattern</CardTitle>
       </CardHeader>
       <div className="flex flex-col gap-3 px-4 pb-4">
-        {written && (
-          <Banner tone="ok">
-            Defined. Rosters can be built on it from the next week you open.
-          </Banner>
-        )}
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
         {wrapsAround && (
           <Banner tone="warn">

@@ -1,4 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  Banknote,
+  Barcode,
+  Coins,
+  Gift,
+  Hash,
+  Layers,
+  LayoutGrid,
+  Percent,
+  Shirt,
+  ShoppingBasket,
+  Tag,
+} from "lucide-react"
 import { useState } from "react"
 import type {
   Applicability,
@@ -29,7 +42,6 @@ import {
   type PublishReceipt,
 } from "@/lib/queries/commercial"
 import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
-import { named } from "@/screens/commercial/compose"
 import { endOfDay, shift, startOfDay, today } from "@/lib/calendar"
 import { FindMany, type Found } from "@/components/ui/find"
 import {
@@ -37,11 +49,11 @@ import {
   Dial,
   Section,
   Stepper,
-  Toggle,
   type Tile,
 } from "@/components/ui/form"
-import { Terms } from "@/screens/commercial/controls"
+import { More, Question, Terms } from "@/screens/commercial/controls"
 import { describeEffect, termsOf, useActor } from "@/screens/commercial/shared"
+import { cn } from "@/lib/utils"
 
 /// Writing a promotion.
 ///
@@ -87,7 +99,7 @@ import { describeEffect, termsOf, useActor } from "@/screens/commercial/shared"
 ///
 /// **What a merchandiser types, and what they pick.** The first version of this
 /// form asked for every one of those fields as text in an identical pill: a
-/// division was typed as `MENSWEAR` into the same box that had just taken a
+/// division was typed as `PRIA` into the same box that had just taken a
 /// name, and a misspelling was not an error — it was a promotion scoped to a
 /// division of nothing, published to every shop, applying nowhere. Only two
 /// answers on this form are genuinely free text (the name, and the coupon
@@ -99,95 +111,36 @@ import { describeEffect, termsOf, useActor } from "@/screens/commercial/shared"
 type ScopeKind = Applicability["on"]
 type EffectKind = Effect["kind"]
 
-/// What a rule can match, each with the sentence that distinguishes it from
-/// the one above.
+/// What a rule can match. A label and a glyph, and nothing under them: the
+/// sentence that used to sit on each tile is what the terms on the right say
+/// once a choice is made, and saying it twice made the form a page of grey.
 const SCOPES: readonly Tile<ScopeKind>[] = [
-  {
-    value: "ARTICLE",
-    label: "These articles",
-    note: "A whole article — every colourway and every size minted against it.",
-  },
-  {
-    value: "SKU",
-    label: "These SKUs",
-    note: "One article in one colourway and one size — SKU-0003-003, not the whole article.",
-  },
-  {
-    value: "DIVISION",
-    label: "A division",
-    note: "Menswear, Kids — the whole department.",
-  },
-  {
-    value: "TAG",
-    label: "Anything tagged",
-    note: "Every article carrying the tag, however it is filed.",
-  },
-  {
-    value: "WHOLE_CART",
-    label: "The whole basket",
-    note: "Matches nothing in particular — it applies to the sale.",
-  },
+  { value: "ARTICLE", label: "Articles", icon: Shirt },
+  { value: "SKU", label: "SKUs", icon: Barcode },
+  { value: "DIVISION", label: "Divisions", icon: LayoutGrid },
+  { value: "TAG", label: "Tags", icon: Hash },
+  { value: "WHOLE_CART", label: "Whole basket", icon: ShoppingBasket },
 ]
 
 const EFFECTS: readonly Tile<EffectKind>[] = [
-  {
-    value: "PERCENT",
-    label: "A percentage off",
-    note: "Taken off every matching line.",
-  },
-  {
-    value: "AMOUNT",
-    label: "An amount off the basket",
-    note: "One flat cut on the sale, not per item.",
-  },
-  {
-    value: "FIXED_UNIT_PRICE",
-    label: "A fixed price each",
-    note: "Every matching item becomes this price.",
-  },
-  {
-    value: "EARN_POINTS",
-    label: "Loyalty points",
-    note: "Points rather than money off.",
-  },
-  {
-    value: "FREE_ITEM",
-    label: "Free items",
-    refused:
-      "Not available — nothing picks which unit leaves, so stock would go wrong. Use a fixed price or a percentage.",
-  },
+  { value: "PERCENT", label: "Percent off", icon: Percent },
+  { value: "AMOUNT", label: "Amount off", icon: Banknote },
+  { value: "FIXED_UNIT_PRICE", label: "Fixed price", icon: Tag },
+  { value: "BUY_X_GET_Y", label: "Buy X get Y", icon: Layers },
+  { value: "FREE_ITEM", label: "Free item", icon: Gift },
+  { value: "EARN_POINTS", label: "Points", icon: Coins },
 ]
 
 const AUDIENCE: readonly Tile<"EVERYONE" | "MEMBERS">[] = [
-  {
-    value: "EVERYONE",
-    label: "Anybody who walks in",
-    note: "No identification asked for at the till.",
-  },
-  {
-    value: "MEMBERS",
-    label: "Identified members only",
-    note: "The till must have identified the shopper first.",
-  },
+  { value: "EVERYONE", label: "Everyone" },
+  { value: "MEMBERS", label: "Members only" },
 ]
 
-/// "Not valid on sale items", as the two things it can actually mean.
-///
-/// Worded from the shop's side rather than the engine's, because the engine's
-/// word is `EXCLUDE` and nobody writing a promotion thinks in those terms. The
-/// note under each one says what the shopper sees, since that is the part that
-/// gets argued about at the counter.
+/// "Not valid on sale items", as the two things it can actually mean — worded
+/// from the shop's side rather than the engine's, whose word is `EXCLUDE`.
 const MARKDOWNS: readonly Tile<MarkdownPolicy>[] = [
-  {
-    value: "EXCLUDE",
-    label: "Not on sale items",
-    note: "Marked-down goods are left alone — and do not count toward any minimum spend either.",
-  },
-  {
-    value: "ALLOW",
-    label: "On sale items too",
-    note: "Comes off the marked-down price, on top of the markdown.",
-  },
+  { value: "EXCLUDE", label: "Not on sale items" },
+  { value: "ALLOW", label: "Sale items too" },
 ]
 
 /// "This offer cannot be combined with any other", as the two things a shop
@@ -199,39 +152,17 @@ const MARKDOWNS: readonly Tile<MarkdownPolicy>[] = [
 /// everything else with it, and quietly narrowing that would let offers through
 /// that nobody decided to let through.
 const EXCLUSIVES: readonly Tile<ExclusiveScope>[] = [
-  {
-    value: "BASKET",
-    label: "Every other offer",
-    note: "While this one applies, nothing else comes off the sale at all.",
-  },
-  {
-    value: "LINE",
-    label: "Only the goods it discounts",
-    note: "Another offer can still work on the rest of the basket — counted on the rest, and coming off the rest.",
-  },
+  { value: "BASKET", label: "Blocks every other offer" },
+  { value: "LINE", label: "Blocks offers on its items" },
 ]
 
 /// What a points offer is worth on an item a better points offer already
-/// reached.
-///
-/// Written against the everyday rate, because that is the one a shop leaves
-/// running all year and the only thing "double points" is a number against.
+/// reached, written against the everyday rate — the one a shop leaves running
+/// all year and the only thing "double points" is a number against.
 const POINTS: readonly Tile<PointsCombination>[] = [
-  {
-    value: "HIGHEST",
-    label: "Only the best one counts",
-    note: "The better offer wins the item outright. Double beside triple is triple.",
-  },
-  {
-    value: "ADD",
-    label: "Adds what it beats the everyday rate by",
-    note: "Double beside triple comes to four times the everyday rate.",
-  },
-  {
-    value: "COMPOUND",
-    label: "Multiplies what the item already earns",
-    note: "Double beside triple comes to six times the everyday rate.",
-  },
+  { value: "HIGHEST", label: "Best rate only" },
+  { value: "ADD", label: "Add the extra" },
+  { value: "COMPOUND", label: "Multiply" },
 ]
 
 function applicabilityOf(
@@ -304,8 +235,10 @@ export function RuleForm({
   const [to, setTo] = useState("")
   const [effectKind, setEffectKind] = useState<EffectKind>("PERCENT")
   const [percentOff, setPercentOff] = useState("")
+  const [buyQuantity, setBuyQuantity] = useState("2")
+  const [getQuantity, setGetQuantity] = useState("1")
+  const [rewardPercentOff, setRewardPercentOff] = useState("100")
   const [amount, setAmount] = useState("")
-  const [gated, setGated] = useState(false)
   const [couponCode, setCouponCode] = useState("")
   const [budget, setBudget] = useState("")
   const [maxUses, setMaxUses] = useState("")
@@ -344,7 +277,7 @@ export function RuleForm({
             : []
 
   /// The same choice, in the words a person reads. Codes are what the engine
-  /// matches on; a term that says `MENSWEAR` is a term nobody checks.
+  /// matches on; a term that says `PRIA` is a term nobody checks.
   const chosenNames: readonly string[] =
     scopeKind === "ARTICLE"
       ? articles.map((one) => one.label)
@@ -367,6 +300,18 @@ export function RuleForm({
   const needsCodes = scopeKind !== "WHOLE_CART"
   const bps =
     percentOff.trim() === "" ? null : Math.round(Number(percentOff) * 100)
+  const rewardBps =
+    rewardPercentOff.trim() === ""
+      ? null
+      : Math.round(Number(rewardPercentOff) * 100)
+  const positiveWhole = (value: string) => {
+    const number = Number(value.trim())
+    return value.trim() !== "" && Number.isSafeInteger(number) && number > 0
+      ? number
+      : null
+  }
+  const buy = positiveWhole(buyQuantity)
+  const get = positiveWhole(getQuantity)
   const amountMinor = minorOf(amount)
   const budgetMinor = budget.trim() === "" ? null : minorOf(budget)
   // A day, not a minute. The start is the first instant of the day chosen and
@@ -391,6 +336,22 @@ export function RuleForm({
         return amountMinor === null
           ? null
           : { kind: "FIXED_UNIT_PRICE", unit_price: { minor: amountMinor } }
+      case "BUY_X_GET_Y":
+      case "FREE_ITEM":
+        return buy === null ||
+          get === null ||
+          (effectKind === "BUY_X_GET_Y" &&
+            (rewardBps === null ||
+              !Number.isFinite(rewardBps) ||
+              rewardBps <= 0 ||
+              rewardBps > 10_000))
+          ? null
+          : {
+              kind: "BUY_X_GET_Y",
+              buy,
+              get,
+              reward_bps: effectKind === "FREE_ITEM" ? 10_000 : rewardBps!,
+            }
       case "EARN_POINTS":
         return amountMinor === null
           ? null
@@ -400,25 +361,22 @@ export function RuleForm({
               spend_per_point: { minor: amountMinor },
             }
       default:
-        // FREE_ITEM: never assembled, because it cannot be published.
         return null
     }
   })()
 
   const problem =
     name.trim() === ""
-      ? "A promotion needs a name — it is what a shop sees in its own log."
+      ? "Give the promotion a name."
       : needsCodes && chosen.length === 0
-        ? `Pick what this applies to, or scope it to the whole basket.`
+        ? "Choose what it applies to."
         : effect === null
-          ? "Say how much, under “What it does”."
-          : gated && code === ""
-            ? "A coupon-gated offer needs the code shoppers will present."
-            : endsAt !== null && startsAt !== null && endsAt <= startsAt
-              ? "The end has to come after the start."
-              : actor === ""
-                ? "Nobody is signed in, so no command can name who did this."
-                : undefined
+          ? "Set the discount."
+          : endsAt !== null && startsAt !== null && endsAt <= startsAt
+            ? "The end date has to be after the start."
+            : actor === ""
+              ? "Sign in to publish."
+              : undefined
 
   const campaign = campaigns.find(
     (one) => one.campaign.campaign_id === campaignId
@@ -471,7 +429,7 @@ export function RuleForm({
             time_window: null,
           },
           effect,
-          coupon_code: gated && code !== "" ? code : null,
+          coupon_code: code !== "" ? code : null,
           max_discount: null,
           caps: {
             budget: budgetMinor === null ? null : { minor: budgetMinor },
@@ -552,7 +510,7 @@ export function RuleForm({
         rules: [rule],
         campaigns: restated,
         coupons:
-          gated && code !== ""
+          code !== ""
             ? [
                 {
                   code,
@@ -586,7 +544,6 @@ export function RuleForm({
       setTags([])
       setPercentOff("")
       setAmount("")
-      setGated(false)
       setCouponCode("")
       setBudget("")
       setMaxUses("")
@@ -601,6 +558,21 @@ export function RuleForm({
   const halted =
     publish.error instanceof BookWrittenNotPublished ? publish.error : null
 
+  /// How many of the folded settings are off their defaults, so a closed
+  /// "More options" still says that something inside it is set.
+  const tuned = [
+    members,
+    markdownPolicy !== "EXCLUDE",
+    exclusiveScope !== "BASKET",
+    code !== "",
+    Number(minQuantity) > 0,
+    (minorOf(minAmount) ?? 0) > 0,
+    budget.trim() !== "",
+    maxUses.trim() !== "",
+    maxPerCustomer.trim() !== "",
+    (Number(priority) || 0) !== 0,
+  ].filter(Boolean).length
+
   return (
     <Sheet
       open={open}
@@ -608,27 +580,20 @@ export function RuleForm({
       title="New promotion"
       id={`v${nextVersion}`}
       width="wide"
-      // Two thirds of the glass rather than the `wide` default's 46rem cap.
-      // This form asks six groups of questions and every one of them is a row
-      // of tiles or a picker with chips in it; at rail width they stack into a
-      // column nobody can see the end of, and the scroll IS the difficulty.
+      // Two thirds of the glass rather than the `wide` default's 46rem cap:
+      // the form and the terms it reads back sit side by side.
       className="md:w-[clamp(32rem,66vw,58rem)]"
       footer={
         <div className="flex items-center justify-between gap-3">
-          <span className="min-w-0 text-[0.71875rem] leading-relaxed">
-            {/* What is stopping the button, said BESIDE the button. It used to
-                be the last line of a long scroll, which is the one place
-                somebody looking at a disabled Publish will not be looking. */}
-            {problem !== undefined ? (
-              <span className="text-bad">{problem}</span>
-            ) : (
-              <span className="text-mute">
-                <span className="text-text">
-                  {reads(effect, scopeKind, chosen, members)}
-                </span>{" "}
-                — published and sent to every shop the moment you press this.
-              </span>
+          {/* What is stopping the button, said BESIDE the button — the one
+              place somebody looking at a disabled Publish is looking. */}
+          <span
+            className={cn(
+              "min-w-0 truncate text-[0.875rem]",
+              problem !== undefined ? "text-bad" : "text-text"
             )}
+          >
+            {problem ?? reads(effect, scopeKind, chosen, members)}
           </span>
           <Button
             variant="primary"
@@ -654,49 +619,141 @@ export function RuleForm({
           on the window: this panel is 66vw on a desk and the whole glass on a
           phone, so a `lg:` breakpoint would be reading the wrong box. */}
       <div className="@container">
-        <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] @3xl:gap-x-8">
+        <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] @3xl:gap-x-8">
           <div className="flex flex-col gap-6">
-            <Section title="The offer">
-              <Field
-                label="What it is called"
-                hint="What a cashier and a report will both call this offer."
-              >
-                <Input
-                  value={name}
-                  autoFocus
-                  placeholder="20% off outerwear"
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </Field>
-
-              <Field
-                label="Part of a campaign"
-                hint="A rule is live only when both it and its campaign are, so a campaign is one switch over a set of offers."
-              >
-                <PickOne
-                  choices={campaigns.map((one) => ({
-                    value: one.campaign.campaign_id,
-                    label: one.campaign.name,
-                  }))}
-                  value={campaignId}
-                  onChange={setCampaignId}
-                  placeholder="On its own"
-                  label="The campaign this offer belongs to"
-                />
-              </Field>
+            <Section title="Promotion">
+              <div className="grid gap-3 @lg:grid-cols-2">
+                <Field label="Name">
+                  <Input
+                    value={name}
+                    autoFocus
+                    placeholder="20% off outerwear"
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </Field>
+                <Field label="Campaign">
+                  <PickOne
+                    choices={campaigns.map((one) => ({
+                      value: one.campaign.campaign_id,
+                      label: one.campaign.name,
+                    }))}
+                    value={campaignId}
+                    onChange={setCampaignId}
+                    placeholder="None"
+                    label="The campaign this offer belongs to"
+                  />
+                </Field>
+              </div>
             </Section>
 
-            <Section title="What it applies to">
+            <Section title="Discount">
+              <Choices
+                options={EFFECTS}
+                value={effectKind}
+                onChange={setEffectKind}
+                columns={3}
+                className="grid-cols-2"
+                label="What this promotion does"
+              />
+
+              {effectKind === "PERCENT" ? (
+                <Field label="Percent off">
+                  <Dial
+                    value={percentOff}
+                    onChange={setPercentOff}
+                    max={100}
+                    tick={10}
+                    suffix="%"
+                    marks={[10, 20, 30, 50, 70]}
+                    placeholder="20"
+                    label="Per cent off"
+                  />
+                </Field>
+              ) : effectKind === "BUY_X_GET_Y" || effectKind === "FREE_ITEM" ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Buy">
+                      <Stepper
+                        value={buyQuantity}
+                        onChange={setBuyQuantity}
+                        suffix="items"
+                        placeholder="2"
+                        label="Units to buy in each bundle"
+                      />
+                    </Field>
+                    <Field label={effectKind === "FREE_ITEM" ? "Free" : "Get"}>
+                      <Stepper
+                        value={getQuantity}
+                        onChange={setGetQuantity}
+                        suffix="items"
+                        placeholder="1"
+                        label="Rewarded units in each bundle"
+                      />
+                    </Field>
+                  </div>
+                  {effectKind === "BUY_X_GET_Y" && (
+                    <Field label="Discount on the items you get">
+                      <Dial
+                        value={rewardPercentOff}
+                        onChange={setRewardPercentOff}
+                        max={100}
+                        tick={10}
+                        suffix="%"
+                        marks={[25, 50, 75, 100]}
+                        placeholder="100"
+                        label="Discount on rewarded units"
+                      />
+                    </Field>
+                  )}
+                </>
+              ) : (
+                <Field
+                  label={
+                    effectKind === "AMOUNT"
+                      ? "Amount off the basket"
+                      : effectKind === "FIXED_UNIT_PRICE"
+                        ? "Price each"
+                        : "Spend per point"
+                  }
+                >
+                  <Money
+                    value={amount}
+                    onChange={setAmount}
+                    prefix="Rp"
+                    placeholder="50.000"
+                    label="The figure this promotion applies"
+                  />
+                </Field>
+              )}
+
+              {/* Only under a points offer. A control that does nothing on the
+                  four money effects would look authored and change nothing. */}
+              {effectKind === "EARN_POINTS" && (
+                <Question label="With a better points offer">
+                  <Choices
+                    options={POINTS}
+                    value={pointsCombination}
+                    onChange={setPointsCombination}
+                    columns={3}
+                    className="grid-cols-3"
+                    label="What this rate is worth on an item a better rate already reached"
+                  />
+                </Question>
+              )}
+            </Section>
+
+            <Section title="Applies to">
               <Choices
                 options={SCOPES}
                 value={scopeKind}
                 onChange={setScopeKind}
-                columns={2}
+                columns={3}
+                className="grid-cols-2"
                 label="What this promotion matches"
               />
 
               {scopeKind === "ARTICLE" && (
-                <Field label="Which articles" hint={named(articles, "article")}>
+                <Field label="Articles">
                   <FindMany
                     chosen={articles}
                     onChange={setArticles}
@@ -722,7 +779,7 @@ export function RuleForm({
               )}
 
               {scopeKind === "SKU" && (
-                <Field label="Which SKUs" hint={named(products, "SKU")}>
+                <Field label="SKUs">
                   <FindMany
                     chosen={products}
                     onChange={setProducts}
@@ -748,11 +805,11 @@ export function RuleForm({
 
               {scopeKind === "DIVISION" && (
                 <Field
-                  label="Which divisions"
-                  hint={
+                  label="Divisions"
+                  problem={
                     divisionList.failed
-                      ? "The division list is not answering, so none can be picked."
-                      : "Chosen from the master list — a division nobody has declared cannot be typed in by accident."
+                      ? "The division list is not answering."
+                      : undefined
                   }
                 >
                   <PickMany
@@ -767,11 +824,11 @@ export function RuleForm({
 
               {scopeKind === "TAG" && (
                 <Field
-                  label="Which tags"
-                  hint={
+                  label="Tags"
+                  problem={
                     tagList.failed
-                      ? "The tag list is not answering, so none can be picked."
-                      : "Every article carrying one of these is matched."
+                      ? "The tag list is not answering."
+                      : undefined
                   }
                 >
                   <PickMany
@@ -783,166 +840,14 @@ export function RuleForm({
                   />
                 </Field>
               )}
-
-              {scopeKind === "WHOLE_CART" && (
-                <p className="text-[0.71875rem] leading-relaxed text-mute">
-                  Nothing to name: this applies to the sale itself, so the
-                  conditions on the right are what decide whether it fires.
-                </p>
-              )}
-
-              {/* Its own heading rather than a `<Field>`: a `<label>` wrapped
-                  round a radio group hands every click on the words to the
-                  first option in it. */}
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[0.78125rem] font-medium text-text">
-                  Who it is for
-                </span>
-                <Choices
-                  options={AUDIENCE}
-                  value={members ? "MEMBERS" : "EVERYONE"}
-                  onChange={(next) => setMembers(next === "MEMBERS")}
-                  columns={2}
-                  label="Who this promotion is for"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[0.78125rem] font-medium text-text">
-                  Goods already marked down
-                </span>
-                <Choices
-                  options={MARKDOWNS}
-                  value={markdownPolicy}
-                  onChange={setMarkdownPolicy}
-                  columns={2}
-                  label="Whether this promotion applies to marked-down goods"
-                />
-              </div>
-
-              {/* Every rule this form writes stands on its own — `stacking` is
-                  ALONE above — so this is always the live question: when it
-                  applies, what does it push out of the way? */}
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[0.78125rem] font-medium text-text">
-                  What it cannot be combined with
-                </span>
-                <Choices
-                  options={EXCLUSIVES}
-                  value={exclusiveScope}
-                  onChange={setExclusiveScope}
-                  columns={2}
-                  label="How much of the basket this promotion shuts other offers out of"
-                />
-              </div>
             </Section>
 
-            <Section title="What it does">
-              <Choices
-                options={EFFECTS}
-                value={effectKind}
-                onChange={setEffectKind}
-                columns={2}
-                label="What this promotion does"
-              />
-
-              {effectKind === "PERCENT" ? (
-                <Field
-                  label="How much off"
-                  hint={
-                    bps === null || !Number.isFinite(bps)
-                      ? "The engine stores this as basis points; type it as a percentage."
-                      : `${count(bps)} basis points.`
-                  }
-                >
-                  <Dial
-                    value={percentOff}
-                    onChange={setPercentOff}
-                    max={100}
-                    tick={10}
-                    suffix="%"
-                    marks={[10, 20, 30, 50, 70]}
-                    placeholder="20"
-                    label="Per cent off"
-                  />
-                </Field>
-              ) : (
-                <Field
-                  label={
-                    effectKind === "AMOUNT"
-                      ? "Amount off the basket"
-                      : effectKind === "FIXED_UNIT_PRICE"
-                        ? "Price each"
-                        : "Spend per point"
-                  }
-                  hint={
-                    amountMinor === null
-                      ? "Whole rupiah."
-                      : effectKind === "EARN_POINTS"
-                        ? `One point per ${money(amountMinor)} spent.`
-                        : `${money(amountMinor)}.`
-                  }
-                >
-                  <Money
-                    value={amount}
-                    onChange={setAmount}
-                    prefix="Rp"
-                    placeholder="50.000"
-                    label="The figure this promotion applies"
-                  />
-                </Field>
-              )}
-
-              {/* Only under a points offer. A control that does nothing on the
-                  four money effects would be the same trap as a field the
-                  server silently drops: it looks authored and changes
-                  nothing. */}
-              {effectKind === "EARN_POINTS" && (
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[0.78125rem] font-medium text-text">
-                    Beside a better points offer
-                  </span>
-                  <Choices
-                    options={POINTS}
-                    value={pointsCombination}
-                    onChange={setPointsCombination}
-                    columns={1}
-                    label="What this rate is worth on an item a better rate already reached"
-                  />
-                </div>
-              )}
-
-              <Toggle
-                on={gated}
-                onToggle={() => setGated((was) => !was)}
-                label="Only with a coupon code"
-                note={
-                  gated
-                    ? "Shut until the code is typed in at the till. A coupon is a gate on this rule, never a discount of its own."
-                    : "Open to everybody the rule matches, with nothing to present."
-                }
-              />
-
-              {gated && (
-                <Field
-                  label="The code"
-                  hint="Upper case, however it is typed. It travels to every shop with the offer."
-                >
-                  <Input
-                    value={couponCode}
-                    placeholder="LEBARAN25"
-                    className="font-mono uppercase"
-                    onChange={(event) => setCouponCode(event.target.value)}
-                  />
-                </Field>
-              )}
-            </Section>
-          </div>
-
-          <div className="flex flex-col gap-6">
-            <Section title="When it runs" aside="days, not minutes">
+            {/* A day, not a minute, at each end: it starts at the first minute
+                of the day it runs from and stops after the last minute of the
+                day it runs until. */}
+            <Section title="Schedule">
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Runs from">
+                <Field label="Starts">
                   <Day
                     value={from}
                     onChange={setFrom}
@@ -955,11 +860,11 @@ export function RuleForm({
                     ]}
                   />
                 </Field>
-                <Field label="Until">
+                <Field label="Ends">
                   <Day
                     value={to}
                     onChange={setTo}
-                    placeholder="Open ended"
+                    placeholder="No end date"
                     label="The last day this promotion runs"
                     notBefore={from}
                     presets={[
@@ -972,34 +877,66 @@ export function RuleForm({
                   />
                 </Field>
               </div>
-              <p className="text-[0.71875rem] leading-relaxed text-mute">
-                A whole day each end: it starts at the first minute of the day
-                it runs from and stops after the last minute of the day it runs
-                until. Leave both alone and it starts the moment it is published
-                and never stops on its own.
-              </p>
             </Section>
 
-            {/* Counted over what the rule MATCHES, not over the basket. The
-                engine sums `quantity` and `gross_total` for the matched lines
-                alone (`check_conditions` in `engine.rs`), so "least basket
-                value" was a label that promised the wrong thing on every scope
-                but the whole cart: a million rupiah of footwear does not open a
-                menswear offer. */}
-            <Section
-              title="Before it applies"
-              aside={
-                scopeKind === "WHOLE_CART"
-                  ? "both must be met"
-                  : "counted on what it matches"
-              }
-            >
+            {/* Everything below is optional and most offers leave it alone,
+                so it is folded away rather than asked on every promotion. */}
+            <More count={tuned}>
+              <Question label="Who can use it">
+                <Choices
+                  options={AUDIENCE}
+                  value={members ? "MEMBERS" : "EVERYONE"}
+                  onChange={(next) => setMembers(next === "MEMBERS")}
+                  columns={2}
+                  className="grid-cols-2"
+                  label="Who this promotion is for"
+                />
+              </Question>
+
+              <Question label="Items already on sale">
+                <Choices
+                  options={MARKDOWNS}
+                  value={markdownPolicy}
+                  onChange={setMarkdownPolicy}
+                  columns={2}
+                  className="grid-cols-2"
+                  label="Whether this promotion applies to marked-down goods"
+                />
+              </Question>
+
+              {/* Every rule this form writes stands on its own — `stacking` is
+                  ALONE above — so this is always the live question: when it
+                  applies, what does it push out of the way? */}
+              <Question label="Other offers">
+                <Choices
+                  options={EXCLUSIVES}
+                  value={exclusiveScope}
+                  onChange={setExclusiveScope}
+                  columns={2}
+                  className="grid-cols-2"
+                  label="How much of the basket this promotion shuts other offers out of"
+                />
+              </Question>
+
+              <Field label="Coupon code">
+                <Input
+                  value={couponCode}
+                  placeholder="None needed"
+                  className="font-mono uppercase placeholder:font-sans placeholder:normal-case"
+                  onChange={(event) => setCouponCode(event.target.value)}
+                />
+              </Field>
+
+              {/* Counted over what the rule MATCHES, not over the basket —
+                  `check_conditions` in `engine.rs` sums the matched lines
+                  alone, so the labels say "matching" on every scope but the
+                  whole cart. */}
               <div className="grid grid-cols-2 gap-3">
                 <Field
                   label={
                     scopeKind === "WHOLE_CART"
-                      ? "Least units in the basket"
-                      : "Least matching units"
+                      ? "Min. items in basket"
+                      : "Min. matching items"
                   }
                 >
                   <Stepper
@@ -1012,41 +949,31 @@ export function RuleForm({
                 <Field
                   label={
                     scopeKind === "WHOLE_CART"
-                      ? "Least basket value"
-                      : "Least value of those"
+                      ? "Min. basket value"
+                      : "Min. matching value"
                   }
                 >
                   <Money
                     value={minAmount}
                     onChange={setMinAmount}
                     prefix="Rp"
-                    placeholder="0"
+                    placeholder="Any"
                     label="Least value of the matching lines"
                   />
                 </Field>
               </div>
-              <p className="text-[0.71875rem] leading-relaxed text-mute">
-                {scopeKind === "WHOLE_CART"
-                  ? "This offer matches the whole sale, so both are read over the whole basket."
-                  : "Both are counted over the lines this offer matches, not over the whole sale — the rest of the basket does not count towards either."}
-              </p>
-            </Section>
 
-            <Section title="How far it may go">
-              <Field
-                label="Budget"
-                hint="A brake, not a gate — a shop enforces from the last count it was sent."
-              >
-                <Money
-                  value={budget}
-                  onChange={setBudget}
-                  prefix="Rp"
-                  placeholder="Unlimited"
-                  label="Budget"
-                />
-              </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Most baskets">
+              <div className="grid gap-3 @lg:grid-cols-3">
+                <Field label="Budget">
+                  <Money
+                    value={budget}
+                    onChange={setBudget}
+                    prefix="Rp"
+                    placeholder="Unlimited"
+                    label="Budget"
+                  />
+                </Field>
+                <Field label="Max. baskets">
                   <Stepper
                     value={maxUses}
                     onChange={setMaxUses}
@@ -1055,7 +982,7 @@ export function RuleForm({
                     label="Most baskets"
                   />
                 </Field>
-                <Field label="Most per shopper">
+                <Field label="Max. per shopper">
                   <Stepper
                     value={maxPerCustomer}
                     onChange={setMaxPerCustomer}
@@ -1065,24 +992,11 @@ export function RuleForm({
                   />
                 </Field>
               </div>
-              {maxPerCustomer.trim() !== "" && (
-                <p className="text-[0.71875rem] leading-relaxed text-mute">
-                  Counted from the shopper&rsquo;s own history, which is kept at
-                  head office. A till holds none, so until that count reaches
-                  the shops this offer is{" "}
-                  <strong>refused at the counter</strong> rather than given away
-                  &mdash; and it asks the till to have identified the shopper,
-                  so it is a members&rsquo; offer whatever is chosen above.
-                </p>
-              )}
+
               {/* Ascending since D03: the lower number is reached first, and
                   with offers that combine each one works on what the previous
-                  one left. This hint said the opposite for as long as the field
-                  has existed. */}
-              <Field
-                label="Priority"
-                hint="Lower is reached first, and decides the order when two offers combine."
-              >
+                  one left. */}
+              <Field label="Priority" className="max-w-[13rem]">
                 <Stepper
                   value={priority}
                   onChange={setPriority}
@@ -1091,21 +1005,33 @@ export function RuleForm({
                   label="Priority"
                 />
               </Field>
-            </Section>
+            </More>
+          </div>
 
-            {/* The combination, read back. Every control above writes one
-                field; this is the only place all of them are said together,
-                and it is where a promotion that would never have fired gets
-                caught. */}
-            <Section title="How it will read" aside="the terms">
+          {/* The combination, read back. Every control on the left writes one
+              field; this is the only place all of them are said together, and
+              it is where a promotion that would never have fired gets caught.
+              Pinned while the form scrolls, so it is read beside the answers
+              that change it. */}
+          <div className="@3xl:sticky @3xl:top-0 @3xl:self-start">
+            <Section title="Summary">
               <Terms
                 headline={
                   effect === null ? "Not complete" : describeEffect(effect)
                 }
                 name={name}
-                empty="Choose what it applies to and how much, and the terms will be written here."
+                empty="Choose a discount and what it applies to."
                 clauses={reading?.clauses ?? []}
-                hidden={reading?.hidden ?? []}
+                hidden={[
+                  ...(reading?.hidden ?? []),
+                  // Said here rather than under the field: a till keeps no
+                  // shopper history, so until the count reaches the shops
+                  // the engine refuses this offer at the counter instead of
+                  // handing it out unlimited — and it needs the shopper
+                  // identified, so it is a members' offer whatever is chosen.
+                  maxPerCustomer.trim() !== "" &&
+                    `each shopper gets it at most ${count(Number(maxPerCustomer))} times, so the till must identify them`,
+                ]}
               />
             </Section>
           </div>

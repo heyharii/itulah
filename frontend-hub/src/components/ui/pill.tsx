@@ -35,6 +35,9 @@ const pill = cva(
         accent: "border-accent/30 text-accent",
         neutral: "border-hairline-2 text-body",
         new: "border-new-fg/30 text-new-fg",
+        /// Finished and nothing left to do — dark grey, filled, so a
+        /// completed row reads as settled beside the coloured ones.
+        done: "border-body/40 bg-soft-2 text-text",
       },
     },
     defaultVariants: { tone: "neutral" },
@@ -51,6 +54,7 @@ const dot = cva("size-[5px] shrink-0 rounded-full", {
       accent: "bg-accent",
       neutral: "bg-mute",
       new: "bg-new-fg",
+      done: "bg-body",
     },
   },
   defaultVariants: { tone: "neutral" },

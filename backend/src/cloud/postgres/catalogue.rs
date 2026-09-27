@@ -471,14 +471,25 @@ pub async fn commercial_rules(
           ORDER BY {order}
           LIMIT $5"
     );
-    let rows = sqlx::query(&sql)
-        .bind(&needle)
-        .bind(&statuses)
-        .bind(&campaigns)
-        .bind(cursor.as_ref().map(|c| c.rule_id.clone()))
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
+    let page = async {
+        Ok::<_, AppError>(
+            sqlx::query(&sql)
+                .bind(&needle)
+                .bind(&statuses)
+                .bind(&campaigns)
+                .bind(cursor.as_ref().map(|c| c.rule_id.clone()))
+                .bind(limit)
+                .fetch_all(pool)
+                .await?,
+        )
+    };
+    // The page, its counts and the book count are independent reads, so they
+    // run together rather than as three round trips in a row.
+    let (rows, (total, facets), book_count) = tokio::try_join!(
+        page,
+        promotion_facets(pool, &needle, &statuses, &campaigns),
+        published_book_count(pool),
+    )?;
 
     // A short page is the last page. A full one may not be — the next request
     // can come back empty — and that is the honest answer: knowing whether more
@@ -509,12 +520,11 @@ pub async fn commercial_rules(
         });
     }
 
-    let (total, facets) = promotion_facets(pool, &needle, &statuses, &campaigns).await?;
     Ok(PromotionPage {
         rows: out,
         next_cursor,
         total,
-        book_count: published_book_count(pool).await?,
+        book_count,
         facets,
     })
 }
@@ -758,13 +768,23 @@ pub async fn commercial_campaigns(
           ORDER BY {order}
           LIMIT $4"
     );
-    let rows = sqlx::query(&sql)
-        .bind(&needle)
-        .bind(&statuses)
-        .bind(cursor.as_ref().map(|c| c.campaign_id.clone()))
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
+    let page = async {
+        Ok::<_, AppError>(
+            sqlx::query(&sql)
+                .bind(&needle)
+                .bind(&statuses)
+                .bind(cursor.as_ref().map(|c| c.campaign_id.clone()))
+                .bind(limit)
+                .fetch_all(pool)
+                .await?,
+        )
+    };
+    // Independent reads, run together — see `commercial_rules`.
+    let (rows, (total, status_counts), book_count) = tokio::try_join!(
+        page,
+        campaign_facets(pool, &needle, &statuses),
+        published_book_count(pool),
+    )?;
 
     let next_cursor = match rows.last() {
         Some(row) if rows.len() as i64 == limit => Some(encode_cursor(&CampaignCursor {
@@ -796,13 +816,14 @@ pub async fn commercial_campaigns(
         });
     }
 
-    let (total, statuses) = campaign_facets(pool, &needle, &statuses).await?;
     Ok(CampaignPage {
         rows: out,
         next_cursor,
         total,
-        book_count: published_book_count(pool).await?,
-        facets: CampaignFacets { statuses },
+        book_count,
+        facets: CampaignFacets {
+            statuses: status_counts,
+        },
     })
 }
 

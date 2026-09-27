@@ -49,31 +49,31 @@ UNSPLASH = "https://images.unsplash.com/{}?w=600"
 # nothing about a filter people use to find one shirt among hundreds.
 PLAN = {
     "ART-CAP": (
-        "ACCESSORY",
+        "AKSESORIS",
         ["AKSESORI", "BASIC"],
         "photo-1588850561407-ed78c282e89b",
         [("0", "BLACK", "08"), ("1", "NAVY", "08"), ("2", "KHAKI", "08")],
     ),
     "ART-TSHIRT": (
-        "MENSWEAR",
+        "PRIA",
         ["KAOS", "BASIC", "LENGAN_PENDEK"],
         "photo-1521572163474-6864f9cf17ab",
         [("0", "WHITE", "02"), ("1", "BLACK", "03"), ("2", "OLIVE", "04")],
     ),
     "ART-HOODIE": (
-        "MENSWEAR",
+        "PRIA",
         ["RAJUT", "LENGAN_PANJANG", "MUSIMAN"],
         "photo-1556821840-3a63f95609a7",
         [("0", "CHARCOAL", "02"), ("1", "MAROON", "03"), ("2", "MINT", "04")],
     ),
     "ART-DENIM": (
-        "DIVIDED",
+        "NON_DIVISI",
         ["CELANA", "DENIM", "BASIC"],
         "photo-1542272604-787c3835535d",
         [("0", "DENIM", "02"), ("1", "NAVY", "03"), ("2", "BLACK", "04")],
     ),
     "ART-JACKET": (
-        "WOMENSWEAR",
+        "WANITA",
         ["JAKET", "MUSIMAN", "FORMAL"],
         "photo-1516257984-b1b4d707412e",
         [("0", "OLIVE", "02"), ("1", "BEIGE", "03"), ("2", "NAVY", "04")],
@@ -81,7 +81,7 @@ PLAN = {
     # Shoes carry EU sizes rather than S/M/L, so the size facet is not one
     # ladder pretending to fit everything the company sells.
     "ART-SHOES": (
-        "FOOTWEAR",
+        "SANDAL_SEPATU",
         ["SEPATU"],
         "photo-1542291026-7eec264c27ff",
         [("0", "WHITE", "13"), ("1", "BLACK", "14"), ("2", "RED", "15")],

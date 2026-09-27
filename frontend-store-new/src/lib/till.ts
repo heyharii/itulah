@@ -168,12 +168,18 @@ export function useOpenShift(): UseMutationResult<
 
 export function useCloseShift(
   shiftId: string,
-): UseMutationResult<ShiftReport, Error, { declaredMinor: number; note: string }> {
+): UseMutationResult<
+  ShiftReport,
+  Error,
+  { declaredMinor: number; note: string }
+> {
   const client = useQueryClient()
   return useMutation({
     mutationFn: ({ declaredMinor, note }) => {
       const request: CloseShiftRequest = {
         declared_cash_minor: declaredMinor,
+        // This screen counts a total, not a sheet; the node takes either.
+        counted: [],
         note: note.trim() === "" ? null : note.trim(),
         actor_id: actorFrom(client),
         idempotency_key: commandKey("shift-close"),
@@ -190,9 +196,7 @@ export function useCloseShift(
   })
 }
 
-export function useCashMovement(
-  shiftId: string,
-): UseMutationResult<
+export function useCashMovement(shiftId: string): UseMutationResult<
   ShiftReport,
   Error,
   {

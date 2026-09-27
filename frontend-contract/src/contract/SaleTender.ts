@@ -47,4 +47,21 @@ reference: string | null,
  * still parses. It then fails the check below, which is the right way
  * round: an old till is refused the tender, not trusted with it.
  */
-voucher_authorization_id: string | null, };
+voucher_authorization_id: string | null, 
+/**
+ * Which bank's EDC — or which QRIS acquirer — took the money: `BCA`,
+ * `MANDIRI`, `BRI`, `BNI`. A name, never an instrument, screened exactly as
+ * `reference` is.
+ *
+ * The centre has had the column since migration 0106 and has been
+ * guessing it from `reference`; a card receivable cannot be cleared
+ * against the acquirer's settlement, nor a wrong-EDC swipe found, without
+ * it. Card and QRIS only — cash has no acquirer.
+ */
+acquirer: string | null, 
+/**
+ * `DEBIT` or `CREDIT`, on a card tender only. Not read off the acquirer:
+ * BCA issues debit cards and acquires VISA credit through the same
+ * terminal, and the chart posts the two to different receivables.
+ */
+card_kind: string | null, };

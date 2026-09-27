@@ -280,7 +280,7 @@ export function AsOf() {
                     tone="warn"
                   />
                 </MetricRow>
-                <p className="mt-3 text-[0.71875rem] text-mute">
+                <p className="mt-3 text-[0.875rem] text-mute">
                   {data.inventory_equation} · sightings counted over the{" "}
                   {data.observed_window_hours}h before that moment.
                   {/* The totals are the replay's, and the clauses below do not

@@ -28,10 +28,16 @@ import type { AppModule } from "@/lib/navigation"
 /// See the stage report for what is still open.
 export const gaSuppliesNav: AppModule = {
   id: "ga-supplies",
-  label: "Supplies",
+  label: "Permintaan barang",
   icon: Package,
   home: "/supplies",
-  // Declared now, inert, so the GA column reads whole before the screen lands.
-  soon: true,
-  sections: [{ items: [{ path: "/supplies", label: "Supplies", icon: Package }] }],
+  sidebarSection: "Layanan pendukung",
+  // Live: the list, its sheet and the "Minta barang" composer are written, so
+  // the row navigates. One door — the stage of a request is read in its sheet,
+  // and the seven categories are cards in the form, not a second screen.
+  sections: [
+    {
+      items: [{ path: "/supplies", label: "Permintaan barang", icon: Package }],
+    },
+  ],
 }

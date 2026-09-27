@@ -62,7 +62,7 @@ const columns: ColumnDef<TableSetup, TaggingWorkJob>[] = [
         <span className="block truncate font-medium text-ink">
           {row.original.article_name}
         </span>
-        <span className="block truncate font-mono text-[0.65625rem] text-mute">
+        <span className="block truncate font-mono text-[0.875rem] text-mute">
           {row.original.article_code}
         </span>
       </span>
@@ -330,7 +330,7 @@ function JobSheet({ id, onClose }: { id: string | null; onClose: () => void }) {
             <MiniTable head={["SKU", "Colour", "Size", "Labels"]}>
               {job.lines.map((line) => (
                 <tr key={line.sku_code} className="border-t border-hairline">
-                  <td className="py-2 pr-2 font-mono text-[0.71875rem] text-ink">
+                  <td className="py-2 pr-2 font-mono text-[0.875rem] text-ink">
                     {line.sku_code}
                   </td>
                   <td className="py-2 text-right">{line.colour_label}</td>

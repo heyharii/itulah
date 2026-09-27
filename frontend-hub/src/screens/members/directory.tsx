@@ -153,7 +153,7 @@ function columnsFor(
       // Segment column beside this one already says it, and two "Stopped"
       // chips on one row read as two different facts.
       cell: ({ row }) => (
-        <span className="block truncate text-[0.8125rem] text-ink">
+        <span className="block truncate text-[0.875rem] text-ink">
           {row.original.display_name ?? row.original.member_id}
         </span>
       ),
@@ -469,7 +469,7 @@ export function Members() {
           <button
             type="button"
             onClick={() => written.close()}
-            className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-full bg-soft-2 px-3 text-[0.75rem] text-ink transition-colors hover:bg-soft-3"
+            className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-full bg-soft-2 px-3 text-[0.875rem] text-ink transition-colors hover:bg-soft-3"
           >
             <span className="text-mute">Segment</span>
             {narrowedBy?.name ?? "…"}
@@ -483,7 +483,7 @@ export function Members() {
             outgrows the page. */}
         <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
-        <span className="text-[0.75rem] text-mute tabular-nums">
+        <span className="text-[0.875rem] text-mute tabular-nums">
           {/* Two different numbers, and the difference is the point: the second
               is everybody enrolled, so a filtered list can say what it is a
               fraction of. */}
@@ -598,7 +598,7 @@ function MemberSheet({
               {segment?.label ?? member.segment}
             </Pill>
             {segment && (
-              <p className="text-[0.78125rem] leading-relaxed text-body">
+              <p className="text-[0.875rem] leading-relaxed text-body">
                 {segment.meaning}
               </p>
             )}
@@ -637,7 +637,7 @@ function MemberSheet({
               ordinary reason somebody asks. */}
           <div className="flex flex-col gap-2">
             {member.paired && (
-              <p className="text-[0.78125rem] leading-relaxed text-body">
+              <p className="text-[0.875rem] leading-relaxed text-body">
                 A phone is already paired to this card. Issuing a code pairs
                 another — which is what a replaced handset needs, and is also
                 what somebody else's phone would need, so ask for the card.
@@ -658,7 +658,7 @@ function MemberSheet({
             // Blocked, not deleted, and the sheet has to say which: the sales
             // stay attributed to this row, and deleting it would leave them
             // pointing at a member nobody can look up.
-            <p className="text-[0.78125rem] leading-relaxed text-bad">
+            <p className="text-[0.875rem] leading-relaxed text-bad">
               Membership stopped on {day(member.blocked_at)}. Their sales stay
               attributed to this card, which is why the row is blocked rather
               than removed.

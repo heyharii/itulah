@@ -3,13 +3,13 @@ import { useMemo, useState } from "react"
 
 import { day, label } from "@/lib/format"
 import {
-  accountMap,
+  accountLinks,
   financeKeys,
   listAssetClasses,
   listBills,
   listLineCategories,
   listPeriods,
-  type AccountMapView,
+  siteAccounts,
   type AssetClass,
   type LineCategory,
 } from "@/lib/queries/finance"
@@ -36,17 +36,16 @@ import {
 
 /// The locations the books are kept for.
 ///
-/// `GET /account-map` is the only endpoint that answers this, and it answers it
-/// from the chart itself rather than from the list of places a delivery can
-/// reach — a location the books are kept for is one that has accounts scoped to
-/// it. Every caller here shares the key the Account map screen and the overview
-/// already use, so a module full of location pickers is still one request.
+/// Read off `GET /account-links`, which carries them beside the roles the
+/// posting rules name — the same list the Account links screen and the
+/// readiness matrix draw their columns from. Every caller shares that screen's
+/// key, so a module full of location pickers is still one request.
 ///
 /// Held for five minutes: the client opens a shop about once a year.
 export function useLocations() {
   return useQuery({
-    queryKey: financeKeys.accountMap(null),
-    queryFn: ({ signal }) => accountMap(undefined, signal),
+    queryKey: financeKeys.accountLinks(null, null),
+    queryFn: ({ signal }) => accountLinks({}, signal),
     staleTime: 5 * 60 * 1000,
   })
 }
@@ -54,7 +53,7 @@ export function useLocations() {
 /// A `site_id` as the client says it: "Store 07", not `store-07`.
 ///
 /// Falls back to the id, which is the only honest thing to draw for a location
-/// the account map does not carry — inventing a label for an id nobody
+/// the link list does not carry — inventing a label for an id nobody
 /// recognises would be worse than showing the id.
 export function useSiteName(): (siteId: string | null | undefined) => string {
   const map = useLocations()
@@ -263,7 +262,7 @@ export function useAssetClasses() {
 /// A `semantic_key` as a person says it: "Bank — giro", not `bank_giro`.
 ///
 /// The labels are the server's own, generated from the posting rules and
-/// carried in `required_keys`, so a meaning added to a rule is readable here
+/// carried in `roles`, so a meaning added to a rule is readable here
 /// without anybody remembering to add it to a list in the browser. Falls back
 /// to `label()`, which turns the key into a sentence — an honest last resort
 /// for a key the rules stopped requiring but a stored payment still names.
@@ -271,8 +270,7 @@ export function useMeaningLabel(): (key: string | null | undefined) => string {
   const map = useLocations()
   const byKey = useMemo(() => {
     const table = new Map<string, string>()
-    for (const doc of map.data?.required_keys ?? [])
-      table.set(doc.key, doc.label)
+    for (const doc of map.data?.roles ?? []) table.set(doc.key, doc.label)
     return table
   }, [map.data])
 
@@ -288,7 +286,7 @@ export function useMeaningLabel(): (key: string | null | undefined) => string {
 /// Derived from the mappings rather than from a hard-coded list of four keys,
 /// so a payment can only be offered an account somebody has actually mapped —
 /// the alternative is a select full of meanings whose posting will be refused
-/// the moment it is tried, which is the refusal the account map exists to stop
+/// the moment it is tried, which is the refusal the account links exist to stop
 /// anybody meeting.
 ///
 /// The qualifier is part of the identity and not a note: `bank_savings` at one
@@ -313,16 +311,21 @@ const MONEY_KEYS: readonly string[] = [
 ]
 
 export function useMoneyAccounts(siteId: string): readonly MoneyAccount[] {
-  const map = useLocations()
+  // What each money role resolves to AT this site — resolved by the server,
+  // most specific link winning, and not by this browser walking the links.
+  const resolved = useQuery({
+    queryKey: financeKeys.siteAccounts(siteId),
+    queryFn: ({ signal }) => siteAccounts(siteId, signal),
+    enabled: siteId !== "",
+    staleTime: 5 * 60 * 1000,
+  })
   return useMemo(() => {
     if (siteId === "") return []
-    return (map.data?.rows ?? [])
-      .filter(
-        (row) => row.site_id === siteId && MONEY_KEYS.includes(row.semantic_key)
-      )
+    return (resolved.data ?? [])
+      .filter((row) => MONEY_KEYS.includes(row.role))
       .map((row) => ({
-        account_key: row.semantic_key,
-        account_qualifier: row.qualifier,
+        account_key: row.role,
+        account_qualifier: row.source_id,
         account_code: row.account_code,
         account_name: row.account_name,
       }))
@@ -332,7 +335,7 @@ export function useMoneyAccounts(siteId: string): readonly MoneyAccount[] {
             MONEY_KEYS.indexOf(b.account_key) ||
           a.account_qualifier.localeCompare(b.account_qualifier)
       )
-  }, [map.data, siteId])
+  }, [resolved.data, siteId])
 }
 
 /// The value a `<Select>` carries for one of these, and the way back.
@@ -354,10 +357,6 @@ export function parseMoneyAccountValue(value: string): {
   const [key, qualifier = ""] = value.split("\t")
   return { account_key: key, account_qualifier: qualifier }
 }
-
-/// Re-exported so a screen can name the shape `useLocations()` answers with
-/// without reaching into `lib/queries` for a type it only holds.
-export type { AccountMapView }
 
 // ---------------------------------------------------------------------------
 // Dates

@@ -589,7 +589,7 @@ function TopicRow({
           {thread.bookmarked_by_me && (
             <Bookmark className="mt-[0.1875rem] size-3 shrink-0 fill-accent text-accent" />
           )}
-          <span className="line-clamp-2 min-w-0 text-[0.84375rem] leading-snug font-medium text-ink">
+          <span className="line-clamp-2 min-w-0 text-[0.875rem] leading-snug font-medium text-ink">
             {thread.title}
           </span>
           {thread.status !== "open" && (
@@ -728,7 +728,7 @@ function OneThread({ id, onBack }: { id: string; onBack: () => void }) {
       <button
         type="button"
         onClick={onBack}
-        className="mb-3 inline-flex items-center gap-1.5 text-[0.75rem] font-medium text-mute transition-colors hover:text-ink"
+        className="mb-3 inline-flex items-center gap-1.5 text-[0.875rem] font-medium text-mute transition-colors hover:text-ink"
       >
         <ArrowLeft className="size-3.5" />
         Discussions
@@ -857,7 +857,7 @@ function OneThread({ id, onBack }: { id: string; onBack: () => void }) {
                 {open.bookmarked_by_me ? "Bookmarked" : "Bookmark"}
               </Button>
 
-              <div className="text-[0.8125rem]">
+              <div className="text-[0.875rem]">
                 <KeyValue term="Opened by">{open.created_by}</KeyValue>
                 <KeyValue term="Replies">{count(open.reply_count)}</KeyValue>
                 <KeyValue term="Read it">{count(open.people)}</KeyValue>

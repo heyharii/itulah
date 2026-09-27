@@ -1,7 +1,7 @@
-import { Select as BaseSelect } from "@base-ui/react/select"
-import { Check, ChevronDown } from "lucide-react"
+import { ChevronDown } from "lucide-react"
 import * as React from "react"
 
+import { PickerSheet } from "@/components/ui/picker-sheet"
 import { cn } from "@/lib/utils"
 
 /// A labelled input, and the one place a field's chrome is described.
@@ -82,14 +82,6 @@ export function Input({
 /// surface runs on a Windows tablet, where the "native" panel is a small grey
 /// list drawn for a mouse.
 
-/// The panel and its rows. Local to this kit rather than shared: the row
-/// height is the touch decision this file exists to make.
-const PANEL =
-  "z-50 min-w-[var(--anchor-width)] rounded-inner border border-hairline bg-canvas p-1 shadow-pop outline-none"
-
-const ITEM =
-  "flex w-full cursor-pointer items-center justify-between gap-2 rounded-[calc(var(--r-inner)-0.25rem)] min-h-12 px-4 py-2.5 text-[1rem] text-left text-ink outline-none select-none data-[highlighted]:bg-soft-2 data-disabled:cursor-default data-disabled:text-mute data-disabled:data-[highlighted]:bg-transparent"
-
 interface Choice {
   readonly value: string
   readonly label: React.ReactNode
@@ -141,53 +133,50 @@ export function Select({
   "aria-label"?: string
 }) {
   const items = choices(children)
+  const [open, setOpen] = React.useState(false)
+  const chosen = items.find((one) => one.value === value)
 
+  // This app is only ever held in a hand, so the list always comes up from
+  // the bottom edge — the sheet the hub opens on a phone (`PickerSheet`) —
+  // instead of a panel dropped over the field: rows a thumb can hit, a swipe
+  // to put it away, and a search box once the list is long.
   return (
-    <BaseSelect.Root
-      items={items}
-      value={value}
-      onValueChange={(next) => onChange(String(next ?? ""))}
-      disabled={disabled}
-    >
-      <BaseSelect.Trigger
+    <>
+      <button
+        type="button"
         aria-label={label}
+        aria-haspopup="dialog"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
         className={cn(
           control,
           "flex items-center py-0 text-left",
-          "hover:border-hairline-2 hover:bg-soft-3",
-          "data-disabled:opacity-45",
+          "disabled:opacity-45",
           className,
         )}
       >
-        <BaseSelect.Value className="min-w-0 flex-1 truncate" />
-        <BaseSelect.Icon className="ml-2 shrink-0 text-line-ico">
-          <ChevronDown className="size-5" />
-        </BaseSelect.Icon>
-      </BaseSelect.Trigger>
-
-      <BaseSelect.Portal>
-        <BaseSelect.Positioner className="z-50">
-          <BaseSelect.Popup className={PANEL}>
-            <BaseSelect.List className="max-h-[var(--available-height)] scroll-py-1 overflow-y-auto">
-              {items.map((one) => (
-                <BaseSelect.Item
-                  key={one.value}
-                  value={one.value}
-                  disabled={one.disabled}
-                  className={ITEM}
-                >
-                  <BaseSelect.ItemText className="truncate">
-                    {one.label}
-                  </BaseSelect.ItemText>
-                  <BaseSelect.ItemIndicator className="shrink-0">
-                    <Check className="size-5" />
-                  </BaseSelect.ItemIndicator>
-                </BaseSelect.Item>
-              ))}
-            </BaseSelect.List>
-          </BaseSelect.Popup>
-        </BaseSelect.Positioner>
-      </BaseSelect.Portal>
-    </BaseSelect.Root>
+        <span className="min-w-0 flex-1 truncate">{chosen?.label}</span>
+        <ChevronDown className="ml-2 size-5 shrink-0 text-line-ico" />
+      </button>
+      <PickerSheet
+        open={open}
+        onOpenChange={setOpen}
+        title={label ?? "Pilih"}
+        options={items.map((one) => ({ ...one, text: textOf(one.label) }))}
+        selected={[value]}
+        onPick={onChange}
+      />
+    </>
   )
+}
+
+/// An option's words, for the sheet's search box: `<option>{pool.label} ·
+/// {count}</option>` arrives as an array of nodes, and matching the query
+/// against the option's value would search shelf ids instead of shelf names.
+function textOf(node: React.ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join("")
+  if (React.isValidElement(node))
+    return textOf((node.props as { children?: React.ReactNode }).children)
+  return ""
 }

@@ -42,7 +42,7 @@ fun ReceiptScreen(
     onPrint: (copy: Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
-    Box(Modifier.fillMaxSize().background(Soft), contentAlignment = Alignment.TopCenter) {
+    Box(Modifier.fillMaxSize().background(Soft3), contentAlignment = Alignment.TopCenter) {
         Column(
             Modifier.widthIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(16.dp),
         ) {
@@ -55,7 +55,7 @@ fun ReceiptScreen(
 
             Card(Modifier.fillMaxWidth()) {
                 Text(receipt.shopName, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                Text("No ${receipt.receiptNo}", fontSize = 12.sp, color = Mute, fontFamily = FontFamily.Monospace)
+                Text("No ${receipt.receiptNo}", fontSize = 12.sp, color = Mute, fontFamily = Mono)
                 Text(WhenIt.local(receipt.completedAt), fontSize = 11.sp, color = Mute)
                 Text("Kasir ${receipt.cashier}", fontSize = 11.sp, color = Mute)
                 if (receipt.stamp != null) {
@@ -76,7 +76,7 @@ fun ReceiptScreen(
                         Text(
                             Money.grouped(line.lineTotalMinor),
                             fontSize = 13.sp,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = Mono,
                         )
                     }
                     Spacer(Modifier.height(4.dp))

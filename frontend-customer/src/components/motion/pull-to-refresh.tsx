@@ -64,10 +64,15 @@ export function PullToRefresh({
 
   // Read inside listeners that are registered once; state in a closure would
   // be the value it had when the gesture library attached.
+  // Synced after commit rather than during render: React may render and throw
+  // away a pass, and a ref written from that pass would be a value no screen
+  // ever showed.
   const stateRef = useRef(state)
-  stateRef.current = state
   const busyRef = useRef(busy)
-  busyRef.current = busy
+  useEffect(() => {
+    stateRef.current = state
+    busyRef.current = busy
+  }, [state, busy])
   const settleRef = useRef<{ stop: () => void } | null>(null)
 
   const settle = useCallback(

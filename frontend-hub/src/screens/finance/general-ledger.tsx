@@ -286,7 +286,7 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
           heading, or an account nobody has used yet, is a legitimate thing to
           open and has no row — so the chart itself stays searchable here. */}
       <Card className="mb-3.5 p-3.5">
-        <p className="mb-2 text-[0.71875rem] text-body">
+        <p className="mb-2 text-[0.875rem] text-body">
           Open any account by code or name — a heading works as well as a leaf,
           and so does one that has never been posted to.
         </p>
@@ -315,7 +315,7 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
         {/* The server's own answer, not the boxes': it echoes the date it
             actually read at, which is the figure the totals below belong to. */}
         {balance.data && (
-          <span className="text-[0.71875rem] text-mute">
+          <span className="text-[0.875rem] text-mute">
             As at {day(balance.data.as_of)}
             {balance.data.site_id ? " · " : ""}
             {balance.data.site_id && <SiteName id={balance.data.site_id} />}
@@ -378,7 +378,7 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
               ),
             }}
           />
-          <p className="mt-2 text-[0.71875rem] text-mute">
+          <p className="mt-2 text-[0.875rem] text-mute">
             The server's totals over every account, not a sum of the rows above
             — searching narrows what is shown and never what the books say.
           </p>
@@ -657,7 +657,7 @@ function AccountMovements({
         <button
           type="button"
           onClick={onClear}
-          className="text-[0.71875rem] font-medium text-accent hover:underline"
+          className="text-[0.875rem] font-medium text-accent hover:underline"
         >
           Choose another account
         </button>
@@ -669,7 +669,7 @@ function AccountMovements({
         <Card className="mb-3">
           <CardHeader>
             <CardTitle>Running balance</CardTitle>
-            <span className="text-[0.71875rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               Where the account closed on each day that moved
             </span>
           </CardHeader>
@@ -701,7 +701,7 @@ function AccountMovements({
                 <span className="min-w-0 flex-1 truncate text-card-title font-semibold text-ink">
                   {data.account_name}
                 </span>
-                <span className="shrink-0 text-[0.71875rem] text-body tabular-nums">
+                <span className="shrink-0 text-[0.875rem] text-body tabular-nums">
                   {day(data.from)} – {day(data.to)}
                 </span>
               </CardStrip>

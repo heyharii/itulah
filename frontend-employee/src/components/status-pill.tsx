@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils"
+import { Pill, type PillTone } from "@/components/ui/pill"
 
 /// The tone a status is read in.
 ///
@@ -7,12 +7,11 @@ import { cn } from "@/lib/utils"
 /// versus "refused" is the whole of what they need from that glance.
 type Tone = "waiting" | "good" | "bad" | "quiet"
 
-const tones: Record<Tone, string> = {
-  waiting:
-    "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200",
-  good: "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-200",
-  bad: "bg-red-100 text-red-900 dark:bg-red-500/15 dark:text-red-200",
-  quiet: "bg-muted text-muted-foreground",
+const tones: Record<Tone, PillTone> = {
+  waiting: "warn",
+  good: "ok",
+  bad: "bad",
+  quiet: "neutral",
 }
 
 /// Written out rather than inferred from the string, so a status the server
@@ -28,6 +27,9 @@ const known: Record<string, { tone: Tone; label: string }> = {
   REJECTED: { tone: "bad", label: "Refused" },
   WITHDRAWN: { tone: "quiet", label: "Taken back" },
   ORDERED: { tone: "waiting", label: "Needs your reply" },
+  // Overtime, as the server's state machine actually spells it.
+  AWAITING_CONSENT: { tone: "waiting", label: "Needs your reply" },
+  AGREED: { tone: "good", label: "Agreed" },
   ACKNOWLEDGED: { tone: "good", label: "Accepted" },
   DECLINED: { tone: "bad", label: "Declined" },
   WORKED: { tone: "quiet", label: "Worked" },
@@ -76,14 +78,8 @@ export function StatusPill({
 }) {
   const known_ = known[status] ?? { tone: "quiet" as Tone, label: status }
   return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap",
-        tones[known_.tone],
-        className
-      )}
-    >
+    <Pill tone={tones[known_.tone]} className={className}>
       {known_.label}
-    </span>
+    </Pill>
   )
 }

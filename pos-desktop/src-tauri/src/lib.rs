@@ -27,6 +27,7 @@ use tauri::Manager;
 
 mod device;
 mod edge;
+mod rfid;
 
 /// Open the screen that faces the shopper.
 ///
@@ -47,7 +48,7 @@ fn open_customer_display(app: tauri::AppHandle) -> Result<(), String> {
         "customer",
         tauri::WebviewUrl::App("index.html?display".into()),
     )
-    .title("itulah · layar pelanggan")
+    .title("central · layar pelanggan")
     .inner_size(1024.0, 768.0)
     .build()
     .map(|_| ())
@@ -71,6 +72,7 @@ pub fn run() {
             edge::edge_call,
             edge::edge_signed_call,
             device::rfid_state,
+            device::rfid_read_single,
             device::fingerprint_state,
             device::fingerprint_identify,
             device::fingerprint_enroll,

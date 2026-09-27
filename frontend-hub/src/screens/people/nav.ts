@@ -6,10 +6,17 @@ import {
   ChartColumn,
   Clock4,
   Fingerprint,
+  HeartHandshake,
   Inbox,
+  Layers,
   LayoutGrid,
+  MessageSquareWarning,
   Receipt,
+  ReceiptText,
   ScanFace,
+  SlidersHorizontal,
+  Sun,
+  Timer,
   UserPlus,
   Users,
 } from "lucide-react"
@@ -55,6 +62,7 @@ import { usePeopleAudience } from "@/screens/people/scope"
 /// finds empty, and stops trusting the app over.
 export const peopleNav: AppModule = {
   id: "people",
+  base: "/people",
   label: "People",
   icon: Users,
   home: "/people/overview",
@@ -75,7 +83,7 @@ export const peopleNav: AppModule = {
           label: "Overview",
           icon: LayoutGrid,
         },
-        { path: "/people", label: "Directory", icon: Users },
+        { path: "/people", label: "Employees", icon: Users },
         {
           /// Ungrouped, beside the other front doors. It sat under **Setup**
           /// and was the only row there without an `audience`, which dragged
@@ -85,6 +93,26 @@ export const peopleNav: AppModule = {
           path: "/people/reports",
           label: "Reports",
           icon: ChartColumn,
+        },
+        {
+          /// The confidential channel, beside Reports — the third of the
+          /// front doors that is nobody's posting. Head office's queue alone:
+          /// a grievance against a store manager cannot be investigated by
+          /// that store manager, and in a thirteen-store estate the only place
+          /// that is nobody's posting is head office. Reading it is its own
+          /// key, finer than the ladder, so `audience` keeps the row off a
+          /// place manager's sidebar entirely — the accused supervisor holds
+          /// `people.employee.read` and must not therefore read the queue.
+          /// It deliberately does not join the Requests queue, whose rows a
+          /// place manager reads.
+          ///
+          /// A bounded caller who pastes the URL anyway gets the screen's own
+          /// face: the same route answers them with their own filings, and
+          /// the raise form files for themselves or their staff.
+          path: "/people/grievances",
+          label: "Grievances",
+          icon: MessageSquareWarning,
+          audience: "employer",
         },
         {
           /// Asking for somebody, and head office answering. Beside the
@@ -117,12 +145,34 @@ export const peopleNav: AppModule = {
           icon: Inbox,
         },
         {
+          /// Money waiting on a decision, beside the time already in the
+          /// queue above — petty-cash claims are the same shape of work: filed
+          /// by a place, waiting on the manager who did not file them.
+          ///
+          /// No `audience`: both faces use it. A place manager files for
+          /// their staff and decides what waits on them; head office reads
+          /// every place's queue and names the kinds of expense a claim may
+          /// be filed against, on that screen's own Types tab.
+          path: "/people/claims",
+          label: "Claims",
+          icon: ReceiptText,
+        },
+        {
           /// Its own screen as well as a section of the queue, because
           /// *ordering* overtime is a thing a manager sets out to do — the
           /// queue is what is waiting on them, and this is what they start.
           path: "/people/overtime",
           label: "Overtime",
           icon: Clock4,
+        },
+        {
+          /// Balances and the calendar — the half of leave that is read
+          /// rather than decided. The deciding is Requests'; a second screen
+          /// that offered an approve button would be a second place to get a
+          /// different answer.
+          path: "/people/leave",
+          label: "Leave",
+          icon: Sun,
         },
         {
           /// The week, per person. No `audience`: a place builds its roster
@@ -184,6 +234,15 @@ export const peopleNav: AppModule = {
           label: "Payroll runs",
           icon: Receipt,
         },
+        {
+          /// What the company hands over, and the rules it hands it out by:
+          /// the uniform ledger the store records, the rates and ceilings
+          /// head office sets. Both halves, one screen, because the count is
+          /// meaningless without the entitlement beside it.
+          path: "/people/benefits",
+          label: "Benefits",
+          icon: HeartHandshake,
+        },
       ],
     },
     {
@@ -204,6 +263,23 @@ export const peopleNav: AppModule = {
           audience: "employer",
         },
         {
+          /// The rule numbers in one place: tolerance, entitlements, overtime
+          /// multipliers, claim ceilings, the statutory percentages. Reading
+          /// is everybody's; setting is head office's, with a reason.
+          path: "/people/policies",
+          label: "Rule numbers",
+          icon: SlidersHorizontal,
+          audience: "employer",
+        },
+        {
+          /// Structures, positions and grade bands. Head office's vocabulary,
+          /// shipped seeded and read-only in this generation.
+          path: "/people/structures",
+          label: "Salary structures",
+          icon: Layers,
+          audience: "employer",
+        },
+        {
           /// The fingerprint stations, and whose fingers each unit's station
           /// knows. Head office's, because binding a biometric to an
           /// employment record is the employer's act even though the finger
@@ -213,6 +289,16 @@ export const peopleNav: AppModule = {
           path: "/people/terminals",
           label: "Punch stations",
           icon: ScanFace,
+          audience: "employer",
+        },
+        {
+          /// What the clock does when nobody is looking: the accrual a policy
+          /// earned, the carry-forward a cap put a deadline on, next week's
+          /// roster, and the nudges. Read-only evidence plus a deliberate
+          /// "run now" — the worker itself is `bin/cloud.rs`.
+          path: "/people/scheduler",
+          label: "Scheduler",
+          icon: Timer,
           audience: "employer",
         },
       ],

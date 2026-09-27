@@ -4,14 +4,7 @@ import { useState } from "react"
 
 import { Failure, Panel } from "@/components/bits"
 import { Button } from "@/components/ui/button"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { Field, Input, Textarea } from "@/components/ui/field"
 import { longDate, punchClock } from "@/lib/format"
 import { useAttendance, useRequestCorrection } from "@/lib/hr/queries"
 
@@ -101,17 +94,14 @@ export function Correction() {
       className="flex flex-col gap-4"
     >
       <Panel title={longDate(date)}>
-        <FieldGroup>
+        <div className="flex flex-col gap-3.5">
           <div className="grid grid-cols-2 gap-3">
             <form.Field name="claimedIn">
               {(field) => (
-                <Field>
-                  <FieldLabel htmlFor={field.name}>Started</FieldLabel>
+                <Field label="Started">
                   <Input
-                    id={field.name}
                     name={field.name}
                     type="time"
-                    className="h-11 text-base md:text-sm"
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(event) => field.handleChange(event.target.value)}
@@ -121,13 +111,10 @@ export function Correction() {
             </form.Field>
             <form.Field name="claimedOut">
               {(field) => (
-                <Field>
-                  <FieldLabel htmlFor={field.name}>Finished</FieldLabel>
+                <Field label="Finished">
                   <Input
-                    id={field.name}
                     name={field.name}
                     type="time"
-                    className="h-11 text-base md:text-sm"
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(event) => field.handleChange(event.target.value)}
@@ -138,53 +125,49 @@ export function Correction() {
           </div>
           <form.Field name="reason">
             {(field) => (
-              <Field>
-                <FieldLabel htmlFor={field.name}>What happened</FieldLabel>
+              <Field label="What happened">
                 <Textarea
-                  id={field.name}
                   name={field.name}
                   rows={3}
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder="e.g. the kiosk was down when I finished."
+                  placeholder="e.g. the fingerprint station was down when I finished."
                   required
                 />
               </Field>
             )}
           </form.Field>
-          <FieldDescription>
+          <p className="text-meta text-body">
             Your manager decides this. Nothing is changed until they do.
-          </FieldDescription>
+          </p>
           {request.error !== null && <Failure error={request.error} />}
           <div className="flex flex-col-reverse gap-2 md:flex-row md:justify-end">
             <Button
               type="button"
-              variant="ghost"
-              size="lg"
-              className="h-11"
+              variant="quiet"
+              size="tap"
+              className="md:h-control"
               onClick={() => void navigate({ to: "/attendance" })}
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              size="lg"
-              className="h-11"
+              variant="primary"
+              size="tap"
+              className="md:h-control"
               disabled={request.isPending}
             >
               {request.isPending ? "Sending…" : "Send"}
             </Button>
           </div>
           {tried && problem !== null && (
-            <FieldDescription
-              role="alert"
-              className="text-center text-destructive"
-            >
+            <p role="alert" className="text-center text-meta text-bad">
               {problem}
-            </FieldDescription>
+            </p>
           )}
-        </FieldGroup>
+        </div>
       </Panel>
     </form>
   )

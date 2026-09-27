@@ -81,19 +81,117 @@ async fn origin_node(pool: &PgPool, origin_id: &str) -> Result<NodeContext, AppE
         .map_err(|error| AppError::Configuration(error.to_string()))
 }
 
+/// Resolve the Cloud identity only when it has an active assignment at a
+/// registered DC. The signed ticket carries the user id and destination; the
+/// receiving DC still decides the role from its local policy projection.
+pub async fn edge_sso_subject(
+    pool: &PgPool,
+    origin_id: &str,
+    username: &str,
+) -> Result<Uuid, AppError> {
+    let origin = origin_node(pool, origin_id).await?;
+    if origin.role != EdgeRole::Dc {
+        return Err(AppError::Forbidden(
+            "Cloud sign-in exchange is available only for DC nodes".into(),
+        ));
+    }
+    sqlx::query_scalar(
+        "SELECT u.id
+         FROM app_user u
+         JOIN edge_identity_assignment a ON a.user_id=u.id
+         WHERE a.origin_id=$1 AND u.username=$2 AND a.active AND u.active",
+    )
+    .bind(origin_id)
+    .bind(username)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::Forbidden("no active Cloud access assignment for this DC".into()))
+}
+
+/// Who a node is relaying for, as the cloud knows them.
+#[derive(Clone, Debug)]
+pub struct RelaySubject {
+    pub username: String,
+    pub display_name: String,
+    /// Their rung at the cloud.
+    pub role: Role,
+    /// The rung their assignment grants at the relaying node. A relayed call
+    /// acts with the lower of the two.
+    pub edge_role: Role,
+}
+
+/// The person a node says it is relaying for — only if they may sign in there.
+///
+/// The node proves which node it is with its key; it cannot prove which person
+/// is standing at its till, so the cloud believes the person only as far as
+/// its own register agrees: an active login, with an active assignment at THIS
+/// origin. A login the cloud has switched off, or an assignment it has revoked,
+/// stops relaying on the next call — not at the next policy sync, which is the
+/// gap a relayed call must not inherit from the offline lease.
+pub async fn relay_subject(
+    pool: &PgPool,
+    origin_id: &str,
+    user_id: Uuid,
+) -> Result<RelaySubject, AppError> {
+    let row = sqlx::query(
+        "SELECT u.username, u.display_name, u.role, a.edge_role
+           FROM app_user u
+           JOIN edge_identity_assignment a ON a.user_id = u.id
+          WHERE a.origin_id = $1 AND u.id = $2 AND a.active AND u.active",
+    )
+    .bind(origin_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| {
+        AppError::Forbidden(format!(
+            "nobody with an active assignment at {origin_id} has that id, so there is nobody \
+             this node may relay for"
+        ))
+    })?;
+    let rung = |column: &str| -> Result<Role, AppError> {
+        Role::from_str(&row.get::<String, _>(column))
+            .map_err(|error| AppError::Configuration(error.to_string()))
+    };
+    Ok(RelaySubject {
+        username: row.get("username"),
+        display_name: row.get("display_name"),
+        role: rung("role")?,
+        edge_role: rung("edge_role")?,
+    })
+}
+
+/// What kind of site a relaying node stands in — `STORE` or `DC`.
+///
+/// Carried on a relayed call because a company-wide row names a kind rather
+/// than a site: a contract covering `ALL_STORES` is store-07's contract too,
+/// and a DC's never.
+pub async fn relay_site_kind(pool: &PgPool, site_id: &str) -> Result<String, AppError> {
+    sqlx::query_scalar("SELECT kind FROM site WHERE id = $1")
+        .bind(site_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::Forbidden(format!("{site_id} is not a site this cloud knows")))
+}
+
 pub async fn upsert_edge_assignment(
     pool: &PgPool,
     request: UpsertEdgeAssignmentRequest,
     actor: &str,
 ) -> Result<Value, AppError> {
     let origin_id = request.origin_id.trim().to_string();
-    origin_node(pool, &origin_id).await?;
+    let origin = origin_node(pool, &origin_id).await?;
     // The wire role becomes Cloud's own at the boundary: the policy decisions
     // below (the TTL ceiling, the role ladder) belong to `cloud::domain::Role`,
     // not to the shape a browser posted.
     let role: Role = request.role.into();
     let ttl = assignment_ttl(role, request.offline_ttl_seconds)?;
-    let credential_hash = hash_edge_credential(&request.edge_password)?;
+    let credential_hash = request
+        .edge_password
+        .as_deref()
+        .filter(|password| !password.is_empty())
+        .map(hash_edge_credential)
+        .transpose()?;
     let exists = sqlx::query("SELECT 1 FROM app_user WHERE id=$1")
         .bind(request.user_id)
         .fetch_optional(pool)
@@ -102,13 +200,34 @@ pub async fn upsert_edge_assignment(
     if !exists {
         return Err(AppError::NotFound("user".into()));
     }
+    // A DC signs people in with their Cloud session, so a DC grant needs no
+    // password of its own. A store has no such exchange: a new store grant
+    // without one is a grant nobody can use.
+    if credential_hash.is_none() && origin.role != EdgeRole::Dc {
+        let granted = sqlx::query(
+            "SELECT 1 FROM edge_identity_assignment WHERE origin_id=$1 AND user_id=$2",
+        )
+        .bind(&origin_id)
+        .bind(request.user_id)
+        .fetch_optional(pool)
+        .await?
+        .is_some();
+        if !granted {
+            return Err(AppError::Validation(
+                "a store grant needs a password at that node: stores have no Cloud sign-in".into(),
+            ));
+        }
+    }
     sqlx::query(
         "INSERT INTO edge_identity_assignment
              (origin_id,user_id,edge_role,credential_hash,active,auth_version,
               offline_ttl_seconds,created_by)
-         VALUES($1,$2,$3,$4,true,1,$5,$6)
+         VALUES($1,$2,$3,COALESCE($4,$7),true,1,$5,$6)
          ON CONFLICT(origin_id,user_id) DO UPDATE SET
-             edge_role=EXCLUDED.edge_role,credential_hash=EXCLUDED.credential_hash,
+             edge_role=EXCLUDED.edge_role,
+             -- No password on an existing grant means keep the one it has:
+             -- changing somebody's role is not taking their password away.
+             credential_hash=COALESCE($4,edge_identity_assignment.credential_hash),
              -- Deliberately NOT active=true. Rotating somebody's Edge PIN and
              -- restoring their access are two different decisions, and this
              -- upsert is how a PIN gets rotated. Forcing active here meant an
@@ -125,6 +244,7 @@ pub async fn upsert_edge_assignment(
     .bind(credential_hash)
     .bind(ttl)
     .bind(actor)
+    .bind(crate::security::SSO_ONLY_VERIFIER)
     .execute(pool)
     .await?;
     let policy = publish_auth_policy(pool, &origin_id, actor).await?;
@@ -995,6 +1115,11 @@ pub async fn publish_auth_policy(
         issued_at,
         valid_until,
         content_hash: String::new(),
+        sso_public_key: if node.role == EdgeRole::Dc {
+            crate::security::sso::public_key_from_env().map_err(AppError::Configuration)?
+        } else {
+            None
+        },
         users,
         devices,
     };

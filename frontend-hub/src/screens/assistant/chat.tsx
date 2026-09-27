@@ -118,7 +118,7 @@ export function AssistantChat() {
             <div className="shrink-0 px-5 pb-5">
               <div className="mx-auto w-full max-w-[46rem]">
                 <Composer autoFocus />
-                <p className="mt-2 px-1 text-[0.6875rem] text-mute">
+                <p className="mt-2 px-1 text-[0.875rem] text-mute">
                   {busy
                     ? "Working…"
                     : "Enter sends · ⇧Enter for a new line · answers are drawn from live reads"}
@@ -186,7 +186,7 @@ function Opening() {
           </ul>
         )}
 
-        <p className="mt-5 px-2 text-[0.6875rem] leading-relaxed text-mute">
+        <p className="mt-5 px-2 text-[0.875rem] leading-relaxed text-mute">
           It reads this node — stock, prices, takings, the ledger, and anything
           else in the database — and writes nothing. Every read it makes is
           shown under the answer.

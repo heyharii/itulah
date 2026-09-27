@@ -31,7 +31,7 @@ pub struct Advance {
     pub advance_id: Uuid,
     pub advance_number: String,
     pub site_id: String,
-    pub party_kind: String,
+    pub party_type: String,
     pub employee_id: Option<String>,
     pub supplier_id: Option<Uuid>,
     pub party_name: Option<String>,
@@ -89,7 +89,7 @@ pub struct AdvanceDocument {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CreateAdvanceRequest {
     pub site_id: String,
-    pub party_kind: String,
+    pub party_type: String,
     #[serde(default)]
     pub employee_id: Option<String>,
     #[serde(default)]
@@ -155,7 +155,7 @@ pub struct AdvanceReconciliationRow {
     pub over_thirty_days_minor: i64,
 }
 
-const ADVANCE_COLUMNS: &str = "a.advance_id, a.advance_number, a.site_id, a.party_kind,
+const ADVANCE_COLUMNS: &str = "a.advance_id, a.advance_number, a.site_id, a.party_type,
      a.employee_id, a.supplier_id, a.party_name, a.advance_qualifier, a.purpose,
      a.currency::text AS currency, a.amount_minor, a.status, a.requested_by,
      a.requested_at, a.approved_by, a.paid_at, a.note,
@@ -184,7 +184,7 @@ fn to_advance(row: &sqlx::postgres::PgRow) -> Result<Advance, AppError> {
         advance_id: row.try_get("advance_id")?,
         advance_number: row.try_get("advance_number")?,
         site_id: row.try_get("site_id")?,
-        party_kind: row.try_get("party_kind")?,
+        party_type: row.try_get("party_type")?,
         employee_id: row.try_get("employee_id")?,
         supplier_id: row.try_get("supplier_id")?,
         party_name: row.try_get("party_name")?,
@@ -288,7 +288,7 @@ pub async fn advance_create(
             "an advance is a positive amount".into(),
         ));
     }
-    match request.party_kind.as_str() {
+    match request.party_type.as_str() {
         "EMPLOYEE" | "SUPPLIER" | "OTHER" => {}
         other => {
             return Err(AppError::Validation(format!(
@@ -303,14 +303,14 @@ pub async fn advance_create(
             .await?;
     sqlx::query(
         "INSERT INTO advance
-           (advance_id, advance_number, site_id, party_kind, employee_id, supplier_id,
+           (advance_id, advance_number, site_id, party_type, employee_id, supplier_id,
             party_name, advance_qualifier, purpose, amount_minor, requested_by, note)
          VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,''),$9,$10,$11,$12)",
     )
     .bind(advance_id)
     .bind(&number)
     .bind(&request.site_id)
-    .bind(&request.party_kind)
+    .bind(&request.party_type)
     .bind(request.employee_id.as_deref())
     .bind(request.supplier_id)
     .bind(request.party_name.as_deref())
@@ -464,6 +464,7 @@ pub async fn advance_settle(
             .await?;
             (
                 PostingLine {
+                    dimensions: Vec::new(),
                     account: LineAccount::Account {
                         account_code: code.clone(),
                         category_code: category.map(str::to_string),
@@ -472,7 +473,8 @@ pub async fn advance_settle(
                     counter_site_id: None,
                     debit_minor: request.amount_minor,
                     credit_minor: 0,
-                    supplier_id: None,
+                    party_type: None,
+                    party_id: None,
                     asset_id: None,
                     bank_account_id: None,
                     memo: None,
@@ -600,7 +602,7 @@ pub async fn advance_reconciliation(
     let rows = sqlx::query(
         "WITH mapped AS (
              SELECT DISTINCT m.site_id, m.account_code
-               FROM account_map m WHERE m.semantic_key = 'advance'
+               FROM account_resolution m WHERE m.role = 'advance'
          ), gl AS (
              SELECT l.site_id, l.account_code,
                     SUM(l.debit_minor - l.credit_minor)::bigint AS gl_minor
@@ -620,9 +622,9 @@ pub async fn advance_reconciliation(
                     SELECT advance_id, SUM(amount_minor) AS settled
                       FROM advance_settlement GROUP BY advance_id
                ) t ON t.advance_id = a.advance_id
-               LEFT JOIN account_map m
-                 ON m.semantic_key = 'advance' AND m.site_id = a.site_id
-                AND m.qualifier = a.advance_qualifier
+               LEFT JOIN account_resolution m
+                 ON m.role = 'advance' AND m.site_id = a.site_id
+                AND m.source_type = 'COMPANY' AND m.source_id = a.advance_qualifier
               WHERE a.status IN ('PAID', 'PARTIALLY_SETTLED')
               GROUP BY a.site_id, COALESCE(m.account_code, '?')
          )

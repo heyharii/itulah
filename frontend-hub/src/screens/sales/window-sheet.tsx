@@ -19,11 +19,8 @@ import { queryState } from "@/lib/query-state"
 /// be teaching two vocabularies for one thing. It lives in the Sales module for
 /// that reason, and Store ops opens the same sheet.
 ///
-/// Every receipt here is a centre `sale`, so each one crosses to its own record
-/// — which since 2026-09-13 is a SHEET on the Sales screen rather than a row on
-/// a register, because the register was removed. That crossing is not
-/// decoration: a figure somebody disputes is only settled by the receipt
-/// underneath it.
+/// Receipts from the centre and from store tills share this list, while the
+/// source-aware sale sheet keeps each one tied to its own durable record.
 export function WindowSheet({
   siteId,
   from,
@@ -144,7 +141,7 @@ export function WindowSheet({
                     </tr>
                   ))}
                 </MiniTable>
-                <p className="mt-2 text-[0.6875rem] text-mute">
+                <p className="mt-2 text-[0.875rem] text-mute">
                   {count(report.returns.count)} return
                   {report.returns.count === 1 ? "" : "s"},{" "}
                   {money(report.returns.refund_total_minor)} altogether.
@@ -170,11 +167,14 @@ export function WindowSheet({
                       <AppLink
                         to="/sales"
                         sheet={{ key: "sale", value: sale.id }}
-                        className="block font-mono text-[0.65625rem] text-accent hover:underline"
+                        className="block font-mono text-[0.875rem] text-accent hover:underline"
                       >
                         {sale.sale_number}
                       </AppLink>
-                      <span className="text-[0.65625rem] text-mute">
+                      {sale.source === "EDGE" && (
+                        <Tag tone="info">POS</Tag>
+                      )}
+                      <span className="text-[0.875rem] text-mute">
                         {moment(sale.completed_at)}
                       </span>
                     </td>

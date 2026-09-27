@@ -69,6 +69,8 @@ pub enum LeaveError {
     RequestNotPending { state: &'static str },
     #[error("only the person who filed a request may withdraw it")]
     WithdrawalNotByRequester,
+    #[error("a request is decided by somebody other than the person who filed it")]
+    DecisionByRequester,
     #[error("{leave_type} draws on a balance, so approving it needs one")]
     BalanceContextRequired { leave_type: String },
     #[error("{leave_type} draws on a balance and this approval deducted nothing")]
@@ -102,6 +104,7 @@ impl LeaveError {
             Self::ChargeableDayOutsidePeriod { .. } => "leave_day_outside_period",
             Self::RequestNotPending { .. } => "leave_request_not_pending",
             Self::WithdrawalNotByRequester => "leave_withdrawal_not_by_requester",
+            Self::DecisionByRequester => "leave_decision_by_requester",
             Self::BalanceContextRequired { .. } => "leave_balance_context_required",
             Self::ApprovalWithoutDeduction { .. } => "leave_approval_without_deduction",
             Self::DeductionWithoutBalance { .. } => "leave_deduction_without_balance",
@@ -134,7 +137,9 @@ impl LeaveError {
     pub const fn is_forbidden(&self) -> bool {
         matches!(
             self,
-            Self::ActionForbidsRequest { .. } | Self::ActionForbidsDecision { .. }
+            Self::ActionForbidsRequest { .. }
+                | Self::ActionForbidsDecision { .. }
+                | Self::DecisionByRequester
         )
     }
 }

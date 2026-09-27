@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bank Reconciliation — prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9;
+  --canvas:#fff; --soft:#f8f9fb; --soft-2:#f0f2f5; --soft-3:#f7f8fa;
+  --hairline:#e7eaf0; --hairline-2:#dce1e8; --hairline-strong:#c7ced8;
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok-bg:#d9f4d2; --ok-fg:#15803d; --warn-bg:#faeacd; --warn-fg:#b45309;
+  --bad-bg:#fbeaea; --bad-fg:#be123c;
+  --r-card:.75rem; --r-inner:.4375rem;
+  --shadow-float:0 8px 24px rgb(24 39 60/6%),0 24px 64px rgb(24 39 60/12%);
+  --font-sans:"Inter Variable","Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"JetBrains Mono Variable","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font-sans);font-size:.875rem;color:var(--text);background:var(--soft);
+     -webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden}
+.num,.amt{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--font-mono)}
+.spacer{flex:1}
+
+header.page{background:var(--canvas);border-bottom:1px solid var(--hairline);padding:.875rem 1.25rem .5rem}
+.crumb{font-size:.6875rem;color:var(--mute)}
+.title-row{display:flex;align-items:center;gap:.75rem;margin-top:.125rem}
+h1{font-size:1.125rem;font-weight:600;color:var(--ink);margin:0;letter-spacing:-.01em}
+.acct{font-size:.75rem;color:var(--mute)}
+.facts{display:flex;margin-top:.75rem;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;background:var(--canvas)}
+.fact{flex:1;padding:.5rem .75rem;border-right:1px solid var(--hairline)}
+.fact:last-child{border-right:0}
+.fact dt{font-size:.65625rem;color:var(--mute);margin:0 0 .125rem}
+.fact dd{margin:0;font-size:.9375rem;font-weight:600;color:var(--ink)}
+.fact.diff dd{color:var(--bad-fg)}
+.tabs{display:flex;gap:.25rem;margin-top:.75rem;align-items:center}
+.tab{border:0;background:transparent;height:2rem;padding:0 .75rem;font-size:.8125rem;color:var(--body);
+     border-bottom:2px solid transparent;border-radius:0;cursor:pointer}
+.tab[aria-selected="true"]{color:var(--ink);font-weight:600;border-bottom-color:var(--ink)}
+.tab b{font-weight:600;font-variant-numeric:tabular-nums;color:var(--mute);margin-left:.25rem}
+.tab[aria-selected="true"] b{color:var(--ink)}
+.seg{display:inline-flex;border:1px solid var(--hairline-2);border-radius:var(--r-inner);overflow:hidden;margin-bottom:.25rem}
+.seg button{height:1.625rem;border:0;border-radius:0;font-size:.71875rem;color:var(--body);padding:0 .5625rem}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff}
+.seg[hidden]{display:none}
+
+.actions{display:flex;gap:.375rem;align-items:center;padding:.5rem 1.25rem;background:var(--canvas);border-bottom:1px solid var(--hairline)}
+button{font:inherit;font-size:.78125rem;height:1.875rem;padding:0 .625rem;border-radius:var(--r-inner);
+       border:1px solid var(--hairline-2);background:var(--canvas);color:var(--text);cursor:pointer}
+button:hover{background:var(--soft-2)}
+button.primary{background:var(--cta);border-color:var(--cta);color:#fff}
+button.primary:hover{background:var(--cta-hover)}
+button.primary:disabled{background:var(--soft-2);border-color:var(--hairline-2);color:var(--faint);cursor:not-allowed}
+button.quiet{border-color:transparent;color:var(--body)}
+button.sm{height:1.5rem;padding:0 .4375rem;font-size:.6875rem}
+.search{height:1.75rem;width:12rem;padding:0 .5rem;font:inherit;font-size:.71875rem;
+        border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas)}
+
+.stage[hidden]{display:none}
+.stage{flex:1;min-height:0;display:flex;flex-direction:column}
+.scroll{flex:1;overflow:auto;background:var(--canvas)}
+table.board{width:100%;border-collapse:collapse;table-layout:fixed}
+col.d{width:5.25rem} col.a{width:7.5rem} col.act{width:5.75rem} col.mid{width:5rem}
+col.m{width:19rem} col.sp{width:7rem}
+thead th{position:sticky;top:0;z-index:3;background:var(--canvas);text-align:left;font-weight:600;
+         color:var(--mute);font-size:.65625rem;letter-spacing:.06em;padding:.4375rem .625rem;
+         border-bottom:1px solid var(--hairline-2)}
+th.r{text-align:right}
+tbody.grp > tr > td{padding:.4375rem .625rem;vertical-align:middle;font-size:.78125rem;border-top:1px solid var(--hairline)}
+tbody.grp:first-of-type > tr:first-child > td{border-top:0}
+.what{display:block;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{display:block;font-size:.65625rem;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+td.date{color:var(--body);font-variant-numeric:tabular-nums;white-space:nowrap}
+td.date input{width:.9375rem;height:.9375rem;accent-color:var(--accent);margin:0 .4375rem 0 0;vertical-align:-2px;cursor:pointer}
+td.r{text-align:right}
+.amt.in{color:var(--ok-fg)} .amt.out{color:var(--ink)}
+.amt{font-weight:600;white-space:nowrap}
+
+/* Sisi yang belum punya pasangan tidak digambar: tanpa rona, tanpa garis.
+   Ruang kosong di seberangnya yang mengatakan "ini belum berpasangan". */
+td.none{background:transparent;border-top-color:transparent}
+/* Satu-satunya garis tegak: tulang punggung antara dua dunia. */
+.spine,td.mid{border-left:1px solid var(--hairline)}
+td.act{text-align:right;white-space:nowrap;padding:.25rem .5rem}
+td.act button + button{margin-left:.1875rem}
+td.mid{text-align:center;padding:.25rem}
+td.none .ac{max-width:19rem}
+
+/* ⋯ tenang. Titik biru = ada usulan untuk baris ini; usulannya tetap diminta. */
+.dots{position:relative;width:1.375rem;padding:0;border-color:transparent;background:transparent;
+      font-weight:600;color:var(--faint);line-height:1}
+.dots:hover{color:var(--ink);background:var(--soft-2)}
+.dots.has{color:var(--accent)}
+.dots.has::after{content:"";position:absolute;top:.125rem;right:.125rem;width:.3125rem;height:.3125rem;
+                 border-radius:999px;background:var(--accent)}
+
+/* Skor keyakinan. Angka, bukan kata — dan warnanya hanya tiga tingkat, karena
+   probabilitas matcher tidak terkalibrasi dan berpura-pura presisi itu bohong. */
+.score{display:inline-block;font-size:.6875rem;font-weight:600;font-variant-numeric:tabular-nums;
+       padding:.0625rem .3125rem;border-radius:999px}
+.score.hi{background:var(--ok-bg);color:var(--ok-fg)}
+.score.mid{background:var(--warn-bg);color:var(--warn-fg)}
+.score.lo{background:var(--bad-bg);color:var(--bad-fg)}
+.how{display:block;font-size:.5625rem;color:var(--faint);margin-top:.125rem;letter-spacing:.03em}
+.pair{display:flex;align-items:center;gap:.375rem}
+.pair .what{display:inline;white-space:normal}
+
+.cue-pill{display:inline-flex;align-items:center;gap:.3125rem;font-size:.75rem;color:var(--accent);cursor:pointer}
+.cue-pill::before{content:"";width:.375rem;height:.375rem;border-radius:999px;background:var(--accent)}
+.cue-pill:hover{text-decoration:underline}
+.ac{width:100%;height:1.75rem;padding:0 .5rem;font:inherit;font-size:.75rem;
+    border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink)}
+.ac::placeholder{color:var(--faint)}
+.ac:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-bg)}
+.ac.set{font-weight:500}
+#aclist{position:fixed;z-index:60;background:var(--canvas);border:1px solid var(--hairline-2);
+        border-radius:var(--r-inner);box-shadow:var(--shadow-float);max-height:15rem;overflow:auto;min-width:20rem}
+#aclist[hidden]{display:none}
+.ac-item{display:flex;gap:.5rem;align-items:baseline;padding:.375rem .625rem;cursor:pointer;font-size:.75rem}
+.ac-item:hover{background:var(--accent-bg)}
+.ac-item code{font-family:var(--font-mono);font-size:.6875rem;color:var(--mute);flex:0 0 5.75rem}
+.ac-item span{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ac-none{padding:.5rem .625rem;font-size:.71875rem;color:var(--mute)}
+
+tbody.grp.done{opacity:.62;transition:opacity 120ms}
+tbody.grp.done:hover{opacity:1}
+tr.on > td{background-color:var(--accent-bg)}
+
+footer.bar{display:flex;align-items:center;gap:1.25rem;padding:.5625rem 1.25rem;background:var(--canvas);border-top:1px solid var(--hairline)}
+.tot{display:flex;flex-direction:column}
+.tot span{font-size:.65625rem;color:var(--mute)}
+.tot strong{font-size:.9375rem;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.tot.off strong{color:var(--bad-fg)} .tot.zero strong{color:var(--ok-fg)}
+.hint{font-size:.6875rem;color:var(--mute)}
+.note{padding:.5rem 1.25rem;background:var(--warn-bg);color:var(--warn-fg);font-size:.6875rem;border-top:1px solid #f0dcb5}
+
+#sheet{position:fixed;top:0;right:0;bottom:0;width:26rem;background:var(--canvas);border-left:1px solid var(--hairline);
+       box-shadow:var(--shadow-float);display:flex;flex-direction:column;z-index:30}
+#sheet[hidden]{display:none}
+.sh-head{padding:.75rem .875rem;border-bottom:1px solid var(--hairline);display:flex;align-items:flex-start;gap:.5rem}
+.sh-head h2{margin:0;font-size:.8125rem;font-weight:600;color:var(--ink)}
+.sh-body{padding:.875rem;overflow:auto;flex:1;font-size:.78125rem}
+.sh-body h3{margin:.75rem 0 .375rem;font-size:.6875rem;font-weight:600;color:var(--mute);letter-spacing:.04em;text-transform:uppercase}
+.sh-body h3:first-child{margin-top:0}
+.sh-body p{margin:0 0 .625rem;color:var(--body)}
+.cand{display:block;border:1px solid var(--hairline);border-radius:var(--r-inner);padding:.5rem .625rem;margin-bottom:.375rem;cursor:pointer}
+.cand:hover{background:var(--soft-3)}
+.cand .doc{color:var(--ink);font-weight:500}
+.cand .line{display:flex;justify-content:space-between;gap:.5rem}
+.evrow{display:flex;flex-wrap:wrap;gap:.25rem;margin-top:.3125rem}
+.ev{font-size:.65625rem;padding:.125rem .375rem;border-radius:var(--r-inner);background:var(--soft-2);color:var(--body)}
+.ev b{color:var(--ink);font-weight:600}
+.ev.no b{color:var(--bad-fg)}
+.sh-actions{display:flex;flex-wrap:wrap;gap:.375rem;padding:.625rem .875rem;border-top:1px solid var(--hairline);background:var(--soft-3)}
+.sum{display:flex;justify-content:space-between;padding:.1875rem 0;font-size:.75rem}
+.sum.total{border-top:1px solid var(--hairline);margin-top:.25rem;padding-top:.375rem;font-weight:600;color:var(--ink)}
+</style>
+</head>
+<body>
+
+<header class="page">
+  <div class="crumb">Finance · Cash &amp; bank</div>
+  <div class="title-row">
+    <h1>Reconcile — Giro BCA</h1>
+    <span class="acct mono">1011002001 · a/c ••••4471 · DC</span>
+    <span class="spacer"></span>
+    <button>Import statement</button>
+    <button>Test reconciliation</button>
+    <button class="primary">Complete reconciliation</button>
+  </div>
+  <dl class="facts">
+    <div class="fact"><dt>Statement no.</dt><dd class="mono">09/2026-03</dd></div>
+    <div class="fact"><dt>Period</dt><dd>1 – 30 Sep 2026</dd></div>
+    <div class="fact"><dt>Balance last statement</dt><dd class="num">412.885.300</dd></div>
+    <div class="fact"><dt>Statement ending balance</dt><dd class="num">388.114.050</dd></div>
+    <div class="fact"><dt>Book balance</dt><dd class="num">401.004.050</dd></div>
+    <div class="fact diff"><dt>Difference</dt><dd class="num">12.890.000</dd></div>
+  </dl>
+  <div class="tabs" id="tabs">
+    <button class="tab" aria-selected="true" data-t="pending">Pending <b id="n-pending">19</b></button>
+    <button class="tab" aria-selected="false" data-t="posted">Posted <b>205</b></button>
+    <button class="tab" aria-selected="false" data-t="excluded">Excluded <b>2</b></button>
+    <span class="spacer"></span>
+    <div class="seg" id="views">
+      <button data-v="split" aria-pressed="true">Two tables</button>
+      <button data-v="single" aria-pressed="false">One table</button>
+    </div>
+  </div>
+</header>
+
+<!-- ============ PENDING · dua tabel ============ -->
+<div class="stage" id="pane-split">
+  <div class="actions">
+    <button id="auto-1">Auto match</button>
+    <button class="quiet" id="undo-1" hidden>Undo auto match</button>
+    <span class="spacer"></span>
+    <span class="hint">A row with two sides is a match. A row with one side is not — whatever the dates say.</span>
+  </div>
+  <div class="scroll">
+    <table class="board">
+      <colgroup><col class="d"><col><col class="a"><col class="act"><col class="mid"><col class="d"><col><col class="a"><col class="act"></colgroup>
+      <thead><tr>
+        <th colspan="4">BANK STATEMENT</th><th class="spine"></th><th colspan="4">BOOKS</th>
+      </tr></thead>
+      <tbody class="grp" id="split-body"></tbody>
+    </table>
+  </div>
+  <footer class="bar">
+    <div class="tot"><span>Selected — bank</span><strong id="t-bank">0</strong></div>
+    <div class="tot"><span>Selected — books</span><strong id="t-book">0</strong></div>
+    <div class="tot" id="t-diff-box"><span>Difference</span><strong id="t-diff">0</strong></div>
+    <span class="spacer"></span>
+    <span class="hint" id="t-hint">Tick a bank line and the entries it settles.</span>
+    <button class="primary" id="btn-match" disabled>Match</button>
+  </footer>
+</div>
+
+<!-- ============ PENDING · satu tabel ============ -->
+<div class="stage" id="pane-single" hidden>
+  <div class="actions">
+    <button id="auto-2">Auto match</button>
+    <button class="quiet" id="undo-2" hidden>Undo auto match</button>
+    <span class="spacer"></span>
+    <span class="hint">One row per bank line: what the bank says, then what we do about it.</span>
+  </div>
+  <div class="scroll">
+    <table class="board">
+      <colgroup><col class="d"><col><col class="sp"><col class="sp"><col class="m"><col class="act"></colgroup>
+      <thead><tr>
+        <th>Date</th><th>Bank description</th><th class="r">Spent</th><th class="r">Received</th>
+        <th>Match / categorise</th><th></th>
+      </tr></thead>
+      <tbody class="grp" id="single-body"></tbody>
+    </table>
+  </div>
+  <footer class="bar">
+    <span class="hint">The score says how sure the matcher is. It is never the thing that posts.</span>
+    <span class="spacer"></span>
+  </footer>
+</div>
+
+<!-- ============ POSTED ============ -->
+<div class="stage" id="pane-posted" hidden>
+  <div class="scroll">
+    <table class="board">
+      <colgroup><col class="d"><col><col class="a"><col class="mid"><col class="d"><col><col class="a"></colgroup>
+      <thead><tr><th colspan="3">BANK STATEMENT</th><th class="spine"></th><th colspan="3">BOOKS</th></tr></thead>
+      <tbody class="grp done">
+        <tr>
+          <td class="date">05/09</td>
+          <td><span class="what">SETORAN KLIRING</span><span class="meta mono">012345 · TOKO 01</span></td>
+          <td class="r amt in">+48.500.000</td>
+          <td class="mid"><button class="sm">Undo</button><span class="how">auto · 98</span></td>
+          <td class="date">04/09</td>
+          <td><span class="what">SD-2609-0044 · Store deposit</span><span class="meta">Toko 01 · takings 03–04/09</span></td>
+          <td class="r amt in">+48.500.000</td>
+        </tr>
+      </tbody>
+      <tbody class="grp done">
+        <tr>
+          <td class="date">10/09</td>
+          <td><span class="what">TRSF E-BANKING DB PT SUMBER REJEKI</span><span class="meta mono">1009/FTSCY/WS95221</span></td>
+          <td class="r amt out">−87.450.000</td>
+          <td class="mid"><button class="sm">Undo</button><span class="how">manual · rani</span></td>
+          <td class="date">10/09</td>
+          <td><span class="what">BKK-2609-0192 · Payment</span><span class="meta">PT Sumber Rejeki · 3 bills</span></td>
+          <td class="r amt out">−87.450.000</td>
+        </tr>
+      </tbody>
+      <tbody class="grp done">
+        <tr>
+          <td class="date" rowspan="3">16/09</td>
+          <td rowspan="3"><span class="what">TRSF E-BANKING CR PT NUSA</span><span class="meta mono">1609/FTSCY/WS96001</span></td>
+          <td class="r amt in" rowspan="3">+29.999.000</td>
+          <td class="mid" rowspan="3"><button class="sm">Undo</button><span class="how">manual · rani</span></td>
+          <td class="date">15/09</td><td><span class="what">BKM-2609-0203 · Receipt</span><span class="meta">PT Nusa Raya · INV-2210</span></td>
+          <td class="r amt in">+20.000.000</td>
+        </tr>
+        <tr><td class="date">15/09</td><td><span class="what">BKM-2609-0204 · Receipt</span><span class="meta">PT Nusa Raya · INV-2211</span></td><td class="r amt in">+10.000.000</td></tr>
+        <tr><td class="date">16/09</td><td><span class="what">BKK-2609-0198 · Bank transfer fee</span><span class="meta">6010310004 Biaya Bank Head Office</span></td><td class="r amt out">−1.000</td></tr>
+      </tbody>
+      <tbody class="grp done">
+        <tr>
+          <td class="date">04/09</td>
+          <td><span class="what">BIAYA ADM</span><span class="meta mono">—</span></td>
+          <td class="r amt out">−40.000</td>
+          <td class="mid"><button class="sm">Undo</button><span class="how">posted</span></td>
+          <td class="date">04/09</td>
+          <td><span class="what">BKK-2609-0041 · Bank charges</span><span class="meta">created from this line · 6010310004</span></td>
+          <td class="r amt out">−40.000</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <footer class="bar"><span class="hint">Nothing here says “matched”. Two sides on one row already says it; the small line says how it got there.</span></footer>
+</div>
+
+<!-- ============ EXCLUDED ============ -->
+<div class="stage" id="pane-excluded" hidden>
+  <div class="scroll">
+    <table class="board">
+      <colgroup><col class="d"><col><col class="a"><col class="mid"><col></colgroup>
+      <thead><tr><th colspan="3">BANK STATEMENT</th><th class="spine"></th><th>WHY</th></tr></thead>
+      <tbody class="grp">
+        <tr>
+          <td class="date">03/09</td><td><span class="what">BIAYA ADM</span><span class="meta">excluded by rani · 30/09</span></td>
+          <td class="r amt out">−25.000</td>
+          <td class="mid"><button class="sm">Include</button></td>
+          <td><span class="what">duplicate of the line imported on 02/09</span></td>
+        </tr>
+        <tr>
+          <td class="date">30/09</td><td><span class="what">SALDO AKHIR</span><span class="meta">excluded by rani · 30/09</span></td>
+          <td class="r amt">—</td>
+          <td class="mid"><button class="sm">Include</button></td>
+          <td><span class="what">not a transaction — the parser picked up the footer</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <footer class="bar"><span class="hint">Excluded lines stay visible and auditable. Exclude is never a way to force the difference to zero.</span></footer>
+</div>
+
+<aside id="sheet" hidden>
+  <div class="sh-head">
+    <div><h2 id="sh-title">Possible matches</h2><span class="meta" id="sh-sub"></span></div>
+    <span class="spacer"></span><button class="quiet" id="sh-close">Close</button>
+  </div>
+  <div class="sh-body" id="sh-body"></div>
+  <div class="sh-actions" id="sh-actions"><button class="primary">Match</button><button class="quiet">Nothing fits</button></div>
+</aside>
+
+<p class="note">Prototype. Angka dikarang; kode akun, jenis dokumen dan kategori diambil dari skema sungguhan
+(0115 cash document, 0135/0144 settlement, 0155 kategori, 0213 alokasi, 0253 chart klien — daftar akun dibaca dari basis data).
+Kelompok <b>N → 1</b> (dua baris bank, satu dokumen) <b>belum didukung skema</b>: <span class="mono">bank_line_match</span> masih memegang <span class="mono">UNIQUE (journal_line_id)</span>.</p>
+<script>
+/* ============================================================================
+   Satu aturan yang menentukan seluruh layar:
+
+       sejajar = berpasangan.
+
+   Selama belum dipasangkan, sebuah baris hanya terisi SATU sisi — jadi dua hal
+   yang tidak cocok tidak pernah berhadapan, sekalipun tanggalnya sama. Auto
+   match tidak menggambar garis atau lencana: ia MEMINDAHKAN kedua sisi ke satu
+   baris, dan menaruh skornya di tengah. Itu sebabnya hasilnya bisa dibaca tanpa
+   membaca apa pun.
+   ========================================================================== */
+
+const BANK = [
+  {id:"b1", d:"02/09", w:"TRSF E-BANKING CR PT CENTRAL ABADI", m:"0209/FTSCY/WS95051 INV2031", a: 9999000},
+  {id:"b2", d:"03/09", w:"BIAYA ADM",   m:"—", a:  -25000, post:1},
+  {id:"b3", d:"03/09", w:"BUNGA",       m:"—", a:  184300, post:1},
+  {id:"b4", d:"03/09", w:"PAJAK BUNGA", m:"—", a:  -36860, post:1},
+  {id:"b5", d:"08/09", w:"KR OTOMATIS EDC BCA", m:"NET SETTLEMENT 08/09", a: 9930000},
+  {id:"b6", d:"12/09", w:"TARIKAN TUNAI", m:"CAB. MANGGA DUA", a:-15000000},
+  {id:"b7", d:"15/09", w:"TRSF E-BANKING DB", m:"KE MANDIRI 1440006789", a:-100000000, post:1},
+  {id:"b8", d:"26/09", w:"TRSF E-BANKING CR PT MEGAH", m:"2609/FTSCY/WS96501", a: 20000000},
+  {id:"b9", d:"27/09", w:"TRSF E-BANKING CR PT MEGAH", m:"2709/FTSCY/WS96544", a: 10000000},
+  {id:"b10",d:"28/09", w:"TRSF E-BANKING CR PT ABC SEJAHTERA", m:"2809/FTSCY/WS96788", a: 30000000},
+];
+const BOOK = [
+  {id:"k1", d:"01/09", w:"BKM-2609-0182 · Receipt", m:"PT Central Abadi · INV-2031", a: 10000000},
+  {id:"k2", d:"04/09", w:"BKM-2609-0191 · Receipt", m:"PT Central Abadi · INV-2042", a: 10000000},
+  {id:"k3", d:"07/09", w:"ST-2609-0012 · Acquirer settlement", m:"BCA EDC · gross", a: 10000000},
+  {id:"k4", d:"07/09", w:"ST-2609-0012 · Card fee (MDR)", m:"acquirer_card_fee", a: -70000},
+  {id:"k5", d:"12/09", w:"TF-2609-0007 · Transfer", m:"Giro BCA → Kas besar DC", a:-15000000},
+  {id:"k6", d:"25/09", w:"BKM-2609-0207 · Receipt", m:"PT Megah Sentosa · INV-3310", a: 30000000},
+  {id:"k7", d:"27/09", w:"BKM-2609-0210 · Receipt", m:"PT ABC Sejahtera · INV-001", a: 10000000},
+  {id:"k8", d:"27/09", w:"BKM-2609-0211 · Receipt", m:"PT ABC Sejahtera · INV-002", a:  8000000},
+  {id:"k9", d:"28/09", w:"BKM-2609-0212 · Receipt", m:"PT ABC Sejahtera · INV-003", a: 12000000},
+];
+
+/* Apa yang matcher deterministik akan temukan sendiri. Skornya 0–100 dan
+   BUKAN probabilitas: ia hanya mengurutkan, dan tiga tingkat warna adalah
+   sejauh mana angka yang tak terkalibrasi boleh berpura-pura tahu. */
+const AUTO = [
+  {bank:["b6"],       book:["k5"],           score:99, why:["Amount exact","Direction match","Date same day"]},
+  {bank:["b5"],       book:["k3","k4"],      score:96, why:["Net exact once MDR is taken off","Acquirer BCA","Date 1 day"]},
+  {bank:["b10"],      book:["k7","k8","k9"], score:92, why:["Three receipts add to the line exactly","Party exact","Date 0–1 day"]},
+  {bank:["b8","b9"],  book:["k6"],           score:88, why:["Two transfers add to the receipt exactly","Party exact","Date 1–2 days"],
+   flag:"Two bank lines against one entry — the schema refuses this today (0213)."},
+];
+
+/* Yang TIDAK di-auto, dan kenapa. b1 punya kandidat kuat tetapi selisih 1.000,
+   dan selisih bukan sesuatu yang boleh diputuskan diam-diam. */
+const SHEETS = {
+  b1:{t:"TRSF E-BANKING CR PT CENTRAL ABADI", s:"02/09 · +9.999.000", h:"Entries that could settle it",
+      c:[["BKM-2609-0182 · Receipt","PT Central Abadi · INV-2031 · 01/09","+10.000.000",78,
+          [["Amount","short 1.000",1],["Reference","exact",0],["Party","exact",0],["Date","1 day",0]]],
+         ["BKM-2609-0191 · Receipt","PT Central Abadi · INV-2042 · 04/09","+10.000.000",61,
+          [["Amount","short 1.000",1],["Reference","none",1],["Party","exact",0],["Date","2 days",0]]]],
+      n:"Not matched automatically: both are 1.000 more than the bank paid. What that 1.000 IS — a transfer fee, a discount, or a part-payment still owed — changes the books, so a person decides it."},
+  b7:{t:"TRSF E-BANKING DB KE MANDIRI", s:"15/09 · −100.000.000", h:"Nothing in the books fits", c:[],
+      n:"Giro Mandiri (1011002002) reports +100.000.000 the same day, opposite direction. That is a transfer between our own accounts and no transfer document exists — Post one, and both statements match to it."},
+  k1:{t:"BKM-2609-0182 · Receipt", s:"01/09 · +10.000.000", h:"Bank lines that could settle it",
+      c:[["02/09 TRSF E-BANKING CR PT CENTRAL ABADI","0209/FTSCY/WS95051 INV2031","+9.999.000",78,
+          [["Amount","short 1.000",1],["Reference","exact",0],["Date","1 day",0]]]],
+      n:"The narration carries INV2031, which is this receipt's invoice."},
+};
+
+const ACCOUNTS = [
+  ["6010310004","Biaya Bank Head Office","bank charges admin provisi"],
+  ["8010110001","Pendapatan Bunga Bank","interest credited bunga"],
+  ["2012101002","Hutang Pajak PPH Pasal 23 (withhold)","tax withheld pajak"],
+  ["8020111001","Biaya Bunga Pinjaman Bank","loan interest"],
+  ["8020111002","Biaya Bunga Leasing","leasing interest"],
+  ["1011001001","CASH ON HAND","cash withdrawn to the till tarikan"],
+  ["1011001002","PETTY CASH","petty cash float"],
+  ["1011002002","Cash In Bank Giro Bank MANDIRI","transfer to our own account"],
+  ["1011002003","Cash In Bank Giro Bank BRI","transfer to our own account"],
+  ["1011002004","Cash In Bank Giro Bank BNI","transfer to our own account"],
+  ["1011002005","Cash In Bank Giro Bank DANAMON","transfer to our own account"],
+  ["1011003001","Cash In Bank Tabungan Bank BCA","transfer to our own account"],
+  ["2012002001","Outstanding Giro Bank BCA","giro issued not cleared"],
+  ["1011102001","PIUTANG PEGAWAI","employee loan"],
+  ["3013001001","Modal Setor","capital paid in"],
+  ["3013001004","Prive","owner drawing"],
+  ["7010110003","Biaya Sewa Bangunan Toko dan Gudang","store warehouse rent sewa"],
+  ["6010310006","Biaya Pemakaian Listrik","electricity listrik"],
+  ["7010310002","Biaya Pajak Bumi Dan Bangunan  (PBB)","land building tax pbb"],
+];
+
+let MATCHES = [];                       // {bank:[], book:[], score|null, how}
+const picked = new Set();               // centang di tampilan dua tabel
+
+const bankOf = (id) => BANK.find((x) => x.id === id);
+const bookOf = (id) => BOOK.find((x) => x.id === id);
+const money  = (n) => (n < 0 ? "−" : "+") + Math.abs(n).toLocaleString("id-ID");
+const matchedBank = () => new Set(MATCHES.flatMap((m) => m.bank));
+const matchedBook = () => new Set(MATCHES.flatMap((m) => m.book));
+const day = (s) => Number(s.slice(3, 5)) * 100 + Number(s.slice(0, 2));
+const tier = (s) => (s === null ? "" : s >= 90 ? "hi" : s >= 75 ? "mid" : "lo");
+
+/* Menjangkau seluruh tinggi kelompok. `<td>` tanpa atribut pun harus kena,
+   jadi yang dicocokkan adalah `<td` diikuti spasi ATAU kurung tutup. */
+const span = (html, n) => (n > 1 ? html.replace(/<td(?=[ >])/g, '<td rowspan="' + n + '"') : html);
+
+function cell(x, side) {
+  return '<td class="date">' + x.d + "</td>" +
+         '<td><span class="what">' + x.w + '</span><span class="meta' + (side === "bank" ? " mono" : "") + '">' + x.m + "</span></td>" +
+         '<td class="r amt ' + (x.a < 0 ? "out" : "in") + '" colspan="2">' + money(x.a) + "</td>";
+}
+function tick(x) {
+  return '<td class="date"><input type="checkbox" data-pick="' + x.id + '"' + (picked.has(x.id) ? " checked" : "") + ">" + x.d + "</td>";
+}
+function dots(id) {
+  const has = SHEETS[id] ? " has" : "";
+  return '<button class="sm dots' + has + '" data-sheet="' + id + '" title="Possible matches">⋯</button>';
+}
+
+/* ---------------- dua tabel ---------------- */
+function renderSplit() {
+  const mb = matchedBank(), mk = matchedBook();
+  const units = [];
+  MATCHES.forEach((m) => units.push({at: Math.min(...m.bank.map((i) => day(bankOf(i).d))), kind: "m", m}));
+  BANK.filter((x) => !mb.has(x.id)).forEach((x) => units.push({at: day(x.d), kind: "b", x}));
+  BOOK.filter((x) => !mk.has(x.id)).forEach((x) => units.push({at: day(x.d), kind: "k", x}));
+  units.sort((p, q) => p.at - q.at);
+
+  let html = "";
+  for (const u of units) {
+    if (u.kind === "b") {
+      const on = picked.has(u.x.id) ? ' class="on"' : "";
+      html += "<tr" + on + ">" + tick(u.x) +
+        '<td><span class="what">' + u.x.w + '</span><span class="meta mono">' + u.x.m + "</span></td>" +
+        '<td class="r amt ' + (u.x.a < 0 ? "out" : "in") + '">' + money(u.x.a) + "</td>" +
+        '<td class="act"><button class="sm" data-post="' + u.x.id + '">Post</button>' + dots(u.x.id) + "</td>" +
+        '<td class="mid"></td>' +
+        '<td class="none" colspan="4">' + (u.x.post ? '<input class="ac" placeholder="Post to which account?" />' : "") + "</td></tr>";
+    } else if (u.kind === "k") {
+      const on = picked.has(u.x.id) ? ' class="on"' : "";
+      html += "<tr" + on + '><td class="none" colspan="4"></td><td class="mid"></td>' + tick(u.x) +
+        '<td><span class="what">' + u.x.w + '</span><span class="meta">' + u.x.m + "</span></td>" +
+        '<td class="r amt ' + (u.x.a < 0 ? "out" : "in") + '">' + money(u.x.a) + "</td>" +
+        '<td class="act"><button class="sm" data-pickone="' + u.x.id + '">Match</button>' + dots(u.x.id) + "</td></tr>";
+    } else {
+      const bs = u.m.bank.map(bankOf), ks = u.m.book.map(bookOf);
+      const n = Math.max(bs.length, ks.length);
+      for (let i = 0; i < n; i++) {
+        html += "<tr>";
+        if (bs.length === 1) { if (i === 0) html += span(cell(bs[0], "bank"), n); }
+        else html += cell(bs[i], "bank");
+        if (i === 0) {
+          const sc = u.m.score === null ? '<span class="score mid">manual</span>'
+                                        : '<span class="score ' + tier(u.m.score) + '">' + u.m.score + "</span>";
+          html += '<td class="mid"' + (n > 1 ? ' rowspan="' + n + '"' : '') + '>' + sc +
+                  '<span class="how">' + (u.m.score === null ? "you matched this" : "auto") + "</span>" +
+                  '<button class="sm" data-unmatch="' + MATCHES.indexOf(u.m) + '" style="margin-top:.25rem">Remove</button></td>';
+        }
+        if (ks.length === 1) { if (i === 0) html += span(cell(ks[0], "book"), n); }
+        else html += cell(ks[i], "book");
+        html += "</tr>";
+      }
+    }
+  }
+  document.getElementById("split-body").innerHTML = html;
+  document.getElementById("n-pending").textContent =
+    BANK.filter((x) => !mb.has(x.id)).length + BOOK.filter((x) => !mk.has(x.id)).length;
+  totals();
+}
+
+/* ---------------- satu tabel ---------------- */
+function renderSingle() {
+  let html = "";
+  for (const b of BANK) {
+    const m = MATCHES.find((x) => x.bank.includes(b.id));
+    let mid, act;
+    if (m) {
+      const sc = m.score === null ? '<span class="score mid">manual</span>'
+                                  : '<span class="score ' + tier(m.score) + '">' + m.score + "</span>";
+      mid = '<div class="pair">' + sc + "<span>" +
+            m.book.map((i) => bookOf(i).w.split(" · ")[0] + " " + money(bookOf(i).a)).join("<br>") +
+            "</span></div>";
+      act = '<button class="sm" data-unmatch="' + MATCHES.indexOf(m) + '">Remove</button>';
+    } else if (SHEETS[b.id]) {
+      const n = SHEETS[b.id].c.length;
+      mid = '<span class="cue-pill" data-sheet="' + b.id + '">' +
+            (n === 0 ? "nothing in the books fits" : n + " possible match" + (n > 1 ? "es" : "")) + "</span>";
+      act = '<button class="sm" data-sheet="' + b.id + '">' + (n === 0 ? "Post" : "Match") + "</button>" + dots(b.id);
+    } else {
+      mid = '<input class="ac" placeholder="Post to which account?" />';
+      act = '<button class="sm" data-post="' + b.id + '">Post</button>' + dots(b.id);
+    }
+    html += "<tr>" +
+      '<td class="date">' + b.d + "</td>" +
+      '<td><span class="what">' + b.w + '</span><span class="meta mono">' + b.m + "</span></td>" +
+      '<td class="r amt out">' + (b.a < 0 ? money(b.a) : "") + "</td>" +
+      '<td class="r amt in">' + (b.a > 0 ? money(b.a) : "") + "</td>" +
+      "<td>" + mid + "</td>" +
+      '<td class="act">' + act + "</td></tr>";
+  }
+  document.getElementById("single-body").innerHTML = html;
+}
+
+function render() { renderSplit(); renderSingle(); }
+
+/* ---------------- centang dan Match manual ---------------- */
+function totals() {
+  const b = [...picked].filter((i) => i[0] === "b").map(bankOf).reduce((n, x) => n + x.a, 0);
+  const k = [...picked].filter((i) => i[0] === "k").map(bookOf).reduce((n, x) => n + x.a, 0);
+  const d = b - k;
+  const both = [...picked].some((i) => i[0] === "b") && [...picked].some((i) => i[0] === "k");
+  document.getElementById("t-bank").textContent = money(b).replace("+", "");
+  document.getElementById("t-book").textContent = money(k).replace("+", "");
+  document.getElementById("t-diff").textContent = money(d).replace("+", "");
+  document.getElementById("t-diff-box").className = "tot " + (both ? (d === 0 ? "zero" : "off") : "");
+  document.getElementById("btn-match").disabled = !(both && d === 0);
+  document.getElementById("t-hint").textContent = !both
+    ? "Tick a bank line and the entries it settles."
+    : d === 0 ? "The two sides agree. Matching records that agreement and posts nothing."
+              : "They do not agree yet — " + money(Math.abs(d)).replace("+", "") + " is unaccounted for.";
+}
+
+document.addEventListener("change", (e) => {
+  const id = e.target.dataset && e.target.dataset.pick;
+  if (!id) return;
+  e.target.checked ? picked.add(id) : picked.delete(id);
+  e.target.closest("tr").classList.toggle("on", e.target.checked);
+  totals();
+});
+document.getElementById("btn-match").addEventListener("click", () => {
+  MATCHES.push({bank: [...picked].filter((i) => i[0] === "b"), book: [...picked].filter((i) => i[0] === "k"), score: null, how: "manual"});
+  picked.clear();
+  render();
+});
+
+/* ---------------- auto match ---------------- */
+function auto(on) {
+  MATCHES = on ? AUTO.map((m) => ({...m, how: "auto"})) : [];
+  picked.clear();
+  ["auto-1", "auto-2"].forEach((i) => (document.getElementById(i).hidden = on));
+  ["undo-1", "undo-2"].forEach((i) => (document.getElementById(i).hidden = !on));
+  render();
+}
+["auto-1", "auto-2"].forEach((i) => document.getElementById(i).addEventListener("click", () => auto(true)));
+["undo-1", "undo-2"].forEach((i) => document.getElementById(i).addEventListener("click", () => auto(false)));
+
+document.addEventListener("click", (e) => {
+  const un = e.target.dataset && e.target.dataset.unmatch;
+  if (un !== undefined && un !== "") { MATCHES.splice(Number(un), 1); render(); }
+});
+
+/* ---------------- sheet usulan ---------------- */
+function openSheet(id) {
+  const d = SHEETS[id];
+  document.getElementById("sh-title").textContent = d ? d.t : "Possible matches";
+  document.getElementById("sh-sub").textContent = d ? d.s : "";
+  let html = "";
+  if (!d) { html = "<h3>Nothing obvious</h3><p>No entry on this account comes close on amount. Post a new one, or leave it pending.</p>"; }
+  else {
+    html += "<h3>" + d.h + "</h3>";
+    if (d.c.length === 0) html += "<p>No candidate within the amount tolerance.</p>";
+    d.c.forEach((c) => {
+      html += '<label class="cand"><span class="line"><span class="doc">' + c[0] + '</span><span class="amt">' + c[2] + "</span></span>" +
+        '<span class="meta">' + c[1] + '</span><span class="evrow"><i class="score ' + tier(c[3]) + '">' + c[3] + "</i>" +
+        c[4].map((e) => '<i class="ev' + (e[2] ? " no" : "") + '">' + e[0] + " <b>" + e[1] + "</b></i>").join("") + "</span></label>";
+    });
+    html += "<h3>Why it was not matched for you</h3><p>" + d.n + "</p>";
+  }
+  document.getElementById("sh-body").innerHTML = html;
+  document.getElementById("sheet").hidden = false;
+}
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-sheet]");
+  if (!t) return;
+  e.preventDefault();
+  openSheet(t.dataset.sheet);
+});
+document.getElementById("sh-close").addEventListener("click", () => { document.getElementById("sheet").hidden = true; });
+
+/* ---------------- Post ---------------- */
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-post]");
+  if (!t) return;
+  const b = bankOf(t.dataset.post);
+  document.getElementById("sh-title").textContent = "Post — " + b.w;
+  document.getElementById("sh-sub").textContent = money(b.a) + " · creates a new entry in the books";
+  document.getElementById("sh-body").innerHTML =
+    "<h3>Post to which account</h3><input class='ac' placeholder='Search the chart — code or name' />" +
+    "<h3>What will happen</h3><p>One ordinary cash document is written through the normal posting engine, and this bank line is matched to it in the same transaction. Nothing reconciliation-specific touches the ledger.</p>" +
+    '<div class="sum"><span>Bank line</span><b>' + money(b.a) + "</b></div>" +
+    '<div class="sum total"><span>Difference after posting</span><b>0</b></div>';
+  document.getElementById("sh-actions").innerHTML =
+    '<button class="primary">Post</button><button class="quiet">Remember this narration as a rule</button>';
+  document.getElementById("sheet").hidden = false;
+});
+
+/* ---------------- pemilih akun ---------------- */
+const aclist = document.createElement("div");
+aclist.id = "aclist"; aclist.hidden = true; document.body.appendChild(aclist);
+let acInput = null;
+function acOpen(input) {
+  acInput = input;
+  const q = input.value.trim().toLowerCase();
+  const hits = ACCOUNTS.filter((a) => !q || a[0].includes(q) || a[1].toLowerCase().includes(q) || a[2].includes(q)).slice(0, 12);
+  aclist.innerHTML = hits.length === 0
+    ? '<div class="ac-none">No account in the chart matches that. Nothing here is free text.</div>'
+    : hits.map((a) => '<div class="ac-item" data-code="' + a[0] + '" data-name="' + a[1] + '"><code>' + a[0] + "</code><span>" + a[1] + "</span></div>").join("");
+  const r = input.getBoundingClientRect();
+  aclist.style.left = Math.min(r.left, window.innerWidth - 340) + "px";
+  aclist.style.top = r.bottom + 4 + "px";
+  aclist.style.minWidth = Math.max(r.width, 320) + "px";
+  aclist.hidden = false;
+}
+document.addEventListener("focusin", (e) => { if (e.target.classList.contains("ac")) acOpen(e.target); });
+document.addEventListener("input", (e) => { if (e.target.classList.contains("ac")) acOpen(e.target); });
+aclist.addEventListener("mousedown", (e) => {
+  const it = e.target.closest(".ac-item");
+  if (!it || !acInput) return;
+  e.preventDefault();
+  acInput.value = it.dataset.code + " · " + it.dataset.name;
+  acInput.classList.add("set");
+  aclist.hidden = true;
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.classList.contains("ac") && !e.target.closest("#aclist")) aclist.hidden = true;
+});
+
+/* ---------------- tab dan tampilan ---------------- */
+let TAB = "pending", VIEW = "split";
+function show() {
+  const single = TAB === "pending" && VIEW === "single";
+  document.getElementById("pane-split").hidden = !(TAB === "pending" && !single);
+  document.getElementById("pane-single").hidden = !single;
+  document.getElementById("pane-posted").hidden = TAB !== "posted";
+  document.getElementById("pane-excluded").hidden = TAB !== "excluded";
+  document.getElementById("views").hidden = TAB !== "pending";
+  document.getElementById("sheet").hidden = true;
+}
+document.getElementById("tabs").addEventListener("click", (e) => {
+  const t = e.target.closest(".tab");
+  if (!t) return;
+  document.querySelectorAll(".tab").forEach((x) => x.setAttribute("aria-selected", String(x === t)));
+  TAB = t.dataset.t; show();
+});
+document.getElementById("views").addEventListener("click", (e) => {
+  const v = e.target.closest("button");
+  if (!v) return;
+  document.querySelectorAll("#views button").forEach((b) => b.setAttribute("aria-pressed", String(b === v)));
+  VIEW = v.dataset.v; show();
+});
+
+render();
+</script>
+</body>
+</html>

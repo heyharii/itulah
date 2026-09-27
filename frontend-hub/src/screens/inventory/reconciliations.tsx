@@ -249,7 +249,7 @@ export function Reconciliations() {
               />
               <FilterPanel model={filters} table={table} />
               <Toolbar.Spacer />
-              <span className="text-[0.71875rem] text-mute tabular-nums">
+              <span className="text-[0.875rem] text-mute tabular-nums">
                 {count(rows.length)} of {count(data.items.length)}
               </span>
             </Toolbar>

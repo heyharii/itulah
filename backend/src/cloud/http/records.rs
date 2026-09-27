@@ -34,6 +34,7 @@
 
 use super::audit::DeclaredSubject;
 use super::auth::Principal;
+use super::employment::{current_place, reach_of};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::RecordKind,
@@ -59,6 +60,75 @@ fn kind_of(segment: &str) -> Result<RecordKind, AppError> {
     })
 }
 
+fn record_not_found(kind: RecordKind, id: &str) -> AppError {
+    AppError::NotFound(format!("{kind} {id}"))
+}
+
+/// Resolve the records whose read gate is a *rung* and whose data is bounded by
+/// a place, and apply the other half of "may they".
+///
+/// The generic surface is safe for the kinds whose permission really is a
+/// property of the path — a bill read is a rung and nothing else. HR and
+/// payroll are not: `people.employee.read` at the Supervisor rung does not mean
+/// every supervisor may read every shop's employee, leave, overtime or payroll
+/// run. The typed routes answer that with `Reach`; this is the generic door's
+/// copy of the same question, applied before the record's comments, tags or
+/// history are read or written.
+///
+/// Kinds outside that set are left to the delegated read gate, which is the
+/// design the module doc explains. The set below is deliberately short: it is
+/// the HR kinds the audit found leaking, not a second permission system.
+async fn authorize_record(
+    state: &AppState,
+    principal: &Principal,
+    kind: RecordKind,
+    id: &str,
+) -> Result<(), AppError> {
+    let place: Option<String> = match kind {
+        RecordKind::Employee => {
+            let record = infrastructure::load_employee(&state.db, id)
+                .await?
+                .ok_or_else(|| record_not_found(kind, id))?;
+            current_place(&record).map(str::to_owned)
+        }
+        RecordKind::LeaveRequest => {
+            let catalogue = infrastructure::load_catalogue(&state.db).await?;
+            let record = infrastructure::load_request(&state.db, id, &catalogue)
+                .await?
+                .ok_or_else(|| record_not_found(kind, id))?;
+            Some(record.request.place().to_string())
+        }
+        RecordKind::OvertimeOrder => {
+            let record = infrastructure::load_overtime_order(&state.db, id)
+                .await?
+                .ok_or_else(|| record_not_found(kind, id))?;
+            Some(record.order.place().to_string())
+        }
+        RecordKind::PayrollRun => {
+            let run = infrastructure::load_run(&state.db, id)
+                .await?
+                .ok_or_else(|| record_not_found(kind, id))?;
+            Some(run.place().to_string())
+        }
+        RecordKind::HireProposal => {
+            let record = infrastructure::load_hire_proposal(&state.db, id)
+                .await?
+                .ok_or_else(|| record_not_found(kind, id))?;
+            Some(record.proposal.place().to_string())
+        }
+        _ => return Ok(()),
+    };
+    let reach = reach_of(state, principal).await?;
+    if !reach.covers(place.as_deref()) {
+        return Err(AppError::Forbidden(format!(
+            "{} is not posted anywhere that reaches {}",
+            principal.username,
+            place.as_deref().unwrap_or("the place this record belongs to")
+        )));
+    }
+    Ok(())
+}
+
 /// Everything around one record: comments, tags, history, filed documents,
 /// open threads.
 pub async fn info(
@@ -66,8 +136,10 @@ pub async fn info(
     Extension(principal): Extension<Principal>,
     Path((kind, id)): Path<(String, String)>,
 ) -> Result<Json<RecordInfo>, AppError> {
+    let kind = kind_of(&kind)?;
+    authorize_record(&state, &principal, kind, &id).await?;
     Ok(Json(
-        infrastructure::record_info(&state.db, kind_of(&kind)?, &id, &principal.username).await?,
+        infrastructure::record_info(&state.db, kind, &id, &principal.username).await?,
     ))
 }
 
@@ -79,6 +151,7 @@ pub async fn comment(
     Json(request): Json<NewComment>,
 ) -> Result<(StatusCode, Json<RecordComment>), AppError> {
     let kind = kind_of(&kind)?;
+    authorize_record(&state, &principal, kind, &id).await?;
     let comment = infrastructure::add_record_comment(
         &state.db,
         kind,
@@ -107,6 +180,11 @@ pub async fn edit(
     Path(comment_id): Path<Uuid>,
     Json(request): Json<EditComment>,
 ) -> Result<Json<RecordComment>, AppError> {
+    // The subject first, so the record's own scope is checked before a comment
+    // on it is changed — a comment is not a back door onto a record somebody
+    // cannot read.
+    let (kind, subject_id) = infrastructure::comment_subject(&state.db, comment_id).await?;
+    authorize_record(&state, &principal, kind, &subject_id).await?;
     let comment = infrastructure::edit_record_comment(
         &state.db,
         comment_id,
@@ -114,7 +192,6 @@ pub async fn edit(
         &request.body,
     )
     .await?;
-    let (kind, subject_id) = infrastructure::comment_subject(&state.db, comment_id).await?;
     acted_on.set(kind, subject_id);
     Ok(Json(comment))
 }
@@ -129,6 +206,7 @@ pub async fn remove(
     // the log cannot attribute to a record is an act that record's sheet will
     // never show.
     let (kind, subject_id) = infrastructure::comment_subject(&state.db, comment_id).await?;
+    authorize_record(&state, &principal, kind, &subject_id).await?;
     infrastructure::delete_record_comment(&state.db, comment_id, &principal.username).await?;
     acted_on.set(kind, subject_id);
     Ok(StatusCode::NO_CONTENT)
@@ -141,6 +219,7 @@ pub async fn tag(
     Path((kind, id, code)): Path<(String, String, String)>,
 ) -> Result<StatusCode, AppError> {
     let kind = kind_of(&kind)?;
+    authorize_record(&state, &principal, kind, &id).await?;
     infrastructure::tag_record(&state.db, kind, &id, &code, &principal.username).await?;
     acted_on.set(kind, id);
     Ok(StatusCode::NO_CONTENT)
@@ -148,10 +227,12 @@ pub async fn tag(
 
 pub async fn untag(
     State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
     Extension(acted_on): Extension<DeclaredSubject>,
     Path((kind, id, code)): Path<(String, String, String)>,
 ) -> Result<StatusCode, AppError> {
     let kind = kind_of(&kind)?;
+    authorize_record(&state, &principal, kind, &id).await?;
     infrastructure::untag_record(&state.db, kind, &id, &code).await?;
     acted_on.set(kind, id);
     Ok(StatusCode::NO_CONTENT)

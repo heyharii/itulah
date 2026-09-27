@@ -3,7 +3,8 @@ import type { FinancialStatementLine } from "./FinancialStatementLine";
 
 export type BalanceSheet = { as_of: string, site_id: string | null, assets_minor: number, liabilities_minor: number, equity_minor: number, 
 /**
- * The period's result, computed from classes 4-8 and shown inside equity.
+ * The period's result, computed from every profit-and-loss section and
+ * shown inside equity.
  */
 result_minor: number, 
 /**

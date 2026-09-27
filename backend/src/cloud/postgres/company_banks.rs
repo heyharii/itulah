@@ -174,18 +174,21 @@ fn row_to_account(row: &sqlx::postgres::PgRow) -> Result<CompanyBankAccount, App
     })
 }
 
+// Callers append `AND ...` to this, so the company filter lives here: the
+// merged table holds our accounts AND our parties', and only the former is
+// ours to list.
 const SELECT: &str = "SELECT c.account_id, c.ledger_account_code, a.name AS ledger_account_name,
                              c.site_id, b.code AS bank_code, b.name AS bank_name,
                              c.account_no, c.account_holder, c.branch,
                              c.kind, c.status, c.is_primary, c.note, c.retired_at,
                              c.updated_by, c.updated_at
-                        FROM company_bank_account c
+                        FROM bank_account c
                         JOIN ledger_account a ON a.account_code = c.ledger_account_code
-                        -- The institution, since 0269. `c.bank_name` still
-                        -- exists on the row; it is no longer what anybody is
-                        -- shown, so that one correction to a bank's name reaches
-                        -- every account at it.
-                        JOIN bank b ON b.bank_id = c.bank_id";
+                        -- The bank's name is the institution row's now (0302);
+                        -- a correction to it reaches every account at it. The
+                        -- merge's CHECK keeps a company row's bank_id NOT NULL.
+                        JOIN bank b ON b.bank_id = c.bank_id
+                        WHERE c.is_company_account";
 
 /// Every account we have described. Retired ones come too, marked: they are
 /// still what a statement from last March was filed against.
@@ -195,8 +198,8 @@ pub async fn list_accounts(
 ) -> Result<Vec<CompanyBankAccount>, AppError> {
     let rows = sqlx::query(&format!(
         "{SELECT}
-          WHERE ($1::text IS NULL OR c.site_id = $1)
-          ORDER BY c.retired_at NULLS FIRST, c.bank_name, c.account_no"
+          AND ($1::text IS NULL OR c.site_id = $1)
+          ORDER BY c.retired_at NULLS FIRST, b.name, c.account_no"
     ))
     .bind(site_id)
     .fetch_all(pool)
@@ -215,7 +218,20 @@ pub async fn describe_account(
     request: &DescribeBankAccountRequest,
     actor: &str,
 ) -> Result<CompanyBankAccount, AppError> {
-    let (bank_id, bank_name, bank_normalized) = resolve_institution(pool, request).await?;
+    // The ledger binding must be a real, postable leaf. 0308 merged the two
+    // register tables and dropped the composite foreign key that used to
+    // guarantee this (`(ledger_account_code, is_group) REFERENCES
+    // ledger_account`); the check is back as an assertion, which can also say
+    // WHY -- a heading is a sum, not an account a bank statement can move.
+    super::ledger::assert_postable(
+        pool,
+        &request.ledger_account_code,
+        super::ledger::Intent::Map,
+    )
+    .await?;
+    // Only the institution's id survives the merge (0302): the row no longer
+    // carries a copy of its name, so the display strings are dropped here.
+    let (bank_id, _, _) = resolve_institution(pool, request).await?;
     let (account_no, account_digits) = normalize_account_no(&request.account_no)?;
     let kind = check_kind(&request.kind)?;
     let holder = request.account_holder.trim();
@@ -238,8 +254,8 @@ pub async fn describe_account(
         Some(value) => value,
         None => {
             let existing: i64 = sqlx::query(
-                "SELECT COUNT(*)::bigint AS n FROM company_bank_account
-                  WHERE site_id = $1 AND retired_at IS NULL
+                "SELECT COUNT(*)::bigint AS n FROM bank_account
+                  WHERE is_company_account AND site_id = $1 AND retired_at IS NULL
                     AND NOT (bank_id = $2 AND account_no_digits = $3)",
             )
             .bind(&request.site_id)
@@ -258,8 +274,8 @@ pub async fn describe_account(
     // we pay from now" has already decided about the other.
     if primary {
         sqlx::query(
-            "UPDATE company_bank_account SET is_primary = false, updated_by = $2, updated_at = now()
-              WHERE site_id = $1 AND is_primary AND retired_at IS NULL",
+            "UPDATE bank_account SET is_primary = false, updated_by = $2, updated_at = now()
+              WHERE is_company_account AND site_id = $1 AND is_primary AND retired_at IS NULL",
         )
         .bind(&request.site_id)
         .bind(actor)
@@ -268,20 +284,19 @@ pub async fn describe_account(
     }
 
     let row = sqlx::query(
-        "INSERT INTO company_bank_account
-           (account_id, ledger_account_code, site_id, bank_name, bank_name_normalized,
-            account_no, account_no_digits, account_holder, branch, kind, is_primary, note,
-            created_by, updated_by, bank_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$14)
-         -- Identity is the number at the institution (0269). Describing the same
-         -- account again is a correction; describing a DIFFERENT number on the
-         -- same ledger account is a second account, which is the whole point of
+        "INSERT INTO bank_account
+           (account_id, bank_id, is_company_account, ledger_account_code, site_id,
+            account_no, account_no_digits, account_holder, branch, kind, status,
+            is_primary, note, created_by, updated_by)
+         VALUES ($1,$2,true,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',$10,$11,$12,$12)
+         -- Identity is the number at the institution (0269), carried on the
+         -- merged table as a partial index (0302). Describing the same account
+         -- again is a correction; describing a DIFFERENT number on the same
+         -- ledger account is a second account, which is the whole point of
          -- what 0269 unlocked.
-         ON CONFLICT (bank_id, account_no_digits) DO UPDATE
+         ON CONFLICT (bank_id, account_no_digits) WHERE account_no_digits IS NOT NULL DO UPDATE
             SET ledger_account_code = EXCLUDED.ledger_account_code,
                 site_id = EXCLUDED.site_id,
-                bank_name = EXCLUDED.bank_name,
-                bank_name_normalized = EXCLUDED.bank_name_normalized,
                 account_no = EXCLUDED.account_no,
                 account_holder = EXCLUDED.account_holder,
                 branch = EXCLUDED.branch,
@@ -289,19 +304,18 @@ pub async fn describe_account(
                 is_primary = EXCLUDED.is_primary,
                 note = EXCLUDED.note,
                 retired_at = NULL,
-                -- Re-describing a closed account reopens it, and `status` has to
-                -- move with `retired_at` or 0269's check refuses the pair.
+                -- Re-describing a closed account reopens it, and `status` has
+                -- to move with `retired_at` or the reopened row reads CLOSED
+                -- with no closure date on it.
                 status = 'ACTIVE',
-                version = company_bank_account.version + 1,
                 updated_by = EXCLUDED.updated_by,
                 updated_at = now()
          RETURNING account_id",
     )
     .bind(Uuid::new_v4())
+    .bind(bank_id)
     .bind(&request.ledger_account_code)
     .bind(&request.site_id)
-    .bind(&bank_name)
-    .bind(&bank_normalized)
     .bind(&account_no)
     .bind(&account_digits)
     .bind(holder)
@@ -322,13 +336,12 @@ pub async fn describe_account(
             .filter(|v| !v.is_empty()),
     )
     .bind(actor)
-    .bind(bank_id)
     .fetch_one(&mut *tx)
     .await?;
     let account_id: Uuid = row.try_get("account_id")?;
     tx.commit().await?;
 
-    let found = sqlx::query(&format!("{SELECT} WHERE c.account_id = $1"))
+    let found = sqlx::query(&format!("{SELECT} AND c.account_id = $1"))
         .bind(account_id)
         .fetch_one(pool)
         .await?;
@@ -342,10 +355,9 @@ pub async fn retire_account(
     actor: &str,
 ) -> Result<CompanyBankAccount, AppError> {
     let row = sqlx::query(
-        "UPDATE company_bank_account
-            SET retired_at = now(), status = 'CLOSED', updated_by = $2, updated_at = now(),
-                version = version + 1
-          WHERE account_id = $1 AND retired_at IS NULL
+        "UPDATE bank_account
+            SET retired_at = now(), status = 'CLOSED', updated_by = $2, updated_at = now()
+          WHERE account_id = $1 AND is_company_account AND retired_at IS NULL
       RETURNING account_id",
     )
     .bind(account_id)
@@ -355,7 +367,7 @@ pub async fn retire_account(
     if row.is_none() {
         return Err(AppError::NotFound("bank account".into()));
     }
-    let found = sqlx::query(&format!("{SELECT} WHERE c.account_id = $1"))
+    let found = sqlx::query(&format!("{SELECT} AND c.account_id = $1"))
         .bind(account_id)
         .fetch_one(pool)
         .await?;
@@ -426,24 +438,27 @@ pub async fn banking_readiness(
     head_office: &str,
 ) -> Result<Vec<BankingSetupGap>, AppError> {
     let rows = sqlx::query(
-        "SELECT m.semantic_key, m.qualifier, m.site_id, m.account_code,
+        "SELECT m.role AS semantic_key, m.source_id AS qualifier, m.site_id, m.account_code,
                 a.name AS account_name,
-                (SELECT COUNT(*)::bigint FROM company_bank_account c
-                  WHERE c.ledger_account_code = m.account_code
+                (SELECT COUNT(*)::bigint FROM bank_account c
+                  WHERE c.is_company_account
+                    AND c.ledger_account_code = m.account_code
                     AND c.site_id = m.site_id) AS described,
                 b.code AS expected_bank
-           FROM account_map m
+           FROM account_resolution m
            JOIN ledger_account a ON a.account_code = m.account_code
-           LEFT JOIN bank b ON b.code = m.qualifier
-          WHERE m.semantic_key IN ('bank_giro', 'bank_savings', 'time_deposit')
+           LEFT JOIN bank b ON b.code = m.source_id
+          WHERE m.role IN ('bank_giro', 'bank_savings', 'time_deposit')
+            AND m.source_type = 'COMPANY'
             AND (a.dimension IS DISTINCT FROM 'company' OR m.site_id = $1)
             AND NOT EXISTS (
-                SELECT 1 FROM company_bank_account c
-                 WHERE c.ledger_account_code = m.account_code
+                SELECT 1 FROM bank_account c
+                 WHERE c.is_company_account
+                   AND c.ledger_account_code = m.account_code
                    AND c.site_id = m.site_id
                    AND c.status = 'ACTIVE'
             )
-          ORDER BY m.site_id, m.semantic_key, m.qualifier",
+          ORDER BY m.site_id, m.role, m.source_id",
     )
     .bind(head_office)
     .fetch_all(pool)
@@ -489,22 +504,25 @@ pub async fn bank_institutions(pool: &PgPool) -> Result<Vec<BankInstitution>, Ap
                 held.balance             AS our_balance_minor
            FROM bank b
            LEFT JOIN LATERAL (
-               SELECT COUNT(*)::bigint AS n FROM company_bank_account c
-                WHERE c.bank_id = b.bank_id AND c.retired_at IS NULL
+               SELECT COUNT(*)::bigint AS n FROM bank_account c
+                WHERE c.is_company_account
+                  AND c.bank_id = b.bank_id AND c.retired_at IS NULL
            ) ours ON true
            LEFT JOIN LATERAL (
-               SELECT COUNT(*)::bigint AS n FROM supplier_bank_account s
-                WHERE s.bank_id = b.bank_id AND s.retired_at IS NULL
+               SELECT COUNT(*)::bigint AS n FROM bank_account s
+                WHERE s.party_type = 'SUPPLIER'
+                  AND s.bank_id = b.bank_id AND s.retired_at IS NULL
            ) theirs ON true
            -- The ledger's own sum over the accounts we described, the same
            -- subtraction `/finance/money` makes. Two different sums of one
            -- account would be two answers.
            LEFT JOIN LATERAL (
                SELECT SUM(l.debit_minor - l.credit_minor)::bigint AS balance
-                 FROM company_bank_account c
+                 FROM bank_account c
                  JOIN journal_line l
                    ON l.account_code = c.ledger_account_code AND l.site_id = c.site_id
-                WHERE c.bank_id = b.bank_id AND c.retired_at IS NULL
+                WHERE c.is_company_account
+                  AND c.bank_id = b.bank_id AND c.retired_at IS NULL
            ) held ON true
           ORDER BY b.active DESC, b.code",
     )

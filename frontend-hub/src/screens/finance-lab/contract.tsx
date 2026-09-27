@@ -77,12 +77,12 @@ export function LabContract() {
               <div className="space-y-2">
                 {off.map((p) => (
                   <Blocked key={p.package_id}>
-                    <span className="font-mono text-[0.75rem] font-semibold">
+                    <span className="font-mono text-[0.875rem] font-semibold">
                       {p.package_id}@{p.version}
                     </span>{" "}
                     — {p.title}
                     <div className="mt-1">{p.activation.blocked_reason}</div>
-                    <div className="mt-1 text-[0.75rem] opacity-90">
+                    <div className="mt-1 text-[0.875rem] opacity-90">
                       {p.evidence.note}
                     </div>
                   </Blocked>
@@ -106,7 +106,7 @@ export function LabContract() {
           {unbound.length === 0 && (
             <Section title="Role tanpa binding">
               <>
-                <p className="px-3.5 py-3 text-[0.8125rem] text-ok-fg">
+                <p className="px-3.5 py-3 text-[0.875rem] text-ok-fg">
                   Every role a rule uses has a binding.
                 </p>
               </>
@@ -131,7 +131,7 @@ export function LabContract() {
                       <Cell>
                         {bs[0] ? (
                           <>
-                            <span className="font-mono text-[0.75rem] text-mute">
+                            <span className="font-mono text-[0.875rem] text-mute">
                               {bs[0].account_code}
                             </span>
                             <div>{account(bs[0].account_code)?.name}</div>
@@ -212,7 +212,7 @@ export function LabContract() {
                       </span>
                     </Cell>
                     <Cell>
-                      <span className="font-mono text-[0.75rem] text-mute">
+                      <span className="font-mono text-[0.875rem] text-mute">
                         {b.account_code}
                       </span>
                       <div>
@@ -243,7 +243,7 @@ function RuleCard({ pkg }: { pkg: RulePackage }) {
         onClick={() => setOpen((o) => !o)}
         className="hover:bg-soft-1 flex w-full flex-wrap items-baseline gap-x-2.5 gap-y-1 px-3.5 py-2.5 text-left"
       >
-        <span className="font-mono text-[0.75rem] font-semibold text-ink">
+        <span className="font-mono text-[0.875rem] font-semibold text-ink">
           {pkg.package_id}@{pkg.version}
         </span>
         <span className="text-[0.875rem] text-ink">{pkg.title}</span>
@@ -255,10 +255,10 @@ function RuleCard({ pkg }: { pkg: RulePackage }) {
       </button>
       {open && (
         <div className="border-t border-hairline px-3.5 py-3">
-          <p className="mb-3 text-[0.8125rem] text-body">
+          <p className="mb-3 text-[0.875rem] text-body">
             <span className="font-medium text-ink">Receipt: </span>
             {pkg.evidence.kind === "ACTUAL_JOURNAL" && (
-              <span className="font-mono text-[0.75rem]">
+              <span className="font-mono text-[0.875rem]">
                 {pkg.evidence.document} —{" "}
               </span>
             )}
@@ -293,7 +293,7 @@ function RuleCard({ pkg }: { pkg: RulePackage }) {
           {pkg.caveats && (
             <ul className="mt-3 space-y-1.5">
               {pkg.caveats.map((c, i) => (
-                <li key={i} className="flex gap-2 text-[0.8125rem] text-body">
+                <li key={i} className="flex gap-2 text-[0.875rem] text-body">
                   <span
                     className={cn(
                       "mt-1.5 size-1 shrink-0 rounded-full bg-mute"

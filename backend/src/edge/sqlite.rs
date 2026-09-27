@@ -18,7 +18,7 @@ use crate::edge::{
     RejectDeliveryRequest, ResolveCheckoutRequest, SaleRequest, SaleResult, SiteId, SiteKind,
     StoreInvoiceDocumentRequest, SubjectId, SystemPlace, TaggingConfirmRequest,
     TaggingConfirmResult, TaggingWorkJob, TaggingWorkLine, TenderOutcomeRequest,
-    UnresolvedCheckout,
+    UnresolvedCheckout, VoucherHoldRecord,
 };
 use crate::sync::workflow::{
     FulfillmentProgressPayload, FulfillmentStage, OfficialCountResultLine,
@@ -71,6 +71,11 @@ const SYNC_SCHEMA: &str = include_str!(concat!(
 const AUTH_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0004_edge_auth.sql"
+));
+
+const EDGE_SSO_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0042_cloud_to_dc_sso.sql"
 ));
 
 const TAGGING_SCHEMA: &str = include_str!(concat!(
@@ -157,10 +162,57 @@ pub(crate) const COMMERCIAL_USAGE_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0018_commercial_usage.sql"
 ));
 
+/// What this till has given away that the centre has not counted yet. See the
+/// migration: without it a shop's own sale never reached its own brake.
+pub(crate) const LOCAL_USAGE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0043_a_till_counts_what_it_gave_away.sql"
+));
+
+/// This shop's allowance under a limit head office has split. See the
+/// migration and postgres `0387`.
+pub(crate) const ALLOWANCE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0044_a_shop_holds_its_own_allowance.sql"
+));
+
+/// The voucher holds head office granted through this node. A VOUCHER tender
+/// may spend only one of these — see the migration for the hole it closes.
+pub(crate) const VOUCHER_HOLD_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0044_a_till_takes_only_the_vouchers_head_office_held.sql"
+));
+
 /// The style, division and tags a range-wide markdown matches on.
 pub(crate) const CATALOG_MERCHANDISE_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0019_catalog_merchandise_facts.sql"
+));
+
+/// Who said yes to a basket edit, and what a closed drawer was counted in.
+pub(crate) const TILL_APPROVAL_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0045_a_till_writes_down_who_said_yes.sql"
+));
+
+/// Deliveries head office announced to this shop, their blind manifests, and
+/// what the receipt found. See the migration and `edge::inbound`.
+pub(crate) const STORE_INBOUND_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0046_a_shop_knows_what_is_on_the_lorry.sql"
+));
+
+/// Who raised a purchase order, and whether the centre cancelled it
+/// (`0047`). ALTERs, so applied only when the columns are absent.
+pub(crate) const PURCHASE_ORDER_CANCEL_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0047_a_dc_knows_who_raised_an_order_and_if_it_was_cancelled.sql"
+));
+
+/// Counting in any unit (`0048`). ALTERs, applied only when absent.
+pub(crate) const PURCHASE_UNIT_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0048_a_dc_counts_in_any_unit.sql"
 ));
 
 /// How a sale was paid for, and not only how much.
@@ -362,6 +414,38 @@ pub(crate) const PRINT_MACHINE_SCHEMA: &str = include_str!(concat!(
 /// a node that will not open because a column it wanted already exists is the
 /// worst possible reading of success. The presence check is therefore in code
 /// rather than in SQL, which is the only place it can be expressed.
+/// The till's approvals and count sheets (`0045`), and which EDC took a card.
+///
+/// The two tables are `IF NOT EXISTS`. The two tender columns are not — SQLite
+/// has no such form for `ADD COLUMN` — so each is probed first, the same way
+/// `apply_print_machine_schema` below does it. Null on every tender rung
+/// before a till sent them, which the centre already reads as "not recorded".
+fn apply_till_approval_schema(connection: &Connection) -> Result<(), EdgeError> {
+    connection
+        .execute_batch(TILL_APPROVAL_SCHEMA)
+        .map_err(db)?;
+    for (column, definition) in [
+        ("acquirer", "ALTER TABLE sale_tender ADD COLUMN acquirer TEXT"),
+        (
+            "card_kind",
+            "ALTER TABLE sale_tender ADD COLUMN card_kind TEXT \
+             CHECK (card_kind IS NULL OR card_kind IN ('DEBIT','CREDIT'))",
+        ),
+    ] {
+        let present: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sale_tender') WHERE name=?1",
+                [column],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if present == 0 {
+            connection.execute_batch(definition).map_err(db)?;
+        }
+    }
+    Ok(())
+}
+
 fn apply_print_machine_schema(connection: &Connection) -> Result<(), EdgeError> {
     let present: i64 = connection
         .query_row(
@@ -400,6 +484,10 @@ pub(crate) const SYNC_HANDSHAKE_SCHEMA: &str = include_str!(concat!(
 pub struct SqliteEdge {
     connection: Arc<Mutex<Connection>>,
     node: NodeContext,
+    /// The business clock every sale, count and punch on this node is
+    /// stamped with. Security time (sessions, leases) never reads it —
+    /// VIRTUAL-TIME-PLAN.md §1.1 keeps those on the wall clock.
+    clock: Arc<crate::clock::ClockHandle>,
 }
 
 #[derive(Clone)]
@@ -521,6 +609,7 @@ impl SqliteEdge {
             .execute_batch(INVOICE_DOCUMENT_SCHEMA)
             .map_err(db)?;
         connection.execute_batch(AUTH_SCHEMA).map_err(db)?;
+        connection.execute_batch(EDGE_SSO_SCHEMA).map_err(db)?;
         connection.execute_batch(WORK_SCHEMA).map_err(db)?;
         connection.execute_batch(TAGGING_SCHEMA).map_err(db)?;
         connection.execute_batch(PRINTING_SCHEMA).map_err(db)?;
@@ -647,6 +736,11 @@ impl SqliteEdge {
                 .execute_batch(COMMERCIAL_USAGE_SCHEMA)
                 .map_err(db)?;
         }
+        // Every statement in it is `IF NOT EXISTS`, so it runs on every open
+        // without a probe, the way the petty-cash and step-up schemas do.
+        connection.execute_batch(LOCAL_USAGE_SCHEMA).map_err(db)?;
+        connection.execute_batch(ALLOWANCE_SCHEMA).map_err(db)?;
+        connection.execute_batch(VOUCHER_HOLD_SCHEMA).map_err(db)?;
         // Asks after the style, which is the column the engine actually reads.
         // A catalogue without it prices every product correctly and quietly
         // ignores every markdown written against a range.
@@ -1034,6 +1128,38 @@ impl SqliteEdge {
         // indexes, all `IF NOT EXISTS`, no ALTER and no CHECK rebuilt, so it
         // creates rather than changes and needs no probe.
         apply_attendance_schema(&connection)?;
+        apply_till_approval_schema(&connection)?;
+        // Inbound deliveries (`0046`): three tables, all `IF NOT EXISTS`,
+        // nothing altered, so no probe.
+        connection
+            .execute_batch(STORE_INBOUND_SCHEMA)
+            .map_err(db)?;
+        // A cancelled order (`0047`): an ALTER, so probed first.
+        let an_order_can_be_cancelled: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('purchase_order') WHERE name='cancelled_at'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if an_order_can_be_cancelled == 0 {
+            connection
+                .execute_batch(PURCHASE_ORDER_CANCEL_SCHEMA)
+                .map_err(db)?;
+        }
+        // Counting in any unit (`0048`): ALTERs, so probed first.
+        let a_line_has_units: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('purchase_order_line') WHERE name='count_units'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_line_has_units == 0 {
+            connection
+                .execute_batch(PURCHASE_UNIT_SCHEMA)
+                .map_err(db)?;
+        }
         if a_stream_says_whose_seqs_it_writes == 0 {
             connection
                 .execute_batch(SYNC_HANDSHAKE_SCHEMA)
@@ -1078,10 +1204,29 @@ impl SqliteEdge {
             .map_err(db)?;
         Self::ensure_capture_origin(&tx, &node)?;
         tx.commit().map_err(db)?;
+        // `open` and `open_in_memory` both funnel through here, so this is the
+        // one place the node's clock is born. An invalid boot configuration is
+        // logged and answered with the wall clock rather than a refused boot —
+        // the same choice the cloud `AppState` makes.
+        let clock = Arc::new(match crate::clock::ClockHandle::from_env() {
+            Ok(clock) => clock,
+            Err(error) => {
+                tracing::error!(%error, "business clock config rejected; running on the wall clock");
+                crate::clock::ClockHandle::system()
+            }
+        });
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
             node,
+            clock,
         })
+    }
+
+    /// The business clock, as the shared handle. The routers put this same
+    /// `Arc` in the edge state, so the control endpoint moves the one clock
+    /// everything stamps with.
+    pub fn clock(&self) -> Arc<crate::clock::ClockHandle> {
+        self.clock.clone()
     }
 
     fn ensure_capture_origin(tx: &Transaction<'_>, node: &NodeContext) -> Result<(), EdgeError> {
@@ -1649,6 +1794,92 @@ impl SqliteEdge {
         Ok(())
     }
 
+    /// Spend the holds a basket's VOUCHER tenders name.
+    ///
+    /// Each must be a hold this node relayed (`voucher_hold`), still HELD,
+    /// unexpired by the business clock, and for at least what the tender
+    /// takes. The till never learns a card's balance; the hold IS the centre's
+    /// word that this much is this basket's, so the hold's amount is the most
+    /// a tender may take.
+    fn spend_voucher_holds(
+        tx: &Transaction<'_>,
+        tenders: &[crate::tender::SaleTender],
+        sale_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> Result<(), EdgeError> {
+        let mut spent: HashSet<String> = HashSet::new();
+        for tender in tenders {
+            if tender.method != crate::tender::PaymentMethod::Voucher {
+                continue;
+            }
+            let Some(hold_id) = tender
+                .voucher_authorization_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+            else {
+                continue; // `validate_tenders` already refused this.
+            };
+            if !spent.insert(hold_id.to_owned()) {
+                return Err(EdgeError::Validation(
+                    "two voucher tenders name the same hold — one hold pays once".into(),
+                ));
+            }
+            let hold = tx
+                .query_row(
+                    "SELECT amount_minor, status, expires_at FROM voucher_hold
+                      WHERE authorization_id = ?1",
+                    params![hold_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                )
+                .optional()
+                .map_err(db)?;
+            let Some((amount, status, expires_at)) = hold else {
+                return Err(EdgeError::Conflict(
+                    "this voucher was not held by head office through this shop — \
+                     hold it again (the till needs the line to head office for that)"
+                        .into(),
+                ));
+            };
+            if status != "HELD" {
+                return Err(EdgeError::Conflict(format!(
+                    "this voucher hold is already {}, and cannot pay for another basket",
+                    if status == "USED" { "spent" } else { "released" }
+                )));
+            }
+            if let Some(expires_at) = expires_at.as_deref() {
+                let expired = DateTime::parse_from_rfc3339(expires_at)
+                    .map(|at| at.with_timezone(&Utc) <= now)
+                    .unwrap_or(false);
+                if expired {
+                    return Err(EdgeError::Conflict(
+                        "this voucher hold has expired — hold the voucher again".into(),
+                    ));
+                }
+            }
+            if tender.amount_minor > amount {
+                return Err(EdgeError::Validation(format!(
+                    "the voucher tender takes {} but head office held only {amount}",
+                    tender.amount_minor
+                )));
+            }
+            tx.execute(
+                "UPDATE voucher_hold
+                    SET status = 'USED', sale_id = ?2, closed_at = ?3
+                  WHERE authorization_id = ?1 AND status = 'HELD'",
+                params![hold_id, sale_id.to_string(), now.to_rfc3339()],
+            )
+            .map_err(db)?;
+        }
+        Ok(())
+    }
+
     fn subject_by_epc(tx: &Transaction<'_>, epc: &str) -> Result<SubjectRow, EdgeError> {
         tx.query_row(
             "SELECT id,epc,sku_code,unit_price_minor FROM inventory_subject WHERE epc=?1",
@@ -2153,7 +2384,7 @@ impl SqliteEdge {
             }
         }
 
-        let occurred_at = Utc::now();
+        let occurred_at = self.clock.now();
         let command = MovementCommand {
             movement_group_id: MovementGroupId::new(),
             lines: units
@@ -2621,7 +2852,7 @@ impl SqliteEdge {
                     entry.sku_code,
                     entry.found_quantity,
                     request.actor_id,
-                    now_text(),
+                    time_text(self.clock.now()),
                 ],
             )
             .map_err(db)?;
@@ -2685,7 +2916,7 @@ impl SqliteEdge {
             )));
         }
         let lines = Self::official_count_lines(&tx, count_id)?;
-        let submitted_at = Utc::now();
+        let submitted_at = self.clock.now();
         let result_id = Uuid::new_v4();
         let payload = OfficialCountResultPayload {
             schema_version: INVENTORY_WORKFLOW_SCHEMA_VERSION,
@@ -2804,6 +3035,73 @@ impl SqliteEdge {
                 }
             }
         }
+        // A promise stays open until Pack, but a pick moves its stock out of
+        // the warehouse and into the picking area. Snapshots are per pool, so
+        // reporting the whole promise against its source after that move
+        // manufactures a shortfall on the warehouse pool and violates the
+        // snapshot equation. Attribute the physical reservation to the pools
+        // that currently hold the SKU, in source/picking/picked order. The
+        // Cloud still owns the full commitment and computes any real shortfall
+        // against the combined supply scope.
+        let mut allotted_by_pool = std::collections::HashMap::<String, i64>::new();
+        if node.role == EdgeRole::Dc {
+            let warehouse = format!("{}.warehouse", node.site_id);
+            let picking = format!("{}.outbound.picking", node.site_id);
+            let picked_pattern = format!("{}.outbound.picked%", node.site_id);
+            let mut statement = connection
+                .prepare(
+                    r#"WITH supply AS (
+                           SELECT substr(projection.place_id,1,length(projection.place_id)-length(':on_hand')) pool_id,
+                                  subject.sku_code,
+                                  SUM(projection.quantity) quantity
+                           FROM inventory_projection projection
+                           JOIN inventory_subject subject ON subject.id=projection.subject_id
+                           WHERE projection.place_id LIKE '%:on_hand'
+                             AND (projection.place_id=?1||':on_hand'
+                                  OR projection.place_id=?2||':on_hand'
+                                  OR projection.place_id LIKE ?3||':on_hand')
+                             AND subject.sku_code IS NOT NULL
+                           GROUP BY pool_id,subject.sku_code
+                       ), obligations AS (
+                           SELECT line.sku_code,
+                                  SUM(line.accepted_quantity-line.packed_quantity-line.cancelled_quantity) quantity
+                           FROM dc_allotment_work_line line
+                           JOIN dc_allotment_work work ON work.allotment_id=line.allotment_id
+                           WHERE line.source_pool_id=?1
+                             AND work.application_status='ACCEPTED'
+                           GROUP BY line.sku_code
+                       ), ranked AS (
+                           SELECT supply.pool_id,supply.quantity stock,
+                                  obligations.quantity obligation,
+                                  COALESCE(SUM(supply.quantity) OVER (
+                                      PARTITION BY supply.sku_code
+                                      ORDER BY CASE WHEN supply.pool_id=?1 THEN 0
+                                                    WHEN supply.pool_id=?2 THEN 1 ELSE 2 END,
+                                               supply.pool_id
+                                      ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                                  ),0) already_accounted
+                           FROM supply
+                           JOIN obligations ON obligations.sku_code=supply.sku_code
+                       ), allocated AS (
+                           SELECT pool_id,
+                                  CASE WHEN obligation<=already_accounted THEN 0
+                                       ELSE MIN(stock,obligation-already_accounted) END quantity
+                           FROM ranked
+                       )
+                       SELECT pool_id,SUM(quantity) quantity
+                       FROM allocated GROUP BY pool_id"#,
+                )
+                .map_err(db)?;
+            let rows = statement
+                .query_map(params![warehouse, picking, picked_pattern], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })
+                .map_err(db)?;
+            for row in rows {
+                let (pool_id, quantity) = row.map_err(db)?;
+                allotted_by_pool.insert(pool_id, quantity);
+            }
+        }
         ids.into_iter()
             .map(|pool_id| {
                 let normal: i64 = connection
@@ -2821,25 +3119,7 @@ impl SqliteEdge {
                     )
                     .map_err(db)?;
                 let allotted = if node.role == EdgeRole::Dc {
-                    let to_pack: i64 = connection
-                        .query_row(
-                            // What this pool still has to put into cartons.
-                            //
-                            // The comment here said a pick "releases that
-                            // reservation", and the SQL under it subtracted
-                            // `picked_quantity` to prove it. Neither was true:
-                            // a pick on this node writes an inventory fact and
-                            // never names an allotment. A piece is bound to a
-                            // shop at Pack, so Pack is what discharges it.
-                            "SELECT COALESCE(SUM(line.accepted_quantity-line.packed_quantity-line.cancelled_quantity),0)
-                             FROM dc_allotment_work_line line
-                             JOIN dc_allotment_work work ON work.allotment_id=line.allotment_id
-                             WHERE line.source_pool_id=?1
-                               AND work.application_status='ACCEPTED'",
-                            [&pool_id],
-                            |row| row.get(0),
-                        )
-                        .map_err(db)?;
+                    let to_pack = allotted_by_pool.get(&pool_id).copied().unwrap_or(0);
                     if to_pack < 0 {
                         return Err(EdgeError::Persistence(format!(
                             "pool {pool_id} owes a negative quantity {to_pack}"
@@ -2899,7 +3179,32 @@ struct PricedLine {
     publication_version: Option<i64>,
 }
 
+/// A tender's acquirer as it is stored and synced: trimmed, upper-cased,
+/// absent when blank. `validate_tenders` has already screened it.
+fn tender_acquirer(tender: &crate::tender::SaleTender) -> Option<String> {
+    tender
+        .acquirer
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_uppercase)
+}
+
+/// `DEBIT` or `CREDIT`, normalised the same way.
+fn tender_card_kind(tender: &crate::tender::SaleTender) -> Option<String> {
+    tender
+        .card_kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_uppercase)
+}
+
 impl EdgeInventory for SqliteEdge {
+    fn clock(&self) -> std::sync::Arc<crate::clock::ClockHandle> {
+        self.clock()
+    }
+
     fn open_print_session(
         &self,
         request: crate::edge::printing::OpenPrintSessionRequest,
@@ -3280,7 +3585,7 @@ impl EdgeInventory for SqliteEdge {
             return Ok(response);
         }
         let subject = Self::insert_subject(&tx, &epc, &request.sku_code, request.unit_price_minor)?;
-        let occurred_at = Utc::now();
+        let occurred_at = self.clock.now();
         let command = MovementCommand {
             movement_group_id: MovementGroupId::new(),
             lines: vec![MovementLine {
@@ -3416,7 +3721,7 @@ impl EdgeInventory for SqliteEdge {
         }
 
         let pick_id = Uuid::new_v4();
-        let occurred_at = Utc::now();
+        let occurred_at = self.clock.now();
         if let Some(session_id) = request.pick_session_id.as_deref() {
             let open: i64 = tx
                 .query_row(
@@ -3583,7 +3888,7 @@ impl EdgeInventory for SqliteEdge {
         }
 
         let koli_id = Uuid::new_v4();
-        let occurred_at = Utc::now();
+        let occurred_at = self.clock.now();
         let updated_at = time_text(occurred_at);
         let packed_pool = Self::fulfillment_pool(
             &self.node.site_id,
@@ -3852,11 +4157,20 @@ impl EdgeInventory for SqliteEdge {
         }
         let request_json = Self::encode_idempotent_request(&request)?;
 
-        // Already raised? Answer with the round it raised, rather than opening
-        // a second one that fetches the same garments again.
-        let existing: Option<(String, Option<String>, String)> = {
-            let connection = self.lock()?;
-            connection
+        // The key is claimed in the same transaction that opens the round, and
+        // before a single garment is fetched. It used to be checked here and
+        // written at the end, so two deliveries of one round arriving together
+        // — two tabs on one phone, a retry overtaking a slow first attempt —
+        // both found it free, both opened a round, and the per-line keys then
+        // split the lines between them: one picklist became two, and each
+        // answer reported a short pick of goods that were in fact on the
+        // trolley.
+        let (session_id, resumed) = {
+            let mut connection = self.lock()?;
+            let tx = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(db)?;
+            let existing: Option<(String, Option<String>, String)> = tx
                 .query_row(
                     "SELECT operation,request_json,response_json FROM idempotency_response
                       WHERE idempotency_key=?1",
@@ -3864,39 +4178,67 @@ impl EdgeInventory for SqliteEdge {
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()
-                .map_err(db)?
+                .map_err(db)?;
+            let claimed = if let Some((operation, stored_request, stored_response)) = existing {
+                if operation != "DC_PICKLIST" {
+                    return Err(EdgeError::Conflict(format!(
+                        "idempotency key already belongs to {operation}"
+                    )));
+                }
+                if stored_request.as_deref() != Some(request_json.as_str()) {
+                    return Err(EdgeError::Conflict(
+                        "idempotency key was already used with a different request payload"
+                            .into(),
+                    ));
+                }
+                let session_id: String = serde_json::from_str(&stored_response)
+                    .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+                (session_id, true)
+            } else {
+                let session = crate::edge::outbound::open_session(
+                    &tx,
+                    crate::edge::outbound::SessionKind::Pick,
+                    crate::edge::outbound::OpenSessionRequest {
+                        actor_id: request.actor_id.clone(),
+                        note: request.note.clone(),
+                    },
+                )?;
+                Self::save_idempotent(
+                    &tx,
+                    &request.idempotency_key,
+                    "DC_PICKLIST",
+                    &request_json,
+                    &session.session_id,
+                )?;
+                (session.session_id, false)
+            };
+            tx.commit().map_err(db)?;
+            claimed
         };
-        if let Some((operation, stored_request, stored_response)) = existing {
-            if operation != "DC_PICKLIST" {
-                return Err(EdgeError::Conflict(format!(
-                    "idempotency key already belongs to {operation}"
-                )));
-            }
-            if stored_request.as_deref() != Some(request_json.as_str()) {
-                return Err(EdgeError::Conflict(
-                    "idempotency key was already used with a different request payload".into(),
-                ));
-            }
-            let session_id: String = serde_json::from_str(&stored_response)
-                .map_err(|error| EdgeError::Persistence(error.to_string()))?;
-            let connection = self.lock()?;
-            return Ok(PicklistResult {
-                summary: crate::edge::outbound::pick_session_summary(&connection, &session_id)?,
-                refused: Vec::new(),
-            });
-        }
 
-        let session = {
-            let mut connection = self.lock()?;
-            crate::edge::outbound::open_session(
-                &mut connection,
+        // Already raised and finished? Answer with the round it raised, rather
+        // than fetching anything again. A round still OPEN is one whose first
+        // delivery is either still walking its lines or died part-way: running
+        // the lines again against the SAME round is safe — each carries its own
+        // key, so a line already picked answers with its pick — and it is what
+        // makes the answer complete rather than a snapshot of half a trolley.
+        if resumed {
+            let connection = self.lock()?;
+            let session = crate::edge::outbound::load_session(
+                &connection,
                 crate::edge::outbound::SessionKind::Pick,
-                crate::edge::outbound::OpenSessionRequest {
-                    actor_id: request.actor_id.clone(),
-                    note: request.note.clone(),
-                },
-            )?
-        };
+                &session_id,
+            )?;
+            if session.status != "OPEN" {
+                return Ok(PicklistResult {
+                    summary: crate::edge::outbound::pick_session_summary(
+                        &connection,
+                        &session_id,
+                    )?,
+                    refused: Vec::new(),
+                });
+            }
+        }
 
         let mut refused = Vec::new();
         for line in &request.lines {
@@ -3909,7 +4251,7 @@ impl EdgeInventory for SqliteEdge {
                 quantity: line.quantity,
                 actor_id: request.actor_id.clone(),
                 idempotency_key: format!("{}:{}", request.idempotency_key, line.sku_code),
-                pick_session_id: Some(session.session_id.clone()),
+                pick_session_id: Some(session_id.clone()),
             }) {
                 refused.push(PicklistRefusal {
                     sku_code: line.sku_code.clone(),
@@ -3920,24 +4262,17 @@ impl EdgeInventory for SqliteEdge {
         }
 
         let mut connection = self.lock()?;
-        crate::edge::outbound::close_session(
+        match crate::edge::outbound::close_session(
             &mut connection,
             crate::edge::outbound::SessionKind::Pick,
-            &session.session_id,
-        )?;
-        let tx = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db)?;
-        Self::save_idempotent(
-            &tx,
-            &request.idempotency_key,
-            "DC_PICKLIST",
-            &request_json,
-            &session.session_id,
-        )?;
-        tx.commit().map_err(db)?;
+            &session_id,
+        ) {
+            // The concurrent delivery closed it first. Same round, same lines.
+            Ok(_) | Err(EdgeError::Conflict(_)) => {}
+            Err(error) => return Err(error),
+        }
         Ok(PicklistResult {
-            summary: crate::edge::outbound::pick_session_summary(&connection, &session.session_id)?,
+            summary: crate::edge::outbound::pick_session_summary(&connection, &session_id)?,
             refused,
         })
     }
@@ -4215,7 +4550,7 @@ impl EdgeInventory for SqliteEdge {
         }
         let subject = Self::insert_subject(&tx, &epc, &request.sku_code, request.unit_price_minor)?;
         let receipt_id = Uuid::new_v4();
-        let occurred_at = Utc::now();
+        let occurred_at = self.clock.now();
         let command = MovementCommand {
             movement_group_id: MovementGroupId::new(),
             lines: vec![MovementLine {
@@ -4348,7 +4683,7 @@ impl EdgeInventory for SqliteEdge {
             return Ok(response);
         }
 
-        let occurred_at = Utc::now();
+        let occurred_at = self.clock.now();
         let receipt_id = Uuid::new_v4();
         let mut lines = Vec::with_capacity(normalised.len());
         let mut subjects = Vec::with_capacity(normalised.len());
@@ -4424,6 +4759,295 @@ impl EdgeInventory for SqliteEdge {
         Ok(response)
     }
 
+    fn store_inbound_list(
+        &self,
+        status: Option<&str>,
+    ) -> Result<crate::edge::inbound::StoreInboundList, EdgeError> {
+        self.require_store("announced deliveries")?;
+        let status = crate::edge::inbound::parse_status_filter(status)?;
+        let connection = self.lock()?;
+        crate::edge::inbound::list(&connection, status)
+    }
+
+    fn store_inbound_detail(
+        &self,
+        delivery_id: &str,
+    ) -> Result<crate::edge::inbound::StoreInboundDetail, EdgeError> {
+        self.require_store("announced deliveries")?;
+        let connection = self.lock()?;
+        crate::edge::inbound::detail(&connection, delivery_id.trim())
+    }
+
+    /// Receive an announced delivery, blind, in ONE transaction.
+    ///
+    /// See `edge::inbound` for what is booked, what is recorded as extra, what
+    /// is skipped and what is MISSING. The booking mirrors
+    /// [`receive_store_batch`](Self::receive_store_batch) — Opening → store
+    /// warehouse Normal, a `store_receipt` per unit, the movement fact and a
+    /// RECEIVED transfer claim per unit — except that every claim carries the
+    /// DC and the surat-jalan number, which is what lets the centre pair it
+    /// with the DC's IN_TRANSIT claim instead of leaving both unmatched.
+    fn receive_store_inbound(
+        &self,
+        delivery_id: &str,
+        request: crate::edge::inbound::StoreInboundReceiveRequest,
+    ) -> Result<crate::edge::inbound::StoreInboundDetail, EdgeError> {
+        use crate::edge::inbound::{self, StoreInboundDetail, STORE_INBOUND_MAX_EPCS};
+        self.require_store("receiving an announced delivery")?;
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let delivery_id = delivery_id.trim().to_owned();
+        let actor_id = request.actor_id.trim().to_owned();
+        let idempotency_key = request.idempotency_key.trim().to_owned();
+        if request.epcs.len() > STORE_INBOUND_MAX_EPCS {
+            return Err(EdgeError::Validation(format!(
+                "receive at most {STORE_INBOUND_MAX_EPCS} tags per delivery, not {}",
+                request.epcs.len()
+            )));
+        }
+        // A double read is one garment, so the set is what counts.
+        let mut epcs = BTreeSet::new();
+        for raw in &request.epcs {
+            epcs.insert(Self::normalized_epc(raw)?);
+        }
+        if epcs.is_empty() {
+            return Err(EdgeError::Validation(
+                "a receipt of no tags is not a receipt; sweep the delivery first".into(),
+            ));
+        }
+        let digest = crate::security::sha256_hex(
+            epcs.iter().map(String::as_str).collect::<Vec<_>>().join("\n"),
+        );
+        let request_json = Self::encode_idempotent_request(&serde_json::json!({
+            "delivery_id": delivery_id,
+            "epcs": epcs,
+            "actor_id": actor_id,
+        }))?;
+
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(saved) = Self::load_idempotent::<StoreInboundDetail>(
+            &tx,
+            &idempotency_key,
+            "STORE_INBOUND_RECEIVE",
+            &request_json,
+        )? {
+            tx.commit().map_err(db)?;
+            return Ok(saved);
+        }
+        let header: Option<(String, Option<String>, String, Option<String>)> = tx
+            .query_row(
+                "SELECT source_site_id,shipment_reference,status,receive_digest
+                 FROM store_inbound_delivery WHERE delivery_id=?1",
+                [&delivery_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()
+            .map_err(db)?;
+        let Some((source_site_id, shipment_reference, status, received_digest)) = header else {
+            return Err(EdgeError::NotFound(format!(
+                "inbound delivery {delivery_id}"
+            )));
+        };
+        if status == inbound::STATUS_RECEIVED {
+            // The same sweep sent again under a new key is a resend, not a
+            // second receipt; a different sweep is a second receipt, and a
+            // delivery is received once.
+            if received_digest.as_deref() == Some(digest.as_str()) {
+                let detail = inbound::detail(&tx, &delivery_id)?;
+                tx.commit().map_err(db)?;
+                return Ok(detail);
+            }
+            return Err(EdgeError::Conflict(format!(
+                "delivery {delivery_id} was already received with a different set of tags"
+            )));
+        }
+
+        let manifest: std::collections::BTreeMap<String, String> = {
+            let mut statement = tx
+                .prepare(
+                    "SELECT epc,sku_code FROM store_inbound_unit
+                     WHERE delivery_id=?1 AND late_announcement=0",
+                )
+                .map_err(db)?;
+            let rows = statement
+                .query_map([&delivery_id], |row| Ok((row.get(0)?, row.get(1)?)))
+                .map_err(db)?
+                .collect::<Result<std::collections::BTreeMap<String, String>, _>>()
+                .map_err(db);
+            rows?
+        };
+
+        // (epc, sku, on the manifest)
+        let mut to_book: Vec<(String, String, bool)> = Vec::new();
+        let mut skipped: Vec<String> = Vec::new();
+        for epc in &epcs {
+            let on_books = tx
+                .query_row(
+                    "SELECT 1 FROM inventory_subject WHERE epc=?1",
+                    [epc],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map_err(db)?
+                .is_some();
+            if on_books {
+                // Already this shop's; it cannot arrive twice. On the manifest
+                // it therefore stays MISSING for this delivery — it was not
+                // booked by it — and the shop is told why.
+                skipped.push(epc.clone());
+                continue;
+            }
+            match manifest.get(epc) {
+                Some(sku_code) => to_book.push((epc.clone(), sku_code.clone(), true)),
+                None => match crate::cloud::domain::decode_epc(epc) {
+                    Ok((sku_code, _)) => to_book.push((epc.clone(), sku_code, false)),
+                    Err(_) => skipped.push(epc.clone()),
+                },
+            }
+        }
+
+        let occurred_at = self.clock.now();
+        let receipt_id = Uuid::new_v4();
+        let reason = format!(
+            "Announced delivery {} from {source_site_id} received at Store Edge",
+            shipment_reference.as_deref().unwrap_or(&delivery_id)
+        );
+        // At most a thousand lines per movement group, as the batch receipt
+        // takes: one movement fact per chunk keeps each upload a sane size.
+        const CHUNK: usize = 1000;
+        for (chunk_index, chunk) in to_book.chunks(CHUNK).enumerate() {
+            let mut lines = Vec::with_capacity(chunk.len());
+            let mut subjects = Vec::with_capacity(chunk.len());
+            for (epc, sku_code, _) in chunk {
+                let unit_price_minor: i64 = tx
+                    .query_row(
+                        "SELECT base_price_minor FROM catalog_item WHERE sku_code=?1",
+                        [sku_code],
+                        |row| row.get::<_, Option<i64>>(0),
+                    )
+                    .optional()
+                    .map_err(db)?
+                    .flatten()
+                    .unwrap_or(0)
+                    .max(0);
+                let subject = Self::insert_subject(&tx, epc, sku_code, unit_price_minor)?;
+                lines.push(MovementLine {
+                    subject_id: subject.id,
+                    quantity: 1,
+                    from: Place::System {
+                        place: SystemPlace::Opening,
+                    },
+                    to: Place::Operational {
+                        pool: OperationalPool::StoreWarehouse {
+                            store_id: self.node.site_id.clone(),
+                        },
+                        state: InventoryState::Normal,
+                    },
+                });
+                subjects.push(subject);
+            }
+            let command = MovementCommand {
+                movement_group_id: MovementGroupId::new(),
+                lines,
+                cause: MovementCause::StoreReceive,
+                reference_type: Some("STORE_RECEIPT".into()),
+                reference_id: Some(receipt_id.to_string()),
+                reason: reason.clone(),
+                actor_id: actor_id.clone(),
+                occurred_at,
+            };
+            let movement_key = if chunk_index == 0 {
+                idempotency_key.clone()
+            } else {
+                format!("{idempotency_key}#{chunk_index}")
+            };
+            let response = self.append_command(&tx, &movement_key, &command)?;
+            for subject in &subjects {
+                let claim = TransferClaimPayload::new(
+                    TransferClaimKind::Received,
+                    Some(source_site_id.clone()),
+                    self.node.site_id.to_string(),
+                    shipment_reference.clone(),
+                    subject.epc.clone(),
+                    subject.sku_code.clone(),
+                    response.movement_group_id,
+                    Some(receipt_id),
+                    occurred_at,
+                )
+                .map_err(|error| EdgeError::Validation(error.to_string()))?;
+                tx.execute(
+                    "INSERT INTO store_receipt(id,idempotency_key,subject_id,source_dc_id,shipment_reference,movement_group_id,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                    params![
+                        Uuid::new_v4().to_string(),
+                        format!("{idempotency_key}:{}", subject.epc),
+                        subject.id.to_string(),
+                        source_site_id,
+                        shipment_reference.as_deref(),
+                        response.movement_group_id.to_string(),
+                        time_text(occurred_at)
+                    ],
+                )
+                .map_err(db)?;
+                Self::enqueue_transfer_claim(&tx, &claim)?;
+            }
+        }
+
+        let now = now_text();
+        tx.execute(
+            "UPDATE store_inbound_unit SET outcome='MISSING'
+             WHERE delivery_id=?1 AND late_announcement=0",
+            [&delivery_id],
+        )
+        .map_err(db)?;
+        for (epc, sku_code, on_manifest) in &to_book {
+            if *on_manifest {
+                tx.execute(
+                    "UPDATE store_inbound_unit SET outcome='RECEIVED'
+                     WHERE delivery_id=?1 AND epc=?2 AND late_announcement=0",
+                    params![delivery_id, epc],
+                )
+                .map_err(db)?;
+            } else {
+                tx.execute(
+                    "INSERT INTO store_inbound_extra(delivery_id,epc,sku_code,created_at)
+                     VALUES(?1,?2,?3,?4)",
+                    params![delivery_id, epc, sku_code, now],
+                )
+                .map_err(db)?;
+            }
+        }
+        let skipped_json = serde_json::to_string(&skipped)
+            .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+        tx.execute(
+            "UPDATE store_inbound_delivery
+             SET status='RECEIVED',received_at=?2,received_by=?3,receive_idempotency_key=?4,
+                 receive_digest=?5,skipped_epcs_json=?6,updated_at=?7
+             WHERE delivery_id=?1 AND status='IN_TRANSIT'",
+            params![
+                delivery_id,
+                time_text(occurred_at),
+                actor_id,
+                idempotency_key,
+                digest,
+                skipped_json,
+                now
+            ],
+        )
+        .map_err(db)?;
+        let detail = inbound::detail(&tx, &delivery_id)?;
+        Self::save_idempotent(
+            &tx,
+            &idempotency_key,
+            "STORE_INBOUND_RECEIVE",
+            &request_json,
+            &detail,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(detail)
+    }
+
     fn move_stock(&self, request: MoveRequest) -> Result<CommandResult, EdgeError> {
         if request.cause != MovementCause::NormalMove {
             return Err(EdgeError::Validation(
@@ -4465,7 +5089,7 @@ impl EdgeInventory for SqliteEdge {
                 "outbound fulfillment pools may only be changed through Pick/Pack/package lifecycle endpoints".into(),
             ));
         }
-        let occurred_at = Utc::now();
+        let occurred_at = self.clock.now();
         let command = MovementCommand {
             movement_group_id: MovementGroupId::new(),
             lines: vec![MovementLine {
@@ -4511,7 +5135,7 @@ impl EdgeInventory for SqliteEdge {
         crate::tender::validate_tenders(request.total_minor, &request.tenders)
             .map_err(|error| EdgeError::Validation(error.to_string()))?;
 
-        let now = Utc::now();
+        let now = self.clock.now();
         let mut connection = self.lock()?;
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -4595,7 +5219,7 @@ impl EdgeInventory for SqliteEdge {
         let status = crate::checkout::TenderState::parse(&request.status).ok_or_else(|| {
             EdgeError::Validation(format!("no tender status called {}", request.status))
         })?;
-        let now = Utc::now();
+        let now = self.clock.now();
         let mut connection = self.lock()?;
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -4728,7 +5352,7 @@ impl EdgeInventory for SqliteEdge {
                 "a checkout is resolved as VOIDED or FAILED; COMPLETED comes with the sale".into(),
             ));
         }
-        let now = Utc::now();
+        let now = self.clock.now();
         let mut connection = self.lock()?;
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -4829,6 +5453,48 @@ impl EdgeInventory for SqliteEdge {
         Ok(result)
     }
 
+    fn record_voucher_hold(&self, hold: VoucherHoldRecord) -> Result<(), EdgeError> {
+        let connection = self.lock()?;
+        // Idempotent on the hold: a relayed retry that head office answered
+        // with the same hold rewrites nothing that matters.
+        connection
+            .execute(
+                "INSERT INTO voucher_hold
+                     (authorization_id, code, checkout_id, amount_minor, expires_at, status, held_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'HELD', ?6)
+                 ON CONFLICT (authorization_id) DO UPDATE
+                    SET amount_minor = excluded.amount_minor,
+                        expires_at = excluded.expires_at
+                  WHERE voucher_hold.status = 'HELD'",
+                params![
+                    hold.authorization_id.trim(),
+                    hold.code.trim().to_ascii_uppercase(),
+                    hold.checkout_id,
+                    hold.amount_minor,
+                    hold.expires_at.map(|at| at.to_rfc3339()),
+                    self.clock.now().to_rfc3339(),
+                ],
+            )
+            .map_err(db)?;
+        Ok(())
+    }
+
+    fn close_voucher_hold(&self, code: &str, checkout_id: &str) -> Result<(), EdgeError> {
+        let connection = self.lock()?;
+        connection
+            .execute(
+                "UPDATE voucher_hold SET status = 'RELEASED', closed_at = ?3
+                  WHERE code = ?1 AND checkout_id = ?2 AND status = 'HELD'",
+                params![
+                    code.trim().to_ascii_uppercase(),
+                    checkout_id,
+                    self.clock.now().to_rfc3339()
+                ],
+            )
+            .map_err(db)?;
+        Ok(())
+    }
+
     fn complete_sale(&self, request: SaleRequest) -> Result<SaleResult, EdgeError> {
         if self.node.role != EdgeRole::Store {
             return Err(EdgeError::Forbidden(
@@ -4868,7 +5534,7 @@ impl EdgeInventory for SqliteEdge {
             .map(|epc| Self::subject_by_epc(&tx, epc))
             .collect::<Result<Vec<_>, _>>()?;
         let sale_id = Uuid::new_v4();
-        let occurred_at = Utc::now();
+        let occurred_at = self.clock.now();
 
         // What to charge.
         //
@@ -4994,6 +5660,11 @@ impl EdgeInventory for SqliteEdge {
         // statement arrives.
         let payment = crate::tender::validate_tenders(amount_due_minor, &request.tenders)
             .map_err(|error| EdgeError::Validation(error.to_string()))?;
+        // A voucher tender spends a hold this node relayed, or nothing. Inside
+        // the sale's own transaction, so the hold is spent exactly when the
+        // sale exists — and a second basket naming it is refused here, at the
+        // counter, rather than at the centre after the goods have gone.
+        Self::spend_voucher_holds(&tx, &request.tenders, sale_id, occurred_at)?;
         let from = Place::Operational {
             pool: OperationalPool::StoreFloor {
                 store_id: self.node.site_id.clone(),
@@ -5101,14 +5772,17 @@ impl EdgeInventory for SqliteEdge {
         // rather than a second copy of each payment.
         for (seq, tender) in request.tenders.iter().enumerate() {
             tx.execute(
-                "INSERT INTO sale_tender(sale_id,tender_seq,method,amount_minor,reference)
-                 VALUES(?1,?2,?3,?4,?5)",
+                "INSERT INTO sale_tender(sale_id,tender_seq,method,amount_minor,reference,
+                                         acquirer,card_kind)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7)",
                 params![
                     sale_id.to_string(),
                     i64::try_from(seq).unwrap_or(i64::MAX),
                     tender.method.as_str(),
                     tender.amount_minor,
                     tender.reference,
+                    tender_acquirer(tender),
+                    tender_card_kind(tender),
                 ],
             )
             .map_err(db)?;
@@ -5162,7 +5836,7 @@ impl EdgeInventory for SqliteEdge {
         // ever sees: without it there is no revenue figure for the fleet at
         // all. `movement_group_id` carries the shop's local ledger reference
         // so an investigation can go back to the movements behind a sale.
-        crate::edge::sync::enqueue_fact(
+        let queued_for_centre = crate::edge::sync::enqueue_fact(
             &tx,
             sale_id,
             crate::cloud::domain::FACT_SALES_COMPLETED,
@@ -5250,6 +5924,12 @@ impl EdgeInventory for SqliteEdge {
                     // is money held forever and never spent, and one committed
                     // without the id would be a guess at which hold.
                     "voucher_authorization_id": tender.voucher_authorization_id,
+                    // Which EDC took it, and whether it was debit or credit.
+                    // The centre's `edge_sale_tender` has had both columns
+                    // since 0106 and was waiting for a till to send them; a
+                    // wrong-EDC swipe is found by reconciling exactly these.
+                    "acquirer": tender_acquirer(tender),
+                    "card_kind": tender_card_kind(tender),
                 })).collect::<Vec<_>>(),
                 // Which promotions actually came off, and what each was worth.
                 // Only the total travelled before, so "what did the Lebaran
@@ -5291,7 +5971,21 @@ impl EdgeInventory for SqliteEdge {
                     .unwrap_or_default(),
             }),
         )
-        .map_err(db)?;
+        .map_err(db)?
+        .is_some();
+        // And against this till's own brake, in the same transaction. Until the
+        // centre has counted this sale and said so, the budget, basket cap and
+        // coupon this sale used are spent HERE too — the next basket at this
+        // counter must not find a single-use code still open. See `0043`.
+        if let Some(quote) = quoted.as_ref() {
+            pricing::record_local_usage(
+                &tx,
+                &sale_id.to_string(),
+                &quote.promotions,
+                queued_for_centre,
+                &time_text(occurred_at),
+            )?;
+        }
         let response = SaleResult {
             sale_id,
             // The goods. `payment.total_minor` is what the tender was measured
@@ -5341,7 +6035,7 @@ impl EdgeInventory for SqliteEdge {
             &connection,
             self.node.site_id.as_str(),
             pricing::STORE_CHANNEL,
-            Utc::now(),
+            self.clock.now(),
         )
     }
 
@@ -5388,7 +6082,7 @@ impl EdgeInventory for SqliteEdge {
             &tx,
             self.node.site_id.as_str(),
             pricing::STORE_CHANNEL,
-            Utc::now(),
+            self.clock.now(),
             &sku_codes,
             &request.coupon_codes,
             request.customer_id.as_deref(),
@@ -5589,7 +6283,7 @@ impl EdgeInventory for SqliteEdge {
             &connection,
             self.node.site_id.as_str(),
             pricing::STORE_CHANNEL,
-            Utc::now(),
+            self.clock.now(),
             query,
         )
     }
@@ -5605,7 +6299,7 @@ impl EdgeInventory for SqliteEdge {
             &connection,
             self.node.site_id.as_str(),
             pricing::STORE_CHANNEL,
-            Utc::now(),
+            self.clock.now(),
         )
     }
 
@@ -5856,7 +6550,7 @@ impl EdgeInventory for SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
-        let report = crate::edge::till::open_shift(&tx, &request)?;
+        let report = crate::edge::till::open_shift(&tx, &request, self.clock.now())?;
         // The centre gets a copy of every shift, in the same transaction that
         // wrote it. Behind the idempotency guard, so a replayed request returns
         // the stored report above without enqueuing the shift a second time.
@@ -5911,7 +6605,8 @@ impl EdgeInventory for SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
-        let report = crate::edge::till::record_cash_movement(&tx, shift_id, &request)?;
+        let report =
+            crate::edge::till::record_cash_movement(&tx, shift_id, &request, self.clock.now())?;
         crate::edge::till::enqueue_shift_fact(&tx, shift_id, &self.node.site_id.to_string())?;
         Self::save_idempotent(
             &tx,
@@ -5922,6 +6617,35 @@ impl EdgeInventory for SqliteEdge {
         )?;
         tx.commit().map_err(db)?;
         Ok(report)
+    }
+
+    fn record_till_approval(
+        &self,
+        request: crate::edge::till::TillApprovalRequest,
+    ) -> Result<crate::edge::till::TillApproval, EdgeError> {
+        self.require_store("a till approval")?;
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) =
+            Self::load_idempotent(&tx, &request.idempotency_key, "TILL_APPROVAL", &request_json)?
+        {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+        let approval = crate::edge::till::record_approval(&tx, &request, self.clock.now())?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "TILL_APPROVAL",
+            &request_json,
+            &approval,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(approval)
     }
 
     fn close_shift(
@@ -5942,7 +6666,7 @@ impl EdgeInventory for SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
-        let report = crate::edge::till::close_shift(&tx, shift_id, &request)?;
+        let report = crate::edge::till::close_shift(&tx, shift_id, &request, self.clock.now())?;
         crate::edge::till::enqueue_shift_fact(&tx, shift_id, &self.node.site_id.to_string())?;
         Self::save_idempotent(
             &tx,
@@ -5982,7 +6706,7 @@ impl EdgeInventory for SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
-        let recorded = crate::edge::petty::record_expense(&tx, &request)?;
+        let recorded = crate::edge::petty::record_expense(&tx, &request, self.clock.now())?;
         // The centre hears about it in the same transaction as the row, or not
         // at all. See `capture_store_expense` for what the centre can do with
         // it today, which is nothing.
@@ -6018,7 +6742,7 @@ impl EdgeInventory for SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
-        let recorded = crate::edge::petty::record_top_up(&tx, &request)?;
+        let recorded = crate::edge::petty::record_top_up(&tx, &request, self.clock.now())?;
         Self::capture_petty_cash_top_up(&tx, &self.node, &recorded.top_up)?;
         Self::save_idempotent(
             &tx,
@@ -6068,7 +6792,7 @@ impl EdgeInventory for SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
-        let now = Utc::now();
+        let now = self.clock.now();
         let punched = crate::edge::attendance::punch(&tx, &request, now)?;
         // The centre hears about it in the same transaction as the row, or not
         // at all. That single property is what makes the buffer durable: there
@@ -6095,7 +6819,7 @@ impl EdgeInventory for SqliteEdge {
         crate::edge::attendance::today(
             &connection,
             employee_id,
-            business_date.unwrap_or_else(|| Utc::now().date_naive()),
+            business_date.unwrap_or_else(|| self.clock.now().date_naive()),
         )
     }
 
@@ -6153,7 +6877,7 @@ impl EdgeInventory for SqliteEdge {
             )));
         }
 
-        let occurred_at = Utc::now();
+        let occurred_at = self.clock.now();
         let floor = Place::Operational {
             pool: OperationalPool::StoreFloor {
                 store_id: self.node.site_id.clone(),
@@ -6189,6 +6913,30 @@ impl EdgeInventory for SqliteEdge {
             .iter()
             .try_fold(0_i64, |total, line| total.checked_add(line.charged_minor))
             .ok_or_else(|| EdgeError::Validation("void total overflow".into()))?;
+
+        // Tell the centre the sale stopped being one. The stock movement above
+        // is the goods; this fact is the money and the award — the state a
+        // report has to filter on and the member's points the centre takes
+        // back. Carrying no customer and no points here is deliberate: the
+        // centre already holds both on the `edge_sale` row this void names,
+        // and a second copy of an award figure is a second opinion about what
+        // the member has.
+        crate::edge::sync::enqueue_fact(
+            &tx,
+            Uuid::new_v4(),
+            crate::cloud::domain::FACT_SALES_VOIDED,
+            &serde_json::json!({
+                "sale_id": sale_id,
+                "site_id": self.node.site_id.to_string(),
+                "voided_at": time_text(occurred_at),
+                "reason": request.reason.trim(),
+                "refund_minor": refund_minor,
+                "actor_id": request.actor_id.trim(),
+                "approved_by": approved_by,
+            }),
+        )
+        .map_err(db)?;
+
         let result = crate::edge::till::VoidResult {
             sale_id: sale_id.to_string(),
             refund_minor,
@@ -6292,7 +7040,7 @@ impl EdgeInventory for SqliteEdge {
             chosen.push((sold_line.clone(), disposition));
         }
 
-        let occurred_at = Utc::now();
+        let occurred_at = self.clock.now();
         let command = MovementCommand {
             movement_group_id: MovementGroupId::new(),
             lines: chosen
@@ -6454,7 +7202,7 @@ pub(super) fn db(error: rusqlite::Error) -> EdgeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::edge::{ReceiveRequest, SiteId};
+    use crate::edge::{PickLine, ReceiveRequest, SiteId};
 
     fn node(role: EdgeRole, site_id: &str) -> NodeContext {
         NodeContext::new(
@@ -6479,6 +7227,97 @@ mod tests {
             reference_id: None,
         })
         .unwrap_or_else(|error| panic!("move {from} -> {to}: {error}"));
+    }
+
+    /// Two deliveries of one picklist at once — two tabs on one phone flushing
+    /// the same outbox job — are one round, and both answers say all of it.
+    /// The key used to be checked before the round opened and written after
+    /// it closed, so both deliveries opened a round and the per-line keys split
+    /// the lines between them.
+    #[test]
+    fn a_picklist_delivered_twice_at_once_is_one_round() {
+        let dc = SqliteEdge::open_in_memory(node(EdgeRole::Dc, "dc-01"))
+            .unwrap_or_else(|error| panic!("dc: {error}"));
+        let stock = [
+            ("EPC-RACE-001", "SKU-001"),
+            ("EPC-RACE-002", "SKU-001"),
+            ("EPC-RACE-003", "SKU-002"),
+            ("EPC-RACE-004", "SKU-003"),
+        ];
+        for (epc, sku) in stock {
+            dc.intake_dc(IntakeRequest {
+                epc: epc.into(),
+                sku_code: sku.into(),
+                unit_price_minor: 100_000,
+                actor_id: "dc-receiver".into(),
+                idempotency_key: format!("intake-{epc}"),
+            })
+            .unwrap_or_else(|error| panic!("intake {epc}: {error}"));
+            move_epc(
+                &dc,
+                epc,
+                "dc-01.pending.unidentified:on_hand",
+                "dc-01.pending.untagged:on_hand",
+                &format!("untagged-{epc}"),
+            );
+            move_epc(
+                &dc,
+                epc,
+                "dc-01.pending.untagged:on_hand",
+                "dc-01.warehouse:on_hand",
+                &format!("warehouse-{epc}"),
+            );
+        }
+        let request = CreatePicklistRequest {
+            source_pool_id: "dc-01.warehouse".into(),
+            lines: vec![
+                PickLine {
+                    sku_code: "SKU-001".into(),
+                    quantity: 2,
+                },
+                PickLine {
+                    sku_code: "SKU-002".into(),
+                    quantity: 1,
+                },
+                PickLine {
+                    sku_code: "SKU-003".into(),
+                    quantity: 1,
+                },
+            ],
+            actor_id: "picker".into(),
+            note: None,
+            idempotency_key: "round-raced".into(),
+        };
+
+        let answers: Vec<PicklistResult> = std::thread::scope(|scope| {
+            let running: Vec<_> = (0..2)
+                .map(|_| {
+                    let request = request.clone();
+                    let dc = &dc;
+                    scope.spawn(move || dc.create_picklist(request))
+                })
+                .collect();
+            running
+                .into_iter()
+                .map(|handle| {
+                    handle
+                        .join()
+                        .unwrap_or_else(|_| panic!("picklist thread panicked"))
+                        .unwrap_or_else(|error| panic!("picklist: {error}"))
+                })
+                .collect()
+        });
+
+        let rounds: i64 = dc
+            .lock()
+            .unwrap_or_else(|error| panic!("lock: {error}"))
+            .query_row("SELECT count(*) FROM pick_session", [], |row| row.get(0))
+            .unwrap_or_else(|error| panic!("count rounds: {error}"));
+        assert_eq!(rounds, 1, "one picklist, one round");
+        for answer in &answers {
+            assert_eq!(answer.summary.total_picked, 4, "each answer is the whole round");
+            assert!(answer.refused.is_empty());
+        }
     }
 
     #[test]
@@ -6556,6 +7395,8 @@ mod tests {
                     amount_minor: 200_000,
                     reference: None,
                     voucher_authorization_id: None,
+                    acquirer: None,
+                    card_kind: None,
                 }],
                 actor_id: "cashier-07".into(),
                 idempotency_key: "store-sale-001".into(),
@@ -6621,6 +7462,8 @@ mod tests {
                     amount_minor: 200_000,
                     reference: None,
                     voucher_authorization_id: None,
+                    acquirer: None,
+                    card_kind: None,
                 }],
                 actor_id: "siti".into(),
                 idempotency_key: format!("{key}-sale"),
@@ -6741,6 +7584,8 @@ mod tests {
                     amount_minor: 200_000,
                     reference: None,
                     voucher_authorization_id: None,
+                    acquirer: None,
+                    card_kind: None,
                 }],
                 actor_id: "siti".into(),
                 idempotency_key: "expected-sale-2".into(),
@@ -6801,6 +7646,8 @@ mod tests {
                     amount_minor: 150_000,
                     reference: Some("BCA-approval".into()),
                     voucher_authorization_id: None,
+                    acquirer: None,
+                    card_kind: None,
                 }],
                 actor_id: "siti".into(),
                 idempotency_key: "card-sale".into(),
@@ -6866,6 +7713,8 @@ mod tests {
                 amount_minor: 150_000,
                 reference: Some("GIFT-9999".into()),
                 voucher_authorization_id: None,
+                acquirer: None,
+                card_kind: None,
             }],
             actor_id: "siti".into(),
             idempotency_key: "unauth-sale".into(),
@@ -6922,6 +7771,17 @@ mod tests {
             "voucher-floor",
         );
 
+        // The hold head office granted through this node's relay. Without the
+        // record the till refuses the tender — see the tests below.
+        store
+            .record_voucher_hold(VoucherHoldRecord {
+                authorization_id: "auth-0001".into(),
+                code: "GIFT-0001".into(),
+                checkout_id: "basket-1".into(),
+                amount_minor: 150_000,
+                expires_at: None,
+            })
+            .unwrap_or_else(|error| panic!("hold: {error}"));
         let sale = store
             .complete_sale(SaleRequest {
                 coupon_codes: Vec::new(),
@@ -6935,6 +7795,8 @@ mod tests {
                     // The centre's word. Without it this basket is refused —
                     // see the test below, which is the hole this closed.
                     voucher_authorization_id: Some("auth-0001".into()),
+                    acquirer: None,
+                    card_kind: None,
                 }],
                 actor_id: "siti".into(),
                 idempotency_key: "voucher-sale".into(),
@@ -6956,6 +7818,234 @@ mod tests {
         assert_eq!(report.expected_cash_minor, 100_000);
     }
 
+    /// A shop floor unit and a voucher sale over it, for the hold tests below.
+    fn voucher_basket(
+        store: &SqliteEdge,
+        epc: &str,
+        hold: &str,
+        amount: i64,
+        key: &str,
+    ) -> Result<SaleResult, EdgeError> {
+        store
+            .receive_store(ReceiveRequest {
+                epc: epc.into(),
+                sku_code: "SKU-001".into(),
+                unit_price_minor: 150_000,
+                source_dc_id: None,
+                shipment_reference: None,
+                actor_id: "store-receiver".into(),
+                idempotency_key: format!("{key}-receive"),
+            })
+            .unwrap_or_else(|error| panic!("receive: {error}"));
+        move_epc(
+            store,
+            epc,
+            "store-07.warehouse:on_hand",
+            "store-07.floor:on_hand",
+            &format!("{key}-floor"),
+        );
+        let mut tenders = vec![crate::tender::SaleTender {
+            method: crate::tender::PaymentMethod::Voucher,
+            amount_minor: amount,
+            reference: Some("GIFT-0001".into()),
+            voucher_authorization_id: Some(hold.into()),
+            acquirer: None,
+            card_kind: None,
+        }];
+        if amount < 150_000 {
+            tenders.push(crate::tender::SaleTender {
+                method: crate::tender::PaymentMethod::Cash,
+                amount_minor: 150_000 - amount,
+                reference: None,
+                voucher_authorization_id: None,
+                acquirer: None,
+                card_kind: None,
+            });
+        }
+        store.complete_sale(SaleRequest {
+            coupon_codes: Vec::new(),
+            customer_id: None,
+            charges: Vec::new(),
+            epcs: vec![epc.into()],
+            tenders,
+            actor_id: "siti".into(),
+            idempotency_key: key.into(),
+        })
+    }
+
+    fn held(store: &SqliteEdge, id: &str, amount: i64) {
+        store
+            .record_voucher_hold(VoucherHoldRecord {
+                authorization_id: id.into(),
+                code: "GIFT-0001".into(),
+                checkout_id: format!("basket-{id}"),
+                amount_minor: amount,
+                expires_at: None,
+            })
+            .unwrap_or_else(|error| panic!("hold: {error}"));
+    }
+
+    /// The hole: with the line down, a sale could name any string as its
+    /// voucher hold and the goods left against a voucher nobody checked. The
+    /// centre caught it later — by blocking the shop's whole sync stream.
+    #[test]
+    fn a_voucher_hold_head_office_never_granted_is_refused_at_the_till() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        let refused = voucher_basket(&store, "EPC-FORGED-1", "made-up-hold", 150_000, "forged")
+            .expect_err("a hold this node never relayed must not pay for anything");
+        assert!(matches!(refused, EdgeError::Conflict(_)), "{refused}");
+        let sales: i64 = store
+            .connection()
+            .lock()
+            .unwrap_or_else(|e| panic!("lock: {e}"))
+            .query_row("SELECT COUNT(*) FROM sale", [], |row| row.get(0))
+            .unwrap_or_else(|e| panic!("count: {e}"));
+        assert_eq!(sales, 0, "no sale, so nothing for the centre to choke on");
+    }
+
+    #[test]
+    fn a_voucher_hold_pays_once() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        held(&store, "hold-once", 150_000);
+        voucher_basket(&store, "EPC-ONCE-1", "hold-once", 150_000, "once-1")
+            .unwrap_or_else(|error| panic!("first basket: {error}"));
+        let again = voucher_basket(&store, "EPC-ONCE-2", "hold-once", 150_000, "once-2")
+            .expect_err("a spent hold must not pay for a second basket");
+        assert!(matches!(again, EdgeError::Conflict(_)), "{again}");
+    }
+
+    #[test]
+    fn a_voucher_tender_cannot_take_more_than_was_held() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        held(&store, "hold-small", 20_000);
+        let over = voucher_basket(&store, "EPC-OVER-1", "hold-small", 150_000, "over")
+            .expect_err("the hold is the most the tender may take");
+        assert!(matches!(over, EdgeError::Validation(_)), "{over}");
+        voucher_basket(&store, "EPC-OVER-2", "hold-small", 20_000, "within")
+            .unwrap_or_else(|error| panic!("within the hold: {error}"));
+    }
+
+    #[test]
+    fn a_released_voucher_hold_pays_for_nothing() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        held(&store, "hold-gone", 150_000);
+        store
+            .close_voucher_hold("gift-0001", "basket-hold-gone")
+            .unwrap_or_else(|error| panic!("release: {error}"));
+        let refused = voucher_basket(&store, "EPC-GONE-1", "hold-gone", 150_000, "gone")
+            .expect_err("a released hold is given back");
+        assert!(matches!(refused, EdgeError::Conflict(_)), "{refused}");
+    }
+
+    /// The count sheet is the declaration's working, so it has to be the same
+    /// number — and it is kept, largest note first, for the morning audit.
+    #[test]
+    fn a_count_sheet_must_add_up_to_the_declared_cash() {
+        use crate::edge::till::CashCount;
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        let shift = store
+            .open_shift(crate::edge::till::OpenShiftRequest {
+                terminal_id: "TILL-1".into(),
+                opening_float_minor: 500_000,
+                actor_id: "siti".into(),
+                idempotency_key: "count-shift".into(),
+            })
+            .unwrap_or_else(|error| panic!("shift: {error}"));
+        let sheet = vec![
+            CashCount { value_minor: 50_000, pieces: 2 },
+            CashCount { value_minor: 100_000, pieces: 4 },
+            CashCount { value_minor: 1_000, pieces: 0 },
+        ];
+        let off = store
+            .close_shift(
+                &shift.shift_id,
+                crate::edge::till::CloseShiftRequest {
+                    declared_cash_minor: 499_000,
+                    counted: sheet.clone(),
+                    note: None,
+                    actor_id: "siti".into(),
+                    idempotency_key: "count-off".into(),
+                },
+            )
+            .expect_err("a sheet adding to 500,000 cannot declare 499,000");
+        assert!(matches!(off, EdgeError::Validation(_)), "{off}");
+        let closed = store
+            .close_shift(
+                &shift.shift_id,
+                crate::edge::till::CloseShiftRequest {
+                    declared_cash_minor: 500_000,
+                    counted: sheet,
+                    note: None,
+                    actor_id: "siti".into(),
+                    idempotency_key: "count-on".into(),
+                },
+            )
+            .unwrap_or_else(|error| panic!("close: {error}"));
+        assert_eq!(
+            closed.counted,
+            vec![
+                CashCount { value_minor: 100_000, pieces: 4 },
+                CashCount { value_minor: 50_000, pieces: 2 },
+            ],
+            "empty lines are not kept, and the sheet reads largest first"
+        );
+        assert_eq!(closed.variance_minor, Some(0));
+        assert!(!closed.blind, "the node's own report is never blind");
+    }
+
+    /// A unit taken off the basket leaves a row saying who agreed to it, and
+    /// the supervisor's credential is checked by the node, not the till.
+    #[test]
+    fn a_basket_edit_is_approved_by_a_supervisor_and_written_down() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        seed_supervisor(&store, "rina", "rina-secret-1");
+        let request = |key: &str, action: &str, password: &str| {
+            crate::edge::till::TillApprovalRequest {
+                action: action.into(),
+                terminal_id: "TILL-1".into(),
+                detail: "Kemeja Linen Putih · …00001005".into(),
+                reason: None,
+                epcs: vec!["A10101001000100000001005".into()],
+                amount_minor: Some(289_000),
+                supervisor: supervisor("rina", password),
+                actor_id: "siti".into(),
+                idempotency_key: key.into(),
+            }
+        };
+        let approved = store
+            .record_till_approval(request("approve-1", "EDIT_CART", "rina-secret-1"))
+            .unwrap_or_else(|error| panic!("approve: {error}"));
+        assert_eq!(approved.approved_by, "rina");
+        assert_eq!(approved.action, "EDIT_CART");
+        let replayed = store
+            .record_till_approval(request("approve-1", "EDIT_CART", "rina-secret-1"))
+            .unwrap_or_else(|error| panic!("replay: {error}"));
+        assert_eq!(replayed.approval_id, approved.approval_id, "a retry is the same row");
+
+        let wrong = store
+            .record_till_approval(request("approve-2", "EDIT_CART", "not-her-password"))
+            .expect_err("a wrong password approves nothing");
+        assert!(matches!(wrong, EdgeError::Unauthorized(_)), "{wrong}");
+        let unknown = store
+            .record_till_approval(request("approve-3", "OPEN_DRAWER", "rina-secret-1"))
+            .expect_err("only the basket edits are approvals here");
+        assert!(matches!(unknown, EdgeError::Validation(_)), "{unknown}");
+
+        let rows: i64 = store
+            .connection
+            .lock()
+            .unwrap_or_else(|error| panic!("connection: {error}"))
+            .query_row("SELECT COUNT(*) FROM till_approval", [], |row| row.get(0))
+            .unwrap_or_else(|error| panic!("count: {error}"));
+        assert_eq!(rows, 1, "refusals leave no approval behind");
+    }
+
     /// Blind: the declaration arrives with the request and the expectation is
     /// computed here, so the two cannot be reconciled afterwards into agreeing.
     #[test]
@@ -6975,6 +8065,7 @@ mod tests {
                 &shift.shift_id,
                 crate::edge::till::CloseShiftRequest {
                     declared_cash_minor: 495_000,
+                    counted: Vec::new(),
                     note: Some("kurang 5rb".into()),
                     actor_id: "siti".into(),
                     idempotency_key: "close-1".into(),
@@ -6992,6 +8083,7 @@ mod tests {
                 &shift.shift_id,
                 crate::edge::till::CloseShiftRequest {
                     declared_cash_minor: 500_000,
+                    counted: Vec::new(),
                     note: None,
                     actor_id: "siti".into(),
                     idempotency_key: "close-2".into(),
@@ -7989,10 +9081,11 @@ impl SqliteEdge {
                         l.line_number, l.article_code, l.article_name, l.image_url,
                         COALESCE((SELECT SUM(c.matched_quantity) FROM receiving_count c
                                   WHERE c.po_line_id = l.po_line_id AND c.status='ACCEPTED'), 0),
-                        o.activated_at
+                        o.activated_at, l.order_unit_code, l.count_units
                  FROM purchase_order_line l
                  JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
-                 WHERE l.ordered_quantity >
+                 WHERE o.cancelled_at IS NULL
+                   AND l.ordered_quantity >
                        COALESCE((SELECT SUM(c.matched_quantity) FROM receiving_count c
                                  WHERE c.po_line_id = l.po_line_id AND c.status='ACCEPTED'), 0)
                  ORDER BY o.activated_at DESC, o.po_number, l.line_number",
@@ -8012,6 +9105,8 @@ impl SqliteEdge {
                     expected_stock_units: None,
                     received_stock_units: row.get(8)?,
                     activated_at: parse_time_row(row.get::<_, String>(9)?)?,
+                    order_unit_code: row.get(10)?,
+                    count_units: parse_count_units(row.get::<_, Option<String>>(11)?.as_deref()),
                 })
             })
             .map_err(db)?;
@@ -8032,7 +9127,9 @@ impl SqliteEdge {
                         c.counted_at, l.ordered_quantity,
                         l.unit_price_minor, c.status, c.receipt_id,
                         COALESCE((SELECT SUM(a.matched_quantity) FROM receiving_count a
-                                  WHERE a.po_line_id = c.po_line_id AND a.status='ACCEPTED'), 0)
+                                  WHERE a.po_line_id = c.po_line_id AND a.status='ACCEPTED'), 0),
+                        o.created_by, l.order_unit_code, l.order_unit_quantity, l.unit_factor,
+                        c.counted_unit_code, c.counted_unit_quantity
                  FROM receiving_count c
                  JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
                  JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
@@ -8062,6 +9159,12 @@ impl SqliteEdge {
                     variance: counted - expected,
                     outstanding_stock_units: (ordered - already_matched).max(0),
                     unit_price_minor: row.get(10)?,
+                    raised_by: row.get(14)?,
+                    order_unit_code: row.get(15)?,
+                    order_unit_quantity: row.get(16)?,
+                    unit_factor: row.get(17)?,
+                    counted_unit_code: row.get(18)?,
+                    counted_unit_quantity: row.get(19)?,
                 })
             })
             .map_err(db)?;
@@ -8103,17 +9206,73 @@ impl SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
-        let ordered_from: Option<String> = tx
+        let ordered_from: Option<(String, Option<String>)> = tx
             .query_row(
-                "SELECT o.supplier_id
+                "SELECT o.supplier_id, o.cancelled_at
                    FROM purchase_order_line l
                    JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
                   WHERE l.po_line_id = ?1",
                 params![request.po_line_id.to_string()],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
             .map_err(db)?;
+        // Head office called the order off: nothing is counted against it.
+        if let Some((_, Some(_))) = &ordered_from {
+            return Err(EdgeError::Conflict(
+                "this purchase order was cancelled by head office; refuse the delivery".into(),
+            ));
+        }
+        let ordered_from = ordered_from.map(|(supplier, _)| supplier);
+        // A count typed in a unit other than pieces: converted with the
+        // line's own factor, exactly, and checked against the pieces sent.
+        let counted_unit = match request
+            .counted_unit_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|code| !code.is_empty())
+        {
+            None => None,
+            Some(code) => {
+                let units: Option<String> = tx
+                    .query_row(
+                        "SELECT count_units FROM purchase_order_line WHERE po_line_id = ?1",
+                        params![request.po_line_id.to_string()],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(db)?
+                    .flatten();
+                let code = code.to_uppercase();
+                let factor = parse_count_units(units.as_deref())
+                    .into_iter()
+                    .find(|unit| unit.code == code)
+                    .map(|unit| unit.factor)
+                    .ok_or_else(|| {
+                        EdgeError::Validation(format!(
+                            "this line cannot be counted in {code}; count it in pieces"
+                        ))
+                    })?;
+                let typed = request
+                    .counted_unit_quantity
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim()
+                    .replace(',', ".");
+                let pieces = pieces_of(&typed, &factor).ok_or_else(|| {
+                    EdgeError::Validation(format!(
+                        "{typed} {code} is not a whole number of pieces"
+                    ))
+                })?;
+                if pieces != request.counted_quantity {
+                    return Err(EdgeError::Validation(format!(
+                        "{typed} {code} is {pieces} pieces, not the {} sent",
+                        request.counted_quantity
+                    )));
+                }
+                Some((code, typed))
+            }
+        };
         let Some(ordered_from) = ordered_from else {
             return Err(EdgeError::NotFound(format!(
                 "this DC holds no purchase order line {}; it cannot count against one it was never given",
@@ -8154,19 +9313,21 @@ impl SqliteEdge {
             )));
         }
         let count_id = Uuid::new_v4();
-        let counted_at = Utc::now();
+        let counted_at = self.clock.now();
         tx.execute(
             "INSERT INTO receiving_count
                  (count_id, receipt_id, po_line_id, counted_quantity, counted_by, counted_at,
-                  status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'AWAITING_VERIFICATION')",
+                  status, counted_unit_code, counted_unit_quantity)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'AWAITING_VERIFICATION', ?7, ?8)",
             params![
                 count_id.to_string(),
                 request.receipt_id.to_string(),
                 request.po_line_id.to_string(),
                 request.counted_quantity,
                 request.actor_id,
-                time_text(counted_at)
+                time_text(counted_at),
+                counted_unit.as_ref().map(|(code, _)| code.clone()),
+                counted_unit.as_ref().map(|(_, quantity)| quantity.clone())
             ],
         )
         .map_err(db)?;
@@ -8333,8 +9494,8 @@ impl SqliteEdge {
             .map_err(db)?;
 
         let receipt_id = Uuid::new_v4();
-        let arrived_at = request.arrived_at.unwrap_or_else(Utc::now);
-        let opened_at = Utc::now();
+        let arrived_at = request.arrived_at.unwrap_or_else(|| self.clock.now());
+        let opened_at = self.clock.now();
         let receipt_number = format!("GRN-{}-{next:06}", self.node.site_id);
         tx.execute(
             "INSERT INTO goods_receipt
@@ -8467,7 +9628,7 @@ impl SqliteEdge {
             )));
         }
 
-        let decided_at = Utc::now();
+        let decided_at = self.clock.now();
         tx.execute(
             "UPDATE goods_receipt
                 SET status='REJECTED', rejected_reason=?2, closed_by=?3, closed_at=?4
@@ -8544,7 +9705,7 @@ impl SqliteEdge {
             return Ok(response);
         }
 
-        let recorded_at = Utc::now();
+        let recorded_at = self.clock.now();
         let updated = tx
             .execute(
                 "UPDATE goods_receipt
@@ -8680,7 +9841,7 @@ impl SqliteEdge {
             )));
         }
 
-        let uploaded_at = Utc::now();
+        let uploaded_at = self.clock.now();
         let byte_count = request.bytes.len() as i64;
         tx.execute(
             "INSERT INTO goods_receipt_invoice_document
@@ -8893,7 +10054,7 @@ impl SqliteEdge {
             )));
         }
 
-        let occurred_at = Utc::now();
+        let occurred_at = self.clock.now();
         let created_at = time_text(occurred_at);
         let mut movement_lines = Vec::new();
         let mut completed_lines = Vec::new();
@@ -9147,9 +10308,30 @@ impl SqliteEdge {
                 "{counted_by} counted this delivery and cannot also approve it; verification needs a second person"
             )));
         }
+        // The person who raised the order verifies its counts (owner,
+        // 2026-09-26). An order activated before the centre sent its raiser
+        // carries none, and any second person may still decide it.
+        let raised_by: Option<String> = tx
+            .query_row(
+                "SELECT o.created_by
+                   FROM receiving_count c
+                   JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
+                   JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+                  WHERE c.count_id = ?1",
+                params![request.count_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if let Some(raiser) = raised_by.as_deref().map(str::trim).filter(|who| !who.is_empty()) {
+            if raiser != request.verifier_actor_id.trim() {
+                return Err(EdgeError::Forbidden(format!(
+                    "{raiser} raised this purchase order; only they can verify its counts"
+                )));
+            }
+        }
         let po_line_id = Uuid::parse_str(&po_line_id)
             .map_err(|error| EdgeError::Persistence(format!("stored line id: {error}")))?;
-        let decided_at = Utc::now();
+        let decided_at = self.clock.now();
 
         if request.decision == PurchaseVerifyDecision::Recount {
             tx.execute(
@@ -9405,6 +10587,8 @@ mod checkout_tests {
             amount_minor,
             reference: Some(reference.to_string()),
             voucher_authorization_id: None,
+            acquirer: None,
+            card_kind: None,
         }
     }
 
@@ -9740,6 +10924,8 @@ mod charge_tests {
                 amount_minor: 150_000,
                 reference: Some("TERM-0001".into()),
                 voucher_authorization_id: None,
+                acquirer: None,
+                card_kind: None,
             }],
             actor_id: "cashier".into(),
             idempotency_key: "fee-sale-short".into(),
@@ -9767,6 +10953,8 @@ mod charge_tests {
                     amount_minor: 200_000,
                     reference: None,
                     voucher_authorization_id: None,
+                    acquirer: None,
+                    card_kind: None,
                 }],
                 actor_id: "cashier".into(),
                 idempotency_key: "fee-sale-1".into(),
@@ -9822,6 +11010,8 @@ mod charge_tests {
                     amount_minor: 150_000,
                     reference: None,
                     voucher_authorization_id: None,
+                    acquirer: None,
+                    card_kind: None,
                 }],
                 actor_id: "cashier".into(),
                 idempotency_key: "fee-sale-none".into(),
@@ -10173,5 +11363,41 @@ mod petty_tests {
             dc.record_expense(expense("dc-1", 40_000, "budi", "siti", "supervisor-1")),
             Err(EdgeError::Forbidden(_))
         ));
+    }
+}
+
+/// The units a line may be counted in, read from the JSON text it keeps.
+/// Anything unreadable is no units at all: the line is then counted in pieces.
+fn parse_count_units(text: Option<&str>) -> Vec<crate::edge::contracts::PurchaseCountUnit> {
+    text.and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_default()
+}
+
+/// `quantity × factor` as a whole number of pieces, exactly, or `None` when
+/// either is not a number, the product is not whole, or it is not positive.
+/// Decimal, not float: 9.5 KODI is 190 pieces, never 189.99999.
+fn pieces_of(quantity: &str, factor: &str) -> Option<i64> {
+    let quantity: rust_decimal::Decimal = quantity.parse().ok()?;
+    let factor: rust_decimal::Decimal = factor.parse().ok()?;
+    let exact = quantity.checked_mul(factor)?;
+    if exact <= rust_decimal::Decimal::ZERO || exact.fract() != rust_decimal::Decimal::ZERO {
+        return None;
+    }
+    rust_decimal::prelude::ToPrimitive::to_i64(&exact)
+}
+
+#[cfg(test)]
+mod counting_in_units {
+    use super::pieces_of;
+
+    #[test]
+    fn a_count_in_units_is_exact_whole_pieces() {
+        assert_eq!(pieces_of("9.5", "20"), Some(190));
+        assert_eq!(pieces_of("2,5".replace(',', ".").as_str(), "20.0000"), Some(50));
+        assert_eq!(pieces_of("10", "12"), Some(120));
+        assert_eq!(pieces_of("0.1", "30"), Some(3));
+        assert_eq!(pieces_of("9.53", "20"), None);
+        assert_eq!(pieces_of("0", "20"), None);
+        assert_eq!(pieces_of("abc", "20"), None);
     }
 }

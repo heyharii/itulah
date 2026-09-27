@@ -1,7 +1,6 @@
-import { Async, Panel } from "@/components/bits"
+import { Async, List, Panel } from "@/components/bits"
 import { StatusPill } from "@/components/status-pill"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
 import { dateTime, longDate, relativeDay } from "@/lib/format"
 import { useAnswerOvertime, useOvertimeOrders } from "@/lib/hr/queries"
 import { readMinutes } from "@/lib/hr/days"
@@ -27,17 +26,16 @@ export function Overtime() {
     <Panel title="Orders">
       <Async query={orders} empty="No overtime has been ordered.">
         {(list) => (
-          <div className="flex flex-col">
-            {list.map((order, index) => (
+          <List>
+            {list.map((order) => (
               <div key={order.id}>
-                {index > 0 && <Separator className="my-3" />}
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-start gap-2">
                     <div className="min-w-0">
-                      <p className="text-[13px] font-medium">
+                      <p className="text-cell font-medium text-ink">
                         {longDate(order.on_date)}
                       </p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-meta text-body">
                         {readMinutes(order.planned_minutes)} ordered ·{" "}
                         {relativeDay(order.on_date)}
                         {order.day_kind !== "WORKING" &&
@@ -46,8 +44,8 @@ export function Overtime() {
                     </div>
                     <StatusPill status={order.state} className="ml-auto" />
                   </div>
-                  <p className="text-[13px]">{order.ordered_reason}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-cell text-text">{order.ordered_reason}</p>
+                  <p className="text-meta text-mute">
                     Ordered by {order.ordered_by}
                     {order.answered_at !== null &&
                       ` · answered ${dateTime(order.answered_at)}`}
@@ -57,8 +55,9 @@ export function Overtime() {
                   {order.state === "AWAITING_CONSENT" && (
                     <div className="mt-1 flex gap-2">
                       <Button
-                        size="lg"
-                        className="h-11 flex-1"
+                        variant="primary"
+                        size="tap"
+                        className="flex-1 md:h-control md:flex-none"
                         disabled={answer.isPending}
                         onClick={() =>
                           answer.mutate({
@@ -75,9 +74,8 @@ export function Overtime() {
                         Agree
                       </Button>
                       <Button
-                        variant="outline"
-                        size="lg"
-                        className="h-11 flex-1"
+                        size="tap"
+                        className="flex-1 md:h-control md:flex-none"
                         disabled={answer.isPending}
                         onClick={() =>
                           answer.mutate({
@@ -94,7 +92,7 @@ export function Overtime() {
                 </div>
               </div>
             ))}
-          </div>
+          </List>
         )}
       </Async>
     </Panel>

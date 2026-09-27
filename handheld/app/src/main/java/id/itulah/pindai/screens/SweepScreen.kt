@@ -111,6 +111,12 @@ private fun ScanningSurface(state: SweepState) {
             .padding(top = Space.xxl, bottom = ScanFootClearance),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // Which delivery these tags are going to, and nothing about what it
+        // should contain. See ReceivingBanner.
+        if (state.isReceivingDelivery) {
+            ReceivingBanner(state)
+            Spacer(Modifier.height(Space.lg))
+        }
         if (state.starting) Pill(Tone.WARN, "waking the reader") else Pill(Tone.OK, "reading")
         Spacer(Modifier.height(Space.xl))
 
@@ -203,7 +209,13 @@ private fun BigCount(value: Int, live: Boolean) {
  */
 @Composable
 private fun RestingSurface(vm: SweepViewModel, state: SweepState, onOpenSessions: () -> Unit) {
-    if (state.openSweep != null) SweepDetail(vm, state) else History(vm, state)
+    when {
+        // A shop's Receive is a different job with its own screens: which
+        // delivery, its sweep, and what it came to. See ReceivingScreen.
+        state.isStoreReceiving -> ReceivingScreen(vm, state)
+        state.openSweep != null -> SweepDetail(vm, state)
+        else -> History(vm, state)
+    }
 }
 
 @Composable
@@ -441,7 +453,7 @@ private fun StatusFoot(state: SweepState) {
     }
 }
 
-private val DAYS = arrayOf(
+internal val DAYS = arrayOf(
     "januari", "februari", "maret", "april", "mei", "juni",
     "juli", "agustus", "september", "oktober", "november", "desember",
 )
@@ -476,7 +488,7 @@ private fun parseIso(iso: String): java.util.Date {
  * simply not something this screen has to draw.
  */
 @Composable
-private fun ProductRow(line: ResultLine) {
+internal fun ProductRow(line: ResultLine) {
     val identity = line.identity
     HubCard(modifier = Modifier.padding(bottom = Space.sm)) {
         Row(verticalAlignment = Alignment.CenterVertically) {

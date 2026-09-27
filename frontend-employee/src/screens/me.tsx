@@ -1,17 +1,17 @@
+import { Link } from "@tanstack/react-router"
+import { ChevronRight } from "lucide-react"
 import { Async, Empty, Panel, Row } from "@/components/bits"
 import { StatusPill } from "@/components/status-pill"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
-import { useTheme } from "@/components/theme-provider"
-import { dateTime, longDate, relativeDay, shortDate } from "@/lib/format"
+import { Pill } from "@/components/ui/pill"
+import { longDate, relativeDay, shortDate } from "@/lib/format"
 import {
   useContracts,
-  useEndSession,
   useHolidays,
   usePayrollIdentity,
   useProfile,
-  useSessions,
 } from "@/lib/hr/queries"
+import { button } from "@/components/ui/button-style"
 import { useSession, useSignOut } from "@/lib/session"
 
 /// Everything about the person that is not a task.
@@ -25,15 +25,12 @@ export function Me() {
   const contracts = useContracts()
   const payroll = usePayrollIdentity()
   const holidays = useHolidays()
-  const sessions = useSessions()
-  const endSession = useEndSession()
   /// The mutation itself rather than `session.signOut`, which is the bare
   /// `mutate` and so cannot say whether the request is still in flight. On a
   /// phone over shop wifi that gap is a second or more of a button that looks
   /// untouched, and the second tap fires a second logout against a session the
   /// first one has already ended.
   const signOut = useSignOut()
-  const { theme, setTheme } = useTheme()
 
   return (
     <div className="flex flex-col gap-4">
@@ -45,17 +42,17 @@ export function Me() {
                 <div className="min-w-0">
                   {/* A record can exist before anybody has typed a name into
                       it — accepted on Friday, enrolled on Monday. */}
-                  <p className="text-base font-semibold">
+                  <p className="text-card-title font-semibold text-ink">
                     {person.full_name ?? person.employee_code}
                   </p>
-                  <p className="text-[13px] text-muted-foreground">
+                  <p className="text-cell text-body">
                     {person.job_title ?? "No contract signed yet"}
                     {person.grade && ` · ${person.grade}`}
                   </p>
                 </div>
                 <StatusPill status={person.status} className="ml-auto" />
               </div>
-              <Separator />
+              <hr className="border-hairline" />
               <Row label="Employee number">{person.employee_code}</Row>
               <Row label="Works at">{person.place_name ?? "—"}</Row>
               {/* Null until the first HIRE takes effect, and saying so is
@@ -64,7 +61,7 @@ export function Me() {
               <Row label="Joined">
                 {person.joined_on ? longDate(person.joined_on) : "Not started"}
               </Row>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-meta text-mute">
                 Something wrong here? HR changes it — this screen only shows it.
               </p>
             </>
@@ -76,9 +73,26 @@ export function Me() {
         <Async query={contracts} empty="No contract on record.">
           {(list) =>
             list.map((contract) => (
-              <div key={contract.contract_id} className="flex flex-col gap-3">
-                <Row label="Type">{contract.kind}</Row>
-                <Row label="Started">{longDate(contract.started_on)}</Row>
+              <div
+                key={`${contract.kind}-${contract.starts_on}`}
+                className="flex flex-col gap-3 not-first:border-t not-first:border-hairline not-first:pt-3"
+              >
+                <div className="flex items-center gap-2">
+                  <p className="text-cell font-medium text-ink">
+                    {contract.kind === "PKWTT"
+                      ? "Permanent (PKWTT)"
+                      : contract.kind === "PKWT"
+                        ? "Fixed-term (PKWT)"
+                        : contract.kind}
+                  </p>
+                  <Pill tone={contract.in_force ? "ok" : "neutral"}>
+                    {contract.in_force ? "In force" : "Ended"}
+                  </Pill>
+                </div>
+                <Row label="Position">
+                  {contract.position} · {contract.grade}
+                </Row>
+                <Row label="Started">{longDate(contract.starts_on)}</Row>
                 {/* A PKWT is fixed-term. The end date approaching is the whole
                     reason somebody opens this card, so it is spelled out in
                     days rather than left as a date to subtract. */}
@@ -87,8 +101,6 @@ export function Me() {
                     ? "Open-ended"
                     : `${longDate(contract.ends_on)} · ${relativeDay(contract.ends_on)}`}
                 </Row>
-                <Row label="Hours a week">{contract.weekly_hours}</Row>
-                <Row label="Place">{contract.place_name}</Row>
               </div>
             ))
           }
@@ -108,7 +120,7 @@ export function Me() {
               <Row label="BPJS Ketenagakerjaan">
                 {identity.bpjs_ketenagakerjaan ?? "—"}
               </Row>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-meta text-mute">
                 Shown part-masked. To change where you are paid, ask HR in
                 person.
               </p>
@@ -127,54 +139,30 @@ export function Me() {
                 {calendar.days.map((day) => (
                   <Row key={day.date} label={day.name}>
                     {shortDate(day.date)}
-                    {day.kind === "JOINT_LEAVE" && (
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                    {day.consumes_annual_leave && (
+                      <span className="ml-1 text-meta font-normal text-mute">
                         (cuti bersama)
                       </span>
                     )}
                   </Row>
                 ))}
-                <p className="text-xs text-muted-foreground">
-                  {calendar.name} · {calendar.year}
-                </p>
+                <p className="text-meta text-mute">{calendar.year} calendar</p>
               </>
             )
           }
         </Async>
       </Panel>
 
-      <Panel title="Signed in on">
-        <Async query={sessions}>
-          {(list) => (
-            <div className="flex flex-col gap-3">
-              {list.map((device) => (
-                <div key={device.session_id} className="flex items-start gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[13px] font-medium">
-                      {device.user_agent ?? "Unknown device"}
-                      {device.current && " · this one"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Last seen {dateTime(device.last_seen_at)}
-                    </p>
-                  </div>
-                  {!device.current && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="ml-auto"
-                      disabled={endSession.isPending}
-                      onClick={() => endSession.mutate(device.session_id)}
-                    >
-                      End
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </Async>
-      </Panel>
+      <Link
+        to="/me/voice"
+        className={button({
+          size: "tap",
+          className: "w-full justify-between md:h-control",
+        })}
+      >
+        Raise a concern with HR
+        <ChevronRight className="size-4" />
+      </Link>
 
       <Panel title="This app">
         <Row label="Signed in as">{session.identity.username}</Row>
@@ -184,26 +172,10 @@ export function Me() {
             {session.node.node_id} · {session.node.node_role}
           </Row>
         )}
-        <Separator />
-        <div className="flex items-center gap-2">
-          <span className="text-[13px] text-muted-foreground">Appearance</span>
-          <div className="ml-auto flex gap-1">
-            {(["light", "dark", "system"] as const).map((option) => (
-              <Button
-                key={option}
-                size="sm"
-                variant={theme === option ? "secondary" : "ghost"}
-                onClick={() => setTheme(option)}
-              >
-                {option}
-              </Button>
-            ))}
-          </div>
-        </div>
         <Button
-          variant="outline"
-          size="lg"
-          className="h-11 w-full md:w-auto md:self-start"
+          variant="danger"
+          size="tap"
+          className="mt-1 w-full md:h-control md:w-auto md:self-start"
           disabled={signOut.isPending}
           onClick={() => signOut.mutate()}
         >

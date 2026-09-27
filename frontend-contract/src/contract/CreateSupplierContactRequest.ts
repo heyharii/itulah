@@ -3,7 +3,7 @@
 /**
  * A new contact for a supplier.
  */
-export type CreateSupplierContactRequest = { name: string, role?: string | null, phone?: string | null, email?: string | null, note?: string | null, 
+export type CreateSupplierContactRequest = { name: string, role?: string | null, phone?: string | null, email?: string | null, address?: string | null, note?: string | null, 
 /**
  * Absent means "decide for me": the first live contact a supplier has is
  * the primary one, because a supplier with one contact and nothing marked

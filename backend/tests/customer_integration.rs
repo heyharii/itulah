@@ -13,7 +13,7 @@
 //! here. What HTTP adds is checked by `api_flow_integration.rs` for the
 //! surfaces that have logic in their handlers.
 
-use inventory_backend::cloud::domain::FACT_SALES_COMPLETED;
+use inventory_backend::cloud::domain::{FACT_SALES_COMPLETED, FACT_SALES_VOIDED};
 use inventory_backend::cloud::postgres::{self as cloud, CustomerTransactionsQuery};
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -458,4 +458,78 @@ async fn enrolling_a_stray_number_hands_over_the_history_it_already_has(pool: Pg
         "the adopted number is still counted as a stranger"
     );
     assert_eq!(after.strangers[0].customer_id, "M-00012");
+}
+
+/// A sale the shop cancelled stays in the shopper's history, marked, and stops
+/// counting. The ledger takes its points back when the void lands; a summary
+/// that still added them up would tell the member they had earned points the
+/// balance no longer holds, and that they had spent money the shop gave back.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_voided_sale_is_shown_as_voided_and_counts_toward_nothing(pool: PgPool) {
+    let kept = Uuid::new_v4();
+    let voided = Uuid::new_v4();
+    ingest(
+        &pool,
+        1,
+        sale_payload(kept, Some(MEMBER), 100_000, 0, 10, 60, one_line("KMJ-01", 100_000, 100_000)),
+    )
+    .await;
+    ingest(
+        &pool,
+        2,
+        sale_payload(voided, Some(MEMBER), 300_000, 0, 27, 30, one_line("KMJ-02", 300_000, 300_000)),
+    )
+    .await;
+
+    cloud::ingest_batch(
+        &pool,
+        &inventory_backend::cloud::domain::IngestBatch {
+            origin_id: ORIGIN.into(),
+            generation: 1,
+            facts: vec![inventory_backend::cloud::domain::SyncFact {
+                seq: 3,
+                event_id: Uuid::new_v4(),
+                event_type: FACT_SALES_VOIDED.into(),
+                payload: json!({
+                    "sale_id": voided,
+                    "site_id": ORIGIN,
+                    "voided_at": chrono::Utc::now(),
+                    "reason": "salah input",
+                    "refund_minor": 300_000,
+                    "actor_id": "kasir-1",
+                    "approved_by": "supervisor-1",
+                }),
+                created_at: chrono::Utc::now(),
+            }],
+            command_watermark: 0,
+            command_blocked: None,
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("ingest void: {e}"));
+    let report = cloud::apply_pending(&pool, 200)
+        .await
+        .unwrap_or_else(|e| panic!("apply: {e}"));
+    assert!(report.blocked.is_empty(), "{:?}", report.blocked);
+
+    let summary = cloud::customer_summary(&pool, MEMBER)
+        .await
+        .unwrap_or_else(|e| panic!("summary: {e}"));
+    assert_eq!(summary.transaction_count, 1, "a voided sale is not a purchase");
+    assert_eq!(summary.spent_minor, 100_000, "the refund is not spend");
+    assert_eq!(summary.points_earned_total, 10, "its points were taken back");
+
+    let page = cloud::customer_transactions(&pool, MEMBER, CustomerTransactionsQuery::default())
+        .await
+        .unwrap_or_else(|e| panic!("history: {e}"));
+    let statuses: Vec<(Uuid, &str)> = page
+        .transactions
+        .iter()
+        .map(|t| (t.sale_id, t.status.as_str()))
+        .collect();
+    assert_eq!(
+        statuses,
+        vec![(voided, "VOIDED"), (kept, "COMPLETED")],
+        "the history still lists the cancelled sale, and says so"
+    );
 }

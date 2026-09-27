@@ -7,18 +7,29 @@ sized for one hand in an apron pocket — and a sidebar layout from `md` up.
 It talks to the **CLOUD** node, like head office does, because an employee's
 record follows the person rather than the building.
 
-## Half the backend exists now
+## Every screen is live
 
-**Live, against real routes, with no stand-in behind them:** the profile
-(`/employees/me/profile`), leave — `/api/v1/leave-types`,
-`/employees/me/leave-balances`, `/employees/me/leave-requests` and its
-`withdraw` — overtime (`/employees/me/overtime-orders` and its `consent`), and
-attendance: `/employees/me/attendance` for the derived fortnight and
-`/employees/me/punches` to clock in or out. A failure on those is a failure and
-says so.
+Everything this app shows comes from a real route on the cloud node, typed
+from `@itulah/contract` (generated from the Rust structs). There is no
+example-data fallback any more: a 404 is a failure and says so, and a login
+with no employment record behind it gets one "not linked yet" panel instead.
 
-**Still standing in:** corrections, and device sessions. The server answers 404
-to those, and `demo.ts` covers them.
+| Screen | Routes |
+|---|---|
+| Home, Me | `/employees/me/profile`, `/contracts`, `/payroll-identity`, `/lifecycle-tasks`, `/holiday-calendars` |
+| Leave | `/leave-types`, `/employees/me/leave-balances`, `/employees/me/leave-requests` (+ `withdraw`) |
+| Hours | `/employees/me/attendance`, `/employees/me/punches`, `/employees/me/attendance-corrections` |
+| Swap a day | `/employees/me/roster-swaps`, `/employees/me/colleagues`, `/roster-swaps` (+ `withdrawal`) |
+| Overtime | `/employees/me/overtime-orders` (+ `consent`) |
+| Pay, Claims | `/employees/me/payslips`, `/employees/me/expense-claims`, `/expense-claims` (+ `submission`) |
+| Raise a concern | `/grievance-types`, `/grievances` — read by head office HR only |
+| Notifications | `/notifications` (+ `read`, `read-all`) |
+| Team (store heads only) | `/leave-requests/pending`, `/attendance-corrections`, `/roster-swaps/pending` and their decisions |
+
+Where these filings are *decided*: leave, corrections and swaps in the hub's
+**People › Requests** (every place, head office included), on a store's till
+under **HR**, or on this app's Team screen; claims in **People › Claims**.
+Nobody decides their own filing — the server refuses it.
 
 ### Clocking in from here is a second punch source, and it says so
 
@@ -53,25 +64,6 @@ Overtime renamed two things for the same kind of reason. `acknowledge` became
 admitting you received it, and what PP 35/2021 art. 26(2) asks for is your
 agreement. The answer is recorded under a key your supervisor does not hold —
 which is why this app can answer an order and the head-office console cannot.
-
-So `src/lib/hr/` makes the real request and falls back to `demo.ts` **only** on
-a 404 or a 501:
-
-- `types.ts` — the wire as proposed. Every other type in this repo is generated
-  from Rust (`make contract`); these cannot be, because there is no Rust struct
-  yet. When the routes land, these become generated `contract/` files and this
-  file is deleted rather than kept in parallel.
-- `api.ts` — one function per route, correct path and method. A 401 still means
-  sign in and a 500 still fails; only "this route does not exist" stands in.
-- `demo.ts` — one plausible employee's year. Reached only when the server has
-  said 404, and the screen says so in a banner while it is being used.
-
-A write is not attempted at all once the reads have come back 404: this node
-answers an unrouted path with 405 to a POST, and 405 on a server that *has*
-these routes would mean a real bug, not an absent backend.
-
-Deleting `demo.ts` and the fallback in `api.ts` is the whole of the cleanup
-once the server catches up.
 
 ## Running it
 

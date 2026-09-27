@@ -379,6 +379,44 @@ pub async fn pending_publication(
     }))
 }
 
+/// What a price book reads that depends on neither the shop nor the instant.
+///
+/// Loaded once by a caller that prices many shops or many instants in one
+/// request — the pricing matrix, a product's price history — instead of once
+/// per shop or per instant, which is where most of those requests' round trips
+/// used to go.
+pub struct PriceBookCommon {
+    campaigns: Vec<Campaign>,
+    tax_rules: Vec<pricing_engine::TaxRule>,
+}
+
+pub async fn load_price_book_common(
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<PriceBookCommon, AppError> {
+    // Campaigns, and only campaigns.
+    //
+    // This loader used to carry none, and the comment at its one caller still
+    // explains why: a stack is base prices and markdowns, a promotion is a
+    // statement about a basket, so reading the promotion tables here would be
+    // three queries per branch thrown away.
+    //
+    // That stopped being true the day a MARKDOWN could name a campaign. A
+    // campaign is now a switch over prices, not only over offers — and with
+    // none loaded, the engine reads every clearance as belonging to a campaign
+    // this reader does not hold, which it deliberately treats as "leave the
+    // cleared price standing". The console would then keep showing a paused
+    // flash sale's prices while every till in the fleet had already put them
+    // back up: the merchandiser's own price check disagreeing with the counter,
+    // which is the exact fault `resolve_offer` was rewritten to end.
+    //
+    // Rules and coupons stay out. Nothing here evaluates a rule, so their caps
+    // are not consulted either — which is why the usage counts are not read.
+    Ok(PriceBookCommon {
+        campaigns: load_campaigns(tx, &UsageCounts::new()).await?,
+        tax_rules: load_tax_rules(tx).await?,
+    })
+}
+
 pub async fn load_site_price_book(
     tx: &mut Transaction<'_, Postgres>,
     site_id: &str,
@@ -386,6 +424,21 @@ pub async fn load_site_price_book(
     at: DateTime<Utc>,
     only_skus: Option<&[String]>,
     scope: &PriceBookScope,
+) -> Result<SitePricing, AppError> {
+    let common = load_price_book_common(tx).await?;
+    load_site_price_book_with(tx, site_id, channel, at, only_skus, scope, &common).await
+}
+
+/// `load_site_price_book` with the shop- and instant-independent part already
+/// loaded.
+pub async fn load_site_price_book_with(
+    tx: &mut Transaction<'_, Postgres>,
+    site_id: &str,
+    channel: &str,
+    at: DateTime<Utc>,
+    only_skus: Option<&[String]>,
+    scope: &PriceBookScope,
+    common: &PriceBookCommon,
 ) -> Result<SitePricing, AppError> {
     // Narrowing the CANDIDATES, never the ranking. Which of the surviving
     // entries wins is still `pricing_engine`'s `better()` — newest publication,
@@ -547,26 +600,6 @@ pub async fn load_site_price_book(
     })
     .collect();
 
-    // Campaigns, and only campaigns.
-    //
-    // This loader used to carry none, and the comment at its one caller still
-    // explains why: a stack is base prices and markdowns, a promotion is a
-    // statement about a basket, so reading the promotion tables here would be
-    // three queries per branch thrown away.
-    //
-    // That stopped being true the day a MARKDOWN could name a campaign. A
-    // campaign is now a switch over prices, not only over offers — and with
-    // none loaded, the engine reads every clearance as belonging to a campaign
-    // this reader does not hold, which it deliberately treats as "leave the
-    // cleared price standing". The console would then keep showing a paused
-    // flash sale's prices while every till in the fleet had already put them
-    // back up: the merchandiser's own price check disagreeing with the counter,
-    // which is the exact fault `resolve_offer` was rewritten to end.
-    //
-    // Rules and coupons stay out. Nothing here evaluates a rule, so their caps
-    // are not consulted either — which is why the usage counts are not read.
-    let campaigns = load_campaigns(tx, &UsageCounts::new()).await?;
-
     Ok(SitePricing {
         snapshot: PricingSnapshot {
             publication_version,
@@ -574,8 +607,8 @@ pub async fn load_site_price_book(
             markdowns,
             rules: Vec::new(),
             coupons: Vec::new(),
-            campaigns,
-            tax_rules: load_tax_rules(tx).await?,
+            campaigns: common.campaigns.clone(),
+            tax_rules: common.tax_rules.clone(),
         },
         sku_code_by_id,
         sku_id_by_code,

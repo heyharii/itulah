@@ -97,6 +97,21 @@ export interface DataTableProps<TRow> {
   ///
   /// The cell it lands in is the one whose column declares `meta.swap`.
   readonly rowAction?: (row: TRow) => React.ReactNode
+  /// Whether the phone's cards carry their own sort line. A screen that puts
+  /// sort in its options sheet (`ListOptionsSheet`) turns this off — two
+  /// sort controls on one small screen read as two different orders.
+  readonly cardSort?: boolean
+  /// Called when the last rows scroll into view — infinite scroll. The list
+  /// fetches its next page here; the table only says when it is due. Watched
+  /// with an IntersectionObserver on a marker after the last row, against the
+  /// table's own scroll box on a desk and against the page on a phone, where
+  /// the cards scroll with the page.
+  readonly onEndReached?: () => void
+  /// A summary row pinned under the rows — a count, a sum — keyed by column
+  /// id. It floats at the foot of the table's own scroll box, so the totals
+  /// stay in view however far down the list somebody has scrolled. Columns
+  /// with no entry are left blank.
+  readonly summary?: Readonly<Record<string, React.ReactNode>>
   readonly className?: string
 }
 
@@ -115,10 +130,14 @@ export function DataTable<TRow>({
   virtualizeAbove = 150,
   empty,
   rowAction,
+  cardSort = true,
+  onEndReached,
+  summary,
   className,
 }: DataTableProps<TRow>) {
   const rows = (table as AnyTable).getRowModel().rows
   const scrollRef = useRef<HTMLDivElement>(null)
+  const endRef = useRef<HTMLDivElement>(null)
   const layout = useLayout()
   const coarse = useCoarsePointer()
   const tap = touch ?? coarse
@@ -238,6 +257,27 @@ export function DataTable<TRow>({
     if (differs) instance.setColumnVisibility(budget)
   }, [cards, dropped, droppable, table])
 
+  /// The next page, asked for a few rows before the reader gets there.
+  ///
+  /// Held in a ref so a new callback each render does not tear the observer
+  /// down and set it up again; re-armed when the row count changes, so a page
+  /// that arrived and still did not fill the box asks for the one after it.
+  const reachEnd = useRef(onEndReached)
+  reachEnd.current = onEndReached
+  const wantsEnd = onEndReached !== undefined
+  useEffect(() => {
+    const marker = endRef.current
+    if (!wantsEnd || marker === null) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) reachEnd.current?.()
+      },
+      { root: cards ? null : scrollRef.current, rootMargin: "0px 0px 240px 0px" }
+    )
+    observer.observe(marker)
+    return () => observer.disconnect()
+  }, [wantsEnd, cards, rows.length])
+
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -261,7 +301,7 @@ export function DataTable<TRow>({
       // driven by the page's own scroll, which is a real piece of work and not
       // one to fake with a `slice()`.
       <div className={cn("min-h-0", className, "max-h-none overflow-visible")}>
-        <CardSort table={table} />
+        {cardSort && <CardSort table={table} />}
         {rows.length === 0 ? (
           <div className="px-3.5 py-10 text-center text-meta text-body">
             {empty ?? "Nothing to show."}
@@ -278,6 +318,7 @@ export function DataTable<TRow>({
             ))}
           </ul>
         )}
+        {wantsEnd && <div ref={endRef} aria-hidden className="h-px" />}
       </div>
     )
   }
@@ -417,7 +458,38 @@ export function DataTable<TRow>({
           ))}
         </thead>
         {body}
+        {summary !== undefined && rows.length > 0 && (
+          <tfoot className={cn("sticky bottom-0 z-10", virtualise && "block")}>
+            <tr
+              className={cn(
+                "border-t border-hairline-2 bg-soft",
+                virtualise && "flex w-full"
+              )}
+            >
+              {(table as AnyTable).getVisibleLeafColumns().map((column) => {
+                const align = column.columnDef.meta?.align
+                return (
+                  <td
+                    key={column.id}
+                    style={
+                      virtualise
+                        ? { flex: `0 0 ${column.getSize()}px` }
+                        : undefined
+                    }
+                    className={cn(
+                      "h-11 px-3.5 text-[0.875rem] font-medium whitespace-nowrap text-ink tabular-nums",
+                      align === "right" ? "text-right" : "text-left"
+                    )}
+                  >
+                    {summary[column.id] ?? null}
+                  </td>
+                )
+              })}
+            </tr>
+          </tfoot>
+        )}
       </table>
+      {wantsEnd && <div ref={endRef} aria-hidden className="h-px" />}
     </div>
   )
 }
@@ -625,7 +697,11 @@ function RowCard<TRow>({
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   row.getVisibleCells().forEach((cell: any, index: number) => {
-    parts[roleOf(cell.column, index)].push(cell)
+    const role = roleOf(cell.column, index)
+    // A line of meta that says "—" is a line that says nothing: on a desk the
+    // dash holds a column's place, on a card it only adds a row to scroll.
+    if (role === "meta" && blank(cell.getValue())) return
+    parts[role].push(cell)
   })
 
   return (
@@ -667,7 +743,10 @@ function RowCard<TRow>({
       {parts.meta.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-1.5 text-meta text-body">
           {parts.meta.map((cell, index) => (
-            <span key={cell.id} className="flex items-center gap-x-1.5">
+            <span
+              key={cell.id}
+              className="flex max-w-full min-w-0 items-center gap-x-1.5 [&>*]:min-w-0"
+            >
               {index > 0 && <span className="text-faint">·</span>}
               {render(cell)}
             </span>
@@ -676,16 +755,18 @@ function RowCard<TRow>({
       )}
 
       {parts.metric.length > 0 && (
-        <dl className="mt-0.5 flex flex-wrap gap-x-5 gap-y-1.5">
+        // Two columns of label-over-value, so the figures line up down the
+        // card and from one card to the next — they were a wrapping row of
+        // shouting micro-caps, and a card with four metrics broke onto three
+        // ragged lines. Sentence case, one grey lighter than the value: the
+        // label names the number, it does not compete with it.
+        <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2.5">
           {parts.metric.map((cell) => (
-            <div key={cell.id}>
-              {/* Inter micro-caps, the same grammar as the table header this
-                  is standing in for — not the mono ones, which DESIGN.md
-                  reserves for an in-card mini-table. */}
-              <dt className="text-eyebrow font-semibold text-mute uppercase">
+            <div key={cell.id} className="min-w-0">
+              <dt className="text-[0.875rem] leading-4 text-mute">
                 {headerText(cell.column)}
               </dt>
-              <dd className="text-cell text-text tabular-nums">
+              <dd className="mt-0.5 min-w-0 text-cell text-ink tabular-nums [&>*]:max-w-full [&>*]:items-start [&>*]:justify-start [&>*]:text-left">
                 {render(cell)}
               </dd>
             </div>
@@ -733,6 +814,14 @@ function headerText(
 ): string {
   const header = column.columnDef.header
   return typeof header === "string" ? header : column.id
+}
+
+function blank(value: unknown): boolean {
+  return (
+    value === null ||
+    value === undefined ||
+    (typeof value === "string" && (value.trim() === "" || value === "—"))
+  )
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

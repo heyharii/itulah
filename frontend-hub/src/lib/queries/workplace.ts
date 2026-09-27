@@ -5,6 +5,9 @@ import type {
   CollaborationEvent,
   DiscussionPost,
   DiscussionThread,
+  Document,
+  DocumentLink,
+  DocumentUpload,
   FileInContext,
   OpenThreadRequest,
   SendMessageRequest,
@@ -363,54 +366,33 @@ export function fileUrl(row: FileInContext): string {
 
 // ─── Documents ───────────────────────────────────────────────────────────────
 
-/// The document drawer's types are hand-written, and that is a real difference
-/// from everything above.
+/// The document drawer, which no longer transcribes anything.
 ///
-/// `Document`, `DocumentUpload` and `DocumentLink` are all declared with
-/// `ts(export)` in `cloud/postgres/documents.rs`, but no `.ts` for them exists
-/// under `frontend-contract/src/contract/` — the drawer landed after the last
-/// `make contract`. So these are transcribed from the Rust structs and are not
-/// checked against the server at build time. If a document field reads
-/// `undefined`, this block is the first place to look, and the fix is to
-/// regenerate rather than to edit the shape here.
+/// `Document`, `DocumentUpload`, `DocumentUploadRequest`, `DocumentLink` and
+/// `FileDocumentRequest` are declared with `ts(export)` in
+/// `cloud/postgres/documents.rs` and are now named in `contract_types.rs`, so
+/// these four lines are the whole of the mirror that used to live here. It
+/// mattered: 0358 gave a document a type, a number, an issuer and an expiry,
+/// and the transcription would have gone on saying a STNK has no `expires_on`
+/// while the server sent one — which is the failure the old comment predicted
+/// and could not prevent.
+///
+/// `FileDocumentRequest` is the one that stays here, and for a reason rather
+/// than by omission: three of its fields are `Vec` with `serde(default)`, so
+/// the wire accepts their absence while the generated type demands them, and
+/// `ts(optional)` cannot be said of a `Vec`. Until that is settled on the
+/// server, the request keeps this spelling — with the expiry fields added, so
+/// the drawer can file a paper that has one.
 
-/// What a document is about. One row per link, so a delivery note may name
-/// both the order it fulfils and the receipt that accepted it.
-export interface DocumentLink {
-  readonly subject_kind: string
-  readonly subject_id: string
-}
+/// The drawer's record, under the name this module has always called it.
+///
+/// Generated, where it used to be transcribed: 0358 gave a document a type, a
+/// number, an issuer and an expiry, and a hand-written mirror would have gone
+/// on saying a STNK has no expiry while the server sent one. The local name
+/// stays because two hundred lines below this read it as the drawer's own
+/// record, and `Document` is a word the contract uses for several things.
+export type WorkplaceDocument = Document
 
-export interface WorkplaceDocument {
-  readonly document_id: string
-  readonly file_id: string
-  readonly name: string
-  readonly title: string | null
-  /// The folder, as segments. An array rather than a string so a prefix can be
-  /// matched without parsing separators, and "SS26/27" is not two folders.
-  readonly path_tokens: readonly string[]
-  readonly summary: string | null
-  readonly language: string
-  readonly processing_status: string
-  readonly doc_date: string | null
-  readonly byte_size: number
-  readonly content_type: string
-  /// Carried from `stored_file`, so the drawer can say "filed, but the object
-  /// is gone" rather than hand out a link that fails.
-  readonly available: boolean
-  readonly tags: readonly string[]
-  readonly links: readonly DocumentLink[]
-  readonly uploaded_by: string
-  readonly created_at: string
-}
-
-/// Somewhere to put the bytes. No row is written by this call: a reservation
-/// that never finished uploading should leave nothing behind.
-export interface DocumentUpload {
-  readonly upload_id: string
-  readonly upload_url: string
-  readonly expires_in_seconds: number
-}
 
 export interface DocumentFilter {
   readonly q?: string
@@ -501,6 +483,13 @@ export interface FileDocumentRequest {
   readonly doc_date?: string
   readonly tags?: readonly string[]
   readonly links?: readonly DocumentLink[]
+  /// Kertas apa ini: "STNK", "BPKB", "Sertifikat laik operasi", "Garansi".
+  readonly doc_type?: string
+  readonly doc_number?: string
+  readonly issuer?: string
+  readonly issued_on?: string
+  /// Masa berlakunya. Absen berarti kertasnya memang tidak punya.
+  readonly expires_on?: string
 }
 
 export function fileDocument(request: FileDocumentRequest) {

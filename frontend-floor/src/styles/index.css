@@ -189,14 +189,23 @@
      This app's own press curve is NOT one of these — see `.pressable` below,
      which keeps the iOS spring a thumb expects. What it takes from here is
      the duration. */
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Emil Kowalski's three, exactly, and the same three the hub uses: a UI
+     ease-out for anything entering or leaving, an ease-in-out for movement
+     on screen, and the iOS sheet curve for panels that travel the glass. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --t-press: 120ms;
   --t-hover: 120ms;
   --t-pop: 160ms;
   --t-panel: 200ms;
   --t-page: 180ms;
   --t-sheet: 280ms;
+  /* A sheet that travels the full height or width of a phone arrives at the
+     iOS presentation's pace, and every panel leaves faster than it came:
+     the person has already decided. */
+  --t-drawer: 450ms;
+  --t-exit: 200ms;
 
   /* Shadows are cast in the ink's own hue, not in neutral grey. A grey drop
      under a blue-grey card is the one place the eye reliably notices that two
@@ -338,6 +347,9 @@
     /* The page itself never scrolls; the screen inside it does. Rubber-banding
        the whole document on a handheld drags the fixed tab bar with it. */
     overscroll-behavior: none;
+    /* No double-tap zoom anywhere on the document — see index.html for why
+       this rather than `user-scalable=no`. Pinch-zoom is left alone. */
+    touch-action: manipulation;
   }
 
   /* Two browser reflexes that are wrong on a warehouse floor.
@@ -441,5 +453,18 @@
   }
   .pt-safe {
     padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+/* Reduced motion is a designed state, not an off switch: opacity and colour
+   still say the interface heard you, travel and growth go. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: var(--t-press) !important;
+    scroll-behavior: auto !important;
   }
 }

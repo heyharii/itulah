@@ -13,8 +13,8 @@
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use inventory_backend::cloud::domain::CommercialChannel;
 use inventory_backend::cloud::postgres::{
-    article_prices, campaign_performance, pricelist_performance, rule_performance,
-    ArticlePriceScope, PerformanceWindow,
+    article_prices, campaign_performance, campaign_performance_of, pricelist_performance,
+    rule_performance, ArticlePriceScope, PerformanceWindow,
 };
 use serde_json::Value;
 use sqlx::{PgPool, Row};
@@ -789,6 +789,40 @@ async fn a_campaign_run_both_ways_counts_each_basket_once(pool: PgPool) {
         .map(|day| day["clearance_minor"].as_i64().unwrap_or(0))
         .sum();
     assert_eq!(cleared, 160_000);
+}
+
+/// One campaign read alone is the row it has in the whole table.
+///
+/// The outcome screen asks for one campaign, and is answered by a narrower
+/// query than the dashboard's — it probes one campaign's baskets by index
+/// rather than reading the window. The two shapes must never disagree about
+/// a number, so every campaign here is read both ways and compared whole,
+/// on data that discounts and clears at once.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn one_campaign_reads_as_it_does_in_the_table(pool: PgPool) {
+    publish_book(&pool).await;
+    catalogue(&pool).await;
+    sales(&pool).await;
+    cleared_under_campaign(&pool).await;
+
+    let table = campaign_performance(&pool, &window())
+        .await
+        .unwrap_or_else(|e| panic!("campaigns: {e}"));
+    let rows = table["campaigns"]
+        .as_array()
+        .unwrap_or_else(|| panic!("campaigns array"));
+    assert!(!rows.is_empty(), "the fixture sells under campaigns");
+    for row in rows {
+        let id = row["key"].as_str().unwrap_or_else(|| panic!("key"));
+        let alone = campaign_performance_of(&pool, &window(), id)
+            .await
+            .unwrap_or_else(|e| panic!("campaign {id}: {e}"));
+        assert_eq!(
+            find(&alone["campaigns"], id),
+            row,
+            "{id} read alone differs from its row in the table"
+        );
+    }
 }
 
 /// A line the shop could not measure is left out, never counted as free.

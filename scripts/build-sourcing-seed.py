@@ -41,27 +41,28 @@ MANIFEST = ROOT / "data" / "supplier-images-hm.json"
 OUT = ROOT / "data" / "sourcing-seed.json"
 ITEMS_PER_SUPPLIER = 100
 
-# H&M's index group is about who a garment is for; our divisions are the same
-# question in our own words.
+# H&M's index group is about who a garment is for; the client's divisions
+# (0382, KODE DIVISI 1-9) mostly ask the same question in their own words.
 #
 # `Divided` is the young-fashion range and is sold to everyone, so it is not
-# Menswear or Womenswear. It gets its own division (0043) rather than being
-# forced into one of those: 484 items pushed under a division nobody chose is
-# a worse lie than a division nobody had.
+# Pria or Wanita; it goes to Non Divisi rather than being forced into one of
+# those. `Baby/Children` does not say boy, girl or baby at this level, so it
+# lands in Anak Laki-laki as a placeholder: the export's section name would
+# split it properly, and should before this feeds anything real.
 INDEX_GROUP_TO_DIVISION = {
-    "Ladieswear": "WOMENSWEAR",
-    "Menswear": "MENSWEAR",
-    "Baby/Children": "KIDS",
+    "Ladieswear": "WANITA",
+    "Menswear": "PRIA",
+    "Baby/Children": "ANAK_LAKI",
     # Every Sport row in this set is sectioned "Men H&M Sport".
-    "Sport": "MENSWEAR",
-    "Divided": "DIVIDED",
+    "Sport": "PRIA",
+    "Divided": "NON_DIVISI",
 }
 
-# What a thing IS beats who it is for: a shoe is FOOTWEAR whether it is a
-# woman's or a child's, so these win over the index group above.
+# What a thing IS beats who it is for: a shoe is Sandal dan Sepatu whether it
+# is a woman's or a child's, so these win over the index group above.
 PRODUCT_GROUP_TO_DIVISION = {
-    "Shoes": "FOOTWEAR",
-    "Accessories": "ACCESSORY",
+    "Shoes": "SANDAL_SEPATU",
+    "Accessories": "AKSESORIS",
 }
 
 # Garment group is the closest thing in the export to "what kind of garment",

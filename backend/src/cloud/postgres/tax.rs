@@ -561,7 +561,7 @@ pub async fn tax_reconciliation(
         "WITH account AS (
              SELECT t.code, MIN(m.account_code) AS account_code
                FROM tax_type t
-               LEFT JOIN account_map m ON m.semantic_key = t.semantic_key
+               LEFT JOIN account_resolution m ON m.role = t.semantic_key
               GROUP BY t.code
          ), gl AS (
              SELECT a.code, SUM(l.debit_minor - l.credit_minor)::bigint AS gl_minor

@@ -21,6 +21,10 @@ import id.itulah.pindai.data.CatalogMeta
 import id.itulah.pindai.data.CatalogStore
 import id.itulah.pindai.data.CatalogSync
 import id.itulah.pindai.data.ConfigStore
+import id.itulah.pindai.data.Inbound
+import id.itulah.pindai.data.InboundDelivery
+import id.itulah.pindai.data.InboundReceipt
+import id.itulah.pindai.data.NodeRole
 import id.itulah.pindai.data.ScanIdentity
 import id.itulah.pindai.data.SweepRecord
 import id.itulah.pindai.data.RadioProfile
@@ -29,6 +33,8 @@ import id.itulah.pindai.data.SyncOutcome
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -91,6 +97,35 @@ data class SharedSession(
 
 /** Four things out of one database trip. */
 private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
+/**
+ * A shop receiving against the deliveries the centre announced to it.
+ *
+ * Four screens in one piece of state, in the order an operator meets them: the
+ * list of deliveries on their way ([chosen] and [unannounced] both empty), the
+ * sweep for one of them, the submit, and the [receipt]. Nothing here ever holds
+ * an expected quantity before [receipt] exists — see [Inbound].
+ */
+data class InboundState(
+    val deliveries: List<InboundDelivery> = emptyList(),
+    val loaded: Boolean = false,
+    val loading: Boolean = false,
+    /**
+     * Bumped every time a refresh ends, however it ends.
+     *
+     * The pull-to-refresh spinner stops on this rather than on [loading],
+     * because a refresh that is refused before it starts — settings
+     * incomplete — never sets [loading] at all, and a spinner waiting for a
+     * change that is never coming spins until somebody gives up on the app.
+     */
+    val refreshes: Int = 0,
+    /** Why the list could not be read, in a sentence. */
+    val note: String? = null,
+    val chosen: InboundDelivery? = null,
+    /** The lorry arrived before its announcement; received the old way. */
+    val unannounced: Boolean = false,
+    val receipt: InboundReceipt? = null,
+)
 
 data class SweepState(
     val mode: Mode = Mode.SCAN,
@@ -202,7 +237,25 @@ data class SweepState(
      * proved cannot answer the question.
      */
     val gaps: id.itulah.pindai.core.ReadGaps = id.itulah.pindai.core.ReadGaps(),
-)
+    /** DC or shop. Decides what Receive means; see [isStoreReceiving]. */
+    val nodeRole: NodeRole = NodeRole.UNKNOWN,
+    val inbound: InboundState = InboundState(),
+) {
+    /**
+     * Receive, on a shop: against an announced delivery, blind.
+     *
+     * Only on a node that is a STORE. A DC receiving, or a handheld whose node
+     * has not said what it is, keeps the Receive tab exactly as it was — the
+     * delivery list is a shop's question, and asking a DC for it earns a 404
+     * dressed up as an empty list.
+     */
+    val isStoreReceiving: Boolean
+        get() = mode == Mode.RECEIVING && nodeRole == NodeRole.STORE
+
+    /** A delivery has been picked (or declared unannounced) and is being swept. */
+    val isReceivingDelivery: Boolean
+        get() = isStoreReceiving && (inbound.chosen != null || inbound.unannounced)
+}
 
 /**
  * One sweep, four uses.
@@ -252,7 +305,14 @@ class SweepViewModel(
     private val sync = CatalogSync(catalog)
 
     val state = MutableStateFlow(
-        config.load().let { SweepState(sessionCode = it.sessionCode, readerPower = it.readerPower) },
+        config.load().let {
+            SweepState(
+                sessionCode = it.sessionCode, readerPower = it.readerPower,
+                // The site's name is enough to draw the right Receive screen
+                // on the first frame; the node confirms it in [resolveNodeRole].
+                nodeRole = NodeRole.fromSiteId(it.siteId),
+            )
+        },
     )
 
     private var tickJob: Job? = null
@@ -263,6 +323,13 @@ class SweepViewModel(
     private var sharedJob: Job? = null
     private var sharedGeneration = 0L
     private var syncJob: Job? = null
+    private var catalogPoll: Job? = null
+    private var inboundJob: Job? = null
+    private var roleJob: Job? = null
+    /** Which node the role in state was asked of. A different node is a new question. */
+    private var roleAskedOf: String? = null
+    /** The node that has itself confirmed the role, as opposed to its Site ID suggesting it. */
+    private var roleConfirmedBy: String? = null
     private var sweepOpen = false
     private var pendingCatalogue: Set<String>? = null
     private val operationMutex = Mutex()
@@ -319,6 +386,27 @@ class SweepViewModel(
             loadHistory()
             refreshCatalogue()
             drainOutbox()
+            pollCatalogue()
+        }
+    }
+
+    /**
+     * Ask again every five seconds, for as long as the app is open.
+     *
+     * The centre publishes a new generation within a minute of head office
+     * issuing a setup, and a handheld that only asked at start-up kept the list
+     * from before until somebody restarted it — which is exactly what an operator
+     * holding a tag the device calls UNKNOWN does not think to do. The ask is one
+     * small GET that pulls nothing when the generation has not moved, and
+     * [refreshCatalogue] already holds a new list until a sweep ends.
+     */
+    private fun pollCatalogue() {
+        if (catalogPoll?.isActive == true) return
+        catalogPoll = viewModelScope.launch {
+            while (isActive) {
+                delay(CATALOG_POLL_MILLIS)
+                refreshCatalogue()
+            }
         }
     }
 
@@ -449,13 +537,379 @@ class SweepViewModel(
 
     // ------------------------------------------------------------------ modes
 
-    fun setMode(mode: Mode) {
-        if (state.value.busy || (sweepOpen && state.value.counts.units > 0)) {
-            update { it.copy(message = "finish the current sweep before changing jobs") }
+    /**
+     * Change jobs, or say why not. Returns whether the job actually changed, so
+     * the tab bar can go back to the job that is still open instead of lighting
+     * one the screen is not showing.
+     */
+    fun setMode(mode: Mode): Boolean {
+        // The same job is not a change. Coming back from Setelan to a delivery
+        // half swept used to be refused here as "changing jobs" — harmless while
+        // every sweep closed itself on release, wrong now that a delivery's
+        // sweep stays open across pulls until it is received.
+        if (mode == state.value.mode) {
+            if (mode == Mode.RECEIVING) enterReceiving()
+            return true
+        }
+        val c = state.value.counts
+        if (state.value.busy || (sweepOpen && (c.units > 0 || c.unknownUnits > 0))) {
+            update {
+                it.copy(
+                    message = if (it.isReceivingDelivery)
+                        "Receive this delivery or discard the sweep before changing jobs"
+                    else "finish the current sweep before changing jobs",
+                )
+            }
+            return false
+        }
+        // An open sweep with nothing in it belongs to nobody; do not carry it —
+        // or its session id — into the next job.
+        if (!state.value.sweeping) sweepOpen = false
+        update { it.copy(mode = mode, message = null, failed = false) }
+        if (mode == Mode.RECEIVING) enterReceiving()
+        return true
+    }
+
+    // ------------------------------------------------------ store receiving
+
+    /**
+     * The Receive tab opened. On a shop that means: which lorries are coming.
+     *
+     * The node's role is asked every time the tab opens rather than once at
+     * launch, because Setelan can repoint the handheld between those two
+     * moments — and the answer is cached per node, so asking again costs
+     * nothing when nothing moved.
+     */
+    private fun enterReceiving() {
+        resolveNodeRole()
+        if (state.value.nodeRole == NodeRole.STORE &&
+            state.value.inbound.chosen == null && state.value.inbound.receipt == null
+        ) loadInbound()
+    }
+
+    /**
+     * Ask the node whether it is a DC or a shop.
+     *
+     * `/api/v1/health` answers without a login and carries `node_role`. The
+     * Site ID guess stands until it answers, and stands for good if it never
+     * does — an offline shop whose site is called `store-07` is still a shop.
+     */
+    fun resolveNodeRole() {
+        val settings = settings()
+        val node = settings.baseUrl + "|" + settings.siteId
+        if (node != roleAskedOf) {
+            roleAskedOf = node
+            roleConfirmedBy = null
+            update { it.copy(nodeRole = NodeRole.fromSiteId(settings.siteId)) }
+        }
+        if (roleConfirmedBy == node || settings.baseUrl.isBlank() || roleJob?.isActive == true) return
+        roleJob = viewModelScope.launch {
+            val said = withContext(Dispatchers.IO) {
+                runCatching {
+                    NodeRole.fromHealth(
+                        Api(settings, connectTimeoutMs = COMMIT_CONNECT_MS).health()
+                            .optString("node_role"),
+                    )
+                }.getOrNull()
+            }
+            if (said == null || said == NodeRole.UNKNOWN || roleAskedOf != node) return@launch
+            roleConfirmedBy = node
+            val was = state.value.nodeRole
+            update { it.copy(nodeRole = said) }
+            if (said == NodeRole.STORE && was != NodeRole.STORE &&
+                state.value.mode == Mode.RECEIVING && !state.value.inbound.loaded
+            ) loadInbound()
+        }
+    }
+
+    /** The deliveries on their way to this shop, read fresh. */
+    fun loadInbound() {
+        val settings = settings()
+        if (!settings.isConfigured) {
+            update {
+                it.copy(inbound = it.inbound.copy(
+                    loaded = true, loading = false, refreshes = it.inbound.refreshes + 1,
+                    note = "Settings are incomplete — this handheld does not know which shop it is in.",
+                ))
+            }
             return
         }
-        update { it.copy(mode = mode, message = null, failed = false) }
+        if (inboundJob?.isActive == true) return
+        update { it.copy(inbound = it.inbound.copy(loading = true)) }
+        inboundJob = viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    Inbound.parseDeliveries(
+                        Api(settings, connectTimeoutMs = COMMIT_CONNECT_MS).inboundDeliveries(),
+                    )
+                }
+            }
+            update {
+                val inbound = it.inbound.copy(
+                    loaded = true, loading = false, refreshes = it.inbound.refreshes + 1,
+                )
+                it.copy(
+                    inbound = result.fold(
+                        // Only what is actually on its way. The node is asked
+                        // for IN_TRANSIT already; this is the belt to that
+                        // brace, because a RECEIVED row here would carry its
+                        // result — expected numbers — onto a blind screen.
+                        onSuccess = { list ->
+                            inbound.copy(deliveries = list.filter { d -> !d.isReceived }, note = null)
+                        },
+                        // Keep what was on screen. A list that empties itself
+                        // because the wifi blinked reads as "nothing is coming".
+                        onFailure = { e -> inbound.copy(note = plainReason(e, listing = true)) },
+                    ),
+                )
+            }
+        }
     }
+
+    fun chooseDelivery(delivery: InboundDelivery) = update {
+        it.copy(
+            inbound = it.inbound.copy(chosen = delivery, unannounced = false, receipt = null),
+            message = null, failed = false,
+        )
+    }
+
+    /** A lorry the centre has not announced yet. Received the old way, unlinked. */
+    fun receiveUnannounced() = update {
+        it.copy(
+            inbound = it.inbound.copy(chosen = null, unannounced = true, receipt = null),
+            message = null, failed = false,
+        )
+    }
+
+    /**
+     * Back to the list, KEEPING whatever has been swept.
+     *
+     * The usual reason to come back is that the wrong surat jalan was picked,
+     * and the tags in the engine are still exactly the tags on the floor.
+     * Throwing them away would send somebody round the koli again for nothing;
+     * [discardSweep] is the deliberate way to lose them.
+     */
+    fun backToDeliveries() {
+        if (state.value.sweeping || state.value.busy) return
+        update {
+            it.copy(
+                inbound = it.inbound.copy(chosen = null, unannounced = false),
+                message = null, failed = false,
+            )
+        }
+        loadInbound()
+    }
+
+    /**
+     * Throw away the sweep being held for a delivery.
+     *
+     * The evidence is spooled FIRST. What the radio saw it saw, and the
+     * observation batch stands whether or not a receipt ever follows — that is
+     * the premise this app files on. Only the intent to receive is discarded.
+     */
+    fun discardSweep() {
+        viewModelScope.launch {
+            operationMutex.withLock {
+                if (state.value.sweeping || state.value.busy) return@withLock
+                spoolEvidence()
+                drainOutbox()
+                engine.reset()
+                sweepOpen = false
+                update {
+                    it.copy(
+                        counts = ScanCounts(), lines = emptyList(), resultReady = false,
+                        failed = false, message = "Sweep discarded · its evidence stays filed",
+                    )
+                }
+            }
+        }
+    }
+
+    /** Leave the result and go back to the deliveries still on their way. */
+    fun closeReceipt() {
+        update {
+            it.copy(
+                inbound = it.inbound.copy(receipt = null, chosen = null, unannounced = false),
+                message = null, failed = false,
+            )
+        }
+        loadInbound()
+    }
+
+    /**
+     * Finish · receive, for an announced delivery.
+     *
+     * # Evidence first, then the receipt
+     *
+     * The observation batch is spooled before the receive is attempted, as in
+     * every other mode: the tags were in this shop whether or not the node
+     * accepts the receipt, and a refused receipt must never make the sweep look
+     * unfiled.
+     *
+     * # One request, and it is safe to repeat
+     *
+     * Every tag of ours goes in one body, keyed by [Inbound.receiveKey] — the
+     * delivery plus the sorted EPCs. If the response is lost, pressing Finish
+     * again sends the same key over the same body and the node hands back the
+     * answer it already gave. That is why the sweep is kept on every failure:
+     * the retry is the same request only if it carries the same tags.
+     *
+     * # "Ours" is wider than the tally
+     *
+     * The tally on screen counts products this handheld can NAME. What is sent
+     * is every tag whose EPC is ours, named or not: the node knows what it
+     * shipped, and a tag left out because this handheld's catalogue is a
+     * generation behind would be reported missing — permanently, because a
+     * delivery is received once. Foreign tags (somebody else's EPC, a pallet
+     * label) are left out, exactly as every other mode leaves them out.
+     */
+    fun receiveDelivery() {
+        viewModelScope.launch {
+            operationMutex.withLock {
+                val delivery = state.value.inbound.chosen ?: return@withLock
+                val settings = settings()
+                if (!settings.isConfigured) {
+                    update { it.copy(failed = true, message = "Settings are incomplete") }
+                    return@withLock
+                }
+                if (state.value.sweeping) {
+                    // A read can arrive between the last tick and this tap.
+                    stopTicker()
+                    withContext(Dispatchers.IO) { reader.stop() }
+                    withContext(Dispatchers.Default) { engine.stop() }
+                    update { it.copy(sweeping = false, counts = engine.snapshot()) }
+                    buildResult()
+                }
+                val epcs = engine.allEpcs().filter { Epc.isOurs(it) }.sorted()
+                if (epcs.isEmpty()) {
+                    update { it.copy(failed = true, message = "Nothing of ours swept yet") }
+                    return@withLock
+                }
+                if (epcs.size > Inbound.MAX_EPCS) {
+                    update {
+                        it.copy(failed = true,
+                            message = "${epcs.size} tags is more than one delivery can take " +
+                                "(${Inbound.MAX_EPCS}). Nothing was received.")
+                    }
+                    return@withLock
+                }
+
+                update { it.copy(busy = true, failed = false, message = "Receiving…") }
+                spoolEvidence()
+                drainOutbox()
+
+                val key = Inbound.receiveKey(delivery.deliveryId, epcs)
+                val outcome = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val api = Api(settings, connectTimeoutMs = COMMIT_CONNECT_MS)
+                        // `actor_id` is "handheld", as everywhere else in this
+                        // app: the handheld holds a bearer token, not a name,
+                        // and the node takes the operator from that token. It
+                        // must not vary between attempts either — it is part of
+                        // the body the idempotency key vouches for.
+                        val answer = api.receiveInbound(delivery.deliveryId, epcs, ACTOR_ID, key)
+                        named(Inbound.parseReceipt(answer))
+                    }
+                }
+
+                outcome.onSuccess { receipt ->
+                    val counts = state.value.counts
+                    val history = withContext(Dispatchers.IO) {
+                        runCatching {
+                            catalog.recordSweep(
+                                endedAt = Api.iso8601(),
+                                mode = Mode.RECEIVING.name,
+                                units = counts.units, skus = counts.skus,
+                                articles = counts.articles, unknown = counts.unknown,
+                                foreign = counts.foreign,
+                                lines = state.value.lines.map { it.skuCode to it.qty },
+                            )
+                            catalog.sweeps()
+                        }.getOrNull()
+                    }
+                    engine.reset()
+                    sweepOpen = false
+                    val text = "${receipt.delivery.title} received · ${epcs.size} tags"
+                    update {
+                        it.copy(
+                            busy = false, failed = false, message = null,
+                            counts = ScanCounts(), lines = emptyList(), resultReady = false,
+                            lastReceipt = text, history = history ?: it.history,
+                            inbound = it.inbound.copy(
+                                receipt = receipt,
+                                deliveries = it.inbound.deliveries
+                                    .filter { d -> d.deliveryId != delivery.deliveryId },
+                            ),
+                        )
+                    }
+                }.onFailure { e ->
+                    val conflict = (e as? ApiError)?.isConflict == true
+                    // Already received from a different sweep. Show what was
+                    // recorded then, marked as such, rather than a bare refusal
+                    // — "somebody already did this" is only useful with WHAT
+                    // they did.
+                    val recorded = if (!conflict) null else withContext(Dispatchers.IO) {
+                        runCatching {
+                            named(Inbound.parseReceipt(
+                                Api(settings, connectTimeoutMs = COMMIT_CONNECT_MS)
+                                    .inboundDelivery(delivery.deliveryId),
+                                alreadyReceived = true,
+                            ))
+                        }.getOrNull()?.takeIf { it.delivery.isReceived }
+                    }
+                    update {
+                        it.copy(
+                            busy = false,
+                            failed = recorded == null,
+                            message = if (recorded != null) null else
+                                "${epcs.size} tags saved as evidence · " + receiveFailure(e),
+                            inbound = if (recorded != null) it.inbound.copy(receipt = recorded)
+                                else it.inbound,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /** Name the lines the node sent without a name, from the local catalogue. */
+    private fun named(receipt: InboundReceipt): InboundReceipt {
+        val nameless = receipt.lines.filter { it.name == null }.map { it.skuCode }
+        if (nameless.isEmpty()) return receipt
+        val identities = runCatching { catalog.lookup(nameless) }.getOrDefault(emptyMap())
+        return receipt.copy(
+            lines = Inbound.problemsFirst(
+                receipt.lines.map { line ->
+                    if (line.name != null) line
+                    else line.copy(name = identities[line.skuCode]?.name)
+                },
+            ),
+        )
+    }
+
+    /** Why a receive did not happen, in a sentence somebody at a shop door can act on. */
+    private fun receiveFailure(e: Throwable): String = when {
+        (e as? ApiError)?.isConflict == true ->
+            "this delivery was already received from a different sweep. " +
+                "Yours was not applied and is still held here."
+        e is ApiError && e.status == 404 ->
+            "the node no longer knows this delivery. Refresh the list and choose again."
+        e is ApiError -> plainReason(e, listing = false)
+        else -> "the node could not be reached, so nothing was received. " +
+            "Your sweep is kept — try again when the wifi is back."
+    }
+
+    /** A refusal or a dead socket, as a sentence rather than a stack trace. */
+    private fun plainReason(e: Throwable, listing: Boolean): String = when {
+        e is ApiError && e.status == 401 ->
+            "the node wants a signed-in operator. Add the bearer token in Settings."
+        e is ApiError && e.status == 403 ->
+            "this operator is not allowed to receive stock at this shop."
+        e is ApiError && e.status == 404 && listing ->
+            "this node does not list deliveries yet."
+        e is ApiError -> "the node refused: ${e.message}"
+        else -> "the node could not be reached. Check the wifi and try again."
+    }.replaceFirstChar { if (listing) it.uppercaseChar() else it }
 
     fun setDestination(v: String) = update { it.copy(destination = v.trim()) }
     fun setCountId(v: String) = update { it.copy(countId = v.trim()) }
@@ -490,6 +944,27 @@ class SweepViewModel(
 
     fun toggleSweep() {
         if (state.value.busy) return
+        val s = state.value
+        if (!s.sweeping && !s.starting && s.isStoreReceiving) {
+            // A shop's sweep belongs to a delivery, so it does not start
+            // without one. The alternative — sweep first, choose after — is a
+            // sweep that can be received against whatever happens to be at the
+            // top of the list, which is how a lorry gets booked in as another.
+            val refusal = when {
+                s.inbound.receipt != null -> "Tap Done to go back to the deliveries first"
+                !s.isReceivingDelivery ->
+                    "Choose a delivery first — or Unannounced delivery at the foot of the list"
+                // A label carries no EPC, so it cannot be compared against
+                // what the DC sent. It would add to the figure on screen and
+                // then silently not be part of the receipt.
+                s.labelMode -> "A delivery is received by its tags. Switch the trigger back to tags."
+                else -> null
+            }
+            if (refusal != null) {
+                update { it.copy(message = refusal, failed = true) }
+                return
+            }
+        }
         if (state.value.labelMode) { scanLabel(); return }
         if (state.value.sweeping) stopSweep() else startSweep()
     }
@@ -653,12 +1128,22 @@ class SweepViewModel(
                 // at best. They are one hop now, and the screen changes once:
                 // from the counting figure to the result.
                 val counts = engine.snapshot()
+                // A delivery is swept koli by koli, and every pull adds to it.
+                //
+                // Everywhere else a release ends the sweep (see below). Here it
+                // cannot: ten koli are ten pulls, and closing the sweep on each
+                // release would receive the last koli and report the other nine
+                // missing. The sweep stays open until Finish · receive or an
+                // explicit discard, and it is written to the history once, when
+                // it is received — not once per koli as a running total.
+                val holding = state.value.isReceivingDelivery
                 val finished = withContext(Dispatchers.IO) {
                     val lines = engine.lines()
                     val identities = catalog.lookup(lines.map { it.skuCode })
                     val rows = lines
                         .map { ResultLine(it.skuCode, it.qty, identities[it.skuCode], it.epcs) }
                         .sortedByDescending { it.qty }
+                    if (holding) return@withContext Triple(rows, null, state.value.history)
                     val id = runCatching {
                         catalog.recordSweep(
                             endedAt = Api.iso8601(),
@@ -684,8 +1169,9 @@ class SweepViewModel(
                 // ever grew, and four configurations measured in a row produced
                 // four readings of the same accumulating total. Every Gen2X
                 // comparison taken before this was invalid for that reason
-                // alone.
-                sweepOpen = false
+                // alone. (A delivery being received is the one deliberate
+                // exception — `holding`, above.)
+                sweepOpen = holding
 
                 update {
                     it.copy(
@@ -1616,11 +2102,19 @@ class SweepViewModel(
                             (if (queued > 0) " · $queued batches waiting for the node" else "")
                         engine.reset()
                         sweepOpen = false
+                        // An unannounced lorry on a shop is done once it is
+                        // received: back to the list, where the sentence above
+                        // is shown, rather than to an empty sweep for a delivery
+                        // that no longer needs one.
+                        val wasUnannounced = current.isStoreReceiving && current.inbound.unannounced
                         update {
                             it.copy(busy = false, failed = false, counts = ScanCounts(),
                                 lines = emptyList(), resultReady = false,
-                                message = text, lastReceipt = text)
+                                message = text, lastReceipt = text,
+                                inbound = if (wasUnannounced) it.inbound.copy(unannounced = false)
+                                    else it.inbound)
                         }
+                        if (wasUnannounced) loadInbound()
                         refreshShared()
                     }
                 }
@@ -1932,6 +2426,8 @@ class SweepViewModel(
         private const val PUBLISH_MS = 200L
         private const val EVIDENCE_EVERY = 10
         private const val OUTBOX_KEEP_DAYS = 7
+        /** Quick enough that a new SKU reaches the device within a publish cycle. */
+        private const val CATALOG_POLL_MILLIS = 5_000L
         /** A minute of ordinary clock drift is not a reset RTC. */
         private const val CLOCK_SLACK_SECONDS = 60L
 
@@ -1950,6 +2446,15 @@ class SweepViewModel(
 
         /** What `/store/receive-batch` accepts in one body. */
         private const val RECEIVE_CHUNK = 1_000
+
+        /**
+         * Who this app says is acting, when it cannot say who.
+         *
+         * The handheld holds an operator's bearer token and never learns the
+         * name behind it; the node reads the operator from the token and
+         * records that. So this is the same placeholder every other mode sends.
+         */
+        private const val ACTOR_ID = "handheld"
 
         /** The only session Tag Focus can work in. See [setGen2Extensions]. */
         private const val SESSION_FOR_TAG_FOCUS = 1

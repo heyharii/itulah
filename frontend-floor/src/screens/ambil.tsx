@@ -3,6 +3,7 @@ import { ListChecks } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { NotWanted, SkuEntry } from "@/components/entry"
+import { RecountSheet } from "@/components/recount-sheet"
 import { TallyRow } from "@/components/tally"
 import { Button } from "@/components/ui/button"
 import { RecordCard } from "@/components/ui/card"
@@ -12,14 +13,16 @@ import { KeyValue } from "@/components/ui/rows"
 import { CardList, FloatingBar, Screen, Section } from "@/components/ui/screen"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { pickingPool, racks } from "@/lib/api"
+import { confirm } from "@/lib/confirm"
 import { tallyLines, tallyTotal, useDraft, type Tally } from "@/lib/draft"
 import { ago, count } from "@/lib/format"
-import { useGo } from "@/lib/go"
+import { notice } from "@/lib/notice"
 import { enqueue, pendingOf, useOutbox } from "@/lib/outbox"
-import { useParam } from "@/lib/params"
+import { useParam, useSheetParam } from "@/lib/params"
 import { queryState } from "@/lib/query-state"
 import { reads } from "@/lib/queries"
 import { useActor } from "@/lib/session"
+import { RondeSheet } from "@/screens/ambil-ronde"
 
 /// Picking: taking stock off the racks and saying what was taken.
 ///
@@ -32,9 +35,15 @@ import { useActor } from "@/lib/session"
 /// node takes it.
 ///
 /// What the shops are owed is shown underneath, as **reference**: it is where
-/// somebody looks to decide where to walk next, and tapping a line puts that SKU
-/// in the box above. It is not a set of rows to tick off, and nothing typed here
-/// is capped by it.
+/// somebody looks to decide where to walk next, and tapping a line opens the
+/// count sheet for that SKU exactly as scanning it would. It is not a set of
+/// rows to tick off, and nothing typed here is capped by it.
+///
+/// Everything that asks for a number is a sheet over the station rather than a
+/// screen pushed in front of it — the count after a scan, a trolley line set
+/// outright, a past round opened to check it — so the scan box, the trolley
+/// and the list stay where they were, a swipe down is "never mind", and the
+/// next garment is one scan away the moment the sheet has gone.
 ///
 /// A short pick is ordinary. Asking for 300 and finding 200 is a statement about
 /// the racks; the node records the 200 rather than failing, and the outbox
@@ -45,10 +54,20 @@ import { useActor } from "@/lib/session"
 /// and closes the session) and the right shape for a phone in a gangway, where
 /// forty little writes over bad wifi are forty chances to lose one.
 export function Ambil() {
-  const go = useGo()
   const actor = useActor()
   const rak = useParam("rak")
+  // A past round, open in its sheet. In the URL like every other open record
+  // here, so a reload does not close it — and pushed as its own history entry,
+  // so Android's back button puts the sheet away instead of leaving the
+  // station with the trolley still on the glass.
+  const ronde = useSheetParam("id")
   const [sku, setSku] = useState<string | null>(null)
+  // The trolley line being set outright. Kept, with `open` off, while its
+  // sheet slides away, so the sheet still has a name on the way down.
+  const [recount, setRecount] = useState<{
+    readonly code: string
+    readonly open: boolean
+  } | null>(null)
 
   const pools = useQuery(reads.pools())
   const picklist = useQuery(reads.picklist())
@@ -101,6 +120,19 @@ export function Ambil() {
     })
   }
 
+  /// What is on the trolley for this SKU, outright: the number somebody got by
+  /// counting the line again, not a difference from the last one. Resolved
+  /// against the store like `change`, and a zero is dropped for the same
+  /// reason.
+  const set = (code: string, quantity: number) => {
+    setTally((current) => {
+      const rest: Record<string, number> = { ...current }
+      if (quantity <= 0) delete rest[code]
+      else rest[code] = quantity
+      return rest
+    })
+  }
+
   /// The pill that says what a SKU means to the shops — a note, never a gate.
   const asked = (code: string) => {
     const owed = wanted.get(code)
@@ -122,6 +154,13 @@ export function Ambil() {
             sku={sku}
             onSku={setSku}
             addLabel="Ambil"
+            // Focused on arrival: a handheld's wedge scanner types wherever
+            // the caret is, and a picker should not have to tap the box
+            // before the first garment.
+            autoFocus
+            // No notice. The sheet going away and the trolley growing are
+            // the answer, and a toast on every one of forty scans a round is
+            // noise over the two that matter — saved and thrown away.
             onAdd={change}
             lookup={(code) => ({ note: asked(code) })}
           />
@@ -145,8 +184,8 @@ export function Ambil() {
 
         {pending.length > 0 && (
           <Banner tone="warn" className="mb-4">
-            {count(pending.length)} ronde tersimpan di HP ini dan belum sampai ke
-            node.
+            {count(pending.length)} ronde tersimpan di HP ini dan belum sampai
+            ke node.
           </Banner>
         )}
         {standing > 0 && (
@@ -164,7 +203,16 @@ export function Ambil() {
         )}
 
         {taken.length > 0 && (
-          <Section title={`Di troli · ${count(picked)} potong`}>
+          <Section
+            title={`Di troli · ${count(picked)} potong`}
+            action={
+              // The name is the button (`TallyRow`'s `onCount`), not the
+              // figure beside it, so the hint says which part to tap.
+              <span className="text-meta text-faint">
+                Ketuk nama untuk ketik jumlah
+              </span>
+            }
+          >
             <div className="flex flex-col gap-2.5">
               {taken.map((line) => (
                 <TallyRow
@@ -176,6 +224,9 @@ export function Ambil() {
                   onLess={() => change(line.sku_code, -1)}
                   onMore={() => change(line.sku_code, 1)}
                   onRemove={() => change(line.sku_code, -line.quantity)}
+                  onCount={() =>
+                    setRecount({ code: line.sku_code, open: true })
+                  }
                 />
               ))}
             </div>
@@ -187,8 +238,8 @@ export function Ambil() {
           render: (rows) =>
             rows.length === 0 ? (
               <EmptyState>
-                Tidak ada yang diminta toko. Anda tetap bisa mengambil barang apa
-                pun dari rak — kotak di atas menerima SKU mana saja.
+                Tidak ada yang diminta toko. Anda tetap bisa mengambil barang
+                apa pun dari rak — kotak di atas menerima SKU mana saja.
               </EmptyState>
             ) : (
               <Section title={`Diminta toko · ${count(rows.length)} SKU`}>
@@ -212,7 +263,9 @@ export function Ambil() {
                         <span className="block text-metric font-semibold text-ink tabular-nums">
                           {count(line.outstanding)}
                         </span>
-                        <span className="block text-meta text-mute">diminta</span>
+                        <span className="block text-meta text-mute">
+                          diminta
+                        </span>
                       </span>
                     </button>
                   ))}
@@ -232,13 +285,13 @@ export function Ambil() {
                       key={round.session.session_id}
                       icon={<ListChecks />}
                       id={`${count(round.total_picked)} potong`}
-                      onPress={() =>
-                        go("/ambil/ronde", { id: round.session.session_id })
-                      }
+                      onPress={() => ronde.open(round.session.session_id)}
                     >
                       <div className="px-3.5 pt-2 pb-3">
                         <KeyValue term="SKU">{count(round.sku_count)}</KeyValue>
-                        <KeyValue term="Oleh">{round.session.actor_id}</KeyValue>
+                        <KeyValue term="Oleh">
+                          {round.session.actor_id}
+                        </KeyValue>
                         <KeyValue term="Mulai">
                           {ago(round.session.started_at)}
                         </KeyValue>
@@ -264,8 +317,19 @@ export function Ambil() {
             </span>
             <Button
               variant="quiet"
-              onClick={() => {
-                if (window.confirm("Buang tally ronde ini?")) clearTally()
+              onClick={async () => {
+                if (
+                  !(await confirm({
+                    title: "Buang tally ronde ini?",
+                    body: `Catatan ${count(picked)} potong dari ${count(taken.length)} SKU dihapus dari HP ini dan tidak dikirim ke node.`,
+                    yes: "Buang",
+                    danger: true,
+                  }))
+                ) {
+                  return
+                }
+                clearTally()
+                notice("Tally ronde dibuang.")
               }}
             >
               Buang
@@ -284,6 +348,11 @@ export function Ambil() {
                   actor,
                 )
                 clearTally()
+                // Says the press landed, not that the node has it: that is
+                // the outbox's banner above, which stays until it is true.
+                notice(
+                  `Ronde ${count(picked)} potong tersimpan. Dikirim otomatis ke node.`,
+                )
               }}
             >
               Simpan ronde
@@ -291,6 +360,30 @@ export function Ambil() {
           </div>
         </FloatingBar>
       )}
+
+      {/* No `problem`: picking is not bounded — "asked for 300, found 200"
+          is a statement about the racks, and a picker who counts 36 on the
+          trolley has 36 whatever the shops asked for. No notice either, for
+          the same reason the scan has none: the line is right there under the
+          thumb that tapped it, showing the new number. */}
+      <RecountSheet
+        open={recount?.open === true}
+        code={recount?.code ?? ""}
+        name={recount === null ? "" : nameOf(recount.code)}
+        have={recount === null ? 0 : (tally[recount.code] ?? 0)}
+        note={recount === null ? null : asked(recount.code)}
+        where="troli"
+        onSet={(quantity) => {
+          if (recount !== null) set(recount.code, quantity)
+        }}
+        onClose={() =>
+          setRecount((current) =>
+            current === null ? null : { ...current, open: false },
+          )
+        }
+      />
+
+      <RondeSheet id={ronde.value} onClose={ronde.close} />
     </>
   )
 }

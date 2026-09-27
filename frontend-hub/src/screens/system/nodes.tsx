@@ -20,20 +20,29 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
-import { count, day, moment } from "@/lib/format"
+import { count, day } from "@/lib/format"
 import {
+  bootstrapOrigin,
   fleetStatus,
+  listNodeHealth,
   listOrigins,
   publishEdgePolicy,
   registerOrigin,
   systemKeys,
   type FleetBlock,
-  type PolicyReceipt,
+  type FleetNodeHealth,
   type SyncOrigin,
 } from "@/lib/queries/system"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { EnrolmentQueue, InstallSheet } from "@/screens/system/enrolments"
+import { toneRank } from "@/lib/node-health"
+import {
+  HealthPill,
+  HealthStrip,
+  NodeHealthSection,
+} from "@/screens/system/node-health"
 import { Secret, Section } from "@/screens/system/shared"
 import { saying, span } from "@/screens/system/units"
 
@@ -58,6 +67,9 @@ interface NodeRow extends SyncOrigin {
   readonly converged: boolean | null
   readonly last_ack_age_seconds: number | null
   readonly blocked: FleetBlock | null
+  /// What the store server last said about itself (heartbeat), or null for a
+  /// node that has never sent one — the centre, an old node, a box that is off.
+  readonly health: FleetNodeHealth | null
 }
 
 /// One word for where a node stands, and the tone that carries it.
@@ -76,6 +88,14 @@ function state(row: NodeRow): {
 }
 
 const columns: ColumnDef<TableSetup, NodeRow>[] = [
+  {
+    id: "condition",
+    // Sorted worst first by default: the page answers "which shop do I ring".
+    accessorFn: (row) => toneRank(row.health?.assessment.tone),
+    header: "Condition",
+    size: 170,
+    cell: ({ row }) => <HealthPill health={row.original.health} />,
+  },
   {
     id: "node",
     accessorFn: (row) => `${row.label ?? ""} ${row.origin_id}`,
@@ -96,6 +116,55 @@ const columns: ColumnDef<TableSetup, NodeRow>[] = [
     // reading a register of fifteen wants apart.
     meta: { filter: { kind: "option", label: "Site" } },
     cell: ({ row }) => row.original.site_id ?? "—",
+  },
+  {
+    id: "happening",
+    accessorFn: (row) => row.health?.assessment.headline ?? "",
+    header: "What is happening",
+    size: 320,
+    cell: ({ row }) => {
+      const health = row.original.health
+      if (!health) return <span className="text-mute">—</span>
+      return (
+        <span className="flex flex-col">
+          <span className="text-ink">{health.assessment.headline}</span>
+          {health.assessment.needs !== "NOBODY" && (
+            <span className="text-meta text-mute">
+              {
+                {
+                  SHOP: "Needs someone at the shop",
+                  HEAD_OFFICE: "Needs head office",
+                  DEVELOPER: "Needs a developer",
+                  NOBODY: "",
+                }[health.assessment.needs]
+              }
+            </span>
+          )}
+        </span>
+      )
+    },
+  },
+  {
+    id: "strip",
+    header: "Last 4 hours",
+    size: 120,
+    enableSorting: false,
+    cell: ({ row }) =>
+      row.original.health ? (
+        <HealthStrip strip={row.original.health.strip} />
+      ) : null,
+  },
+  {
+    id: "version",
+    accessorFn: (row) => row.health?.version ?? "",
+    header: "Version",
+    size: 90,
+    meta: { filter: { kind: "option", label: "Version" } },
+    cell: ({ row }) => (
+      <span className="font-mono text-meta">
+        {row.original.health?.version ?? "—"}
+      </span>
+    ),
   },
   {
     accessorKey: "node_role",
@@ -165,10 +234,10 @@ export function Nodes() {
   // input, and a URL that reopened it would restore an empty form over
   // somebody's work. Records live in the URL; composers do not.
   const [registering, setRegistering] = useState(false)
-  const [registered, setRegistered] = useState<string | null>(null)
+  const [installing, setInstalling] = useState(false)
   const origin = useSheet("origin")
   const [sorting, setSorting] = useState<SortingState>([
-    { id: "pending", desc: true },
+    { id: "condition", desc: true },
   ])
 
   const origins = useQuery({
@@ -179,10 +248,20 @@ export function Nodes() {
     queryKey: systemKeys.fleet(),
     queryFn: ({ signal }) => fleetStatus(signal),
   })
+  // A heartbeat arrives once a minute; read half as often as that is written
+  // would show a stale "healthy" for up to two minutes.
+  const health = useQuery({
+    queryKey: systemKeys.nodeHealth(),
+    queryFn: ({ signal }) => listNodeHealth(signal),
+    refetchInterval: 30_000,
+  })
 
   const rows = useMemo<NodeRow[]>(() => {
     const reached = new Map(
       (fleet.data?.items ?? []).map((item) => [item.origin_id, item])
+    )
+    const heard = new Map(
+      (health.data ?? []).map((item) => [item.origin_id, item])
     )
     return (origins.data ?? []).map((node) => {
       const at = reached.get(node.origin_id)
@@ -194,9 +273,10 @@ export function Nodes() {
         converged: at?.converged ?? null,
         last_ack_age_seconds: at?.last_ack_age_seconds ?? null,
         blocked: at?.blocked ?? null,
+        health: heard.get(node.origin_id) ?? null,
       }
     })
-  }, [origins.data, fleet.data])
+  }, [origins.data, fleet.data, health.data])
 
   const filters = useFilters(columns)
 
@@ -264,23 +344,17 @@ export function Nodes() {
               placeholder="Search"
               className="h-8 w-48"
             />
-            <Button variant="primary" onClick={() => setRegistering(true)}>
-              Register node
+            {/* Typing keys is the fallback now; a code the machine claims is
+                the way a server joins. */}
+            <Button onClick={() => setRegistering(true)}>
+              Register by key
+            </Button>
+            <Button variant="primary" onClick={() => setInstalling(true)}>
+              Install server
             </Button>
           </>
         }
       />
-
-      {registered && (
-        <Banner
-          tone="ok"
-          className="mb-3"
-          onDismiss={() => setRegistered(null)}
-        >
-          {registered} is registered. Its key was sent once and is not stored
-          here — the node has to be configured with the same value.
-        </Banner>
-      )}
 
       {/* A page-level fact, not a toast: the list is still usable without the
           convergence figures, and it has to say which half is missing. */}
@@ -290,6 +364,8 @@ export function Nodes() {
           node below is shown without how far behind it is.
         </Banner>
       )}
+
+      <EnrolmentQueue />
 
       {rows.length > 0 && (
         <ExceptionQueue
@@ -334,13 +410,12 @@ export function Nodes() {
         onClose={origin.close}
       />
 
+      <InstallSheet open={installing} onClose={() => setInstalling(false)} />
+
       <RegisterSheet
         open={registering}
         onClose={() => setRegistering(false)}
-        onRegistered={(id) => {
-          setRegistered(id)
-          setRegistering(false)
-        }}
+        onRegistered={() => setRegistering(false)}
       />
     </PageContent>
   )
@@ -358,13 +433,18 @@ function NodeSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
-  const [receipt, setReceipt] = useState<PolicyReceipt | null>(null)
 
   const publish = useMutation({
     mutationFn: (originId: string) => publishEdgePolicy(originId),
-    onSuccess: (published) => {
-      setReceipt(published)
+    onSuccess: () => {
       // Publishing issues a command, so this node's position in the lane moved.
+      void client.invalidateQueries({ queryKey: systemKeys.fleet() })
+    },
+  })
+
+  const bootstrap = useMutation({
+    mutationFn: (originId: string) => bootstrapOrigin(originId),
+    onSuccess: () => {
       void client.invalidateQueries({ queryKey: systemKeys.fleet() })
     },
   })
@@ -376,8 +456,8 @@ function NodeSheet({
       open={open}
       onOpenChange={(next) => {
         if (!next) {
-          setReceipt(null)
           publish.reset()
+          bootstrap.reset()
           onClose()
         }
       }}
@@ -417,16 +497,18 @@ function NodeSheet({
             </Fact>
           </Facts>
 
+          <NodeHealthSection originId={node.origin_id} health={node.health} />
+
           <Section title="Command lane">
             <MiniTable head={["Position", "Sequence"]}>
               <tr className="border-t border-hairline">
-                <td className="py-2 pr-2 text-[0.8125rem] text-ink">Issued</td>
+                <td className="py-2 pr-2 text-[0.875rem] text-ink">Issued</td>
                 <td className="py-2 text-right tabular-nums">
                   {count(node.issued_seq)}
                 </td>
               </tr>
               <tr className="border-t border-hairline">
-                <td className="py-2 pr-2 text-[0.8125rem] text-ink">
+                <td className="py-2 pr-2 text-[0.875rem] text-ink">
                   Acknowledged
                 </td>
                 <td className="py-2 text-right tabular-nums">
@@ -434,7 +516,7 @@ function NodeSheet({
                 </td>
               </tr>
               <tr className="border-t border-hairline">
-                <td className="py-2 pr-2 text-[0.8125rem] text-ink">
+                <td className="py-2 pr-2 text-[0.875rem] text-ink">
                   Last acknowledgement
                 </td>
                 <td className="py-2 text-right tabular-nums">
@@ -458,28 +540,42 @@ function NodeSheet({
           </Section>
 
           <Section title="Access policy">
-            <p className="mb-2.5 text-[0.78125rem] text-body">
+            <p className="mb-2.5 text-[0.875rem] text-body">
               Every grant, suspension and reader change publishes one already.
               Send it again when a node has been rebuilt and needs the whole
               picture back.
             </p>
-            {receipt ? (
-              <Banner tone="ok">
-                Version {count(receipt.version)} published to{" "}
-                {receipt.origin_id}: {count(receipt.user_count)} people,{" "}
-                {count(receipt.device_count)} readers, valid until{" "}
-                {moment(receipt.valid_until)}. Command{" "}
-                <span className="font-mono">{receipt.command_id}</span>.
-              </Banner>
-            ) : publish.isError ? (
+            {publish.isError && (
               <Banner tone="bad">{saying(publish.error)}</Banner>
-            ) : null}
+            )}
             <Button
               className="mt-2.5"
               disabled={publish.isPending}
               onClick={() => publish.mutate(node.origin_id)}
             >
               {publish.isPending ? "Publishing…" : "Publish access policy"}
+            </Button>
+          </Section>
+
+          <Section title="Initial data">
+            <p className="mb-2.5 text-[0.875rem] text-body">
+              What an enrolled node is sent on approval: the catalogue, every
+              published price book, users, promotions and campaign switches.
+              Send it again when a node has drifted or its first delivery
+              reported a failure.
+            </p>
+            {bootstrap.isError && (
+              <Banner tone="bad">{saying(bootstrap.error)}</Banner>
+            )}
+            {bootstrap.isSuccess && (
+              <Banner tone="ok">Queued for {node.origin_id}.</Banner>
+            )}
+            <Button
+              className="mt-2.5"
+              disabled={bootstrap.isPending}
+              onClick={() => bootstrap.mutate(node.origin_id)}
+            >
+              {bootstrap.isPending ? "Sending…" : "Send initial data again"}
             </Button>
           </Section>
         </div>

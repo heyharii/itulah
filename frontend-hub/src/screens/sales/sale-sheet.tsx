@@ -19,6 +19,7 @@ import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { Lifecycle } from "@/components/ui/timeline"
 import { count, label, money, moment, toneFor } from "@/lib/format"
+import { ApiError } from "@itulah/contract/client"
 import {
   addSaleLine,
   addSalePayment,
@@ -30,6 +31,7 @@ import {
   storeopsKeys,
   voidSale,
   type SaleDetail,
+  type ShopSale,
 } from "@/lib/queries/storeops"
 import { queryState } from "@/lib/query-state"
 import { useIdentity } from "@/lib/session"
@@ -76,14 +78,36 @@ export function SaleSheet({
     queryFn: ({ signal }) => saleDetail(id!, signal),
     enabled: id !== null,
   })
+  const isStoreReceipt =
+    detail.error instanceof ApiError && detail.error.status === 404
+  const shopDetail = useQuery({
+    queryKey: storeopsKeys.shopSale(id ?? ""),
+    queryFn: ({ signal }) => shopSaleDetail(id!, signal),
+    enabled: id !== null && isStoreReceipt,
+  })
+  const [chosen, setChosen] = useState<{ id: string; panel: SalePanel } | null>(
+    null
+  )
+
+  // Shop receipts are immutable Cloud facts and live in edge_sale, not in the
+  // centre's interactive sale lifecycle. The same `?sale=` links can open both
+  // populations, but an Edge receipt is deliberately read-only here.
+  if (id !== null && isStoreReceipt) {
+    return (
+      <ShopSaleReceipt
+        id={id}
+        record={shopDetail.data}
+        pending={shopDetail.isPending}
+        failed={shopDetail.isError}
+        onClose={onClose}
+      />
+    )
+  }
 
   // Which panel is open, remembered against the record it was chosen for.
   // Derived rather than reset in an effect: an effect would render the previous
   // sale's panel once before clearing it, and "Refund" flashing up on a sale
   // that cannot be refunded is exactly the wrong reassurance.
-  const [chosen, setChosen] = useState<{ id: string; panel: SalePanel } | null>(
-    null
-  )
   const sale = detail.data
   const completed = sale?.status === "COMPLETED"
   const panel: SalePanel =
@@ -136,6 +160,121 @@ export function SaleSheet({
           </div>
         ),
       })}
+    </Sheet>
+  )
+}
+
+function ShopSaleReceipt({
+  id,
+  record,
+  pending,
+  failed,
+  onClose,
+}: {
+  id: string
+  record: ShopSale | undefined
+  pending: boolean
+  failed: boolean
+  onClose: () => void
+}) {
+  return (
+    <Sheet
+      open
+      subject={{ kind: "sale", id }}
+      onOpenChange={(open) => !open && onClose()}
+      id={`POS-${id.slice(0, 8)}`}
+      title={record?.site_id ?? "Store sale"}
+    >
+      {pending ? (
+        <p className="py-6 text-center text-meta text-body">
+          Reading the store receipt…
+        </p>
+      ) : failed || record === undefined ? (
+        <Banner tone="warn">
+          This sale is not available as a centre or store receipt.
+        </Banner>
+      ) : (
+        <div className="flex flex-col gap-5">
+          <Facts>
+            <Fact term="Rang at">{moment(record.occurred_at)}</Fact>
+            <Fact term="Reached Cloud">
+              {record.received_at === null ? "—" : moment(record.received_at)}
+            </Fact>
+            <Fact term="Discount">{money(record.discount_total_minor)}</Fact>
+            <Fact term="Points earned">{count(record.points_earned)}</Fact>
+          </Facts>
+
+          <div>
+            <SubHead>Items</SubHead>
+            <MiniTable head={["Item", "Qty", "Unit", "Charged"]}>
+              {record.lines.map((line) => (
+                <MiniRow key={line.sku_code}>
+                  <MiniCell>
+                    <span className="block text-ink">
+                      {line.article_name ?? line.sku_code}
+                    </span>
+                    <span className="font-mono text-[0.875rem] text-mute">
+                      {line.sku_code}
+                    </span>
+                  </MiniCell>
+                  <MiniCell align="right">{count(line.quantity)}</MiniCell>
+                  <MiniCell align="right">
+                    {money(line.unit_price_minor)}
+                  </MiniCell>
+                  <MiniCell align="right">
+                    {line.line_total_minor === null
+                      ? "—"
+                      : money(line.line_total_minor)}
+                  </MiniCell>
+                </MiniRow>
+              ))}
+            </MiniTable>
+          </div>
+
+          {record.promotions.length > 0 && (
+            <div>
+              <SubHead>Promotions</SubHead>
+              <MiniTable head={["Promotion", "Saved"]}>
+                {record.promotions.map((promotion, index) => (
+                  <MiniRow key={promotion.rule_id ?? index}>
+                    <MiniCell>
+                      {promotion.name ?? promotion.rule_id ?? "—"}
+                    </MiniCell>
+                    <MiniCell align="right">
+                      {money(promotion.benefit_minor)}
+                    </MiniCell>
+                  </MiniRow>
+                ))}
+              </MiniTable>
+            </div>
+          )}
+
+          <div>
+            <SubHead>Paid with</SubHead>
+            <MiniTable head={["Method", "Amount"]}>
+              {record.tenders.map((tender) => (
+                <MiniRow key={tender.tender_seq}>
+                  <MiniCell>{tender.method}</MiniCell>
+                  <MiniCell align="right">
+                    {money(tender.amount_minor)}
+                  </MiniCell>
+                </MiniRow>
+              ))}
+            </MiniTable>
+          </div>
+
+          <TotalsLadder
+            rows={[
+              { label: "Paid", value: money(record.paid_minor) },
+              { label: "Change", value: money(record.change_minor) },
+            ]}
+            total={{ label: "Total", value: money(record.total_minor) }}
+          />
+          <p className="break-all font-mono text-[0.875rem] text-mute">
+            Cloud sale ID: {record.sale_id}
+          </p>
+        </div>
+      )}
     </Sheet>
   )
 }
@@ -200,12 +339,12 @@ function SaleRecord({ sale }: { sale: SaleDetail }) {
             {sale.lines.map((line) => (
               <tr key={line.id} className="border-t border-hairline">
                 <td className="py-2 pr-2">
-                  <span className="block text-[0.8125rem] text-ink">
+                  <span className="block text-[0.875rem] text-ink">
                     {line.sku_code}
                   </span>
                   {/* The tag, not the SKU, is what was actually scanned: a line
                       here is one physical garment. */}
-                  <span className="font-mono text-[0.65625rem] text-mute">
+                  <span className="font-mono text-[0.875rem] text-mute">
                     {line.epc}
                   </span>
                 </td>
@@ -235,7 +374,7 @@ function SaleRecord({ sale }: { sale: SaleDetail }) {
                 <td className="py-2 pr-2">
                   <Tag>{payment.method}</Tag>
                 </td>
-                <td className="py-2 text-right text-[0.75rem] text-mute">
+                <td className="py-2 text-right text-[0.875rem] text-mute">
                   {payment.reference ?? "—"}
                 </td>
                 <td className="py-2 text-right tabular-nums">
@@ -288,11 +427,11 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
             {printed.lines.map((line) => (
               <tr key={line.sale_line_id} className="border-t border-hairline">
                 <td className="py-2 pr-2">
-                  <span className="block text-[0.8125rem] text-ink">
+                  <span className="block text-[0.875rem] text-ink">
                     {line.article_name}
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="font-mono text-[0.65625rem] text-mute">
+                    <span className="font-mono text-[0.875rem] text-mute">
                       {line.sku_code}
                     </span>
                     {/* A line some later return document names. The receipt
@@ -327,7 +466,7 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
                   <td className="py-2 pr-2">
                     <Tag>{band.category}</Tag>
                     {band.inclusive && (
-                      <span className="ml-1.5 text-[0.6875rem] text-mute">
+                      <span className="ml-1.5 text-[0.875rem] text-mute">
                         inclusive
                       </span>
                     )}
@@ -347,7 +486,7 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
             {/* The server's own sentence about how that tax was arrived at.
                 Quoted rather than paraphrased: it is the difference between
                 two totals that would otherwise look like a rounding bug. */}
-            <p className="mt-2 text-[0.6875rem] text-mute">
+            <p className="mt-2 text-[0.875rem] text-mute">
               {printed.tax_note}
             </p>
           </div>
@@ -367,7 +506,7 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
                   <td className="py-2 pr-2">
                     <Tag>{payment.method}</Tag>
                   </td>
-                  <td className="py-2 text-right text-[0.75rem] text-mute">
+                  <td className="py-2 text-right text-[0.875rem] text-mute">
                     {payment.reference ?? "—"}
                   </td>
                   <td className="py-2 text-right tabular-nums">
@@ -393,7 +532,7 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
                   <td className="py-2 pr-2 font-mono text-id text-body">
                     {entry.return_number}
                   </td>
-                  <td className="py-2 text-right text-[0.75rem] text-mute">
+                  <td className="py-2 text-right text-[0.875rem] text-mute">
                     {entry.reason}
                   </td>
                   <td className="py-2 text-right tabular-nums">
@@ -571,10 +710,10 @@ function RefundPanel({ sale }: { sale: SaleDetail }) {
                       className="flex items-center gap-2 border-b border-hairline py-2 last:border-b-0"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[0.8125rem] text-ink">
+                        <span className="block truncate text-[0.875rem] text-ink">
                           {line.sku_code}
                         </span>
-                        <span className="font-mono text-[0.65625rem] text-mute">
+                        <span className="font-mono text-[0.875rem] text-mute">
                           {line.epc}
                         </span>
                       </span>
@@ -916,7 +1055,7 @@ function PricingPanel({ saleId }: { saleId: string }) {
                   <span className="block text-ink">
                     {line.article_name ?? line.sku_code}
                   </span>
-                  <span className="font-mono text-[0.65625rem] text-mute">
+                  <span className="font-mono text-[0.875rem] text-mute">
                     {line.sku_code}
                   </span>
                 </MiniCell>
@@ -925,7 +1064,7 @@ function PricingPanel({ saleId }: { saleId: string }) {
                   {money(line.unit_price_minor)}
                 </MiniCell>
                 <MiniCell align="right">
-                  <span className="text-[0.71875rem] text-body">
+                  <span className="text-[0.875rem] text-body">
                     {line.price_source ?? "—"}
                     {line.publication_version !== null &&
                       ` · v${line.publication_version}`}
@@ -946,7 +1085,7 @@ function PricingPanel({ saleId }: { saleId: string }) {
                     {promotion.name ?? promotion.rule_id ?? "—"}
                   </MiniCell>
                   <MiniCell align="right">
-                    {money(promotion.amount_minor)}
+                      {money(promotion.benefit_minor)}
                   </MiniCell>
                 </MiniRow>
               ))}

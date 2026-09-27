@@ -81,7 +81,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     cell: ({ row }) => (
       <span className="flex flex-col">
         <span className="font-medium text-ink">{row.original.item.name}</span>
-        <span className="font-mono text-[0.65625rem] text-mute">
+        <span className="font-mono text-[0.875rem] text-mute">
           {row.original.item.supplier_item_code}
         </span>
       </span>
@@ -162,13 +162,13 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
         kind: "option",
         options: [
           { value: "ACTIVE", label: "Active" },
-          { value: "INACTIVE", label: "Retired" },
+          { value: "INACTIVE", label: "Cancelled" },
         ],
       },
     },
     cell: ({ row }) => (
       <Pill tone={row.original.item.status === "ACTIVE" ? "ok" : "neutral"}>
-        {row.original.item.status === "ACTIVE" ? "Active" : "Retired"}
+        {row.original.item.status === "ACTIVE" ? "Active" : "Cancelled"}
       </Pill>
     ),
   },
@@ -292,14 +292,14 @@ export function Catalogue() {
               options={[
                 { value: "ALL", label: "Everything" },
                 { value: "ACTIVE", label: "On offer" },
-                { value: "INACTIVE", label: "Retired" },
+                { value: "INACTIVE", label: "Cancelled" },
               ]}
               value={status}
               onChange={setStatus}
             />
             <FilterPanel model={filters} table={table} />
             <Toolbar.Spacer />
-            <span className="text-[0.75rem] text-mute tabular-nums">
+            <span className="text-[0.875rem] text-mute tabular-nums">
               {count(unfinished)} of {count(matching)} shown still need
               finishing · {count(total)} in the catalogue
             </span>
@@ -375,7 +375,7 @@ function Vocabulary() {
         <Card>
           <CardHeader>
             <CardTitle>Divisions</CardTitle>
-            <span className="text-[0.75rem] text-mute tabular-nums">
+            <span className="text-[0.875rem] text-mute tabular-nums">
               {count(words.divisions.length)}
             </span>
           </CardHeader>
@@ -388,7 +388,7 @@ function Vocabulary() {
               <MiniTable head={["Reads as", { label: "Code", align: "right" }]}>
                 {words.divisions.map((term) => (
                   <tr key={term.code} className="border-t border-hairline">
-                    <td className="py-2 text-[0.8125rem] text-ink">
+                    <td className="py-2 text-[0.875rem] text-ink">
                       {term.label}
                     </td>
                     <td className="py-2 text-right">
@@ -404,7 +404,7 @@ function Vocabulary() {
         <Card>
           <CardHeader>
             <CardTitle>Tags</CardTitle>
-            <span className="text-[0.75rem] text-mute tabular-nums">
+            <span className="text-[0.875rem] text-mute tabular-nums">
               {count(words.tags.length)}
             </span>
           </CardHeader>
@@ -417,7 +417,7 @@ function Vocabulary() {
               <MiniTable head={["Reads as", { label: "Code", align: "right" }]}>
                 {words.tags.map((term) => (
                   <tr key={term.code} className="border-t border-hairline">
-                    <td className="py-2 text-[0.8125rem] text-ink">
+                    <td className="py-2 text-[0.875rem] text-ink">
                       {term.label}
                     </td>
                     <td className="py-2 text-right">
@@ -475,7 +475,7 @@ function ItemSheet({
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-2">
               <Pill tone={item.status === "ACTIVE" ? "ok" : "neutral"}>
-                {item.status === "ACTIVE" ? "Active" : "Retired"}
+                {item.status === "ACTIVE" ? "Active" : "Cancelled"}
               </Pill>
               <ItemStatusSwitch item={item} />
             </div>
@@ -542,7 +542,7 @@ function ItemStatusSwitch({ item }: { item: SupplierItem }) {
         {item.status === "ACTIVE" ? "Stop offering" : "Offer again"}
       </Button>
       {change.isError && (
-        <span className="text-[0.71875rem] text-bad">
+        <span className="text-[0.875rem] text-bad">
           {(change.error as Error).message}
         </span>
       )}

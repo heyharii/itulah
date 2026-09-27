@@ -30,13 +30,6 @@ const NARROW = "(width < 64rem)"
 /// and the 27.5rem record beside it with its gutters (472). Below this the
 /// record has to cover something, so it goes back to covering the list.
 const WIDE = "(width >= 96rem)"
-/// 1440px: the sidebar (248), a list wide enough to still be a list (~900),
-/// and the 16rem filter panel beside it with its gutter (276).
-///
-/// Its own threshold and not `WIDE`, because it is a different thing standing
-/// beside the list: a record needs 27.5rem and a filter panel needs 16, so the
-/// panel can dock on a screen where a record still has to cover something.
-const DOCK = "(width >= 90rem)"
 
 export function useLayout(): Layout {
   const phone = useMedia(PHONE)
@@ -58,16 +51,75 @@ export function atLeast(layout: Layout, tier: Layout): boolean {
   return ORDER.indexOf(layout) >= ORDER.indexOf(tier)
 }
 
+/// ── the page's own width ────────────────────────────────────────────────
+///
+/// The two panels that stand BESIDE a list — the filter panel and an open
+/// record — ask how wide the PAGE is, not the window. They used to ask the
+/// window, with the sidebar's 248px subtracted in the comment beside the
+/// number; then the shell grew a second column and a ⌘B that folds one away,
+/// and the window stopped saying anything reliable about the page. At 1440px
+/// with both columns open the filter panel docked into 1100px and squeezed
+/// the table it was filtering.
+///
+/// So the shell measures the column the page lives in (`app-shell.tsx`) and
+/// publishes it here, and the thresholds are the page widths the panels need:
+///
+///  - filter panel: 1000px of page — a list of ~720 plus the 16rem panel and
+///    its gutter (276). Lower than a list "wants", on the owner's ruling
+///    (2026-09-24) that a laptop keeps its filter panel: at 1366 and 1440 with
+///    both columns open the page is ~1040 and ~1110. A table narrower than its
+///    columns relays or scrolls inside itself (`<DataTable>`); a panel that
+///    vanishes into a button on every laptop was the worse trade.
+///  - record: a list (~830) plus the 27.5rem record and its gutters (472) —
+///    1300px.
+const FILTERS_BESIDE = 1000
+const RECORD_BESIDE = 1300
+
+let pageWidth = typeof window === "undefined" ? 0 : window.innerWidth
+const pageListeners = new Set<() => void>()
+
+/// Called by the shell's ResizeObserver, and by nothing else.
+export function publishPageWidth(width: number) {
+  const next = Math.round(width)
+  // The attribute before the early return: the first measurement can equal
+  // the guess `pageWidth` started from, and the classes must still be told.
+  document.documentElement.toggleAttribute("data-dock", next >= FILTERS_BESIDE)
+  if (next === pageWidth) return
+  pageWidth = next
+  for (const listener of pageListeners) listener()
+}
+
+function subscribePage(onChange: () => void) {
+  pageListeners.add(onChange)
+  return () => pageListeners.delete(onChange)
+}
+
+/// Whether the page is at least `px` wide. Subscribes to the answer, not the
+/// width, so a screen re-renders when the answer flips rather than on every
+/// pixel of a window being dragged.
+function usePageAtLeast(px: number): boolean {
+  return useSyncExternalStore(
+    subscribePage,
+    () => pageWidth >= px,
+    () => false
+  )
+}
+
 /// Whether there is room for the filter panel to stand BESIDE the list.
 ///
-/// Asked in JavaScript rather than left to `hidden min-[1440px]:flex`, because
-/// a panel hidden by CSS is still MOUNTED, and the sheets it carries are
-/// portalled out of it — so a screen that put the narrow-width `<FilterPanel>`
-/// beside a display:none `<DockedFilters>` had two components rendering a
-/// dialog under the same `?filters=` key, and opening either opened both.
-/// One of the two exists at a time now, which is the only way that stays true.
+/// Asked in JavaScript rather than left to CSS, because a panel hidden by CSS
+/// is still MOUNTED, and the sheets it carries are portalled out of it — so a
+/// screen that put the narrow-width `<FilterPanel>` beside a display:none
+/// `<DockedFilters>` had two components rendering a dialog under the same
+/// `?filters=` key, and opening either opened both. One of the two exists at
+/// a time now, which is the only way that stays true.
 export function usePanelDock(): boolean {
-  return useMedia(DOCK)
+  return usePageAtLeast(FILTERS_BESIDE)
+}
+
+/// Whether an open record stands beside the list rather than over it.
+export function useRecordBeside(): boolean {
+  return usePageAtLeast(RECORD_BESIDE)
 }
 
 /// True when the pointer cannot hover: a finger, a stylus, a scanner's thumb —
@@ -81,6 +133,16 @@ export function usePanelDock(): boolean {
 /// a second set of screens for touch.
 export function useCoarsePointer(): boolean {
   return useMedia("(pointer: coarse)")
+}
+
+/// Whether a picker opens as a sheet from the bottom edge rather than as a
+/// panel hanging off its field: a phone-width page AND a finger. Either alone
+/// is not enough — a narrow desktop window still has a mouse, and an iPad has
+/// the room for the desk's panel. See `components/ui/picker-sheet.tsx`.
+export function usePickerSheet(): boolean {
+  const layout = useLayout()
+  const touch = useCoarsePointer()
+  return layout === "phone" && touch
 }
 
 /// One `MediaQueryList` per query, for the life of the tab.

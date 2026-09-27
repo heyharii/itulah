@@ -17,7 +17,7 @@ use crate::cloud::{
     domain::RecordKind,
     http::audit::DeclaredSubject,
     postgres::{
-        self as infrastructure, AccountBalance, AccountMapPage, AccountPage, AcquisitionGap,
+        self as infrastructure, AccountBalance, AccountPage, AcquisitionGap,
         AdjustmentRequest, AssessAssetRequest, AssetPage, AssetRow, AssetSchedule, BalanceMatrix,
         BankInstitution, BankStatementLineRow, BankStatementPage, BankingSetupGap, BillPage,
         BookBankLineRequest, CashCountRow, CompanyBankAccount, ConfirmMatchRequest,
@@ -28,7 +28,7 @@ use crate::cloud::{
         ManualJournalDraftInput, MoneyOverview, PayablesAging, PaymentInstruction, PaymentPage,
         PeriodPage, PostCountRequest, PostingIntent, PostingLine, RaiseInstructionRequest,
         ReclassRequest, RecordBillRequest, RecordCountRequest, RecordDepositRequest,
-        RecordPaymentRequest, RegisterAssetRequest, SaleDayPage, SetAccountMappingRequest,
+        RecordPaymentRequest, RegisterAssetRequest, SaleDayPage,
         SettleInstructionRequest, Statement, StoreDeposit, SupplierBill, SupplierPayment,
         TransferAssetRequest, TrialBalance, UnbilledReceipt, UpdateBankLineRequest,
         WriteOffRequest,
@@ -36,6 +36,7 @@ use crate::cloud::{
 };
 use axum::{
     extract::{Path, Query, State},
+    http::StatusCode,
     Extension, Json,
 };
 use chrono::{Datelike, NaiveDate, Utc};
@@ -289,56 +290,406 @@ pub async fn trial_balance(
 // The account map
 // ---------------------------------------------------------------------------
 
-/// The map: searched, filtered, sorted and paged, with the two lists it
-/// cannot be read without.
+/// The account links, whole, with the roles and sites they are read against.
 ///
-/// `locations` and `required_keys` travel with the page rather than being
-/// fetched separately because the screen's only real question — which pairs
-/// are still unset — cannot be asked without all three parts. They are not
-/// paged: both are small and closed.
-///
-/// `unmapped_pairs` is counted over EVERY location and EVERY required
-/// meaning, never over the page and never narrowed by the search. A gap is a
-/// gap whether or not you are currently looking at it, and a filtered view
-/// reporting "0 unmapped" because the filter hid them would be the screen
-/// reporting the problem solved.
-///
-/// # Query parameters
-///
-/// `q` searches the meaning, the qualifier, the account code and the client's
-/// own name for that account. `site` and `key` filter, each repeatable.
-/// `sort` is one of `account`, `site`, `set`, with `dir=desc`; anything else
-/// is the house order, by meaning. `cursor` and `limit` page.
-pub async fn account_map(
+/// `q` searches the role, the source, the account code and the account's
+/// name; `role` filters, repeatable. Not paged: a few hundred links a person
+/// reads top to bottom to find the exception.
+pub async fn account_links(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
-) -> Result<Json<AccountMapPage>, AppError> {
-    refuse_unknown_parameters(&params, &[&PAGING[..], &["site", "key"]].concat())?;
+) -> Result<Json<infrastructure::AccountLinkPage>, AppError> {
+    refuse_unknown_parameters(&params, &["q", "role"])?;
     Ok(Json(
-        infrastructure::account_map_page(
+        infrastructure::account_link_page(
             &state.db,
-            infrastructure::AccountMapScope {
+            infrastructure::AccountLinkScope {
                 needle: single_value(&params, "q"),
-                sites: facet_values(&params, "site"),
-                keys: facet_values(&params, "key"),
-                sort: single_value(&params, "sort"),
-                desc: single_value(&params, "dir").as_deref() == Some("desc"),
-                cursor: single_value(&params, "cursor"),
-                limit: limit_value(&params)?,
+                roles: facet_values(&params, "role"),
             },
         )
         .await?,
     ))
 }
 
-pub async fn set_account_map(
+pub async fn set_account_link(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Json(request): Json<SetAccountMappingRequest>,
-) -> Result<Json<Value>, AppError> {
-    let mapping =
-        infrastructure::set_account_mapping(&state.db, &request, &principal.username).await?;
-    Ok(Json(json!(mapping)))
+    Json(request): Json<infrastructure::SetAccountLinkRequest>,
+) -> Result<Json<infrastructure::AccountLink>, AppError> {
+    Ok(Json(
+        infrastructure::set_account_link(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+/// Remove a link. Refused when it would leave a site with nothing to post to,
+/// unless `force=true`.
+pub async fn remove_account_link(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(link_id): Path<i64>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<StatusCode, AppError> {
+    refuse_unknown_parameters(&params, &["force"])?;
+    let force = single_value(&params, "force").as_deref() == Some("true");
+    infrastructure::remove_account_link(&state.db, link_id, force, &principal.username).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Who changed which link, newest first. `role` narrows to one role.
+pub async fn account_link_history(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<Vec<infrastructure::AccountLinkChange>>, AppError> {
+    refuse_unknown_parameters(&params, &["role", "limit"])?;
+    let limit = limit_value(&params)?.unwrap_or(200);
+    Ok(Json(
+        infrastructure::account_link_history(&state.db, single_value(&params, "role").as_deref(), limit)
+            .await?,
+    ))
+}
+
+/// For every role and source, what each site resolves to — or that it
+/// resolves nowhere.
+pub async fn posting_readiness(
+    State(state): State<AppState>,
+) -> Result<Json<infrastructure::PostingReadiness>, AppError> {
+    Ok(Json(infrastructure::posting_readiness(&state.db).await?))
+}
+
+/// What changed in the chart, newest first. `account` narrows to one account.
+pub async fn chart_changes(
+    State(state): State<AppState>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<Vec<infrastructure::ChartChange>>, AppError> {
+    refuse_unknown_parameters(&params, &["account", "limit"])?;
+    let limit = limit_value(&params)?.unwrap_or(200);
+    Ok(Json(
+        infrastructure::chart_history(&state.db, single_value(&params, "account").as_deref(), limit)
+            .await?,
+    ))
+}
+
+/// Change the chart: add, update, retire or revive an account. Applies at
+/// once and is recorded with who and why.
+pub async fn change_chart(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<infrastructure::ChartChangeRequest>,
+) -> Result<Json<infrastructure::ChartChange>, AppError> {
+    Ok(Json(
+        infrastructure::change_chart(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+/// The closing vouchers, newest period first.
+pub async fn period_closings(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::PeriodClosingVoucher>>, AppError> {
+    Ok(Json(infrastructure::period_closings(&state.db).await?))
+}
+
+/// Close a date range into retained earnings (ERPNext Period Closing Voucher).
+pub async fn post_period_closing(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<infrastructure::PeriodClosingRequest>,
+) -> Result<(StatusCode, Json<infrastructure::PeriodClosingVoucher>), AppError> {
+    let voucher =
+        infrastructure::post_period_closing(&state.db, &request, &principal.username).await?;
+    Ok((StatusCode::CREATED, Json(voucher)))
+}
+
+/// Cancel the last closing voucher by reversing its entry.
+pub async fn cancel_period_closing(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(voucher_id): Path<Uuid>,
+) -> Result<Json<infrastructure::PeriodClosingVoucher>, AppError> {
+    Ok(Json(
+        infrastructure::cancel_period_closing(&state.db, voucher_id, &principal.username).await?,
+    ))
+}
+
+/// The expense categories a shop or an employee files costs under.
+pub async fn expense_categories(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::ExpenseCategory>>, AppError> {
+    Ok(Json(infrastructure::expense_categories(&state.db).await?))
+}
+
+/// Add an expense category or change one. Its account is an account link.
+pub async fn save_expense_category(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<infrastructure::SaveExpenseCategoryRequest>,
+) -> Result<Json<infrastructure::ExpenseCategory>, AppError> {
+    Ok(Json(
+        infrastructure::save_expense_category(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+/// Every pay component, with how it posts and whether it is linked.
+pub async fn pay_component_postings(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::PayComponentPosting>>, AppError> {
+    Ok(Json(infrastructure::pay_component_postings(&state.db).await?))
+}
+
+pub async fn set_pay_component_posting(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    Json(request): Json<infrastructure::SetPayComponentPostingRequest>,
+) -> Result<Json<infrastructure::PayComponentPosting>, AppError> {
+    Ok(Json(
+        infrastructure::set_pay_component_posting(&state.db, &code, &request).await?,
+    ))
+}
+
+/// The payment methods the company accepts (ERPNext Mode of Payment).
+pub async fn payment_methods(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::PaymentMethod>>, AppError> {
+    Ok(Json(infrastructure::payment_methods(&state.db).await?))
+}
+
+pub async fn save_payment_method(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<infrastructure::SavePaymentMethodRequest>,
+) -> Result<Json<infrastructure::PaymentMethod>, AppError> {
+    Ok(Json(
+        infrastructure::save_payment_method(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+/// The withholding templates (ERPNext Tax Withholding Category).
+pub async fn tax_templates(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::TaxTemplate>>, AppError> {
+    Ok(Json(infrastructure::tax_templates(&state.db).await?))
+}
+
+pub async fn save_tax_template(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(template): Json<infrastructure::TaxTemplate>,
+) -> Result<Json<Vec<infrastructure::TaxTemplate>>, AppError> {
+    Ok(Json(
+        infrastructure::save_tax_template(&state.db, &template, &principal.username).await?,
+    ))
+}
+
+/// Add a tax type or change one (0469).
+pub async fn save_tax_type(
+    State(state): State<AppState>,
+    Json(tax): Json<infrastructure::TaxTypeSetting>,
+) -> Result<Json<infrastructure::TaxTypeSetting>, AppError> {
+    Ok(Json(infrastructure::save_tax_type(&state.db, &tax).await?))
+}
+
+/// The accounting dimensions and their values (ERPNext Accounting Dimension).
+pub async fn accounting_dimensions(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::AccountingDimension>>, AppError> {
+    Ok(Json(infrastructure::accounting_dimensions(&state.db).await?))
+}
+
+pub async fn save_accounting_dimension(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<infrastructure::SaveDimensionRequest>,
+) -> Result<Json<Vec<infrastructure::AccountingDimension>>, AppError> {
+    Ok(Json(
+        infrastructure::save_accounting_dimension(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+pub async fn save_dimension_value(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    Json(value): Json<infrastructure::DimensionValue>,
+) -> Result<Json<Vec<infrastructure::AccountingDimension>>, AppError> {
+    Ok(Json(infrastructure::save_dimension_value(&state.db, &code, &value).await?))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SourceRuleQuery {
+    pub account: Option<String>,
+    pub source_kind: Option<String>,
+    pub category: Option<String>,
+}
+
+/// Which documents may reach which account (owner policy, 0471).
+pub async fn account_source_rules(
+    State(state): State<AppState>,
+    Query(query): Query<SourceRuleQuery>,
+) -> Result<Json<Vec<infrastructure::AccountSourceRule>>, AppError> {
+    Ok(Json(
+        infrastructure::account_source_rules(&state.db, query.account.as_deref()).await?,
+    ))
+}
+
+pub async fn set_account_source_rule(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(rule): Json<infrastructure::AccountSourceRule>,
+) -> Result<Json<Vec<infrastructure::AccountSourceRule>>, AppError> {
+    Ok(Json(
+        infrastructure::set_account_source_rule(&state.db, &rule, &principal.username).await?,
+    ))
+}
+
+pub async fn remove_account_source_rule(
+    State(state): State<AppState>,
+    Query(query): Query<SourceRuleQuery>,
+) -> Result<Json<Vec<infrastructure::AccountSourceRule>>, AppError> {
+    let account = query
+        .account
+        .ok_or_else(|| AppError::Validation("name the account".into()))?;
+    let kind = query
+        .source_kind
+        .ok_or_else(|| AppError::Validation("name the document kind".into()))?;
+    Ok(Json(
+        infrastructure::remove_account_source_rule(
+            &state.db,
+            &account,
+            &kind,
+            query.category.as_deref(),
+        )
+        .await?,
+    ))
+}
+
+/// Accounts that belong to head office only (I4, 0471).
+pub async fn head_office_accounts(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::HeadOfficeAccount>>, AppError> {
+    Ok(Json(infrastructure::head_office_accounts(&state.db).await?))
+}
+
+pub async fn set_head_office_account(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(account): Json<infrastructure::HeadOfficeAccount>,
+) -> Result<Json<Vec<infrastructure::HeadOfficeAccount>>, AppError> {
+    Ok(Json(
+        infrastructure::set_head_office_account(&state.db, &account, &principal.username).await?,
+    ))
+}
+
+pub async fn remove_head_office_account(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+) -> Result<Json<Vec<infrastructure::HeadOfficeAccount>>, AppError> {
+    Ok(Json(infrastructure::remove_head_office_account(&state.db, &code).await?))
+}
+
+/// Whether automatic posting runs, globally and per document kind.
+pub async fn posting_switches(
+    State(state): State<AppState>,
+) -> Result<Json<infrastructure::PostingSwitches>, AppError> {
+    Ok(Json(infrastructure::posting_switches(&state.db).await?))
+}
+
+pub async fn set_automatic_posting(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<infrastructure::SetAutomaticPostingRequest>,
+) -> Result<Json<infrastructure::PostingSwitches>, AppError> {
+    Ok(Json(
+        infrastructure::set_automatic_posting(&state.db, request.enabled, &principal.username)
+            .await?,
+    ))
+}
+
+pub async fn set_posting_switch(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(switch): Json<infrastructure::PostingSwitch>,
+) -> Result<Json<infrastructure::PostingSwitches>, AppError> {
+    Ok(Json(
+        infrastructure::set_posting_switch(&state.db, &switch, &principal.username).await?,
+    ))
+}
+
+/// Who may call what (ERPNext Role Permission Manager, 0472).
+pub async fn role_permissions(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::RolePermission>>, AppError> {
+    Ok(Json(infrastructure::role_permissions(&state.db).await?))
+}
+
+pub async fn set_role_permission(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(permission): Json<infrastructure::RolePermission>,
+) -> Result<Json<Vec<infrastructure::RolePermission>>, AppError> {
+    let rows =
+        infrastructure::set_role_permission(&state.db, &permission, &principal.username).await?;
+    super::auth::forget_permission_overrides();
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PermissionKey {
+    pub method: String,
+    pub path_prefix: String,
+}
+
+pub async fn remove_role_permission(
+    State(state): State<AppState>,
+    Query(key): Query<PermissionKey>,
+) -> Result<Json<Vec<infrastructure::RolePermission>>, AppError> {
+    let rows =
+        infrastructure::remove_role_permission(&state.db, &key.method, &key.path_prefix).await?;
+    super::auth::forget_permission_overrides();
+    Ok(Json(rows))
+}
+
+/// Journal templates (ERPNext Journal Entry Template, 0473).
+pub async fn journal_templates(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::JournalTemplate>>, AppError> {
+    Ok(Json(infrastructure::journal_templates(&state.db).await?))
+}
+
+pub async fn save_journal_template(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<infrastructure::SaveJournalTemplateRequest>,
+) -> Result<Json<infrastructure::JournalTemplate>, AppError> {
+    Ok(Json(
+        infrastructure::save_journal_template(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+/// Repeating journals (ERPNext Auto Repeat, 0473).
+pub async fn journal_repeats(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::JournalRepeat>>, AppError> {
+    Ok(Json(infrastructure::journal_repeats(&state.db).await?))
+}
+
+pub async fn save_journal_repeat(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<infrastructure::SaveJournalRepeatRequest>,
+) -> Result<Json<infrastructure::JournalRepeat>, AppError> {
+    Ok(Json(
+        infrastructure::save_journal_repeat(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+/// Raise every repeat due today now, instead of waiting for the hourly sweep.
+pub async fn run_journal_repeats(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<infrastructure::JournalRepeatSweep>, AppError> {
+    Ok(Json(
+        infrastructure::run_journal_repeats(&state.db, Utc::now().date_naive(), &principal.username)
+            .await?,
+    ))
 }
 
 /// What Finance is wearing on the sidebar, as three integers.

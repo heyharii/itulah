@@ -18,6 +18,7 @@ import { Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Section, TotalsLadder } from "@/components/ui/rows"
+import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
 import {
@@ -47,11 +48,11 @@ import type { PurchaseDestination, Supplier } from "@itulah/contract"
 /// Import PO — raise orders from documents instead of from a catalogue walk.
 ///
 /// **The pipe.** Any number of files in — Excel sheets, PDFs, photographs —
-/// and PO DRAFTS out. The ingest service (see `services/po-import`) parses
-/// each document, Jev judges what is usable, and what is not becomes a
-/// question in the wizard. Nothing here decides: the service's decisions
+/// and PO DRAFTS out. The cloud's intake kernel (`intake/po`) parses
+/// each document, Jev judges what is usable (stage B2), and what is not becomes a
+/// question in the wizard. Nothing here decides: the kernel's decisions
 /// arrive as the draft's questions, and the buyer's answers go back through
-/// `/v1/validate` until none are left.
+/// `/validate` until none are left.
 ///
 /// **And the wall at the end.** No PO exists until the summary's button is
 /// pressed — that press is the only place this screen calls the cloud's
@@ -101,6 +102,36 @@ function isCreatable(draft: EditableDraft): boolean {
 }
 
 export function PoImport() {
+  const [restart, setRestart] = useState(0)
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Procurement"
+        title="Import PO"
+        sub="Bangun PO dari file — Excel, PDF, atau foto dokumen order. PO baru dibuat setelah kamu periksa di ringkasan."
+        actions={
+          <Button variant="ghost" onClick={() => setRestart((n) => n + 1)}>
+            <Plus className="size-4" />
+            Mulai ulang
+          </Button>
+        }
+      />
+      {/* Remounted to restart. The flow holds four pieces of state that must
+          all go back together, and a `key` change is the one way to say that
+          which cannot leave one of them behind. */}
+      <PoImportFlow key={restart} />
+    </PageContent>
+  )
+}
+
+/// The import itself, with no page around it.
+///
+/// Its own component because this flow now has two doors: the screen above,
+/// and the sheet the order book raises over itself — see `PoImportSheet`. A
+/// buyer whose supplier emails a PDF is standing in the order book when it
+/// arrives, and sending them to another screen to act on it loses the place
+/// they were in.
+export function PoImportFlow({ onDone }: { onDone?: () => void }) {
   const [step, setStep] = useState<Step>("upload")
   const [drafts, setDrafts] = useState<EditableDraft[]>([])
   const [reports, setReports] = useState<readonly PoImportFileReport[]>([])
@@ -134,23 +165,7 @@ export function PoImport() {
   }
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Procurement"
-        title="Import PO"
-        sub="Bangun PO dari file — Excel, PDF, atau foto dokumen order. PO baru dibuat setelah kamu periksa di ringkasan."
-        actions={
-          <Button
-            variant="ghost"
-            onClick={reset}
-            disabled={drafts.length === 0 && reports.length === 0}
-          >
-            <Plus className="size-4" />
-            Mulai ulang
-          </Button>
-        }
-      />
-
+    <>
       {health.data !== undefined && !health.data.gateway && (
         <Banner tone="info" className="mb-4">
           Jev (AI Gateway) belum dikonfigurasi — keputusan keyakinan memakai
@@ -230,10 +245,56 @@ export function PoImport() {
             setActiveId(id)
             setStep("wizard")
           }}
-          onDone={reset}
+          onDone={() => {
+            reset()
+            onDone?.()
+          }}
         />
       )}
-    </PageContent>
+    </>
+  )
+}
+
+/// The same flow, over the order book.
+///
+/// **A sheet, not a second screen.** An imported PO is an order like any
+/// other, and the place somebody is standing when a supplier's PDF lands is
+/// the order book — so the import opens over it and the book is still there
+/// underneath when it closes. The screen at `/procurement/import` stays: it is
+/// what a link in an email opens, and what somebody sets out for when the job
+/// of the morning is twenty documents.
+///
+/// `workspace` width, which is the widest this kit draws. The wizard puts a
+/// document's lines in a ruled grid beside the questions asked about them, and
+/// a narrower sheet makes the buyer scroll between the question and the figure
+/// it is about.
+export function PoImportSheet({
+  open,
+  onClose,
+}: {
+  open: boolean
+  onClose: () => void
+}) {
+  /// Bumped to start over, and bumped on every opening — so a sheet reopened
+  /// after an import does not greet the next document with the last one's
+  /// summary still on the glass.
+  const [run, setRun] = useState(0)
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      title="Import PO"
+      caption="Bangun PO dari file — Excel, PDF, atau foto dokumen order. PO baru dibuat setelah kamu periksa di ringkasan."
+      width="workspace"
+      actions={
+        <Button variant="ghost" onClick={() => setRun((n) => n + 1)}>
+          <Plus className="size-4" />
+          Mulai ulang
+        </Button>
+      }
+    >
+      <PoImportFlow key={`${open}-${run}`} onDone={onClose} />
+    </Sheet>
   )
 }
 
@@ -287,7 +348,7 @@ function UploadStep({
                     {report.status}
                   </Pill>
                 </div>
-                <p className="mt-1 text-[0.75rem] text-mute">
+                <p className="mt-1 text-[0.875rem] text-mute">
                   {report.error ?? report.note ?? report.parser}
                 </p>
               </div>
@@ -312,7 +373,7 @@ function UploadStep({
     return (
       <div className="flex flex-col gap-4">
         <Section title={`Draf dari dokumen (${drafts.length})`}>
-          <p className="-mt-2 mb-3 text-[0.75rem] text-mute">
+          <p className="-mt-2 mb-3 text-[0.875rem] text-mute">
             {reports
               .map(
                 (r) =>
@@ -335,7 +396,7 @@ function UploadStep({
                       {draft.lines.length} baris
                     </span>
                   </div>
-                  <div className="text-[0.75rem] text-mute">
+                  <div className="text-[0.875rem] text-mute">
                     {draft.source_files.join(", ")}
                   </div>
                 </div>
@@ -419,7 +480,7 @@ function PickFiles({
         <span className="text-[0.875rem] text-ink">
           Pilih atau tarik file — bisa beberapa sekaligus
         </span>
-        <span className="text-[0.75rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           Excel (.xlsx/.xls/.csv), PDF, atau foto dokumen order
         </span>
       </button>
@@ -442,7 +503,7 @@ function PickFiles({
                   onClick={() =>
                     setPicked(picked.filter((f) => f.name !== file.name))
                   }
-                  className="text-[0.75rem] text-mute hover:text-bad"
+                  className="text-[0.875rem] text-mute hover:text-bad"
                 >
                   buang
                 </button>
@@ -524,7 +585,7 @@ function WizardStep({
   return (
     <div className="flex flex-col gap-5">
       <Section title="Lengkapi data yang belum jelas">
-        <p className="-mt-2 mb-3 text-[0.75rem] text-mute">
+        <p className="-mt-2 mb-3 text-[0.875rem] text-mute">
           {draft.source_files.join(", ")} · {draft.parser_note ?? draft.parser}
         </p>
         {draft.questions.length === 0 ? (
@@ -549,7 +610,7 @@ function WizardStep({
 
       <div className="flex items-center justify-end gap-2">
         {remaining.length > 0 && (
-          <span className="mr-auto text-[0.75rem] text-mute">
+          <span className="mr-auto text-[0.875rem] text-mute">
             {remaining.length} pertanyaan belum dijawab — boleh lanjut, nanti
             ditanya lagi di ringkasan.
           </span>
@@ -657,7 +718,7 @@ function PickFromBook({
               onChange(choice.value, choice.label)
             }}
             className={cn(
-              "rounded-full border px-3 py-1 text-[0.75rem]",
+              "rounded-full border px-3 py-1 text-[0.875rem]",
               chosen?.value === choice.value
                 ? "border-accent bg-soft text-ink"
                 : "border-hairline text-body hover:bg-soft"
@@ -805,7 +866,7 @@ function SummaryStep({
   return (
     <div className="flex flex-col gap-4">
       <Section title={`Ringkasan import — ${drafts.length} order`}>
-        <p className="-mt-2 mb-3 text-[0.75rem] text-mute">
+        <p className="-mt-2 mb-3 text-[0.875rem] text-mute">
           Periksa setiap order sebelum dibuat. PO hanya dibuat saat tombol di
           bawah ditekan.
         </p>
@@ -850,7 +911,7 @@ function SummaryStep({
 
         <div className="flex items-center justify-end gap-2">
           {incomplete.length > 0 && (
-            <span className="mr-auto text-[0.75rem] text-mute">
+            <span className="mr-auto text-[0.875rem] text-mute">
               {incomplete.length} order belum lengkap — selesaikan wizardnya
               dulu sebelum bisa dibuat.
             </span>
@@ -921,7 +982,7 @@ function SummaryDraftCard({
           <div className="truncate text-[0.9375rem] font-medium text-ink">
             {draft.supplier_name ?? "Supplier belum ditentukan"}
           </div>
-          <div className="text-[0.75rem] text-mute">
+          <div className="text-[0.875rem] text-mute">
             {draft.source_files.join(", ")} · {draft.lines.length} baris
             {draft.expected_arrival !== null &&
               ` · datang ${day(draft.expected_arrival)}`}
@@ -1043,7 +1104,7 @@ function SummaryDraftCard({
       </div>
 
       <div className="flex items-center justify-between px-4 py-3">
-        <span className="text-[0.75rem] text-mute">{draft.parser_note}</span>
+        <span className="text-[0.875rem] text-mute">{draft.parser_note}</span>
         <span className="text-[0.875rem] font-semibold text-ink tabular-nums">
           {money(total)}
         </span>

@@ -44,7 +44,6 @@ import type { TermUsage } from "@/lib/queries/vocabulary"
 /// such state: the value has been used, and that is permanent.
 export function MasterLifecycle({
   subject,
-  label,
   active,
   usage,
   onSetActive,
@@ -53,7 +52,6 @@ export function MasterLifecycle({
 }: {
   /// Singular and lower case: "tag", "colour", "division", "size".
   subject: string
-  label: string
   active: boolean
   usage: UseQueryResult<TermUsage>
   onSetActive: (next: boolean) => Promise<unknown>
@@ -73,7 +71,6 @@ export function MasterLifecycle({
     onSuccess: onDeleted,
   })
 
-  const spoken = (usage.data?.references ?? []).filter((one) => one.count > 0)
   const deletable = usage.data?.can_delete === true
 
   return (
@@ -106,8 +103,8 @@ export function MasterLifecycle({
                 <dd
                   className={
                     one.count > 0
-                      ? "text-[0.8125rem] font-medium text-ink tabular-nums"
-                      : "text-[0.8125rem] text-mute tabular-nums"
+                      ? "text-[0.875rem] font-medium text-ink tabular-nums"
+                      : "text-[0.875rem] text-mute tabular-nums"
                   }
                 >
                   {count(one.count)}
@@ -124,13 +121,8 @@ export function MasterLifecycle({
           {active ? (
             <Pill tone="ok">Active</Pill>
           ) : (
-            <Pill tone="neutral">Retired</Pill>
+            <Pill tone="neutral">Cancelled</Pill>
           )}
-          <span className="text-meta text-body">
-            {active
-              ? `May be chosen for new articles.`
-              : `Not offered for new articles. Everything already using it keeps it.`}
-          </span>
         </div>
 
         {change.isError && (
@@ -144,21 +136,6 @@ export function MasterLifecycle({
           </Banner>
         )}
 
-        {/* Said before the click, not after it. What people fear when they
-            retire something is that it will break what is already running —
-            and the answer is no, in both directions. */}
-        {active && spoken.length > 0 && (
-          <p className="mb-2.5 text-meta text-body">
-            {spoken
-              .map(
-                (one) => `${count(one.count)} ${counted(one.label, one.count)}`
-              )
-              .join(", ")}{" "}
-            will keep using {label}. Retiring only stops it being offered for
-            new ones.
-          </p>
-        )}
-
         <div className="flex flex-wrap items-center gap-2.5">
           <Button
             variant={active ? "soft" : "primary"}
@@ -168,7 +145,7 @@ export function MasterLifecycle({
             {change.isPending
               ? "Saving…"
               : active
-                ? `Retire this ${subject}`
+                ? `Cancel this ${subject}`
                 : `Restore this ${subject}`}
           </Button>
 
@@ -203,16 +180,6 @@ export function MasterLifecycle({
       </div>
     </div>
   )
-}
-
-/// A reference label as it reads after a number. The labels head a column of
-/// counts, so they are plural — and "1 promotion rules" is the kind of phrase
-/// that makes a reader distrust the number in front of it. Dropping a trailing
-/// `s` covers every label these lists produce; the server does the same to the
-/// sentence it writes.
-function counted(label: string, howMany: number): string {
-  const lower = label.toLowerCase()
-  return howMany === 1 && lower.endsWith("s") ? lower.slice(0, -1) : lower
 }
 
 /// The server's own sentence about why a write was refused. It names the

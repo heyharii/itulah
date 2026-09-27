@@ -2152,6 +2152,7 @@ pub async fn acq_settlement_explain(
                 leg.account = crate::cloud::postgres::poster::LineAccount::Meaning {
                     semantic_key: bank_key,
                     qualifier,
+                    source_type: "COMPANY".into(),
                 };
                 leg
             }
@@ -2227,8 +2228,8 @@ async fn settlement_bank_qualifier(
         return Ok(None);
     };
     let mapped = sqlx::query(
-        "SELECT semantic_key, qualifier FROM account_map
-          WHERE account_code = $1 AND semantic_key = ANY($2) LIMIT 1",
+        "SELECT role AS semantic_key, source_id AS qualifier FROM account_resolution
+          WHERE account_code = $1 AND role = ANY($2) AND source_type = 'COMPANY' LIMIT 1",
     )
     .bind(&account)
     .bind(&BANK_KEYS[..])
@@ -2342,8 +2343,9 @@ pub async fn acq_receivable_aging(
     // JOIN in spirit: a balance whose meaning nobody has mapped is still a
     // balance, and saying so beats leaving it out.
     let mapped = sqlx::query(
-        "SELECT semantic_key, qualifier, site_id, account_code FROM account_map
-          WHERE semantic_key = ANY($1)",
+        "SELECT role AS semantic_key, source_id AS qualifier, site_id, account_code
+           FROM account_resolution
+          WHERE role = ANY($1) AND source_type = 'COMPANY'",
     )
     .bind(&RECEIVABLE_KEYS[..])
     .fetch_all(pool)

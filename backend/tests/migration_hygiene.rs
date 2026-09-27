@@ -209,6 +209,31 @@ const RESERVED: &[(u32, u32, &str)] = &[
          the 0210s-0220s in the same hour, and a lane that claims the next \
          number claims the one somebody else is already writing",
     ),
+    (
+        321,
+        339,
+        "a block the branch skipped: several lanes were filing migrations in the \
+         same hours and the HRMS phases claimed a distant block (0340-0379) \
+         rather than these numbers. No file was ever written here, and the gap \
+         is declared so the next reader can tell it from a lost file — the \
+         scanner that guards this list cannot",
+    ),
+    (
+        340,
+        379,
+        "the HRMS phase block, claimed the way the records vocabulary claimed \
+         0190: several lanes were in flight on the branch at once, so the \
+         phases took a distant block rather than the next number. Phase 1 \
+         (org structure) holds 0340 and phase 2 (expense claims) filed 0341 \
+         and 0342; the rest of the block is held for the phases that follow",
+    ),
+    (
+        400,
+        459,
+        "left to the other lanes in flight on 27 Sep 2026 (about a dozen \
+         sessions were writing migrations at once) when the finance-foundation \
+         lane claimed 0460 onward for account links and the chart editor",
+    ),
 ];
 
 #[test]
@@ -329,14 +354,21 @@ fn the_record_vocabulary_is_the_same_in_rust_and_in_the_database() {
         while let Some(at) = rest.find("INSERT INTO record_kind") {
             let block = &rest[at..];
             let end = block.find(";\n").unwrap_or(block.len());
-            // `    ('article', 'Article'),` — the code is the first quoted word
-            // of a line that opens a tuple.
-            for line in block[..end].lines() {
-                if let Some(tuple) = line.trim().strip_prefix("('") {
-                    if let Some(code) = tuple.split('\'').next() {
-                        seeded.push(code.to_owned());
-                    }
+            // Every `('<code>', …)` tuple, however the insert is laid out.
+            //
+            // It used to read only lines that OPEN with a tuple, which is the
+            // common style (`VALUES\n    ('article', 'Article'),\n…`) — and it
+            // silently missed an insert whose single tuple sits on the same
+            // line as `VALUES` (`VALUES ('contract', 'Contract')`). A missing
+            // file and a missed tuple look identical from here, so the scanner
+            // must not depend on where somebody put the newline.
+            let mut cursor = &block[..end];
+            while let Some(open) = cursor.find("('") {
+                let after = &cursor[open + 2..];
+                if let Some(close) = after.find('\'') {
+                    seeded.push(after[..close].to_owned());
                 }
+                cursor = after;
             }
             rest = &block[end.min(block.len())..];
         }

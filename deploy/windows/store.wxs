@@ -1,0 +1,94 @@
+<!--
+  itulah Store Server — Windows installer (WiX v5).
+
+  Built by .github/workflows/store-server.yml:
+
+    wix build store.wxs -arch x64 -ext WixToolset.Util.wixext
+              -d Version=1.2.3 -d BinDir=<dir with store.exe and web\> -o itulah-store.msi
+
+  Interactive:   double-click. Installs, starts the service, opens the setup
+                 page where the shop types the code from head office.
+  Silent:        msiexec /i itulah-store.msi /qn ENROLL_CODE=7K4P9-QX2MA CLOUD_URL=https://…
+                 The service claims the code on its first start and waits for
+                 approval; head office sees the verification number in the hub.
+
+  Everything the installer does to the machine is done by the program itself
+  (`store.exe install-service`, `stage-code`, `uninstall-service`) so that a
+  person with an elevated prompt can do exactly the same by hand, and so the
+  behaviour is tested once rather than once in Rust and once in XML.
+
+  Upgrades replace the program and keep %ProgramData%\itulah\store — the
+  database, the enrolment, the logs — untouched. Uninstall keeps it too: it
+  may hold sales that never reached head office.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="itulah Store Server"
+           Manufacturer="itulah"
+           Version="$(Version)"
+           UpgradeCode="6f0b5c8e-2d4a-4c7e-9b1f-3a5e7d9c1b24"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer itulah Store Server is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="ENROLL_CODE" Secure="yes" Hidden="yes" />
+    <Property Id="CLOUD_URL" Secure="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="itulah Store">
+        <Component Id="Program" Bitness="always64">
+          <File Id="StoreExe" Source="$(BinDir)\store.exe" KeyPath="yes" />
+        </Component>
+        <Directory Id="WebFolder" Name="web" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="MenuFolder" Name="itulah Store">
+        <Component Id="MenuShortcuts" Guid="0c9f2a61-5b7e-4f3d-8a2c-1e6d4b9f7a35">
+          <util:InternetShortcut Id="SetupShortcut"
+                                 Name="itulah Store — Setup and status"
+                                 Target="http://localhost:8082/setup" />
+          <RemoveFolder Id="RemoveMenuFolder" On="uninstall" />
+          <RegistryValue Root="HKLM" Key="Software\itulah\Store" Name="menu"
+                         Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentRef Id="Program" />
+      <!-- The shop's web apps the node serves; harvested at build time. -->
+      <Files Directory="WebFolder" Include="$(BinDir)\web\**" />
+      <ComponentRef Id="MenuShortcuts" />
+    </Feature>
+
+    <!-- Deferred and not impersonated: these run as SYSTEM, which is what
+         registering a service and restricting ProgramData need. -->
+    <CustomAction Id="StageCode" FileRef="StoreExe"
+                  ExeCommand="stage-code &quot;[ENROLL_CODE]&quot; &quot;[CLOUD_URL]&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="InstallService" FileRef="StoreExe"
+                  ExeCommand="install-service"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="UninstallService" FileRef="StoreExe"
+                  ExeCommand="uninstall-service"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <!-- After an interactive first install with no code, open the setup page
+         for the person sitting there. -->
+    <CustomAction Id="OpenSetup" Directory="INSTALLFOLDER"
+                  ExeCommand="explorer.exe http://localhost:8082/setup"
+                  Execute="immediate" Impersonate="yes" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="UninstallService" Before="RemoveFiles"
+              Condition="Installed AND REMOVE=&quot;ALL&quot;" />
+      <Custom Action="StageCode" After="InstallFiles"
+              Condition="NOT REMOVE AND ENROLL_CODE" />
+      <Custom Action="InstallService" After="StageCode"
+              Condition="NOT REMOVE" />
+      <Custom Action="OpenSetup" After="InstallFinalize"
+              Condition="NOT Installed AND NOT ENROLL_CODE AND UILevel &gt;= 4" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

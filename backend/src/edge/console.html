@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Server Toko</title>
+<style>
+  /* frontend-hub's design system (frontend-hub/src/styles/index.css), copied
+     as values because this page is served by the node with no bundler. */
+  :root {
+    --ink: #20242c; --text: #394150; --body: #626b78; --mute: #737c89; --faint: #b9c0c9;
+    --canvas: #ffffff; --soft: #f8f9fb; --soft-2: #f0f2f5; --soft-3: #f7f8fa;
+    --hairline: #e7eaf0; --hairline-2: #dce1e8; --rail: #16181d;
+    --cta: #2563eb; --cta-hover: #1d4ed8;
+    --ok: #36b827; --ok-bg: #d9f4d2; --ok-fg: #15803d;
+    --warn: #c9892e; --warn-bg: #faeacd; --warn-fg: #b45309;
+    --bad: #d05151; --bad-bg: #fbeaea; --bad-fg: #be123c;
+    --info: #2f86d8; --info-bg: #ddebfa; --info-fg: #2c57bf;
+    --r-card: 12px; --r-inner: 7px;
+    --shadow-soft: 0 1px 3px rgb(24 39 60 / 4%);
+    --sans: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--soft-3); color: var(--text); font: 14px/1.5 var(--sans); }
+  .mono { font-family: var(--mono); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; min-height: 56px; background: var(--canvas); border-bottom: 1px solid var(--hairline); flex-wrap: wrap; }
+  header .who { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; color: var(--body); }
+  header strong { color: var(--ink); font-weight: 600; }
+  main { max-width: 1280px; margin: 0 auto; padding: 20px 24px 40px; display: flex; flex-direction: column; gap: 16px; }
+  /* Pill: outlined, a 5px dot, the hub's `<Pill>`. */
+  .pill { display: inline-flex; align-items: center; gap: 6px; height: 25px; padding: 0 9px; border-radius: var(--r-inner); border: 1px solid var(--hairline-2); background: var(--canvas); color: var(--body); font-size: 14px; font-weight: 500; white-space: nowrap; }
+  .pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--mute); }
+  .pill.t-OK { color: var(--ok-fg); border-color: rgb(21 128 61 / 30%); } .pill.t-OK::before { background: var(--ok); }
+  .pill.t-INFO { color: var(--info-fg); border-color: rgb(44 87 191 / 30%); } .pill.t-INFO::before { background: var(--info); }
+  .pill.t-WARN { color: var(--warn-fg); border-color: rgb(180 83 9 / 30%); } .pill.t-WARN::before { background: var(--warn); }
+  .pill.t-BAD { color: var(--bad-fg); border-color: rgb(190 18 60 / 30%); } .pill.t-BAD::before { background: var(--bad); }
+  .card { background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-soft); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card h2 { margin: 0; font-size: 14px; font-weight: 600; color: var(--ink); }
+  .hero { flex-direction: row; gap: 14px; align-items: flex-start; padding: 20px 22px; }
+  .hero .mark { width: 40px; height: 40px; border-radius: var(--r-inner); display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--soft-2); color: var(--body); }
+  .hero.t-OK .mark { background: var(--ok-bg); color: var(--ok-fg); } .hero.t-INFO .mark { background: var(--info-bg); color: var(--info-fg); }
+  .hero.t-WARN .mark { background: var(--warn-bg); color: var(--warn-fg); } .hero.t-BAD .mark { background: var(--bad-bg); color: var(--bad-fg); }
+  .hero h1 { margin: 0; font-size: 22px; line-height: 28px; font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
+  .hero p { margin: 6px 0 0; font-size: 14px; line-height: 21px; max-width: 820px; color: var(--text); }
+  .hero .meta { font-size: 13px; color: var(--mute); }
+  .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
+  @media (max-width: 1000px) { .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid2 { grid-template-columns: 1fr; } }
+  @media (max-width: 560px) { .grid4 { grid-template-columns: 1fr; } main { padding: 16px; } }
+  .row { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+  .row span:first-child { color: var(--body); }
+  .row span:last-child { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .row span.fg-OK { color: var(--ok-fg); } .row span.fg-WARN { color: var(--warn-fg); } .row span.fg-BAD { color: var(--bad-fg); } .row span.fg-INFO { color: var(--info-fg); }
+  .meter { height: 6px; border-radius: 3px; background: var(--soft-2); } .meter div { height: 6px; border-radius: 3px; background: var(--ok); }
+  .meter.WARN div { background: var(--warn); } .meter.BAD div { background: var(--bad); }
+  ul.history { margin: 0; padding: 0; list-style: none; }
+  ul.history li { display: grid; grid-template-columns: 10px 150px minmax(0, 1fr); gap: 12px; padding: 11px 0; border-top: 1px solid var(--hairline); align-items: start; }
+  ul.history .dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 7px; background: var(--mute); }
+  ul.history .dot.OK { background: var(--ok); } ul.history .dot.WARN { background: var(--warn); } ul.history .dot.BAD { background: var(--bad); } ul.history .dot.INFO { background: var(--info); }
+  ul.history .when { font-size: 12.5px; color: var(--mute); padding-top: 2px; }
+  ul.history .what { font-weight: 500; color: var(--ink); } ul.history .detail { font-size: 13px; color: var(--body); }
+  .actions { display: flex; flex-direction: column; gap: 8px; }
+  /* Button: the hub's ghost and primary, 7px radius, 32px (40 under a finger). */
+  button { font: 500 14px var(--sans); height: 32px; padding: 0 10px; border-radius: var(--r-inner); border: 1px solid var(--hairline-2); background: var(--canvas); color: var(--text); box-shadow: var(--shadow-soft); cursor: pointer; transition: scale 120ms cubic-bezier(0.23, 1, 0.32, 1), background-color 120ms; }
+  button:hover { background: var(--soft-2); color: var(--ink); }
+  button:active { scale: 0.97; }
+  button.primary { background: var(--cta); border-color: var(--cta); color: #fff; box-shadow: none; } button.primary:hover { background: var(--cta-hover); }
+  button.danger { background: var(--bad-bg); border-color: transparent; color: var(--bad-fg); box-shadow: none; }
+  button:disabled { opacity: .5; pointer-events: none; }
+  button:focus-visible { outline: 2px solid var(--cta); outline-offset: 2px; }
+  @media (pointer: coarse) { button { height: 40px; padding: 0 14px; } }
+  .note { font-size: 13px; color: var(--body); margin: 0; }
+  /* Banner: the hub's, a tinted inner block. */
+  .msg { font-size: 14px; line-height: 1.6; padding: 10px 14px; border-radius: var(--r-inner); background: var(--info-bg); color: var(--info-fg); }
+  .msg.t-OK { background: var(--ok-bg); color: var(--ok-fg); } .msg.t-WARN { background: var(--warn-bg); color: var(--warn-fg); } .msg.t-BAD { background: var(--bad-bg); color: var(--bad-fg); }
+  .checks { margin: 0; padding: 0; list-style: none; }
+  .checks li { display: grid; grid-template-columns: 120px 110px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--hairline); align-items: center; }
+  .checks strong { font-weight: 500; color: var(--ink); }
+  #lost { position: fixed; inset: 0; background: rgba(247, 248, 250, 0.72); backdrop-filter: blur(2px); display: none; align-items: center; justify-content: center; padding: 16px; }
+  #lost.on { display: flex; }
+  #lost > div { background: var(--canvas); border: 1px solid var(--hairline); border-radius: 16px; box-shadow: 0 4px 8px rgb(24 39 60 / 4%), 0 12px 32px rgb(24 39 60 / 8%); padding: 22px 24px; max-width: 440px; }
+  #demo { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 24px; background: var(--rail); }
+  #demo a { color: #b4bac4; font-size: 13px; text-decoration: none; padding: 4px 10px; border-radius: var(--r-inner); }
+  #demo a.on, #demo a:hover { background: #2e323a; color: #f2f4f7; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="who"><strong>itulah</strong><span style="color:var(--mute)">/</span><span>Server Toko</span><strong id="site">—</strong><span class="mono" id="ident" style="font-size:12.5px;color:var(--mute)"></span></div>
+  <div style="display:flex;gap:12px;align-items:center"><span class="pill" id="pill">Memuat…</span><span class="mono" id="ver" style="font-size:13px;color:var(--mute)"></span></div>
+</header>
+<nav id="demo" hidden aria-label="Contoh kondisi"></nav>
+<main>
+  <section class="card hero" id="hero">
+    <div class="mark" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5v.01"/></svg></div>
+    <div><h1 id="headline">Memuat status…</h1><p id="sentence"></p><p class="meta mono" id="meta"></p></div>
+  </section>
+
+  <div class="grid4">
+    <section class="card"><h2>Sinkron ke kantor pusat</h2><div id="sync"></div></section>
+    <section class="card"><h2>Mesin</h2><div id="machine" style="display:flex;flex-direction:column;gap:10px"></div></section>
+    <section class="card"><h2>Perangkat di toko</h2><div id="devices"></div></section>
+    <section class="card"><h2>Aman di-restart?</h2><div id="safe"></div></section>
+  </div>
+
+  <div class="grid2">
+    <section class="card"><h2>Riwayat</h2><ul class="history" id="history"></ul><p class="note" id="history-empty" hidden>Belum ada kejadian tercatat.</p></section>
+    <section class="card">
+      <h2>Tindakan</h2>
+      <div class="actions">
+        <button type="button" class="primary" id="btn-sync">Sinkron sekarang</button>
+        <button type="button" id="btn-diag">Jalankan diagnosa</button>
+        <button type="button" id="btn-restart">Restart server</button>
+      </div>
+      <div class="msg" id="action-msg" hidden role="status"></div>
+      <p class="note">Restart menunggu kalau masih ada laci kasir terbuka, kecuali dipaksa. Semua tindakan juga tercatat di kantor pusat.</p>
+    </section>
+  </div>
+
+  <section class="card" id="diag" hidden>
+    <h2>Hasil diagnosa</h2>
+    <p id="diag-verdict" style="margin:0;font-weight:600"></p>
+    <ul class="checks" id="diag-checks"></ul>
+    <p class="note mono" id="diag-saved"></p>
+  </section>
+</main>
+<div id="lost" role="alert"><div><h2 style="margin:0 0 8px;font-size:18px;font-weight:600;color:var(--ink)">Server tidak menjawab</h2><p style="margin:0">Mungkin sedang dimulai ulang. Halaman ini mencoba lagi setiap 3 detik.</p></div></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const el = (tag, attrs, ...children) => {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs || {})) {
+    if (key === "class") node.className = value; else node.setAttribute(key, value);
+  }
+  for (const child of children) node.append(child == null ? "" : child);
+  return node;
+};
+const clock = (iso) => iso ? new Date(iso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—";
+const day = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(iso), today = new Date();
+  const same = d.toDateString() === today.toDateString();
+  const yesterday = new Date(today - 86400000).toDateString() === d.toDateString();
+  return (same ? "" : yesterday ? "kemarin " : d.toLocaleDateString("id-ID", { day: "2-digit", month: "short" }) + " ") + clock(iso);
+};
+const span = (seconds) => {
+  seconds = Math.max(0, Math.round(seconds));
+  const d = Math.floor(seconds / 86400), h = Math.floor(seconds % 86400 / 3600), m = Math.floor(seconds % 3600 / 60);
+  if (d) return d + " hari" + (h ? " " + h + " jam" : "");
+  if (h) return h + " jam" + (m ? " " + m + " menit" : "");
+  if (m) return m + " menit";
+  return seconds + " detik";
+};
+const ago = (iso) => iso ? span((Date.now() - Date.parse(iso)) / 1000) + " lalu" : "belum pernah";
+const gb = (bytes) => bytes == null ? "—" : (bytes / 1073741824).toFixed(1).replace(".", ",") + " GB";
+const mb = (bytes) => bytes == null ? "—" : (bytes / 1048576).toFixed(1).replace(".", ",") + " MB";
+const row = (label, value, tone) => el("div", { class: "row" }, el("span", {}, label), el("span", { class: tone ? "fg-" + tone : "" }, value));
+const meter = (label, value, percent, tone) => el("div", { style: "display:flex;flex-direction:column;gap:6px" },
+  row(label, value, tone), el("div", { class: "meter " + (tone || "") }, el("div", { style: "width:" + Math.min(100, Math.max(0, percent)) + "%" })));
+const fill = (id, ...nodes) => { const target = $(id); target.replaceChildren(...nodes); };
+
+/// One incident, the way a person says it: what, from–to, how long.
+function describe(incident, next) {
+  const k = incident.kind;
+  if (k === "HUNG") return { tone: "WARN", when: clock(new Date(Date.parse(incident.at) - incident.stalled_seconds * 1000).toISOString()) + "–" + clock(incident.at), what: "Macet " + span(incident.stalled_seconds) + ", dimulai ulang otomatis", detail: "Server tidak memberi tanda hidup, jadi ia menghentikan dirinya sendiri dan menyala lagi." };
+  if (k === "CRASH_LOOP") return { tone: "BAD", when: day(incident.at), what: "Berhenti sementara: gagal " + incident.starts_in_window + " kali dalam 10 menit", detail: "Menahan diri " + span(incident.hold_seconds) + " lalu mencoba lagi · perlu developer" };
+  if (k === "STOPPED") return { tone: "INFO", when: day(incident.at), what: "Dihentikan dengan rapi", detail: incident.reason === "asked to stop" ? "Diminta berhenti (restart, update, atau dimatikan)." : incident.reason };
+  if (k === "ENROLLED") return { tone: "OK", when: day(incident.at), what: "Terdaftar sebagai " + incident.site_id, detail: "Disetujui kantor pusat; data awal dikirim." };
+  if (k === "AWAITING_ENROLMENT") return null;
+  if (k === "STARTED") {
+    const p = incident.previous;
+    if (p.how === "UNCLEAN") {
+      const down = (Date.parse(incident.at) - Date.parse(p.last_seen)) / 1000;
+      const range = clock(p.last_seen) + "–" + clock(incident.at);
+      if (p.machine_restarted === true) return { tone: "INFO", when: range, what: "Listrik padam atau mesin dinyalakan ulang (" + span(down) + ")", detail: "Mesin menyala lagi sendiri dan server melanjutkan." };
+      return { tone: "WARN", when: range, what: "Mati mendadak " + span(down) + ", pulih sendiri", detail: "Proses berhenti tanpa pesan (crash) · dilaporkan ke kantor pusat." };
+    }
+    if (p.how === "FIRST_START") return { tone: "INFO", when: day(incident.at), what: "Pertama kali dijalankan", detail: "Versi " + incident.version };
+    return null;
+  }
+  return null;
+}
+
+function render(data) {
+  const s = data.status, a = data.assessment;
+  $("site").textContent = s.site_id || "Belum terdaftar";
+  $("ident").textContent = (s.origin_id || "—") + " · generasi " + s.generation + " · " + s.hostname;
+  $("ver").textContent = "v" + s.version + " · " + clock(new Date().toISOString());
+  const pill = $("pill"); pill.className = "pill t-" + a.tone; pill.textContent = a.label;
+  $("hero").className = "card hero t-" + a.tone;
+  $("headline").textContent = a.headline;
+  $("sentence").textContent = a.sentence;
+  const up = span((Date.now() - Date.parse(s.started_at)) / 1000);
+  $("meta").textContent = a.since
+    ? "Sejak " + day(a.since) + " (" + span((Date.now() - Date.parse(a.since)) / 1000) + ")"
+    : "Tersinkron " + ago(s.sync.last_success_at) + " · " + s.sync.pending_facts + " antrean · server berjalan " + up;
+
+  const y = s.sync;
+  fill("sync",
+    row("Terakhir berhasil", y.enabled ? ago(y.last_success_at) : "belum terhubung", y.enabled && y.consecutive_failures >= 3 ? "WARN" : null),
+    row("Menunggu dikirim", y.pending_facts + " catatan" + (y.oldest_pending_at ? " · tertua " + span((Date.now() - Date.parse(y.oldest_pending_at)) / 1000) : ""), y.pending_facts > 0 && y.oldest_pending_at && (Date.now() - Date.parse(y.oldest_pending_at)) > 1800000 ? "WARN" : null),
+    row("Gagal beruntun", String(y.consecutive_failures), y.consecutive_failures >= 3 ? "WARN" : null),
+    row("Ditolak pusat", String(y.dead_lettered), y.dead_lettered > 0 ? "BAD" : null),
+  );
+  if (y.last_error) $("sync").append(el("p", { class: "note mono", style: "margin-top:4px;overflow-wrap:anywhere" }, "Terakhir: " + y.last_error));
+
+  const m = s.machine;
+  const diskPct = m.disk_total_bytes ? 100 * (1 - m.disk_free_bytes / m.disk_total_bytes) : 0;
+  const freePct = m.disk_total_bytes ? 100 * m.disk_free_bytes / m.disk_total_bytes : 100;
+  const memPct = m.memory_total_bytes ? 100 * m.memory_used_bytes / m.memory_total_bytes : 0;
+  fill("machine",
+    meter("Disk data", gb(m.disk_free_bytes) + " bebas", diskPct, freePct < 5 ? "BAD" : freePct < 10 ? "WARN" : null),
+    meter("Memori", gb(m.memory_used_bytes) + " / " + gb(m.memory_total_bytes), memPct, memPct > 90 ? "WARN" : null),
+    row("Database", mb(m.database_bytes)),
+    row("Jam", m.clock_skew_seconds == null ? "belum dicek" : "selisih " + span(Math.abs(m.clock_skew_seconds)), m.clock_skew_seconds != null && Math.abs(m.clock_skew_seconds) > 30 ? "BAD" : null),
+    row("Mesin nyala sejak", m.machine_uptime_seconds == null ? "—" : span(m.machine_uptime_seconds)),
+  );
+
+  const d = s.devices;
+  fill("devices",
+    row("Kasir", d.terminals_seen_recently + " dari " + d.terminals_active + " aktif", d.terminals_active && d.terminals_seen_recently < d.terminals_active ? "WARN" : null),
+    row("Reader RFID", d.rfid_seen_recently + " dari " + d.rfid_active + " aktif"),
+  );
+  $("devices").append(el("p", { class: "note" }, "“Aktif” = terlihat dalam 10 menit terakhir."));
+
+  const t = s.till;
+  fill("safe",
+    row("Laci kasir terbuka", t.open_shifts ? t.open_shifts + " (" + t.open_shift_terminals.join(", ") + ")" : "tidak ada", t.open_shifts ? "WARN" : "OK"),
+    el("p", { class: "note" }, t.open_shifts ? "Restart akan memutus kasir beberapa detik. Tunggu laci ditutup, atau paksa." : "Aman: tidak ada kasir yang sedang bertransaksi."),
+  );
+
+  const items = [];
+  const list = s.incidents.slice().reverse();
+  for (const incident of list) { const line = describe(incident); if (line) items.push(line); if (items.length >= 12) break; }
+  fill("history", ...items.map((line) => el("li", {},
+    el("span", { class: "dot " + line.tone }), el("span", { class: "when mono" }, line.when),
+    el("span", {}, el("div", { class: "what" }, line.what), el("div", { class: "detail" }, line.detail)))));
+  $("history-empty").hidden = items.length > 0;
+}
+
+
+// ---- Demo: every state, with the same render, for review ------------------
+// `?demo=offline` etc. Nothing is fetched and no action is sent.
+// Opened straight from disk (file://) it is the prototype, so it starts in
+// demo mode rather than failing to reach a node.
+const DEMO = new URLSearchParams(location.search).get("demo") || (location.protocol === "file:" ? "sehat" : null);
+function fixture(name) {
+  const now = Date.now(), iso = (minutesAgo) => new Date(now - minutesAgo * 60000).toISOString();
+  const s = {
+    taken_at: iso(0), site_id: "store-07", origin_id: "store-07", generation: 2, version: "1.3.0",
+    started_at: iso(60 * 76), hostname: "TOKO07-SERVER", os: "linux x86_64",
+    sync: { enabled: true, last_success_at: iso(0.1), last_error: null, last_error_at: null, consecutive_failures: 0, breaker_open_until: null, pending_facts: 0, oldest_pending_at: null, dead_lettered: 0 },
+    machine: { disk_free_bytes: 61e9, disk_total_bytes: 98e9, memory_used_bytes: 1.3e9, memory_total_bytes: 8.2e9, database_bytes: 1.4e6, machine_uptime_seconds: 3 * 86400 + 4 * 3600, clock_skew_seconds: 0 },
+    devices: { terminals_active: 3, terminals_seen_recently: 3, rfid_active: 1, rfid_seen_recently: 1 },
+    till: { open_shifts: 2, open_shift_terminals: ["Kasir 1", "Kasir 2"] },
+    incidents: [
+      { kind: "STARTED", at: iso(60 * 76), version: "1.3.0", previous: { how: "CLEAN", at: iso(60 * 76 + 1) } },
+      { kind: "STOPPED", at: iso(60 * 76 + 1), reason: "asked to stop" },
+    ],
+  };
+  const a = (tone, code, label, headline, sentence, since) => ({ tone, code, label, headline, sentence, since: since || null, needs: "NOBODY" });
+  switch (name) {
+    case "offline":
+      Object.assign(s.sync, { last_success_at: iso(110), consecutive_failures: 41, pending_facts: 37, oldest_pending_at: iso(109), last_error: "error sending request: dns error", last_error_at: iso(0.2) });
+      return { status: s, assessment: a("WARN", "OFFLINE", "Internet putus", "Kantor pusat tidak terjangkau sejak " + clock(iso(110)), "Kasir tetap bisa berjualan. 37 catatan disimpan di sini dan terkirim sendiri begitu internet kembali. Cek router kalau ini lebih dari 30 menit.", iso(110)) };
+    case "recovered":
+      s.incidents.push(
+        { kind: "STARTED", at: iso(280), version: "1.3.0", previous: { how: "UNCLEAN", last_seen: iso(280.1), machine_restarted: false } },
+        { kind: "STARTED", at: iso(470), version: "1.3.0", previous: { how: "UNCLEAN", last_seen: iso(493), machine_restarted: true } },
+        { kind: "HUNG", at: iso(78), stalled_seconds: 125 },
+        { kind: "STARTED", at: iso(78), version: "1.3.0", previous: { how: "HUNG", at: iso(80) } });
+      s.incidents.sort((x, y) => Date.parse(x.at) - Date.parse(y.at));
+      return { status: s, assessment: a("OK", "RECOVERED", "Sehat · pulih sendiri", "Server berjalan — sempat 3 kali terganggu dalam 24 jam", "Semuanya sudah pulih otomatis. Kantor pusat melihat catatan yang sama. Kalau terjadi lebih dari 3 kali sehari, developer akan menghubungi toko.") };
+    case "disk":
+      Object.assign(s.machine, { disk_free_bytes: 4.1e9 });
+      return { status: s, assessment: a("BAD", "DISK_CRITICAL", "Disk hampir penuh", "Disk tinggal 3,8 GB (4 %)", "Log dan backup lama sudah dibersihkan otomatis. Kalau disk penuh, server berhenti menyimpan transaksi. Kosongkan atau ganti disk sekarang.") };
+    case "clock":
+      s.machine.clock_skew_seconds = 184;
+      return { status: s, assessment: a("BAD", "CLOCK_SKEW", "Jam bergeser", "Jam komputer selisih 3 menit dari kantor pusat", "Kasir bisa ditolak karena jamnya tidak cocok. Nyalakan sinkron jam otomatis di komputer ini.") };
+    case "key":
+      Object.assign(s.sync, { last_success_at: iso(15), consecutive_failures: 12, last_error: "sync handshake returned 403 Forbidden: invalid or missing x-sync-key", last_error_at: iso(0.3), pending_facts: 9, oldest_pending_at: iso(14) });
+      return { status: s, assessment: a("BAD", "KEY_REFUSED", "Kunci ditolak", "Kantor pusat menolak mesin ini", "Mesin ini sudah diganti atau dicabut dari kantor pusat, jadi datanya tidak lagi diterima. Kalau ini keliru, daftarkan ulang dari hub.", iso(15)) };
+    case "rejected":
+      s.sync.dead_lettered = 2;
+      return { status: s, assessment: a("BAD", "REJECTED_FACTS", "Ada data ditolak", "2 catatan ditolak kantor pusat", "Catatan itu tertahan di server ini dan tidak akan hilang. Penjualan tetap jalan. Developer perlu memeriksanya.") };
+    case "unenrolled":
+      Object.assign(s, { site_id: "", origin_id: "", generation: 1 });
+      Object.assign(s.sync, { enabled: false, last_success_at: null });
+      s.till = { open_shifts: 0, open_shift_terminals: [] };
+      return { status: s, assessment: a("INFO", "NOT_CONNECTED", "Belum terhubung", "Server belum terhubung ke kantor pusat", "Penjualan tersimpan di server ini. Daftarkan mesin ini dari hub supaya datanya terkirim.") };
+    default:
+      return { status: s, assessment: a("OK", "OK", "Sehat", "Server berjalan normal", "Semua transaksi sudah sampai ke kantor pusat. Tidak ada yang perlu dilakukan.") };
+  }
+}
+if (DEMO) {
+  const states = [["sehat", "Sehat"], ["offline", "Internet putus"], ["recovered", "Pulih sendiri"], ["disk", "Disk penuh"], ["clock", "Jam bergeser"], ["key", "Kunci ditolak"], ["rejected", "Data ditolak"], ["unenrolled", "Belum terhubung"]];
+  const nav = $("demo"); nav.hidden = false;
+  nav.append(el("span", { style: "color:#7d8491;font-size:13px;padding:4px 6px" }, "Contoh kondisi:"));
+  for (const [key, label] of states) nav.append(el("a", { href: "?demo=" + key, class: key === DEMO ? "on" : "" }, label));
+  window.fetch = async () => ({ ok: false, status: 0, json: async () => ({ error: "Mode contoh: tindakan tidak dikirim." }) });
+}
+
+let failures = 0;
+async function refresh() {
+  if (DEMO) { render(fixture(DEMO)); return; }
+  try {
+    const response = await fetch("/console/status", { cache: "no-store" });
+    if (!response.ok) throw new Error(response.status);
+    render(await response.json());
+    failures = 0; $("lost").classList.remove("on");
+  } catch {
+    if (++failures >= 2) $("lost").classList.add("on");
+  }
+}
+
+function say(text, tone) {
+  const box = $("action-msg");
+  box.hidden = false; box.className = "msg t-" + (tone || "INFO"); box.textContent = text;
+}
+
+async function act(path, body) {
+  const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
+  let data = {}; try { data = await response.json(); } catch {}
+  return { ok: response.ok, status: response.status, data };
+}
+
+$("btn-sync").addEventListener("click", async () => {
+  const r = await act("/console/sync");
+  say(r.ok ? r.data.message : r.data.error, r.ok ? "OK" : "WARN");
+  setTimeout(refresh, 1500);
+});
+
+$("btn-diag").addEventListener("click", async (event) => {
+  event.currentTarget.disabled = true; say("Menjalankan diagnosa…");
+  try {
+    const r = await act("/console/diagnose");
+    const report = r.data.report;
+    const words = { OK: "semua baik.", WARN: "berjalan, ada yang perlu diperhatikan.", FAIL: "ada masalah — kirim laporan ke kantor pusat." };
+    $("diag").hidden = false;
+    $("diag-verdict").textContent = "Kesimpulan: " + words[report.verdict];
+    const tone = { OK: "OK", WARN: "WARN", FAIL: "BAD" };
+    const label = { OK: "OK", WARN: "Perlu dilihat", FAIL: "Gagal" };
+    fill("diag-checks", ...report.checks.map((c) => el("li", {}, el("span", { class: "pill t-" + tone[c.verdict] }, label[c.verdict]), el("strong", {}, c.name), el("span", {}, c.saying))));
+    $("diag-saved").textContent = r.data.saved_to ? "Laporan lengkap: " + r.data.saved_to : "";
+    $("action-msg").hidden = true;
+    $("diag").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    say("Diagnosa gagal: " + error, "BAD");
+  } finally {
+    event.currentTarget.disabled = false;
+  }
+});
+
+async function restart(force) {
+  const r = await act("/console/restart", { force });
+  if (r.ok) { say(r.data.message, "INFO"); setTimeout(refresh, 3000); return; }
+  if (r.status === 409 && !force) {
+    say(r.data.error, "WARN");
+    const box = $("action-msg");
+    const again = el("button", { type: "button", class: "danger", style: "margin-top:8px;display:block" }, "Paksa restart sekarang");
+    again.addEventListener("click", () => restart(true));
+    box.append(again);
+    return;
+  }
+  say(r.data.error || "Restart gagal.", "BAD");
+}
+$("btn-restart").addEventListener("click", () => {
+  if (confirm("Restart server toko? Kasir terputus beberapa detik.")) restart(false);
+});
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

@@ -120,7 +120,7 @@ export function Points() {
                       >
                         {account.display_name ?? account.customer_id}
                       </AppLink>
-                      <span className="block font-mono text-[0.6875rem] text-mute">
+                      <span className="block font-mono text-[0.875rem] text-mute">
                         {account.customer_id}
                       </span>
                     </MiniCell>
@@ -149,7 +149,7 @@ export function Points() {
                       </span>
                     </MiniCell>
                     <MiniCell align="right">
-                      <span className="text-[0.6875rem] text-mute">
+                      <span className="text-[0.875rem] text-mute">
                         {account.last_movement === null
                           ? "never"
                           : moment(account.last_movement)}

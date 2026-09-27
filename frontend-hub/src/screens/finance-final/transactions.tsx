@@ -248,7 +248,7 @@ export function Transactions() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Store"
+        crumb="Finance · Cash & Bank"
         title="Transactions"
         sub="Every movement of money at one place, in the order it happened."
       />
@@ -401,7 +401,7 @@ function MovementRow({
         <span className="block">
           <Code>{account.account_code}</Code>
           {account.qualifier !== "" && (
-            <span className="ml-1.5 text-[0.65625rem] text-mute">
+            <span className="ml-1.5 text-[0.875rem] text-mute">
               {account.qualifier}
             </span>
           )}
@@ -412,13 +412,13 @@ function MovementRow({
       </Td>
       <Td>
         <AppLink
-          to="/finance/journal"
+          to="/finance/accounting/journal-entries"
           sheet={{ key: "entry", value: row.entry_id }}
-          className="font-mono text-[0.6875rem] text-accent hover:underline"
+          className="font-mono text-[0.875rem] text-accent hover:underline"
         >
           {row.entry_number}
         </AppLink>
-        <span className="block text-[0.65625rem] text-mute">
+        <span className="block text-[0.875rem] text-mute">
           {label(row.source_kind)}
         </span>
       </Td>

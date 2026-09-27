@@ -26,7 +26,7 @@
 use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
-    domain::{record_subject_of, RecordKind},
+    domain::{record_subject_of, RecordKind, Role},
     postgres as infrastructure,
 };
 use axum::{
@@ -320,9 +320,18 @@ pub(super) fn wants_counting(raw: Option<&str>) -> bool {
 /// and an approximate count of who did what reads as a fact without being one.
 pub async fn list(
     State(state): State<AppState>,
-    Extension(_principal): Extension<Principal>,
+    Extension(principal): Extension<Principal>,
     Query(query): Query<SubjectQuery>,
 ) -> Result<Json<infrastructure::AuditFeed>, AppError> {
+    // The activity log names every actor, every HR path and every payroll and
+    // leave row it touched. That is the operator's view, not a till's: a
+    // cashier holding a session must not be able to page the estate's writes.
+    if principal.role != Role::Admin {
+        return Err(AppError::Forbidden(format!(
+            "{} may not read the global activity log",
+            principal.username
+        )));
+    }
     // Naming half a subject is a caller bug, and answering the global feed
     // instead would hide it behind plausible-looking data.
     if query.subject_kind.is_some() != query.subject_id.is_some() {

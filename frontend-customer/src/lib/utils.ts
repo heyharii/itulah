@@ -22,6 +22,12 @@ const twMerge = extendTailwindMerge({
       "font-size": [
         {
           text: [
+            "display",
+            "title",
+            "headline",
+            "button",
+            "tab",
+            "code",
             "hero",
             "appbar",
             "card-title",
@@ -58,6 +64,7 @@ const twMerge = extendTailwindMerge({
             "bad",
             "bad-fg",
             "new-fg",
+            "cta-fg",
           ],
         },
       ],

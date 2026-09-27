@@ -39,10 +39,6 @@ fn db(error: rusqlite::Error) -> EdgeError {
     super::sqlite::db(error)
 }
 
-fn now() -> DateTime<Utc> {
-    Utc::now()
-}
-
 /// Micros, matching `reports.rs`, because a span is filtered by comparing these
 /// strings against the bounds `window_of` produces — and two stamp precisions
 /// on one column is a row that sorts into the wrong day at midnight.
@@ -91,23 +87,14 @@ fn rupiah(minor: i64) -> String {
 /// has ever written.
 pub const STORE_EXPENSE_MANAGER_LIMIT_MINOR: i64 = 500_000;
 
-/// The nine kinds of cost a shop may file against.
-///
-/// The same nine the centre's `store_expense` constrains, named identically, so
-/// a row written here maps to a posting rule there without a translation table
-/// in between. Adding a tenth is a line here, a line in the migration, a line
-/// in the centre's CHECK, and a considered decision about the client's chart.
-pub const EXPENSE_CATEGORIES: [&str; 9] = [
-    "expense_electricity",
-    "expense_water",
-    "expense_telephone",
-    "expense_household",
-    "expense_stationery",
-    "expense_repairs",
-    "expense_transport",
-    "expense_cleaning",
-    "expense_misc",
-];
+/// The shape of an expense category's code. Which categories exist is head
+/// office's master data (0465): the centre refuses a code it does not know
+/// when the expense arrives, so a new category needs no new build of the shop.
+fn is_category_code(code: &str) -> bool {
+    let mut chars = code.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // What travels, and what waits
@@ -148,9 +135,7 @@ pub const FACT_PETTY_CASH_TOPPED_UP: &str = "store.petty_cash.topped_up";
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct RecordExpenseRequest {
-    /// One of `EXPENSE_CATEGORIES`. Refused by name rather than silently filed
-    /// under miscellaneous, because a cost in the wrong account is a cost
-    /// nobody finds again.
+    /// An expense category code from head office's master data (0465).
     pub category: String,
     /// Positive, in whole rupiah. Unsigned, unlike a cash movement: there is
     /// only one direction money leaves a petty cash tin, and a signed column
@@ -336,12 +321,12 @@ pub struct ExpenseWindow {
 pub fn record_expense(
     tx: &Transaction<'_>,
     request: &RecordExpenseRequest,
+    now: DateTime<Utc>,
 ) -> Result<ExpenseRecorded, EdgeError> {
-    let category = request.category.trim().to_ascii_lowercase();
-    if !EXPENSE_CATEGORIES.contains(&category.as_str()) {
+    let category = request.category.trim().to_string();
+    if !is_category_code(&category) {
         return Err(EdgeError::Validation(format!(
-            "'{category}' is not a kind of cost this shop can file against; it is one of {}",
-            EXPENSE_CATEGORIES.join(", ")
+            "'{category}' is not an expense category code"
         )));
     }
     if request.amount_minor <= 0 {
@@ -400,7 +385,7 @@ pub fn record_expense(
     }
 
     let id = Uuid::new_v4().to_string();
-    let spent_at = stamp(now());
+    let spent_at = stamp(now);
     tx.execute(
         "INSERT INTO store_expense(id,idempotency_key,category,amount_minor,payee,reason,
                                    claimed_by,approved_by,approved_role,spent_at)
@@ -444,6 +429,7 @@ pub fn record_expense(
 pub fn record_top_up(
     tx: &Transaction<'_>,
     request: &PettyCashTopUpRequest,
+    now: DateTime<Utc>,
 ) -> Result<PettyCashTopUpRecorded, EdgeError> {
     if request.amount_minor <= 0 {
         return Err(EdgeError::Validation(
@@ -465,7 +451,7 @@ pub fn record_top_up(
     }
 
     let id = Uuid::new_v4().to_string();
-    let received_at = stamp(now());
+    let received_at = stamp(now);
     let reference = request
         .reference
         .as_deref()

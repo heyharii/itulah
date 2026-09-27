@@ -69,12 +69,12 @@ pub struct BankStatementLineRow {
     pub reference: Option<String>,
     pub debit_minor: i64,
     pub credit_minor: i64,
-    /// Who the other side was, as far as anybody has said (0214). `counterparty_kind`
+    /// Who the other side was, as far as anybody has said (0214). `party_type`
     /// null means nobody has looked yet; `OTHER` means somebody looked and
     /// decided it is nobody we keep a register of.
-    pub counterparty_kind: Option<String>,
-    pub counterparty_id: Option<String>,
-    pub counterparty_name: String,
+    pub party_type: Option<String>,
+    pub party_id: Option<String>,
+    pub party_name: String,
     /// What the BANK called them. Never overwritten by the field above.
     pub bank_said: String,
     pub note: String,
@@ -244,6 +244,20 @@ pub async fn import_statement(
     .fetch_optional(&mut *tx)
     .await?;
 
+    // Marked BEFORE the insert, on purpose. The in-force index is immediate:
+    // inserting the replacement while its predecessor stood would refuse the
+    // import as a bare 23505. `superseded_by`'s foreign key is deferrable
+    // (0312) for exactly this reason -- the reference is checked at COMMIT,
+    // when the row it names is on the page, and the index never sees two
+    // live statements for one period.
+    if let Some(replaced) = superseded {
+        sqlx::query("UPDATE bank_statement SET superseded_by = $2 WHERE statement_id = $1")
+            .bind(replaced)
+            .bind(statement_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
     sqlx::query(
         "INSERT INTO bank_statement
            (statement_id, account_code, site_id, period_start, period_end,
@@ -310,14 +324,6 @@ pub async fn import_statement(
         }
     }
 
-    // After the new row exists, so the foreign key has something to point at.
-    if let Some(replaced) = superseded {
-        sqlx::query("UPDATE bank_statement SET superseded_by = $2 WHERE statement_id = $1")
-            .bind(replaced)
-            .bind(statement_id)
-            .execute(&mut *tx)
-            .await?;
-    }
     tx.commit().await?;
 
     Ok(ImportOutcome {
@@ -684,7 +690,7 @@ pub async fn statement_lines(
     let rows = sqlx::query(
         "SELECT l.line_id, l.line_number, l.value_date, l.description, l.reference,
                 l.debit_minor, l.credit_minor,
-                l.counterparty_kind, l.counterparty_id, l.counterparty_name, l.bank_said, l.note,
+                l.party_type, l.party_id, l.party_name, l.bank_said, l.note,
                 m.match_id, m.journal_line_id, m.allocated_minor, m.reasons,
                 m.decided_by_kind, m.matched_by,
                 (SELECT e.entry_number FROM journal_line jl
@@ -713,9 +719,9 @@ pub async fn statement_lines(
                 reference: row.try_get("reference")?,
                 debit_minor: debit,
                 credit_minor: credit,
-                counterparty_kind: row.try_get("counterparty_kind")?,
-                counterparty_id: row.try_get("counterparty_id")?,
-                counterparty_name: row.try_get("counterparty_name")?,
+                party_type: row.try_get("party_type")?,
+                party_id: row.try_get("party_id")?,
+                party_name: row.try_get("party_name")?,
                 bank_said: row.try_get("bank_said")?,
                 note: row.try_get("note")?,
                 matched_journal_line_id: None,
@@ -953,16 +959,18 @@ pub struct ConfirmMatchRequest {
 }
 
 /// What a person concluded about a bank line. ERPNext's *Update Bank
-/// Transaction*, with one deliberate narrowing — and with their word `party`
-/// spelled the way this codebase spells it: **counterparty**.
+/// Transaction*, with one deliberate narrowing -- and, since 0299, with their
+/// vocabulary too: `party_type` + `party`, named from the `party_type`
+/// registry.
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct UpdateBankLineRequest {
-    /// `SUPPLIER`, `CUSTOMER`, `MEMBER`, `STAFF` or `OTHER`. Null clears it.
-    pub counterparty_kind: Option<String>,
-    pub counterparty_id: Option<String>,
+    /// A row of `party_type` (0299) -- the registry is the list, not this
+    /// comment. Null clears it.
+    pub party_type: Option<String>,
+    pub party_id: Option<String>,
     #[serde(default)]
-    pub counterparty_name: String,
+    pub party_name: String,
     #[serde(default)]
     pub note: String,
 }
@@ -983,16 +991,22 @@ pub async fn update_line(
     request: &UpdateBankLineRequest,
     actor: &str,
 ) -> Result<BankStatementLineRow, AppError> {
-    const KINDS: [&str; 5] = ["SUPPLIER", "CUSTOMER", "MEMBER", "STAFF", "OTHER"];
-    if let Some(kind) = request.counterparty_kind.as_deref() {
-        if !KINDS.contains(&kind) {
+    // The list of legal kinds is the `party_type` registry (0299), not a
+    // literal here: a party shape joins by a row, the way ERPNext's Party Type
+    // joins by a DocType, and this code must not have to learn about it.
+    if let Some(kind) = request.party_type.as_deref() {
+        let known: Option<String> =
+            sqlx::query_scalar("SELECT party_type FROM party_type WHERE party_type = $1")
+                .bind(kind)
+                .fetch_optional(pool)
+                .await?;
+        if known.is_none() {
             return Err(AppError::Validation(format!(
-                "counterparty kind {kind:?} is not one of {}",
-                KINDS.join(", ")
+                "party type {kind:?} is not a row of the party_type registry"
             )));
         }
     }
-    if request.counterparty_kind.is_none() && request.counterparty_id.is_some() {
+    if request.party_type.is_none() && request.party_id.is_some() {
         return Err(AppError::Validation(
             "a counterparty id without a kind says nothing".into(),
         ));
@@ -1000,15 +1014,15 @@ pub async fn update_line(
 
     let statement_id: Option<Uuid> = sqlx::query(
         "UPDATE bank_statement_line
-            SET counterparty_kind = $2, counterparty_id = $3, counterparty_name = $4, note = $5,
-                counterparty_set_by = $6, counterparty_set_at = now()
+            SET party_type = $2, party_id = $3, party_name = $4, note = $5,
+                party_set_by = $6, party_set_at = now()
           WHERE line_id = $1
       RETURNING statement_id",
     )
     .bind(line_id)
-    .bind(request.counterparty_kind.as_deref())
-    .bind(request.counterparty_id.as_deref())
-    .bind(request.counterparty_name.trim())
+    .bind(request.party_type.as_deref())
+    .bind(request.party_id.as_deref())
+    .bind(request.party_name.trim())
     .bind(request.note.trim())
     .bind(actor)
     .fetch_optional(pool)
@@ -1067,9 +1081,13 @@ async fn resolve_statement_account(
 ) -> Result<Uuid, AppError> {
     let rows = sqlx::query(
         "SELECT c.account_id, c.status, b.code || ' ' || c.account_no AS label
-           FROM company_bank_account c
+           FROM bank_account c
            JOIN bank b ON b.bank_id = c.bank_id
-          WHERE c.ledger_account_code = $1 AND c.site_id = $2
+          -- Ours, not a party's — see the note in `ledger.rs` on the same
+          -- join. 0308 merged the two halves; the flag is what tells them
+          -- apart.
+          WHERE c.is_company_account
+            AND c.ledger_account_code = $1 AND c.site_id = $2
           ORDER BY c.is_primary DESC, c.account_no_digits",
     )
     .bind(account)
@@ -1154,6 +1172,9 @@ pub async fn confirm_match(
         )));
     }
 
+    // The line's story, claimed before the match is written: a line a giro
+    // cleared or a document booked is not ours to agree with a journal.
+    claim_bank_line(&mut tx, line_id, "MATCH", actor).await?;
     sqlx::query(
         "INSERT INTO bank_line_match
            (match_id, line_id, journal_line_id, decided_by_kind, score, reasons,
@@ -1174,6 +1195,103 @@ pub async fn confirm_match(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// One line, one story (0317)
+// ---------------------------------------------------------------------------
+
+/// Claim a bank line for one of the three stories it can be part of.
+///
+/// Kinds are exclusive against each other and not against themselves: a
+/// MATCH may split a line across several journal lines (0213), so a second
+/// MATCH on a MATCH-claimed line is the split working as designed. What this
+/// refuses is a line that is already a giro's clearance evidence, or already
+/// booked as a document, being matched -- and each direction of that
+/// triangle, with the owner and the moment named so the refusal can be acted
+/// on rather than stared at.
+pub(super) async fn claim_bank_line(
+    tx: &mut Transaction<'_, Postgres>,
+    line_id: Uuid,
+    kind: &str,
+    actor: &str,
+) -> Result<(), AppError> {
+    let held = sqlx::query(
+        "SELECT claim_kind, claimed_by, released_at IS NOT NULL AS released
+           FROM bank_line_claim WHERE line_id = $1 FOR UPDATE",
+    )
+    .bind(line_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if let Some(row) = &held {
+        let held_kind: String = row.try_get("claim_kind")?;
+        let released: bool = row.try_get("released")?;
+        if !released && held_kind != kind {
+            return Err(AppError::Conflict(format!(
+                "this bank line is already spoken for -- {} by {} at {}. Release or reverse \
+                 that before it becomes {}",
+                claim_in_words(&held_kind),
+                row.try_get::<String, _>("claimed_by")?,
+                row.try_get::<DateTime<Utc>, _>("claimed_at")?
+                    .format("%Y-%m-%d %H:%M"),
+                claim_in_words(kind),
+            )));
+        }
+    }
+    if held.is_some() {
+        sqlx::query(
+            "UPDATE bank_line_claim
+                SET claim_kind = $2, claimed_by = $3, claimed_at = now(),
+                    released_by = NULL, released_at = NULL
+              WHERE line_id = $1",
+        )
+        .bind(line_id)
+        .bind(kind)
+        .bind(actor)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        sqlx::query(
+            "INSERT INTO bank_line_claim (line_id, claim_kind, claimed_by)
+             VALUES ($1,$2,$3)",
+        )
+        .bind(line_id)
+        .bind(kind)
+        .bind(actor)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Release a line's claim when the last of its matches is taken back.
+///
+/// A row, not a DELETE: who released it and when is the next question an
+/// auditor has, and it deserves an answer that is not "gone".
+async fn release_bank_line_claim(
+    tx: &mut Transaction<'_, Postgres>,
+    line_id: Uuid,
+    actor: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE bank_line_claim
+            SET released_by = $2, released_at = now()
+          WHERE line_id = $1 AND claim_kind = 'MATCH' AND released_at IS NULL",
+    )
+    .bind(line_id)
+    .bind(actor)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+fn claim_in_words(kind: &str) -> String {
+    match kind {
+        "MATCH" => "matched to a journal line".into(),
+        "CASH_DOCUMENT" => "booked as a cash document".into(),
+        "GIRO_CLEAR" => "a giro's clearance evidence".into(),
+        other => other.to_string(),
+    }
+}
+
 /// Take an agreement back — one voucher's claim, or every claim on the line.
 ///
 /// `journal_line_id` absent still means "all of them", which is what this did
@@ -1183,7 +1301,9 @@ pub async fn unmatch(
     pool: &PgPool,
     line_id: Uuid,
     journal_line_id: Option<Uuid>,
+    actor: &str,
 ) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
     match journal_line_id {
         Some(journal_line_id) => {
             sqlx::query(
@@ -1192,16 +1312,28 @@ pub async fn unmatch(
             )
             .bind(line_id)
             .bind(journal_line_id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
         }
         None => {
             sqlx::query("DELETE FROM bank_line_match WHERE line_id = $1")
                 .bind(line_id)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await?;
         }
     }
+    // The claim goes with the last match, not the first: a split line with
+    // one half unmatched is still matched, and must not become bookable
+    // while its other half agrees with a journal line.
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM bank_line_match WHERE line_id = $1")
+            .bind(line_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if remaining == 0 {
+        release_bank_line_claim(&mut tx, line_id, actor).await?;
+    }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -1282,7 +1414,7 @@ pub struct BookBankLineRequest {
 /// no sale and no rule that could ever have put a candidate on it to match.
 ///
 /// Two mappings pointing at one account at one location is ambiguous and is
-/// refused rather than guessed. It is a genuine mistake on the Account Map —
+/// refused rather than guessed. It is a genuine mistake on the Account Links —
 /// the same account cannot be both the BCA giro and the Mandiri one — and
 /// picking either would post correctly today and wrongly the day one of them
 /// moves.
@@ -1311,18 +1443,20 @@ pub(super) async fn statement_meaning(
     bank_account_id: Option<Uuid>,
 ) -> Result<(String, String), AppError> {
     let rows = sqlx::query(
-        "SELECT m.semantic_key, m.qualifier FROM account_map m
-          WHERE m.account_code = $1 AND m.site_id = $2 AND m.semantic_key = ANY($3)
+        "SELECT m.role AS semantic_key, m.source_id AS qualifier FROM account_resolution m
+          WHERE m.account_code = $1 AND m.site_id = $2 AND m.role = ANY($3)
+            AND m.source_type = 'COMPANY'
             AND ($4::uuid IS NULL OR EXISTS (
-                    SELECT 1 FROM company_bank_account c
+                    SELECT 1 FROM bank_account c
                       JOIN bank b ON b.bank_id = c.bank_id
-                     WHERE c.account_id = $4
-                       AND m.qualifier = b.code
-                       AND m.semantic_key = CASE c.kind
+                     WHERE c.is_company_account
+                       AND c.account_id = $4
+                       AND m.source_id = b.code
+                       AND m.role = CASE c.kind
                                WHEN 'GIRO'    THEN 'bank_giro'
                                WHEN 'SAVINGS' THEN 'bank_savings'
                                ELSE 'time_deposit' END))
-          ORDER BY m.semantic_key, m.qualifier",
+          ORDER BY m.role, m.source_id",
     )
     .bind(account_code)
     .bind(site_id)
@@ -1334,7 +1468,7 @@ pub(super) async fn statement_meaning(
     match rows.len() {
         0 => Err(AppError::Validation(format!(
             "no money account is mapped to {account_code} at {site_id} for the account this \
-             statement is of; point one of {} at it on the Account Map screen — under this \
+             statement is of; point one of {} at it on the Account Links screen — under this \
              bank's own code — before booking anything against this statement",
             STATEMENT_MEANINGS.join(", ")
         ))),
@@ -1345,7 +1479,7 @@ pub(super) async fn statement_meaning(
         _ => Err(AppError::Validation(format!(
             "{account_code} at {site_id} is mapped by more than one meaning for one bank account; \
              a giro and a savings account cannot be the same account at the same bank, so fix the \
-             Account Map before booking against it"
+             links on the Account Links screen before booking against it"
         ))),
     }
 }
@@ -1388,7 +1522,7 @@ pub(super) enum OtherSide {
 ///
 /// # The two legs
 ///
-/// One on the statement's own account, resolved through `account_map` from the
+/// One on the statement's own account, resolved through `account_resolution` from the
 /// code the statement carries; one on the account the caller chose. The
 /// direction follows the bank's line and nothing else: a DEBIT on the bank's
 /// statement is money leaving the account, so our books CREDIT the bank and
@@ -1437,6 +1571,10 @@ pub(super) async fn bank_line_to_document(
                 .into(),
         ));
     }
+
+    // And the story is ours to take: a giro's clearance evidence is not a
+    // charge to be booked, whatever the narration reads like.
+    claim_bank_line(tx, line_id, "CASH_DOCUMENT", actor).await?;
 
     let bank_account: String = line.try_get("account_code")?;
     let site_id: String = line.try_get("site_id")?;
@@ -1525,7 +1663,7 @@ pub(super) async fn bank_line_to_document(
         to,
         direction,
         amount_minor: amount,
-        party_kind: "OTHER".into(),
+        party_type: "OTHER".into(),
         supplier_id: None,
         employee_id: None,
         // The bank, unless the caller knows better. Never blank: it is a line
@@ -1626,4 +1764,228 @@ pub async fn book_bank_line(
     .await?;
     tx.commit().await?;
     Ok(booked)
+}
+
+// ---------------------------------------------------------------------------
+// The line proposes its own counterparty (0304)
+// ---------------------------------------------------------------------------
+
+/// A proposal, as the reconciliation screen reads it.
+#[derive(Clone, Debug, Serialize, sqlx::FromRow)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PartyProposalRow {
+    pub proposal_id: Uuid,
+    pub line_id: Uuid,
+    pub party_type: String,
+    pub party_id: String,
+    pub party_name: String,
+    pub matched_via: String,
+    pub matched_on: String,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Digit runs of 5–25 a narration could name an account with — the one
+/// identifier both sides of a transfer spell identically (0304).
+fn digit_candidates(parts: &[&str]) -> Vec<String> {
+    let mut runs: Vec<String> = Vec::new();
+    for text in parts {
+        let mut current = String::new();
+        for ch in text.chars() {
+            if ch.is_ascii_digit() {
+                current.push(ch);
+            } else if !current.is_empty() {
+                if (5..=25).contains(&current.len()) && !runs.contains(&current) {
+                    runs.push(current.clone());
+                }
+                current.clear();
+            }
+        }
+        if (5..=25).contains(&current.len()) && !runs.contains(&current) {
+            runs.push(current);
+        }
+    }
+    runs
+}
+
+fn digits_fingerprint(digits: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(digits.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// Run the party matcher over one line, and propose — never write.
+///
+/// The account number is the one identifier both sides of a transfer spell
+/// identically, which is why the matcher reads only digits: candidate runs
+/// out of the narration, reference and the bank's own string, matched against
+/// the party accounts' digits and (for encrypted ones) their fingerprints.
+/// One distinct party becomes a proposal; two or more become silence, because
+/// a matcher that chose between two candidates would be doing what a person
+/// is for. A name match is deliberately absent — see 0304's essay.
+pub async fn propose_line_party(
+    pool: &PgPool,
+    line_id: Uuid,
+    actor: &str,
+) -> Result<Option<PartyProposalRow>, AppError> {
+    let line = sqlx::query(
+        "SELECT description, reference, bank_said
+           FROM bank_statement_line WHERE line_id = $1",
+    )
+    .bind(line_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("bank statement line".into()))?;
+    let description: String = line.try_get("description")?;
+    let reference: Option<String> = line.try_get("reference")?;
+    let bank_said: String = line.try_get("bank_said")?;
+
+    let candidates = digit_candidates(&[
+        description.as_str(),
+        bank_said.as_str(),
+        reference.as_deref().unwrap_or(""),
+    ]);
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    let fingerprints: Vec<String> = candidates
+        .iter()
+        .map(|digits| digits_fingerprint(digits))
+        .collect();
+
+    let rows = sqlx::query(
+        "SELECT DISTINCT ON (party_type, party_id)
+                party_type, party_id, COALESCE(party_name, party_id) AS party_name,
+                CASE WHEN account_no_digits = ANY($1)
+                     THEN 'ACCOUNT_DIGITS' ELSE 'FINGERPRINT' END AS matched_via,
+                CASE WHEN account_no_digits = ANY($1)
+                     THEN account_no_digits ELSE account_number_fingerprint END AS matched_on
+           FROM bank_account
+          WHERE NOT is_company_account
+            AND active
+            AND retired_at IS NULL
+            AND (account_no_digits = ANY($1) OR account_number_fingerprint = ANY($2))
+          ORDER BY party_type, party_id, matched_via",
+    )
+    .bind(&candidates)
+    .bind(&fingerprints)
+    .fetch_all(pool)
+    .await?;
+
+    if rows.len() != 1 {
+        // Nothing, or two candidates the matcher refuses to choose between.
+        return Ok(None);
+    }
+    let row = &rows[0];
+    let party_type: String = row.try_get("party_type")?;
+    let party_id: String = row.try_get("party_id")?;
+    let party_name: String = row.try_get("party_name")?;
+    let matched_via: String = row.try_get("matched_via")?;
+    let matched_on: String = row.try_get("matched_on")?;
+
+    // Re-matching supersedes: the previous open proposal is set aside with the
+    // matcher's own name on it, and the new one is the only one waiting.
+    let proposal_id = Uuid::new_v4();
+    sqlx::query(
+        "UPDATE party_proposal
+            SET status = 'IGNORED', decided_by = $2, decided_at = now()
+          WHERE line_id = $1 AND status = 'PROPOSED'",
+    )
+    .bind(line_id)
+    .bind(actor)
+    .execute(pool)
+    .await?;
+
+    let row = sqlx::query_as(
+        "INSERT INTO party_proposal
+           (proposal_id, line_id, party_type, party_id, party_name,
+            matched_via, matched_on, matcher_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'party_match/1')
+         RETURNING proposal_id, line_id, party_type, party_id, party_name,
+                   matched_via, matched_on, status, created_at",
+    )
+    .bind(proposal_id)
+    .bind(line_id)
+    .bind(&party_type)
+    .bind(&party_id)
+    .bind(&party_name)
+    .bind(&matched_via)
+    .bind(&matched_on)
+    .fetch_one(pool)
+    .await?;
+    Ok(Some(row))
+}
+
+/// A person accepted: the proposal's party moves onto the line — the same
+/// guarded write a person typing would use — and the proposal closes.
+pub async fn accept_party_proposal(
+    pool: &PgPool,
+    proposal_id: Uuid,
+    actor: &str,
+) -> Result<BankStatementLineRow, AppError> {
+    let proposal = sqlx::query(
+        "SELECT line_id, party_type, party_id, party_name
+           FROM party_proposal
+          WHERE proposal_id = $1 AND status = 'PROPOSED' FOR UPDATE",
+    )
+    .bind(proposal_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("an open party proposal".into()))?;
+    let line_id: Uuid = proposal.try_get("line_id")?;
+    let party_type: String = proposal.try_get("party_type")?;
+    let party_id: String = proposal.try_get("party_id")?;
+    let party_name: String = proposal.try_get("party_name")?;
+
+    let line = sqlx::query("SELECT note FROM bank_statement_line WHERE line_id = $1")
+        .bind(line_id)
+        .fetch_one(pool)
+        .await?;
+    let note: String = line.try_get("note")?;
+
+    let row = update_line(
+        pool,
+        line_id,
+        &UpdateBankLineRequest {
+            party_type: Some(party_type.clone()),
+            party_id: Some(party_id),
+            party_name,
+            note,
+        },
+        actor,
+    )
+    .await?;
+
+    sqlx::query(
+        "UPDATE party_proposal
+            SET status = 'ACCEPTED', decided_by = $2, decided_at = now()
+          WHERE proposal_id = $1",
+    )
+    .bind(proposal_id)
+    .bind(actor)
+    .execute(pool)
+    .await?;
+    Ok(row)
+}
+
+/// A person looked and said no — recorded, so the same proposal is not made
+/// forever (0116's reason, carried).
+pub async fn ignore_party_proposal(
+    pool: &PgPool,
+    proposal_id: Uuid,
+    actor: &str,
+) -> Result<(), AppError> {
+    let result = sqlx::query(
+        "UPDATE party_proposal
+            SET status = 'IGNORED', decided_by = $2, decided_at = now()
+          WHERE proposal_id = $1 AND status = 'PROPOSED'",
+    )
+    .bind(proposal_id)
+    .bind(actor)
+    .execute(pool)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("an open party proposal".into()));
+    }
+    Ok(())
 }

@@ -103,6 +103,8 @@ fn browser(set_cookies: &[String]) -> (String, String) {
 
 fn config() -> AppConfig {
     AppConfig {
+        po_import: inventory_backend::cloud::intake::po::PoImportConfig::from_env(),
+        clock: None,
         bind_addr: "127.0.0.1:0"
             .parse::<SocketAddr>()
             .unwrap_or_else(|error| panic!("bind: {error}")),
@@ -113,6 +115,7 @@ fn config() -> AppConfig {
         observed_window_hours: 24,
         lost_risk_window_days: 30,
         enable_test_controls: false,
+        finance_automation_enabled: false,
         frontend_dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend"),
         sync_upload_url: None,
         sync_upload_key: None,
@@ -1215,4 +1218,146 @@ async fn leave_in_a_year_with_no_calendar_is_refused(pool: PgPool) {
     )
     .await;
     assert_eq!(refused.status, StatusCode::CONFLICT, "{:?}", refused.body);
+}
+
+/// Head office employs people too, and their leave is decided the way a
+/// shop's is — by somebody posted there — but never by the person it is for.
+///
+/// Two supervisors at `ho`. Rina files from her phone: her own queue does not
+/// offer it back to her, and reaching for it by id is refused. HR files a
+/// second request on her behalf, so she is not its requester: still refused,
+/// because it is her leave. Dewi, beside her, decides both.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn nobody_decides_their_own_leave_head_office_included(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+    publish_2026(&app, &cookies, &csrf).await;
+    ratify_leave(&app, &cookies, &csrf).await;
+
+    let rina = staff_at(&app, &cookies, &csrf, "HO0101", "ho").await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &rina,
+        "rina",
+        "SUPERVISOR",
+        SUPERVISOR_PASSWORD,
+    )
+    .await;
+    allocate(&app, &cookies, &csrf, &rina, 12).await;
+    let dewi = staff_at(&app, &cookies, &csrf, "HO0102", "ho").await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &dewi,
+        "dewi",
+        "SUPERVISOR",
+        SUPERVISOR_PASSWORD,
+    )
+    .await;
+
+    let (hers, her_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;
+    let filed = send(
+        app.clone(),
+        "POST",
+        "/api/v1/employees/me/leave-requests",
+        write_headers(&hers, &her_csrf),
+        Some(json!({
+            "request_id": "LV-HO-1",
+            "leave_type": "CUTI_TAHUNAN",
+            "from_date": "2026-04-13",
+            "to_date": "2026-04-14",
+            "reason": "urusan keluarga",
+        })),
+    )
+    .await;
+    assert_eq!(filed.status, StatusCode::OK, "file: {:?}", filed.body);
+    let on_behalf = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{rina}/leave-requests"),
+        write_headers(&cookies, &csrf),
+        Some(json!({
+            "request_id": "LV-HO-2",
+            "leave_type": "CUTI_TAHUNAN",
+            "from_date": "2026-06-08",
+            "to_date": "2026-06-08",
+            "reason": "diajukan HR atas permintaan lisan",
+        })),
+    )
+    .await;
+    assert_eq!(
+        on_behalf.status,
+        StatusCode::OK,
+        "file on behalf: {:?}",
+        on_behalf.body
+    );
+
+    let own_queue = send(
+        app.clone(),
+        "GET",
+        "/api/v1/leave-requests/pending",
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(own_queue.status, StatusCode::OK, "{:?}", own_queue.body);
+    assert_eq!(
+        own_queue.body.as_array().map(Vec::len),
+        Some(0),
+        "her own leave is not waiting on her: {:?}",
+        own_queue.body
+    );
+
+    for request in ["LV-HO-1", "LV-HO-2"] {
+        for verb in ["approve", "reject"] {
+            let refused = send(
+                app.clone(),
+                "POST",
+                &format!("/api/v1/employees/{rina}/leave-requests/{request}/{verb}"),
+                write_headers(&hers, &her_csrf),
+                Some(json!({ "reason": "saya sendiri" })),
+            )
+            .await;
+            assert_eq!(
+                refused.status,
+                StatusCode::FORBIDDEN,
+                "{request} {verb}: {:?}",
+                refused.body
+            );
+        }
+    }
+
+    let (his, his_csrf) = sign_in(&app, "dewi", SUPERVISOR_PASSWORD).await;
+    let queue = send(
+        app.clone(),
+        "GET",
+        "/api/v1/leave-requests/pending",
+        read_headers(&his),
+        None,
+    )
+    .await;
+    assert_eq!(
+        queue.body.as_array().map(Vec::len),
+        Some(2),
+        "both wait on her colleague: {:?}",
+        queue.body
+    );
+    for request in ["LV-HO-1", "LV-HO-2"] {
+        let approved = send(
+            app.clone(),
+            "POST",
+            &format!("/api/v1/employees/{rina}/leave-requests/{request}/approve"),
+            write_headers(&his, &his_csrf),
+            Some(json!({ "reason": "disetujui" })),
+        )
+        .await;
+        assert_eq!(approved.status, StatusCode::OK, "{request}: {:?}", approved.body);
+        assert_eq!(approved.body["state"], "APPROVED", "{:?}", approved.body);
+    }
 }

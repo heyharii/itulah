@@ -317,7 +317,7 @@ export function PaymentReconciliation() {
           aria-label="Unit"
         />
         <Toolbar.Spacer />
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {site === "" ? "Every unit" : <SiteName id={site} />}
           {` · ${count(openInvoices.length)} open ${
             openInvoices.length === 1 ? "invoice" : "invoices"
@@ -490,10 +490,10 @@ export function PaymentReconciliation() {
                               />
                             </Td>
                             <Td>
-                              <span className="block font-mono text-[0.75rem] text-ink">
+                              <span className="block font-mono text-[0.875rem] text-ink">
                                 {row.payment_number}
                               </span>
-                              <span className="block text-[0.6875rem] text-mute">
+                              <span className="block text-[0.875rem] text-mute">
                                 {row.reference ?? label(row.method)}
                               </span>
                             </Td>
@@ -600,19 +600,19 @@ export function PaymentReconciliation() {
                               />
                             </Td>
                             <Td>
-                              <span className="block font-mono text-[0.75rem] text-ink">
+                              <span className="block font-mono text-[0.875rem] text-ink">
                                 {bill.invoice_number}
                               </span>
                               <SupplierName
                                 id={bill.supplier_id}
                                 name={bill.supplier_name}
-                                className="block truncate text-[0.6875rem] text-mute"
+                                className="block truncate text-[0.875rem] text-mute"
                               />
                             </Td>
                             <Td>
                               {day(bill.next_due_date ?? bill.due_date)}
                               {bill.overdue && (
-                                <span className="block text-[0.6875rem] text-bad-fg">
+                                <span className="block text-[0.875rem] text-bad-fg">
                                   {count(bill.days_overdue)} days late
                                 </span>
                               )}
@@ -660,7 +660,7 @@ export function PaymentReconciliation() {
           </SubHead>
 
           {pairings.length === 0 ? (
-            <p className="rounded-inner border border-dashed border-hairline-2 px-3 py-6 text-center text-[0.71875rem] text-mute">
+            <p className="rounded-inner border border-dashed border-hairline-2 px-3 py-6 text-center text-[0.875rem] text-mute">
               Tick a payment and one or more invoices, then press{" "}
               <b>Allocate</b>. Each pair is offered the smaller of what is left
               of the payment and what is left of the invoice, oldest invoice
@@ -701,18 +701,18 @@ export function PaymentReconciliation() {
                   return (
                     <tr key={`${pair.payment_id}-${pair.invoice_id}-${index}`}>
                       <Td>
-                        <span className="font-mono text-[0.75rem] text-ink">
+                        <span className="font-mono text-[0.875rem] text-ink">
                           {payment?.payment_number ?? "—"}
                         </span>
                       </Td>
                       <Td>
-                        <span className="block font-mono text-[0.75rem] text-ink">
+                        <span className="block font-mono text-[0.875rem] text-ink">
                           {bill?.invoice_number ?? "—"}
                         </span>
                         <SupplierName
                           id={bill?.supplier_id}
                           name={bill?.supplier_name}
-                          className="block truncate text-[0.6875rem] text-mute"
+                          className="block truncate text-[0.875rem] text-mute"
                         />
                       </Td>
                       <Td>
@@ -732,7 +732,7 @@ export function PaymentReconciliation() {
                           className="h-8"
                         />
                         {over && (
-                          <span className="mt-0.5 block text-[0.6875rem] text-bad-fg">
+                          <span className="mt-0.5 block text-[0.875rem] text-bad-fg">
                             more than the {money(ceiling)} both sides have left
                           </span>
                         )}
@@ -780,7 +780,7 @@ export function PaymentReconciliation() {
           )}
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-3">
-            <span className="text-[0.71875rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               Committing an allocation would post nothing to the bank and move
               no money — and there is nowhere on this node to send it.
             </span>

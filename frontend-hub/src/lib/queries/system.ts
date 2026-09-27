@@ -226,6 +226,10 @@ export const systemKeys = {
   notifications: () => ["system", "notifications"] as const,
   edgeAssignments: () => ["system", "edge-assignments"] as const,
   rfidDevices: () => ["system", "rfid-devices"] as const,
+  enrolments: () => ["system", "enrolments"] as const,
+  nodeHealth: () => ["system", "node-health"] as const,
+  nodeIncidents: (originId: string) =>
+    ["system", "node-incidents", originId] as const,
 }
 
 // ---- The node register ----------------------------------------------------
@@ -264,6 +268,219 @@ export function registerOrigin(
     request,
     { signal, headers: masterKey ? { "x-sync-key": masterKey } : undefined }
   )
+}
+
+// ---- Enrolling a machine ---------------------------------------------------
+//
+// The replacement for typing keys into the sheet above: an Admin issues a
+// one-time code for a site, the machine in the shop claims it with a key it
+// minted itself, and an Admin approves after reading back the six-digit
+// verification number with the shop. See `backend/src/sync/enrolment.rs` and
+// `STORE-SERVER-PLAN.md` §2. Transcribed by hand from
+// `cloud/postgres/node_enrolment.rs`.
+
+export type EnrolmentStatus =
+  | "ISSUED"
+  | "EXPIRED"
+  | "CLAIMED"
+  | "STALE"
+  | "APPROVED"
+  | "REJECTED"
+  | "REVOKED"
+
+export interface EnrolmentMachine {
+  readonly hostname: string
+  readonly os: string
+  readonly arch: string
+  readonly version: string
+}
+
+export interface Enrolment {
+  readonly enrolment_id: string
+  readonly site_id: string
+  readonly site_name: string | null
+  readonly origin_id: string
+  readonly node_role: string
+  readonly label: string | null
+  readonly status: EnrolmentStatus
+  readonly issued_by: string
+  readonly issued_at: string
+  readonly expires_at: string
+  readonly claimed_at: string | null
+  readonly verification: string | null
+  readonly machine: EnrolmentMachine | null
+  readonly claimed_from: string | null
+  readonly decided_by: string | null
+  readonly decided_at: string | null
+  readonly active_generation: number | null
+  readonly delivered_at: string | null
+}
+
+export interface IssueEnrolmentRequest {
+  readonly site_id: string
+  readonly node_role?: string
+  readonly label?: string
+  readonly ttl_minutes?: number
+}
+
+/// The code comes back once, here, and no read ever returns it again.
+export interface IssuedEnrolment {
+  readonly enrolment_id: string
+  readonly site_id: string
+  readonly origin_id: string
+  readonly node_role: string
+  readonly code: string
+  readonly expires_at: string
+}
+
+/// Per stream, what the new node was sent, or `{ error }` for a stream that
+/// failed and can be sent again from the node's sheet.
+export type BootstrapReport = Readonly<Record<string, unknown>>
+
+export function listEnrolments(signal?: AbortSignal) {
+  return node
+    .get<{ items: Enrolment[] }>("/api/v1/sync/enrollments", { signal })
+    .then((body) => body.items)
+}
+
+export function issueEnrolment(request: IssueEnrolmentRequest) {
+  return node.post<IssuedEnrolment>("/api/v1/sync/enrollments", request)
+}
+
+export function approveEnrolment(id: string) {
+  return node.post<{ enrolment: Enrolment; bootstrap: BootstrapReport }>(
+    `/api/v1/sync/enrollments/${encodeURIComponent(id)}/approve`,
+    {}
+  )
+}
+
+export function refuseEnrolment(id: string) {
+  return node.post<Enrolment>(
+    `/api/v1/sync/enrollments/${encodeURIComponent(id)}/refuse`,
+    {}
+  )
+}
+
+/// Send an enrolled node everything the fleet already knows, again.
+export function bootstrapOrigin(originId: string) {
+  return node.post<BootstrapReport>(
+    `/api/v1/sync/origins/${encodeURIComponent(originId)}/bootstrap`,
+    {}
+  )
+}
+
+// ---- Shop servers' health ---------------------------------------------------
+//
+// What each store server last said about itself in its heartbeat, judged by
+// the same function its own console uses (`backend/src/sync/node_status.rs`),
+// so the sentence here is the sentence the shop sees. Transcribed by hand
+// from `cloud/postgres/node_health.rs`.
+
+export type HealthTone = "OK" | "INFO" | "WARN" | "BAD"
+
+export interface NodeAssessment {
+  readonly tone: HealthTone
+  readonly code: string
+  readonly label: string
+  readonly headline: string
+  readonly sentence: string
+  readonly since: string | null
+  readonly needs: "NOBODY" | "SHOP" | "HEAD_OFFICE" | "DEVELOPER"
+}
+
+export type NodeIncident =
+  | {
+      readonly kind: "STARTED"
+      readonly at: string
+      readonly version: string
+      readonly previous: PreviousExit
+    }
+  | { readonly kind: "STOPPED"; readonly at: string; readonly reason: string }
+  | {
+      readonly kind: "HUNG"
+      readonly at: string
+      readonly stalled_seconds: number
+    }
+  | {
+      readonly kind: "CRASH_LOOP"
+      readonly at: string
+      readonly starts_in_window: number
+      readonly hold_seconds: number
+    }
+  | { readonly kind: "AWAITING_ENROLMENT"; readonly at: string }
+  | { readonly kind: "ENROLLED"; readonly at: string; readonly site_id: string }
+
+export type PreviousExit =
+  | { readonly how: "FIRST_START" }
+  | { readonly how: "CLEAN"; readonly at: string }
+  | { readonly how: "HUNG"; readonly at: string }
+  | {
+      readonly how: "UNCLEAN"
+      readonly last_seen: string
+      readonly machine_restarted: boolean | null
+    }
+
+export interface NodeStatusSnapshot {
+  readonly taken_at: string
+  readonly version: string
+  readonly started_at: string
+  readonly hostname: string
+  readonly os: string
+  readonly sync: {
+    readonly last_success_at: string | null
+    readonly pending_facts: number
+    readonly oldest_pending_at: string | null
+    readonly consecutive_failures: number
+    readonly dead_lettered: number
+    readonly last_error: string | null
+  }
+  readonly machine: {
+    readonly disk_free_bytes: number | null
+    readonly disk_total_bytes: number | null
+    readonly memory_used_bytes: number | null
+    readonly memory_total_bytes: number | null
+    readonly database_bytes: number | null
+    readonly machine_uptime_seconds: number | null
+    readonly clock_skew_seconds: number | null
+  }
+  readonly devices: {
+    readonly terminals_active: number
+    readonly terminals_seen_recently: number
+    readonly rfid_active: number
+    readonly rfid_seen_recently: number
+  }
+  readonly till: {
+    readonly open_shifts: number
+    readonly open_shift_terminals: readonly string[]
+  }
+}
+
+export interface FleetNodeHealth {
+  readonly origin_id: string
+  readonly site_id: string | null
+  readonly site_name: string | null
+  readonly last_heard_at: string | null
+  readonly version: string | null
+  readonly assessment: NodeAssessment
+  readonly status: NodeStatusSnapshot | null
+  /// Four hours in 16 slots of 15 minutes, oldest first; `null` = no heartbeat.
+  readonly strip: readonly (HealthTone | null)[]
+  readonly alerted_code: string | null
+}
+
+export function listNodeHealth(signal?: AbortSignal) {
+  return node
+    .get<{ items: FleetNodeHealth[] }>("/api/v1/sync/nodes", { signal })
+    .then((body) => body.items)
+}
+
+export function nodeIncidents(originId: string, signal?: AbortSignal) {
+  return node
+    .get<{ items: NodeIncident[] }>(
+      `/api/v1/sync/nodes/${encodeURIComponent(originId)}/incidents`,
+      { signal }
+    )
+    .then((body) => body.items)
 }
 
 export function fleetStatus(signal?: AbortSignal) {
@@ -483,9 +700,9 @@ export function listEdgeAssignments(signal?: AbortSignal) {
   })
 }
 
-/// Grant somebody access at one node, or rotate the PIN they use there.
+/// Grant somebody access at one node, or rotate the password they use there.
 ///
-/// Deliberately does NOT restore a suspended assignment: rotating a PIN and
+/// Deliberately does NOT restore a suspended assignment: rotating a password and
 /// readmitting somebody are two decisions, and the server keeps them apart.
 export function upsertEdgeAssignment(
   request: UpsertEdgeAssignmentRequest,

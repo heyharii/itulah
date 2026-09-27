@@ -151,8 +151,19 @@ impl Access {
 /// place stamped into a session is wrong from the transfer until the next
 /// sign-in — which is exactly the week it matters.
 pub(super) async fn reach_of(state: &AppState, principal: &Principal) -> Result<Reach, AppError> {
+    Ok(caller_and_reach(state, principal).await?.1)
+}
+
+/// The caller's own employment record, with their reach — for a decision that
+/// must know both where the caller may act and *who* they are, so that nobody
+/// decides a filing about themselves.
+pub(super) async fn caller_and_reach(
+    state: &AppState,
+    principal: &Principal,
+) -> Result<(Option<String>, Reach), AppError> {
     let caller = infrastructure::caller_record(&state.db, &principal.username).await?;
-    Ok(reach_from(principal, &caller.posting))
+    let reach = reach_from(principal, &caller.posting);
+    Ok((caller.employee_id, reach))
 }
 
 fn reach_from(principal: &Principal, posting: &Option<(String, String)>) -> Reach {
@@ -166,7 +177,15 @@ fn reach_from(principal: &Principal, posting: &Option<(String, String)>) -> Reac
             PlaceKind::parse(kind).unwrap_or(PlaceKind::Store),
         ))
     });
-    Reach::resolve(principal.role, posting.as_ref())
+    let reach = Reach::resolve(principal.role, posting.as_ref());
+    // A call a store node relayed reaches the node's own place and nothing
+    // else, whoever it was relayed for. Here, where every HR handler's reach
+    // is resolved, so a list that takes no place in its query is bounded by
+    // the node exactly as one that does — see `Reach::bounded_to`.
+    match principal.bound_place() {
+        Some(place) => reach.bounded_to(place),
+        None => reach,
+    }
 }
 
 /// Turn a path segment into an employee id, resolving `me` from the session.
@@ -765,14 +784,25 @@ pub async fn reach(
 ) -> Result<Json<ReachView>, AppError> {
     let caller = infrastructure::caller_record(&state.db, &principal.username).await?;
     let reach = reach_from(&principal, &caller.posting);
-    let (place_id, place_kind) = match caller.posting {
+    let (mut place_id, mut place_kind) = match caller.posting {
         Some((place_id, kind)) => (Some(place_id), Some(kind)),
         None => (None, None),
     };
+    let mut place_name = caller.place_name;
+    // Through a store's till, the place the screen works in is the till's —
+    // an Admin posted to head office reaches store-07 there, and a screen told
+    // `ho` would ask for head office's roster and be refused.
+    if let Some(bound) = principal.bound_place().filter(|_| !reach.is_nowhere()) {
+        if place_id.as_deref() != Some(bound.as_str()) {
+            place_id = Some(bound.as_str().to_owned());
+            place_name = None;
+            place_kind = None;
+        }
+    }
     Ok(Json(ReachView {
         scope: reach.code().to_owned(),
         place_id,
-        place_name: caller.place_name,
+        place_name,
         place_kind,
         role: principal.role.as_str().to_owned(),
         employee_id: caller.employee_id,

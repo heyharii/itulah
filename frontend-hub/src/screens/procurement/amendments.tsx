@@ -67,7 +67,7 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
         <span className="font-medium text-ink">
           {row.original.article_name}
         </span>
-        <span className="font-mono text-[0.65625rem] text-mute">
+        <span className="font-mono text-[0.875rem] text-mute">
           {row.original.article_code}
         </span>
       </span>
@@ -358,7 +358,7 @@ function AmendmentSheet({
             <h4 className="mb-2 text-card-title font-semibold text-ink">
               What the warehouse read
             </h4>
-            <p className="rounded-inner bg-soft px-3.5 py-2.5 text-[0.8125rem] text-body">
+            <p className="rounded-inner bg-soft px-3.5 py-2.5 text-[0.875rem] text-body">
               {amendment.note}
             </p>
           </div>
@@ -366,7 +366,7 @@ function AmendmentSheet({
           <div>
             <MiniTable head={["Price", "Per unit"]}>
               <tr className="border-t border-hairline">
-                <td className="py-2 text-[0.8125rem] text-ink">
+                <td className="py-2 text-[0.875rem] text-ink">
                   Agreed on the order
                 </td>
                 <td className="py-2 text-right tabular-nums">
@@ -374,7 +374,7 @@ function AmendmentSheet({
                 </td>
               </tr>
               <tr className="border-t border-hairline">
-                <td className="py-2 text-[0.8125rem] text-ink">
+                <td className="py-2 text-[0.875rem] text-ink">
                   Invoiced by the supplier
                 </td>
                 <td className="py-2 text-right tabular-nums">

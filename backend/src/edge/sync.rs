@@ -599,6 +599,155 @@ fn apply_commercial_usage(
         )
         .map_err(err)?;
     }
+    settle_local_usage(tx, payload)?;
+    hold_allowances(tx, payload)
+}
+
+/// Replace this shop's allowances with the ones the centre just sent.
+///
+/// Whole, like the counts: a limit absent from the message is not split any
+/// more, and this shop goes back to enforcing the fleet's count for it. Only
+/// this shop's own entries are kept — the message carries the whole fleet's,
+/// and another shop's allowance is not a limit on this one.
+fn hold_allowances(
+    tx: &Transaction<'_>,
+    payload: &crate::cloud::domain::CommercialUsagePayload,
+) -> Result<(), SyncError> {
+    tx.execute("DELETE FROM commercial_usage_allowance", [])
+        .map_err(err)?;
+    let origin_id: Option<String> = tx
+        .query_row(
+            "SELECT origin_id FROM sync_origin WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    let Some(origin_id) = origin_id else {
+        return Ok(());
+    };
+    for allowance in payload
+        .allowances
+        .iter()
+        .filter(|allowance| allowance.origin_id.trim() == origin_id)
+    {
+        tx.execute(
+            "INSERT INTO commercial_usage_allowance
+                 (kind, key, budget_minor, max_uses, own_uses, own_spent_minor, as_of)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT (kind, key) DO UPDATE SET
+                 budget_minor = excluded.budget_minor,
+                 max_uses = excluded.max_uses,
+                 own_uses = excluded.own_uses,
+                 own_spent_minor = excluded.own_spent_minor,
+                 as_of = excluded.as_of",
+            params![
+                allowance.kind,
+                allowance.key.trim(),
+                allowance.budget_minor,
+                allowance.max_uses,
+                allowance.own_uses,
+                allowance.own_spent_minor,
+                time_text(payload.counted_at)
+            ],
+        )
+        .map_err(err)?;
+    }
+    Ok(())
+}
+
+/// Stop counting, on this till, the sales the centre's figure now includes.
+///
+/// Every row of `commercial_usage_local` names the sale fact it came from. The
+/// row is deleted when the centre says it had APPLIED that fact when it
+/// counted — `applied_through`, per stream and generation — because from then
+/// on the sale is inside the figure just written above, and keeping the row
+/// would count it twice. A row the centre had not reached yet stays, and goes
+/// on being added to the centre's figure by `pricing::load_usage` until a later
+/// message covers it.
+///
+/// The fact is found by its event id, never by a seq stored beside the row: a
+/// generation change renumbers the unacknowledged backlog, and the log is the
+/// one place that knows a fact's current place in its stream. A fact that is
+/// no longer in the log was purged after the centre acknowledged it, long ago,
+/// and its row goes too.
+///
+/// A centre older than `applied_through` sends none. Then the best this till
+/// can see is what the centre has DURABLY received, which is a few seconds
+/// ahead of what it has applied — so a sale in that gap is briefly counted by
+/// nobody. That is how every till behaved before this, and it is the floor
+/// rather than a new risk.
+///
+/// Rows for sales that were never queued (`reported = 0`) are never touched:
+/// the centre cannot count what it was never sent.
+fn settle_local_usage(
+    tx: &Transaction<'_>,
+    payload: &crate::cloud::domain::CommercialUsagePayload,
+) -> Result<(), SyncError> {
+    let origin_id: Option<String> = tx
+        .query_row(
+            "SELECT origin_id FROM sync_origin WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    // No stream, so nothing this till sold can have reached the centre.
+    let Some(origin_id) = origin_id else {
+        return Ok(());
+    };
+    let pending: Vec<(String, Option<i64>, Option<i64>)> = {
+        let mut statement = tx
+            .prepare(
+                "SELECT DISTINCT l.event_id, f.generation, f.seq
+                   FROM commercial_usage_local l
+                   LEFT JOIN sync_fact_log f
+                          ON f.event_id = l.event_id AND f.origin_id = ?1
+                  WHERE l.reported = 1",
+            )
+            .map_err(err)?;
+        let rows = statement
+            .query_map(params![&origin_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .map_err(err)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(err)?
+    };
+    let mine: Vec<&crate::cloud::domain::UsageAppliedThrough> = payload
+        .applied_through
+        .iter()
+        .filter(|stream| stream.origin_id.trim() == origin_id)
+        .collect();
+    for (event_id, generation, seq) in pending {
+        let counted = match (generation, seq) {
+            (Some(generation), Some(seq)) => {
+                if payload.applied_through.is_empty() {
+                    let durable: i64 = tx
+                        .query_row(
+                            "SELECT durable_seq FROM sync_watermark
+                              WHERE origin_id = ?1 AND generation = ?2",
+                            params![&origin_id, generation],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .map_err(err)?
+                        .unwrap_or(0);
+                    durable >= seq
+                } else {
+                    mine.iter()
+                        .any(|stream| stream.generation == generation && stream.applied_seq >= seq)
+                }
+            }
+            _ => true,
+        };
+        if counted {
+            tx.execute(
+                "DELETE FROM commercial_usage_local WHERE event_id = ?1 AND reported = 1",
+                params![event_id],
+            )
+            .map_err(err)?;
+        }
+    }
     Ok(())
 }
 
@@ -1873,6 +2022,27 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
         ],
     )
     .map_err(err)?;
+    // The policy command is already authenticated by Cloud's signed command
+    // lane. Keep its SSO verifier alongside the exact policy version so a key
+    // rotation takes effect atomically with the user leases it governs.
+    tx.execute(
+        "INSERT INTO edge_sso_trust
+             (singleton,origin_id,node_role,policy_version,public_key_hex,valid_until,updated_at)
+         VALUES(1,?1,?2,?3,?4,?5,?6)
+         ON CONFLICT(singleton) DO UPDATE SET
+             origin_id=excluded.origin_id,node_role=excluded.node_role,
+             policy_version=excluded.policy_version,public_key_hex=excluded.public_key_hex,
+             valid_until=excluded.valid_until,updated_at=excluded.updated_at",
+        params![
+            snapshot.origin_id,
+            snapshot.node_role,
+            snapshot.version,
+            snapshot.sso_public_key,
+            time_text(snapshot.valid_until),
+            now_text(),
+        ],
+    )
+    .map_err(err)?;
     Ok(())
 }
 
@@ -1973,6 +2143,10 @@ fn apply_tagging_job(
     // What is actually still sitting unidentified. A job for more than
     // remains would take stock the DC does not have; the projection is the
     // only honest answer to how much is there.
+    //
+    // A job for LESS is sound: a count over the order leaves the excess here
+    // until the centre decides on it, and the centre identifies only what was
+    // matched. Refusing it would stop every command queued behind this one.
     let unidentified_pool = format!("{}.pending.unidentified:on_hand", node.site_id);
     let on_hand: i64 = tx
         .query_row(
@@ -1983,9 +2157,9 @@ fn apply_tagging_job(
         .optional()
         .map_err(err)?
         .unwrap_or(0);
-    if on_hand != job.total_quantity {
+    if job.total_quantity > on_hand {
         return Err(err(format!(
-            "tagging job {} accounts for {} units but {} of delivery line {} are unidentified",
+            "tagging job {} accounts for {} units but only {} of delivery line {} are unidentified",
             job.job_id, job.total_quantity, on_hand, job.receipt_line_id
         )));
     }
@@ -2175,15 +2349,16 @@ fn apply_purchase_order(
     tx.execute(
         "INSERT INTO purchase_order
              (purchase_order_id, po_number, supplier_id, supplier_name,
-              destination_site_id, activated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+              destination_site_id, activated_at, created_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             order.purchase_order_id.to_string(),
             order.po_number,
             order.supplier_id,
             order.supplier_name,
             order.destination_site_id,
-            now_text()
+            now_text(),
+            order.created_by
         ],
     )
     .map_err(err)?;
@@ -2191,8 +2366,9 @@ fn apply_purchase_order(
         tx.execute(
             "INSERT INTO purchase_order_line
                  (po_line_id, purchase_order_id, line_number, article_code, article_name,
-                  image_url, ordered_quantity, unit_price_minor, promised_date)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                  image_url, ordered_quantity, unit_price_minor, promised_date,
+                  order_unit_code, order_unit_quantity, unit_factor, count_units)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 line.po_line_id.to_string(),
                 order.purchase_order_id.to_string(),
@@ -2202,8 +2378,142 @@ fn apply_purchase_order(
                 line.image_url,
                 line.ordered_quantity,
                 line.unit_price_minor,
-                line.promised_date
+                line.promised_date,
+                line.units.as_ref().and_then(|units| units.order_unit_code.clone()),
+                line.units.as_ref().and_then(|units| units.order_unit_quantity.clone()),
+                line.units.as_ref().and_then(|units| units.unit_factor.clone()),
+                count_units_json(line)?
             ],
+        )
+        .map_err(err)?;
+    }
+    Ok(())
+}
+
+/// The units a line may be counted in, as the JSON text the line keeps.
+/// `None` for an order sent before units travelled with it.
+fn count_units_json(
+    line: &crate::cloud::domain::PurchaseOrderLinePayload,
+) -> Result<Option<String>, SyncError> {
+    line.units
+        .as_ref()
+        .filter(|units| !units.count_units.is_empty())
+        .map(|units| serde_json::to_string(&units.count_units))
+        .transpose()
+        .map_err(err)
+}
+
+/// Bring the DC's copy of an order in line with the centre's rewrite of it.
+///
+/// The centre only revises an order nothing has been received against, but it
+/// can only know what the DC has told it — a count taken on the bay a minute
+/// ago may still be on its way up. So a line this node has already counted
+/// against is never removed: it stays, renumbered after the order's own lines,
+/// and the verifier sees it as it was. Every other line is made to match.
+///
+/// Refusing instead would block this node's whole command stream over one
+/// order, which is a worse failure than a line the buyer took off still
+/// standing at the one warehouse that has goods for it.
+fn apply_purchase_order_revision(
+    tx: &Transaction<'_>,
+    order: &PurchaseOrderPayload,
+) -> Result<(), SyncError> {
+    let resident: Option<String> = tx
+        .query_row(
+            "SELECT po_number FROM purchase_order WHERE purchase_order_id = ?1",
+            params![order.purchase_order_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    // Never activated here — a lost activation, or a node restored from an
+    // older copy. The revision is the whole order, so it activates it.
+    if resident.is_none() {
+        return apply_purchase_order(tx, order);
+    }
+    let id = order.purchase_order_id.to_string();
+    tx.execute(
+        "UPDATE purchase_order
+            SET supplier_name = ?2, created_by = COALESCE(?3, created_by)
+          WHERE purchase_order_id = ?1",
+        params![id, order.supplier_name, order.created_by],
+    )
+    .map_err(err)?;
+    // Out of the way of the new numbering first: `(purchase_order_id,
+    // line_number)` is unique, and the revision may hand a number to a line
+    // that held a different one.
+    tx.execute(
+        "UPDATE purchase_order_line SET line_number = -line_number
+          WHERE purchase_order_id = ?1 AND line_number > 0",
+        params![id],
+    )
+    .map_err(err)?;
+    for line in &order.lines {
+        tx.execute(
+            "INSERT INTO purchase_order_line
+                 (po_line_id, purchase_order_id, line_number, article_code, article_name,
+                  image_url, ordered_quantity, unit_price_minor, promised_date,
+                  order_unit_code, order_unit_quantity, unit_factor, count_units)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+             ON CONFLICT (po_line_id) DO UPDATE SET
+                 line_number = excluded.line_number,
+                 article_code = excluded.article_code,
+                 article_name = excluded.article_name,
+                 image_url = excluded.image_url,
+                 ordered_quantity = excluded.ordered_quantity,
+                 unit_price_minor = excluded.unit_price_minor,
+                 promised_date = excluded.promised_date,
+                 order_unit_code = excluded.order_unit_code,
+                 order_unit_quantity = excluded.order_unit_quantity,
+                 unit_factor = excluded.unit_factor,
+                 count_units = COALESCE(excluded.count_units, purchase_order_line.count_units)",
+            params![
+                line.po_line_id.to_string(),
+                id,
+                line.line_number,
+                line.article_code,
+                line.article_name,
+                line.image_url,
+                line.ordered_quantity,
+                line.unit_price_minor,
+                line.promised_date,
+                line.units.as_ref().and_then(|units| units.order_unit_code.clone()),
+                line.units.as_ref().and_then(|units| units.order_unit_quantity.clone()),
+                line.units.as_ref().and_then(|units| units.unit_factor.clone()),
+                count_units_json(line)?
+            ],
+        )
+        .map_err(err)?;
+    }
+    // What the order no longer lists, unless the bay has already counted it.
+    tx.execute(
+        "DELETE FROM purchase_order_line
+          WHERE purchase_order_id = ?1 AND line_number < 0
+            AND NOT EXISTS (SELECT 1 FROM receiving_count c
+                             WHERE c.po_line_id = purchase_order_line.po_line_id)
+            AND NOT EXISTS (SELECT 1 FROM purchase_price_amendment a
+                             WHERE a.po_line_id = purchase_order_line.po_line_id)",
+        params![id],
+    )
+    .map_err(err)?;
+    let mut kept = tx
+        .prepare(
+            "SELECT po_line_id FROM purchase_order_line
+              WHERE purchase_order_id = ?1 AND line_number < 0
+              ORDER BY line_number DESC",
+        )
+        .map_err(err)?;
+    let kept: Vec<String> = kept
+        .query_map(params![id], |row| row.get(0))
+        .map_err(err)?
+        .collect::<Result<_, _>>()
+        .map_err(err)?;
+    let mut next = order.lines.iter().map(|line| line.line_number).max().unwrap_or(0);
+    for po_line_id in kept {
+        next += 1;
+        tx.execute(
+            "UPDATE purchase_order_line SET line_number = ?2 WHERE po_line_id = ?1",
+            params![po_line_id, next],
         )
         .map_err(err)?;
     }
@@ -2310,6 +2620,25 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             let order = parse_purchase_order(&command.payload).map_err(err)?;
             apply_purchase_order(tx, &order)
         }
+        crate::cloud::domain::COMMAND_PURCHASE_ORDER_REVISE => {
+            let order = parse_purchase_order(&command.payload).map_err(err)?;
+            apply_purchase_order_revision(tx, &order)
+        }
+        crate::cloud::domain::COMMAND_PURCHASE_ORDER_CANCEL => {
+            let cancellation =
+                crate::cloud::domain::parse_purchase_order_cancellation(&command.payload)
+                    .map_err(err)?;
+            // Idempotent, and quiet about an order this node never held: a
+            // cancellation that overtook its activation leaves nothing to do.
+            tx.execute(
+                "UPDATE purchase_order
+                    SET cancelled_at = COALESCE(cancelled_at, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                  WHERE purchase_order_id = ?1",
+                params![cancellation.purchase_order_id.to_string()],
+            )
+            .map_err(err)?;
+            Ok(())
+        }
         crate::cloud::domain::COMMAND_TAGGING_JOB_ACTIVATE => {
             let job = crate::cloud::domain::parse_tagging_job(&command.payload).map_err(err)?;
             apply_tagging_job(tx, &job)
@@ -2348,6 +2677,16 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
         INVENTORY_OFFICIAL_COUNT_ADJUST_V1 => {
             let payload = parse_official_count_adjustment(&command.payload).map_err(err)?;
             apply_official_count_adjustment(tx, command.command_id, &payload)
+        }
+        // A koli on its way to this shop. Understood by every edge build from
+        // this one on, so a misdirected copy is ignored rather than blocking —
+        // see `edge::inbound::apply_announcement`.
+        crate::sync::workflow::INVENTORY_STORE_INBOUND_ANNOUNCE_V1 => {
+            let payload =
+                crate::sync::workflow::parse_store_inbound_announcement(&command.payload)
+                    .map_err(err)?;
+            crate::edge::inbound::apply_announcement(tx, command.command_id, &payload)
+                .map_err(|error| err(error.to_string()))
         }
         // An unknown type BLOCKS rather than being skipped: it means the cloud
         // is ahead of this edge's build, and quietly discarding an instruction
@@ -3075,12 +3414,44 @@ impl EdgeSyncHandle {
         self.wake.notify_one();
     }
 
+    /// Head office has just answered on another channel — the heartbeat
+    /// (`edge/heartbeat.rs`) — so whatever outage an open breaker is waiting
+    /// out is over. Close it and run a cycle now.
+    ///
+    /// Without this a shop whose line came back sat out the rest of a cooldown
+    /// of up to fifteen minutes, its console still saying "internet putus",
+    /// while the heartbeat beside it was getting through every minute. The
+    /// breaker exists to stop hammering a head office that is down; a reply
+    /// from that head office is the one piece of evidence it is not.
+    ///
+    /// Returns whether a breaker was open. Blocking: touches SQLite.
+    pub fn cloud_answered(&self) -> bool {
+        let reopened = self
+            .connection
+            .lock()
+            .ok()
+            .and_then(|connection| {
+                connection
+                    .execute(
+                        "UPDATE sync_sender_state SET breaker_open_until = NULL
+                          WHERE breaker_open_until IS NOT NULL",
+                        [],
+                    )
+                    .ok()
+            })
+            .unwrap_or(0)
+            > 0;
+        if reopened {
+            self.trigger();
+        }
+        reopened
+    }
+
     /// Where a relay reaches head office, and the key it presents. Shares
     /// [`cloud_base`] with the config so the two cannot drift; see that helper
     /// for why both the bare and long spellings of the upload URL are accepted.
     pub fn cloud(&self) -> Option<(String, &str)> {
-        cloud_base(&self.upload_url)
-            .map(|base| (base.to_string(), self.upload_key.as_str()))
+        cloud_base(&self.upload_url).map(|base| (base.to_string(), self.upload_key.as_str()))
     }
 
     /// Blocking: reads SQLite. Call it from `run_blocking`.
@@ -3475,6 +3846,10 @@ mod tests {
             issued_at: now,
             valid_until: now + chrono::Duration::days(7),
             content_hash: String::new(),
+            sso_public_key: Some(
+                crate::security::sso::public_key_from_seed(&[23u8; 32])
+                    .unwrap_or_else(|error| panic!("public key: {error}")),
+            ),
             users: vec![AuthPolicyUser {
                 user_id,
                 username: "cashier.07".into(),
@@ -3517,6 +3892,15 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("user: {error}"));
         assert_eq!(role, "CASHIER");
+        let (trusted_key, trusted_version): (Option<String>, i64) = connection
+            .query_row(
+                "SELECT public_key_hex,policy_version FROM edge_sso_trust WHERE singleton=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap_or_else(|error| panic!("SSO trust: {error}"));
+        assert_eq!(trusted_key, snapshot.sso_public_key);
+        assert_eq!(trusted_version, 1);
         connection
             .execute(
                 "UPDATE edge_rfid_device SET last_sequence=7 WHERE device_id='RFID-07'",

@@ -26,8 +26,8 @@ use crate::cloud::{
     http::audit::DeclaredSubject,
     postgres::{
         self as infrastructure, CustomerSummary, CustomerTransactionDetail,
-        CustomerTransactionPage, CustomerTransactionsQuery, IssuedPairingCode, MemberIdentity,
-        MemberPrincipal, MEMBER_SESSION_TTL_DAYS,
+        CustomerTransactionPage, CustomerTransactionsQuery, IssuedPairingCode, IssuedRedeemRequest,
+        MemberIdentity, MemberPrincipal, RedeemRequest, MEMBER_SESSION_TTL_DAYS,
     },
 };
 use crate::security;
@@ -39,6 +39,7 @@ use axum::{
     Extension, Json,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 /// Distinct from `inventory_session` on purpose. Two cookies that could be
@@ -143,11 +144,14 @@ pub async fn directory(
     // third; the limit now comes after the narrowing's own parameters, because
     // how many of those there are depends on how many clauses somebody wrote.
     let narrowing = match query.segment_id {
-        Some(id) => Some(infrastructure::segment_narrowing(&state.db, id, 2).await?),
+        Some(id) => {
+            Some(infrastructure::segment_narrowing(&state.db, id, 2, state.clock.now()).await?)
+        }
         None => None,
     };
     Ok(Json(
-        infrastructure::list_members(&state.db, query, narrowing.as_ref()).await?,
+        infrastructure::list_members(&state.db, query, narrowing.as_ref(), state.clock.now())
+            .await?,
     ))
 }
 
@@ -160,7 +164,9 @@ pub async fn directory(
 pub async fn segments(
     State(state): State<AppState>,
 ) -> Result<Json<infrastructure::SegmentBook>, AppError> {
-    Ok(Json(infrastructure::member_segments(&state.db).await?))
+    Ok(Json(
+        infrastructure::member_segments(&state.db, state.clock.now()).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -200,7 +206,7 @@ pub async fn saved_segments(
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<Vec<infrastructure::SavedSegment>>, AppError> {
     Ok(Json(
-        infrastructure::list_segments(&state.db, &principal.username).await?,
+        infrastructure::list_segments(&state.db, &principal.username, state.clock.now()).await?,
     ))
 }
 
@@ -228,6 +234,7 @@ pub async fn create_segment(
             definition: &request.definition,
             owner: &principal.username,
         },
+        state.clock.now(),
     )
     .await?;
     acted_on.set(RecordKind::Segment, saved.segment_id.to_string());
@@ -240,7 +247,8 @@ pub async fn read_segment(
     Path(id): Path<Uuid>,
 ) -> Result<Json<infrastructure::SavedSegment>, AppError> {
     Ok(Json(
-        infrastructure::read_segment(&state.db, id, &principal.username, true).await?,
+        infrastructure::read_segment(&state.db, id, &principal.username, true, state.clock.now())
+            .await?,
     ))
 }
 
@@ -261,6 +269,7 @@ pub async fn revise_segment(
             &request.name,
             request.purpose.as_deref(),
             &request.definition,
+            state.clock.now(),
         )
         .await?,
     ))
@@ -285,7 +294,7 @@ pub async fn preview_segment(
     Json(definition): Json<infrastructure::SegmentDefinition>,
 ) -> Result<Json<infrastructure::SegmentTally>, AppError> {
     Ok(Json(
-        infrastructure::preview_segment(&state.db, &definition).await?,
+        infrastructure::preview_segment(&state.db, &definition, state.clock.now()).await?,
     ))
 }
 
@@ -442,6 +451,55 @@ pub async fn transaction(
 ) -> Result<Json<CustomerTransactionDetail>, AppError> {
     Ok(Json(
         infrastructure::customer_transaction(&state.db, &principal.member_id, sale_id).await?,
+    ))
+}
+
+// ── the shopper's points ────────────────────────────────────────────────────
+//
+// `summary` above has always had a lifetime-earned figure
+// (`CustomerSummary.points_earned_total`) — a counter, explicitly not a
+// balance. What a shopper never had was the actual balance a redemption
+// spends against, because the balance lives behind `points_account`, an
+// operator-only read scoped by an id in the URL. This wraps the same query,
+// scoped by the session instead — identical to how `summary` and
+// `transactions` already relate to their `/customer/{id}/...` equivalents.
+
+pub async fn points(
+    State(state): State<AppState>,
+    Extension(principal): Extension<MemberPrincipal>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::points_account(&state.db, &principal.member_id).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateRedeemRequest {
+    pub points: i64,
+}
+
+/// Ask to turn points into a voucher. The code in the response is shown once,
+/// large, with a countdown — a shopper reads it to a cashier the same way a
+/// cashier reads a pairing code to them, just the two roles swapped.
+pub async fn create_redeem_request(
+    State(state): State<AppState>,
+    Extension(principal): Extension<MemberPrincipal>,
+    Json(request): Json<CreateRedeemRequest>,
+) -> Result<Json<IssuedRedeemRequest>, AppError> {
+    Ok(Json(
+        infrastructure::create_redeem_request(&state.db, &principal.member_id, request.points)
+            .await?,
+    ))
+}
+
+/// A shopper's own redemption requests, newest first — what was asked for and
+/// what became of it.
+pub async fn redeem_requests(
+    State(state): State<AppState>,
+    Extension(principal): Extension<MemberPrincipal>,
+) -> Result<Json<Vec<RedeemRequest>>, AppError> {
+    Ok(Json(
+        infrastructure::list_redeem_requests(&state.db, &principal.member_id).await?,
     ))
 }
 

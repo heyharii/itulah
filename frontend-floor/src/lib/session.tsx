@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { auth, cacheKey, node } from "@/lib/api"
+import { usePetugas } from "@/lib/petugas"
 import { ApiError, type Identity } from "@itulah/contract/client"
 
 /// Where the last answer to "who is signed in" is kept.
@@ -109,7 +110,21 @@ export function useNodeIdentity() {
 /// two halves of the receiving ceremony are visibly one nobody rather than two
 /// plausible-looking people.
 export function useActor(): string {
-  return useIdentity().data?.username ?? "floor"
+  const person = useIdentity().data
+  const petugas = usePetugas()
+  const signInOff = useSignInOff()
+  // A node without sign-in names everybody `development`; the person on the
+  // phone names themselves instead — see `lib/petugas.ts`.
+  if (signInOff && petugas !== null) return petugas
+  return person?.username ?? "floor"
+}
+
+/// True on a node running without sign-in, where the actor is whoever the
+/// person on the phone says they are. Asked of the node's own health answer
+/// (`auth: "DISABLED"`), which is the node saying so rather than a guess from
+/// the placeholder identity it hands out.
+export function useSignInOff(): boolean {
+  return useNodeIdentity().data?.auth === "DISABLED"
 }
 
 /// Ending the session, from wherever the button is.

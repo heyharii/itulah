@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useSyncExternalStore } from "react"
 
 import * as hr from "./api"
-import { isoDate } from "./demo"
+import { isoDate } from "@/lib/format"
 import type { NewAttendanceCorrection } from "./types"
 
 /// The cache keys, written out in one place.
@@ -25,15 +24,14 @@ export const key = {
   corrections: ["hr", "attendance-corrections"] as const,
   holidays: ["hr", "holidays"] as const,
   notifications: ["hr", "notifications"] as const,
-  sessions: ["hr", "sessions"] as const,
-}
-
-/// Whether these screens are reading the server or standing in for it.
-///
-/// Rendered as a banner rather than hidden. Somebody being shown a leave
-/// balance has every right to know it is not theirs yet.
-export function useReach() {
-  return useSyncExternalStore(hr.subscribeToReach, hr.reachSnapshot)
+  swaps: ["hr", "swaps"] as const,
+  teamLeave: ["hr", "team", "leave"] as const,
+  teamCorrections: ["hr", "team", "corrections"] as const,
+  teamSwaps: ["hr", "team", "swaps"] as const,
+  grievanceTypes: ["hr", "grievance-types"] as const,
+  claimTypes: ["hr", "claim-types"] as const,
+  claims: ["hr", "claims"] as const,
+  tasks: ["hr", "lifecycle-tasks"] as const,
 }
 
 export function useProfile() {
@@ -79,6 +77,9 @@ export interface Entitlement {
   readonly name: string
   readonly drawsOnBalance: boolean
   readonly requiresEvidence: boolean
+  /// Hundredths of a day granted per occurrence, for a kind like marriage
+  /// leave; `null` otherwise.
+  readonly perOccurrenceCentidays: number | null
   /// Hundredths of a day. `null` when the kind draws on nothing.
   readonly remainingCentidays: number | null
   readonly pendingCentidays: number | null
@@ -103,6 +104,8 @@ export function useLeaveEntitlements() {
       name: kind.name,
       drawsOnBalance: kind.draws_on_balance,
       requiresEvidence: kind.requires_evidence,
+      perOccurrenceCentidays:
+        kind.backing === "PER_OCCURRENCE" ? kind.max_centidays : null,
       remainingCentidays: kind.draws_on_balance
         ? (balance?.centidays ?? 0)
         : null,
@@ -148,8 +151,13 @@ export function useApplyForLeave() {
 export function useWithdrawLeave() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: ({ requestId, reason }: { requestId: string; reason: string }) =>
-      hr.withdrawLeave(requestId, reason),
+    mutationFn: ({
+      requestId,
+      reason,
+    }: {
+      requestId: string
+      reason: string
+    }) => hr.withdrawLeave(requestId, reason),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: key.leaveRequests })
       void client.invalidateQueries({ queryKey: key.leaveBalances })
@@ -243,10 +251,15 @@ export function useRequestCorrection() {
   })
 }
 
+/// The days off at this person's own place — so it waits for the profile,
+/// which is where the place comes from.
 export function useHolidays() {
+  const profile = useProfile()
+  const placeId = profile.data?.place_id ?? null
   return useQuery({
-    queryKey: key.holidays,
-    queryFn: ({ signal }) => hr.holidays(signal),
+    queryKey: [...key.holidays, placeId],
+    queryFn: ({ signal }) => hr.holidays(placeId, signal),
+    enabled: profile.isSuccess,
   })
 }
 
@@ -271,19 +284,189 @@ export function useMarkNotificationRead() {
   })
 }
 
-export function useSessions() {
-  return useQuery({
-    queryKey: key.sessions,
-    queryFn: ({ signal }) => hr.sessions(signal),
+export function useMarkAllNotificationsRead() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => hr.markAllNotificationsRead(),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key.notifications })
+    },
   })
 }
 
-export function useEndSession() {
+// ── the next generation ────────────────────────────────────────────────────
+
+export function useMySwaps() {
+  return useQuery({
+    queryKey: key.swaps,
+    queryFn: ({ signal }) => hr.mySwaps(signal),
+  })
+}
+
+export function useFileSwap() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (sessionId: string) => hr.endSession(sessionId),
+    mutationFn: (swap: {
+      with_employee_id: string
+      on_date: string
+      reason: string
+    }) => hr.fileSwap(swap),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: key.sessions })
+      void client.invalidateQueries({ queryKey: key.swaps })
+    },
+  })
+}
+
+export function useWithdrawSwap() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => hr.withdrawSwap(id),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key.swaps })
+    },
+  })
+}
+
+/// Who else is planned at your place on one day. Not asked until a day is
+/// chosen.
+export function useColleagues(on: string | null) {
+  return useQuery({
+    queryKey: [...key.swaps, "colleagues", on],
+    queryFn: ({ signal }) => hr.colleagues(on ?? "", on ?? "", signal),
+    enabled: on !== null,
+  })
+}
+
+/// The store head's queue. Three reads, one desk: leave, corrections and
+/// swaps awaiting a decision. Overtime is not here — its answer is the
+/// worker's own, and it arrives on their phone. Each read bounds itself by
+/// the caller's own posting, exactly as the console's queues do.
+export function useTeamQueue() {
+  const leave = useQuery({
+    queryKey: key.teamLeave,
+    queryFn: ({ signal }) => hr.pendingLeaveQueue(signal),
+  })
+  const corrections = useQuery({
+    queryKey: key.teamCorrections,
+    queryFn: ({ signal }) => hr.pendingCorrections(signal),
+  })
+  const swaps = useQuery({
+    queryKey: key.teamSwaps,
+    queryFn: ({ signal }) => hr.pendingSwaps(signal),
+  })
+  return { leave, corrections, swaps }
+}
+
+export function useDecideLeaveRequest() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (input: {
+      employeeId: string
+      requestId: string
+      approve: boolean
+      reason: string
+    }) =>
+      hr.decideLeaveRequest(
+        input.employeeId,
+        input.requestId,
+        input.approve,
+        input.reason
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key.teamLeave })
+    },
+  })
+}
+
+export function useDecideCorrection() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { id: string; approve: boolean; reason: string }) =>
+      hr.decideCorrection(input.id, input.approve, input.reason),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key.teamCorrections })
+    },
+  })
+}
+
+export function useDecideSwap() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { id: string; approve: boolean; reason: string }) =>
+      hr.decideSwap(input.id, input.approve, input.reason),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key.teamSwaps })
+    },
+  })
+}
+
+export function useGrievanceTypes() {
+  return useQuery({
+    queryKey: key.grievanceTypes,
+    queryFn: ({ signal }) => hr.grievanceTypes(signal),
+  })
+}
+
+export function useFileGrievance() {
+  return useMutation({
+    mutationFn: (body: {
+      type_code: string
+      subject: string
+      description: string
+    }) => hr.fileGrievance(body),
+  })
+}
+
+export function useClaimTypes() {
+  return useQuery({
+    queryKey: key.claimTypes,
+    queryFn: ({ signal }) => hr.claimTypes(signal),
+  })
+}
+
+export function useMyClaims() {
+  return useQuery({
+    queryKey: key.claims,
+    queryFn: ({ signal }) => hr.myClaims(signal),
+  })
+}
+
+export function useFileClaim() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { lines: hr.ClaimLineInput[]; reason: string }) =>
+      hr.fileClaim(body),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key.claims })
+    },
+  })
+}
+
+export function useSubmitClaim() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { claimId: string; reason: string }) =>
+      hr.submitClaim(input.claimId, input.reason),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key.claims })
+    },
+  })
+}
+
+export function useMyLifecycleTasks() {
+  return useQuery({
+    queryKey: key.tasks,
+    queryFn: ({ signal }) => hr.myLifecycleTasks(signal),
+  })
+}
+
+export function useCompleteOwnTask() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { templateId: string; reason: string }) =>
+      hr.completeOwnTask(input.templateId, input.reason),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key.tasks })
     },
   })
 }

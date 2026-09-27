@@ -4,7 +4,39 @@ import type { DocumentLink } from "./DocumentLink";
 /**
  * One filed document, as a screen sees it.
  */
-export type Document = { document_id: string, file_id: string, name: string, title: string | null, path_tokens: Array<string>, summary: string | null, language: string, processing_status: string, doc_date: string | null, byte_size: number, content_type: string, 
+export type Document = { document_id: string, file_id: string, name: string, title: string | null, path_tokens: Array<string>, summary: string | null, language: string, processing_status: string, doc_date: string | null, 
+/**
+ * Kertas apa ini: "STNK", "BPKB", "Sertifikat laik operasi", "Garansi",
+ * "SHGB". Kata client sendiri, bukan kode — yang membacanya adalah orang
+ * yang memegang kertasnya.
+ *
+ * The brief's §6, written here so the next person does not put an
+ * insurance policy in this column: a PARTY and MONEY together make a
+ * CONTRACT, and paper alone makes a DOCUMENT. The STNK is the case that
+ * shows why the line is drawn once — the paper is a document (filed,
+ * found by name, photographed), while its renewal is a contract, because
+ * Bapenda/Samsat is the counterparty, there is a fee, and it happens
+ * again next year. A policy has a counterparty and a value, so it belongs
+ * on a contract, where the reminder that has to fire before the cover
+ * lapses already lives.
+ */
+doc_type: string | null, 
+/**
+ * The number printed on the paper: an engine number, a certificate
+ * number, a policy number. What somebody reads back over the phone, and
+ * the one thing that finds the row when the name is "IMG_20260924.jpg".
+ */
+doc_number: string | null, 
+/**
+ * Yang menerbitkan: Samsat, Disnaker, vendor, notaris.
+ */
+issuer: string | null, issued_on: string | null, 
+/**
+ * Masa berlakunya. Absen berarti kertas yang memang tidak punya — BPKB,
+ * akta, sertifikat tanah. Itu BUKAN kesalahan, dan layar tidak boleh
+ * menampilkannya sebagai "belum diisi".
+ */
+expires_on: string | null, byte_size: number, content_type: string, 
 /**
  * Whether the bytes can be fetched right now. Carried from `stored_file`
  * so a drawer can say "filed, but the object is gone" rather than hand

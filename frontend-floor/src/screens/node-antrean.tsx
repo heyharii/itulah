@@ -13,6 +13,7 @@ import { Pill } from "@/components/ui/pill"
 import { KeyValue } from "@/components/ui/rows"
 import { CardList, Screen, Section } from "@/components/ui/screen"
 import { EmptyState } from "@/components/ui/states"
+import { confirm } from "@/lib/confirm"
 import { ago, count } from "@/lib/format"
 import {
   acknowledge,
@@ -75,11 +76,14 @@ export function NodeAntrean() {
                         </Button>
                         <Button
                           variant="quiet"
-                          onClick={() => {
+                          onClick={async () => {
                             if (
-                              window.confirm(
-                                "Buang pekerjaan ini? Catatannya hilang dari HP dan tidak pernah sampai ke node.",
-                              )
+                              await confirm({
+                                title: "Buang pekerjaan ini?",
+                                body: "Catatannya hilang dari HP dan tidak pernah sampai ke node.",
+                                yes: "Buang",
+                                danger: true,
+                              })
                             ) {
                               dismissRefused(job.localId)
                             }

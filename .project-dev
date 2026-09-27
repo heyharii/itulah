@@ -1,0 +1,5 @@
+# Frontend utama untuk smoke test; backend/servis lain tetap di pane terpisah.
+DEV_NAME=itulah-hub
+DEV_DIR=frontend-hub
+DEV_APP_PORT=3031
+DEV_COMMAND=(npx vite --host 127.0.0.1 --port 3031)

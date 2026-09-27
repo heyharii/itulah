@@ -96,7 +96,7 @@ const columns: ColumnDef<TableSetup, CheckoutException>[] = [
         .map((tender) => tender.external_reference ?? "—")
         .join(", ")
       return (
-        <span className="font-mono text-[0.8125rem]">{references || "—"}</span>
+        <span className="font-mono text-[0.875rem]">{references || "—"}</span>
       )
     },
   },
@@ -321,7 +321,7 @@ function ChargeSheet({
                       {label(tender.status)}
                     </Pill>
                   </MiniCell>
-                  <MiniCell className="font-mono text-[0.8125rem]">
+                  <MiniCell className="font-mono text-[0.875rem]">
                     {tender.external_reference ?? "—"}
                   </MiniCell>
                   <MiniCell align="right" className="tabular-nums">

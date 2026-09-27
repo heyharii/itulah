@@ -50,7 +50,7 @@ export function Periods() {
                   <button
                     type="button"
                     onClick={() => b.setPeriod(p.period, p.status !== "CLOSED")}
-                    className="hover:bg-soft-1 inline-flex items-center gap-1.5 rounded-md border border-hairline px-2 py-1 text-[0.75rem] font-medium text-ink"
+                    className="hover:bg-soft-1 inline-flex items-center gap-1.5 rounded-md border border-hairline px-2 py-1 text-[0.875rem] font-medium text-ink"
                   >
                     {p.status === "CLOSED" ? (
                       <>

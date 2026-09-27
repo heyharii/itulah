@@ -134,15 +134,15 @@ function Letterhead({
         <div className="text-[0.9375rem] font-semibold tracking-[0.04em] text-ink uppercase">
           {COMPANY.name}
         </div>
-        <div className="text-[0.6875rem] text-body">{COMPANY.address}</div>
-        <div className="text-[0.6875rem] text-body">{COMPANY.phone}</div>
+        <div className="text-[0.875rem] text-body">{COMPANY.address}</div>
+        <div className="text-[0.875rem] text-body">{COMPANY.phone}</div>
       </div>
       <div className="shrink-0 text-right">
         <div className="text-[0.9375rem] font-semibold tracking-[0.06em] text-ink uppercase">
           {title}
         </div>
         {right && (
-          <div className="mt-0.5 text-[0.6875rem] text-body">{right}</div>
+          <div className="mt-0.5 text-[0.875rem] text-body">{right}</div>
         )}
       </div>
     </div>
@@ -160,10 +160,10 @@ function Field({
 }) {
   return (
     <div className={cn("min-w-0", wide && "col-span-2")}>
-      <div className="text-[0.625rem] tracking-[0.06em] text-mute uppercase">
+      <div className="text-[0.875rem] tracking-[0.06em] text-mute uppercase">
         {label}
       </div>
-      <div className="mt-0.5 border-b border-dotted border-hairline-2 pb-0.5 text-[0.8125rem] text-ink">
+      <div className="mt-0.5 border-b border-dotted border-hairline-2 pb-0.5 text-[0.875rem] text-ink">
         {children}
       </div>
     </div>
@@ -181,8 +181,8 @@ function Signatures({ roles }: { roles: readonly string[] }) {
     >
       {roles.map((r) => (
         <div key={r} className="text-center">
-          <div className="text-[0.6875rem] text-body">{r}</div>
-          <div className="mt-10 border-t border-ink pt-1 text-[0.625rem] text-mute">
+          <div className="text-[0.875rem] text-body">{r}</div>
+          <div className="mt-10 border-t border-ink pt-1 text-[0.875rem] text-mute">
             nama &amp; tanggal
           </div>
         </div>
@@ -194,10 +194,10 @@ function Signatures({ roles }: { roles: readonly string[] }) {
 function AmountInWords({ amount }: { amount: Minor }) {
   return (
     <div className="mt-3 border border-hairline bg-soft px-3 py-2">
-      <div className="text-[0.625rem] tracking-[0.06em] text-mute uppercase">
+      <div className="text-[0.875rem] tracking-[0.06em] text-mute uppercase">
         Terbilang
       </div>
-      <div className="mt-0.5 text-[0.8125rem] leading-snug text-ink italic">
+      <div className="mt-0.5 text-[0.875rem] leading-snug text-ink italic">
         # {terbilang(amount)} #
       </div>
     </div>
@@ -239,10 +239,10 @@ export function GiroSlip({
           <div className="text-[1rem] font-semibold tracking-[0.08em] text-ink uppercase">
             Bilyet Giro
           </div>
-          <div className="text-[0.6875rem] text-body">{bank}</div>
+          <div className="text-[0.875rem] text-body">{bank}</div>
         </div>
         <div className="text-right">
-          <div className="text-[0.625rem] tracking-[0.06em] text-mute uppercase">
+          <div className="text-[0.875rem] tracking-[0.06em] text-mute uppercase">
             Nomor
           </div>
           <div className="font-mono text-[0.9375rem] font-semibold text-ink">
@@ -251,7 +251,7 @@ export function GiroSlip({
         </div>
       </div>
 
-      <p className="mt-3 text-[0.8125rem] leading-relaxed text-ink">
+      <p className="mt-3 text-[0.875rem] leading-relaxed text-ink">
         Diminta kepada Saudara supaya pada tanggal{" "}
         <span className="font-semibold underline">{value_on}</span>{" "}
         memindahbukukan dana atas beban rekening kami kepada:
@@ -268,13 +268,13 @@ export function GiroSlip({
       <AmountInWords amount={amount} />
 
       <div className="mt-3 flex items-end justify-between gap-6">
-        <div className="text-[0.6875rem] text-body">
+        <div className="text-[0.875rem] text-body">
           <div>Unit: {unit}</div>
           {source && <div>Untuk pembayaran: {source}</div>}
         </div>
         <div className="w-52 text-center">
-          <div className="text-[0.6875rem] text-body">{COMPANY.name}</div>
-          <div className="mt-10 border-t border-ink pt-1 text-[0.625rem] text-mute">
+          <div className="text-[0.875rem] text-body">{COMPANY.name}</div>
+          <div className="mt-10 border-t border-ink pt-1 text-[0.875rem] text-mute">
             tanda tangan &amp; cap
           </div>
         </div>
@@ -338,7 +338,7 @@ export function CashVoucher({
 
       <AmountInWords amount={amount} />
 
-      <table className="mt-4 w-full border-collapse text-[0.75rem]">
+      <table className="mt-4 w-full border-collapse text-[0.875rem]">
         <thead>
           <tr className="border-y border-ink">
             <th className="py-1 text-left tracking-[0.06em] text-mute uppercase">
@@ -356,7 +356,7 @@ export function CashVoucher({
           {lines.map((l, i) => (
             <tr key={i} className="border-b border-hairline">
               <td className="py-1 text-ink">{l.account}</td>
-              <td className="py-1 font-mono text-[0.6875rem] text-body">
+              <td className="py-1 font-mono text-[0.875rem] text-body">
                 {l.code}
               </td>
               <td className="py-1 text-right text-ink tabular-nums">
@@ -415,7 +415,7 @@ export function JournalVoucher({ entry }: { entry: JournalEntry }) {
         </Field>
       </div>
 
-      <table className="mt-4 w-full border-collapse text-[0.75rem]">
+      <table className="mt-4 w-full border-collapse text-[0.875rem]">
         <thead>
           <tr className="border-y border-ink">
             <th className="py-1 text-left tracking-[0.06em] text-mute uppercase">
@@ -438,13 +438,13 @@ export function JournalVoucher({ entry }: { entry: JournalEntry }) {
         <tbody>
           {entry.lines.map((l) => (
             <tr key={l.line_no} className="border-b border-hairline align-top">
-              <td className="py-1 font-mono text-[0.6875rem] text-body">
+              <td className="py-1 font-mono text-[0.875rem] text-body">
                 {l.account_code}
               </td>
               <td className="py-1 text-ink">
                 {l.account_name}
                 {l.memo && (
-                  <div className="text-[0.625rem] text-mute">{l.memo}</div>
+                  <div className="text-[0.875rem] text-mute">{l.memo}</div>
                 )}
               </td>
               <td className="py-1 text-body">{l.unit_id}</td>
@@ -521,7 +521,7 @@ export function LedgerPrint({
         <Field label="Saldo awal">{rp(opening)}</Field>
       </div>
 
-      <table className="mt-4 w-full border-collapse text-[0.75rem]">
+      <table className="mt-4 w-full border-collapse text-[0.875rem]">
         <thead>
           <tr className="border-y border-ink">
             <th className="py-1 text-left tracking-[0.06em] text-mute uppercase">
@@ -551,10 +551,10 @@ export function LedgerPrint({
           {lines.map((l, i) => (
             <tr key={i} className="border-b border-hairline">
               <td className="py-1 whitespace-nowrap text-body">{l.on}</td>
-              <td className="py-1 font-mono text-[0.6875rem] text-body">
+              <td className="py-1 font-mono text-[0.875rem] text-body">
                 {l.entry}
               </td>
-              <td className="py-1 font-mono text-[0.6875rem] text-body">
+              <td className="py-1 font-mono text-[0.875rem] text-body">
                 {l.doc}
               </td>
               <td className="py-1 text-ink">{l.memo || "—"}</td>
@@ -689,13 +689,13 @@ export function StatementPrint({
       <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3">
         <Field label="Rekening" wide>
           {account}{" "}
-          <span className="font-mono text-[0.6875rem]">{bank_account_id}</span>
+          <span className="font-mono text-[0.875rem]">{bank_account_id}</span>
         </Field>
         <Field label="Unit">{unit}</Field>
         <Field label="Jumlah baris">{lines.length}</Field>
       </div>
 
-      <table className="mt-4 w-full border-collapse text-[0.75rem]">
+      <table className="mt-4 w-full border-collapse text-[0.875rem]">
         <thead>
           <tr className="border-y border-ink">
             <th className="py-1 text-left tracking-[0.06em] text-mute uppercase">
@@ -802,12 +802,12 @@ export function ReportPrint<Row>({
       <Letterhead title={title} right={period} />
 
       {scope && (
-        <div className="mt-2 text-[0.75rem] text-body">
+        <div className="mt-2 text-[0.875rem] text-body">
           {scope} · {rows.length} baris
         </div>
       )}
 
-      <table className="mt-4 w-full border-collapse text-[0.75rem]">
+      <table className="mt-4 w-full border-collapse text-[0.875rem]">
         <thead>
           <tr className="border-y border-ink">
             {columns.map((c) => (
@@ -862,7 +862,7 @@ export function ReportPrint<Row>({
       </table>
 
       {note && (
-        <div className="mt-3 text-[0.6875rem] leading-snug text-body">
+        <div className="mt-3 text-[0.875rem] leading-snug text-body">
           {note}
         </div>
       )}
@@ -908,7 +908,7 @@ export function StatementDoc({
   return (
     <div>
       <Letterhead title={title} right={period} />
-      {scope && <div className="mt-2 text-[0.75rem] text-body">{scope}</div>}
+      {scope && <div className="mt-2 text-[0.875rem] text-body">{scope}</div>}
 
       <div className="mt-4">
         {rows.map((r, i) => (
@@ -923,15 +923,15 @@ export function StatementDoc({
             )}
           >
             <div className={cn("min-w-0", r.kind === "less" && "pl-4")}>
-              <span className="text-[0.8125rem] text-ink">
+              <span className="text-[0.875rem] text-ink">
                 {r.kind === "less" ? "\u2212 " : ""}
                 {r.label}
               </span>
               {r.note && (
-                <span className="ml-2 text-[0.625rem] text-mute">{r.note}</span>
+                <span className="ml-2 text-[0.875rem] text-mute">{r.note}</span>
               )}
             </div>
-            <div className="shrink-0 text-[0.8125rem] text-ink tabular-nums">
+            <div className="shrink-0 text-[0.875rem] text-ink tabular-nums">
               {rp(r.amount)}
             </div>
           </div>
@@ -939,7 +939,7 @@ export function StatementDoc({
       </div>
 
       {note && (
-        <div className="mt-4 text-[0.6875rem] leading-snug text-body">
+        <div className="mt-4 text-[0.875rem] leading-snug text-body">
           {note}
         </div>
       )}

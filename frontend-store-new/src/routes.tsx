@@ -5,8 +5,8 @@ import {
   redirect,
 } from "@tanstack/react-router"
 
-import { TillShell } from "@/components/shell/till-shell"
-import { allNavItems } from "@/lib/navigation"
+import { AppShell } from "@/components/shell/app-shell"
+import { allNavItems, homePath } from "@/lib/navigation"
 import { validateSearch } from "@/lib/params"
 import { screens } from "@/screens"
 
@@ -22,7 +22,7 @@ import { screens } from "@/screens"
 /// on every route below: Router merges the validated search of every matched
 /// route, so a key the root claims survives on all of them.
 const rootRoute = createRootRoute({
-  component: TillShell,
+  component: AppShell,
   validateSearch,
 })
 
@@ -56,19 +56,34 @@ const routes = allNavItems.map((item) =>
   }),
 )
 
-/// `/` is not a screen. A till opens on the till.
+/// Paths a screen used to answer at, forwarded with their search so a
+/// bookmark made before the People menu took the prototype's shape still
+/// lands on the screen it named.
+const movedRoutes = allNavItems.flatMap((item) =>
+  (item.moved ?? []).map((from) =>
+    createRoute({
+      getParentRoute: () => rootRoute,
+      path: from,
+      beforeLoad: ({ search }) => {
+        throw redirect({ to: item.path as never, search: search as never })
+      },
+    }),
+  ),
+)
+
+/// `/` is not a screen. The app opens on its first module.
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   beforeLoad: () => {
     // Cast for the same reason `<AppLink>` casts: the tree is generated from
     // the registry, so Router has no literal union to check this against.
-    throw redirect({ to: "/sell" as never })
+    throw redirect({ to: homePath as never })
   },
 })
 
 export const router = createRouter({
-  routeTree: rootRoute.addChildren([indexRoute, ...routes]),
+  routeTree: rootRoute.addChildren([indexRoute, ...routes, ...movedRoutes]),
   defaultPreload: "intent",
   // Query owns freshness, and on this surface a stale answer shown for a moment
   // is the whole design: the catalogue on screen is the one the shop already

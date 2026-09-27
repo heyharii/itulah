@@ -3,8 +3,8 @@ import { cn } from "@/lib/utils"
 /// What a screen must leave clear at its foot, so the last card fades under the
 /// furniture as a scroll cue rather than being hidden behind it.
 ///
-///  - `tabs` — the floating squircles and their 18px float.
-///  - `both` — the squircles *and* a floating summary bar above them.
+///  - `tabs` — the 56px tab bar, and some air above it.
+///  - `both` — the tab bar *and* a floating summary card above it.
 ///  - `none` — a pushed screen, which has neither; it owns its own foot.
 const CLEARANCE = {
   // Written against the home indicator, not beside it. `FloatingBar` and
@@ -12,8 +12,8 @@ const CLEARANCE = {
   // fixed padding here is short by exactly that inset on every phone that has
   // one — and what gets clipped is the last card's controls, under an opaque
   // bar, where they cannot be tapped.
-  tabs: "pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))]",
-  both: "pb-[calc(16rem+env(safe-area-inset-bottom,0px))]",
+  tabs: "pb-[calc(5rem+env(safe-area-inset-bottom,0px))]",
+  both: "pb-[calc(14rem+env(safe-area-inset-bottom,0px))]",
   none: "pb-6",
 } as const
 
@@ -95,8 +95,8 @@ export function CardList({
 ///
 /// It floats rather than being a sticky opaque bar because the tab bar is
 /// already down there, and two full-width bars stacked at the foot of a phone
-/// is the shape this language spent its whole responsive section avoiding. A
-/// card above the squircles reads as one system; a bar above them reads as two.
+/// read as two navigations. A card above the bar reads as something on the
+/// page.
 export function FloatingBar({
   className,
   children,
@@ -107,8 +107,8 @@ export function FloatingBar({
   return (
     <div
       className={cn(
-        // 54px squircle + its 18px float + 12px of air, then the home indicator.
-        "fixed inset-x-4 bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] z-40",
+        // The 56px tab bar + 12px of air, then the home indicator.
+        "fixed inset-x-4 bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] z-40",
         "overflow-hidden rounded-sheet border border-hairline bg-canvas shadow-float",
         className,
       )}

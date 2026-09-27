@@ -1,6 +1,7 @@
 import {
   Boxes,
   Landmark,
+  LayoutDashboard,
   Megaphone,
   MessagesSquare,
   Shirt,
@@ -8,18 +9,17 @@ import {
   Store,
   Truck,
   Users,
-  Wallet,
   type LucideIcon,
 } from "lucide-react"
 
 import { allotmentNav } from "@/screens/allotment/nav"
 import { assistantNav } from "@/screens/assistant/nav"
 import { commercialNav } from "@/screens/commercial/nav"
+import { executiveNav } from "@/screens/executive/nav"
 import { financeNav } from "@/screens/finance/nav"
-import { financeLabNav } from "@/screens/finance-lab/nav"
-import { financeLab2Nav } from "@/screens/finance-lab-2/nav"
-import { financeFinalNav } from "@/screens/finance-final/nav"
 import { homeNav } from "@/screens/home/nav"
+import { meNav } from "@/screens/me/nav"
+import { mobileNav } from "@/screens/mobile/nav"
 import { inventoryNav } from "@/screens/inventory/nav"
 import { masterNav } from "@/screens/master/nav"
 import { membersNav } from "@/screens/members/nav"
@@ -177,6 +177,10 @@ export interface AppModule {
   /// at any more.
   readonly moved?: readonly string[]
   readonly sections: readonly NavSection[]
+  /// Optional heading shared by consecutive single-screen modules in the
+  /// sidebar. Used when those destinations belong together but should not
+  /// look like children of the multi-screen group above them.
+  readonly sidebarSection?: string
   /// The count on the module's own row, drawn only while the module is
   /// collapsed — expanded, its sub-items carry their own and the same number
   /// twice is noise.
@@ -233,6 +237,7 @@ export interface AppModule {
 /// it.
 export const modules: readonly AppModule[] = [
   homeNav,
+  executiveNav,
   commercialNav,
   masterNav,
   inventoryNav,
@@ -242,9 +247,6 @@ export const modules: readonly AppModule[] = [
   operationsNav,
   membersNav,
   financeNav,
-  financeLabNav,
-  financeLab2Nav,
-  financeFinalNav,
   peopleNav,
   lettersNav,
   gaOverviewNav,
@@ -254,6 +256,7 @@ export const modules: readonly AppModule[] = [
   assetsNav,
   maintenanceNav,
   gaSuppliesNav,
+  libraryNav,
   systemNav,
 ]
 
@@ -266,9 +269,13 @@ export const modules: readonly AppModule[] = [
 export const asides: readonly AppModule[] = [
   discussionsNav,
   chatNav,
-  libraryNav,
   reportsNav,
 ]
+
+/// The asides drawn in the top bar beside Ask rather than at the rail's foot:
+/// talking to each other is what somebody checks while working, and the foot
+/// of the rail is the last place the eye goes. The rail skips these.
+export const topBarAsides: readonly AppModule[] = [discussionsNav, chatNav]
 
 /// Routed, reachable, and drawn nowhere.
 ///
@@ -280,7 +287,7 @@ export const asides: readonly AppModule[] = [
 /// This is the list to put a screen on when it should stop being offered
 /// without ceasing to exist — a distinction the `asides` array cannot make,
 /// because that array is read for both the strip and the router.
-const unlisted: readonly AppModule[] = [assistantNav]
+const unlisted: readonly AppModule[] = [assistantNav, mobileNav, meNav]
 
 /// Modules and asides together, which is what everything except the sidebar's
 /// own layout actually wants: the router builds from this, ⌘K flattens it, and
@@ -346,6 +353,14 @@ export interface AppDomain {
 }
 
 export const domains: readonly AppDomain[] = [
+  // First, ahead of the departments (owner, 2026-09-25): the one place the
+  // whole business is read at once, before anybody goes into a part of it.
+  {
+    id: "executive",
+    label: "Executive",
+    icon: LayoutDashboard,
+    modules: ["executive"],
+  },
   {
     id: "merchandise",
     label: "Merchandise",
@@ -379,22 +394,10 @@ export const domains: readonly AppDomain[] = [
     id: "finance",
     label: "Finance",
     icon: Landmark,
-    modules: ["finance", "finance-lab", "finance-final"],
-  },
-  // Its own chip rather than a fourth module under Finance, because it is not
-  // a fourth view of the same money: `finance-lab-2` is Cash & Bank rebuilt to
-  // ERPNext's shape against the live node, and it is the one being worked on.
-  //
-  // It was also the only finance module in the registry with no chip at all —
-  // routed, in the sidebar's list, reachable by ⌘K, and absent from the bar. A
-  // module belongs to the FIRST domain that names it, so putting it here as
-  // well as under Finance would have drawn a chip that never lights; this is
-  // the reason it stands alone rather than being appended above.
-  {
-    id: "finance-new",
-    label: "Finance New",
-    icon: Wallet,
-    modules: ["finance-lab-2"],
+    // One module since 2026-09-26: the tree the owner froze replaced Finance,
+    // Finance baru, Finance final and the "Finance New" chip's lab. See
+    // `screens/finance/nav.ts`.
+    modules: ["finance"],
   },
   { id: "hr", label: "HR", icon: Users, modules: ["people"] },
   {
@@ -406,9 +409,9 @@ export const domains: readonly AppDomain[] = [
     // operate from, what we own, what we have agreed, what we keep working,
     // what the places run out of, and the letters that go out.
     //
-    // Conversations and files are ways of talking about the work, not work of
-    // this domain — they stay on the icon strip (`asides`) with their routes
-    // untouched.
+    // Files closes the list: the company's filed documents are GA's to keep
+    // (moved here from the icon strip on the owner's word, 2026-09-26).
+    // Conversations stay on the strip (`asides`) with their routes untouched.
     modules: [
       "ga-overview",
       "vendors",
@@ -418,6 +421,7 @@ export const domains: readonly AppDomain[] = [
       "maintenance",
       "ga-supplies",
       "letters",
+      "library",
     ],
   },
 ]
@@ -485,4 +489,18 @@ export function moduleForPath(pathname: string): AppModule {
     if (base.length > incumbent.length) best = module
   }
   return best ?? modules[0]
+}
+
+/// The nav item a path is on: the one with the longest path that is the path
+/// or a prefix of it, so a record under `/finance/bills/42` is on "Bills".
+export function screenForPath(
+  pathname: string
+): (typeof allNavItems)[number] | undefined {
+  let best: (typeof allNavItems)[number] | undefined
+  for (const item of allNavItems) {
+    const matches =
+      pathname === item.path || pathname.startsWith(item.path + "/")
+    if (matches && item.path.length > (best?.path.length ?? -1)) best = item
+  }
+  return best
 }

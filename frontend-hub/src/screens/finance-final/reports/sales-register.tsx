@@ -100,7 +100,7 @@ export function SalesRegister() {
         {/* The effective answer, in words, always. A date box left blank and a
             date box filled with today look identical to a reader; this
             sentence is what tells them which report they are looking at. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {range.chip}
           {site === "" ? (
             " · every unit"
@@ -265,7 +265,7 @@ export function SalesRegister() {
                   <Note>
                     {count(sales.voided_count)} sales were voided in this window
                     and are not rows here.{" "}
-                    <code className="font-mono text-[0.6875rem]">
+                    <code className="font-mono text-[0.875rem]">
                       sales/window
                     </code>{" "}
                     counts them and lists only completed receipts, which is the
@@ -277,25 +277,25 @@ export function SalesRegister() {
                 <Note>
                   <b>Two columns are drawn empty, and neither is guesswork.</b>{" "}
                   <b>Customer:</b>{" "}
-                  <code className="font-mono text-[0.6875rem]">
+                  <code className="font-mono text-[0.875rem]">
                     sale.customer_id
                   </code>{" "}
                   is on the record — the till fills it in when a member signs in
                   — but neither{" "}
-                  <code className="font-mono text-[0.6875rem]">
+                  <code className="font-mono text-[0.875rem]">
                     GET /reports/sales/window
                   </code>{" "}
                   nor{" "}
-                  <code className="font-mono text-[0.6875rem]">
+                  <code className="font-mono text-[0.875rem]">
                     GET /sales
                   </code>{" "}
                   puts it on the wire. <b>Income account:</b> no sale has ever
                   reached the general ledger.{" "}
-                  <code className="font-mono text-[0.6875rem]">
+                  <code className="font-mono text-[0.875rem]">
                     journal_entry.source_kind
                   </code>{" "}
                   reserves{" "}
-                  <code className="font-mono text-[0.6875rem]">SALE_DAY</code>{" "}
+                  <code className="font-mono text-[0.875rem]">SALE_DAY</code>{" "}
                   for exactly this posting and nothing writes one, so there is
                   no account for a receipt to have landed in — and that is the
                   same reason Profit &amp; Loss shows nothing under class 4
@@ -307,25 +307,25 @@ export function SalesRegister() {
                 <Note>
                   <b>One unit at a time, and that is the endpoint's rule rather
                   than this page's.</b>{" "}
-                  <code className="font-mono text-[0.6875rem]">
+                  <code className="font-mono text-[0.875rem]">
                     GET /reports/sales/window
                   </code>{" "}
                   requires{" "}
-                  <code className="font-mono text-[0.6875rem]">site_id</code>,
+                  <code className="font-mono text-[0.875rem]">site_id</code>,
                   so unlike every other report here the unit is not an optional
                   filter.{" "}
-                  <code className="font-mono text-[0.6875rem]">
+                  <code className="font-mono text-[0.875rem]">
                     GET /api/v1/sales
                   </code>{" "}
                   does answer across every unit, but it takes no dates at all —
                   only{" "}
-                  <code className="font-mono text-[0.6875rem]">site_id</code>,{" "}
-                  <code className="font-mono text-[0.6875rem]">status</code> and{" "}
-                  <code className="font-mono text-[0.6875rem]">limit</code> — so
+                  <code className="font-mono text-[0.875rem]">site_id</code>,{" "}
+                  <code className="font-mono text-[0.875rem]">status</code> and{" "}
+                  <code className="font-mono text-[0.875rem]">limit</code> — so
                   a register over a window cannot stand on it without cutting a
                   wider answer up in the browser. A chain-wide receipt register
                   needs the windowed endpoint to take an optional{" "}
-                  <code className="font-mono text-[0.6875rem]">site_id</code>,
+                  <code className="font-mono text-[0.875rem]">site_id</code>,
                   or the list endpoint to take a window.
                 </Note>
               </div>

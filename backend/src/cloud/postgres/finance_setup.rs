@@ -380,7 +380,7 @@ async fn ensure_leaf(
     Ok(code)
 }
 
-/// Point `semantic_key` qualified by the bank at `account` at every site.
+/// Link `role` for the bank to `account`, for every site.
 async fn map_everywhere(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     semantic_key: &str,
@@ -389,11 +389,10 @@ async fn map_everywhere(
     actor: &str,
 ) -> Result<i64, AppError> {
     let written = sqlx::query(
-        "INSERT INTO account_map
-            (semantic_key, site_id, qualifier, account_code, category_code, set_by, note)
-         SELECT $1, site.id, $2, $3, NULL, $4, 'Tambah bank'
-           FROM site
-         ON CONFLICT (semantic_key, site_id, qualifier) DO UPDATE
+        "INSERT INTO account_link
+            (role, source_type, source_id, scope_type, account_code, category_code, set_by, note)
+         VALUES ($1, 'COMPANY', $2, 'ALL', $3, NULL, $4, 'Tambah bank')
+         ON CONFLICT (role, source_type, source_id, scope_type, scope_key) DO UPDATE
             SET account_code = EXCLUDED.account_code, category_code = NULL,
                 set_by = EXCLUDED.set_by, set_at = now(), note = EXCLUDED.note",
     )
@@ -405,6 +404,49 @@ async fn map_everywhere(
     .await?
     .rows_affected();
     Ok(i64::try_from(written).unwrap_or(0))
+}
+
+/// The heading the accounts linked to `role` sit under — where a new bank's
+/// account of the same kind belongs.
+async fn heading_of(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    role: &str,
+) -> Result<String, AppError> {
+    sqlx::query_scalar(
+        "SELECT a.parent_code FROM account_link l
+           JOIN ledger_account a ON a.account_code = l.account_code
+          WHERE l.role = $1 AND a.parent_code IS NOT NULL
+          GROUP BY a.parent_code ORDER BY count(*) DESC, a.parent_code LIMIT 1",
+    )
+    .bind(role)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| {
+        AppError::Validation(format!(
+            "no bank is set up for {role} yet, so there is no heading to put a new one under; \
+             add the first one on the chart of accounts and link it"
+        ))
+    })
+}
+
+/// The account most of `role`'s links point at — what a new bank shares with
+/// the others (the card receivable, the MDR expense, the returns account).
+async fn usual_account(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    role: &str,
+) -> Result<String, AppError> {
+    sqlx::query_scalar(
+        "SELECT account_code FROM account_link WHERE role = $1
+          GROUP BY account_code ORDER BY count(*) DESC, account_code LIMIT 1",
+    )
+    .bind(role)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| {
+        AppError::Validation(format!(
+            "{role} is linked to no account yet; link it on the Account Links screen first"
+        ))
+    })
 }
 
 /// "Tambah bank" (owner decision 7): one act makes the bank postable.
@@ -442,24 +484,49 @@ pub async fn add_bank(
     .execute(&mut *tx)
     .await?;
 
+    // Where each new account sits and which shared accounts a new bank uses
+    // are read from how the other banks are set up, never written here: the
+    // heading the role's accounts already sit under, and the account most of
+    // the role's links already point at.
     let mut created = Vec::new();
     let mut mapped = 0i64;
     if request.giro {
-        let cash = ensure_leaf(&mut tx, "1001", &format!("Cash In Bank Giro {display}"), "D", "ASSET", &mut created).await?;
+        let heading = heading_of(&mut tx, "bank_giro").await?;
+        let cash = ensure_leaf(&mut tx, &heading, &format!("Cash In Bank Giro {display}"), "D", "ASSET", &mut created).await?;
         mapped += map_everywhere(&mut tx, "bank_giro", &bank, &cash, actor).await?;
-        let outstanding = ensure_leaf(&mut tx, "2001", &format!("Outstanding Giro {display}"), "C", "LIABILITY", &mut created).await?;
+        let heading = heading_of(&mut tx, "giro_outstanding").await?;
+        let outstanding = ensure_leaf(&mut tx, &heading, &format!("Outstanding Giro {display}"), "C", "LIABILITY", &mut created).await?;
         mapped += map_everywhere(&mut tx, "giro_outstanding", &bank, &outstanding, actor).await?;
     }
     if request.savings {
-        let cash = ensure_leaf(&mut tx, "1001", &format!("Cash In Bank Tabungan {display}"), "D", "ASSET", &mut created).await?;
+        let heading = heading_of(&mut tx, "bank_savings").await?;
+        let cash = ensure_leaf(&mut tx, &heading, &format!("Cash In Bank Tabungan {display}"), "D", "ASSET", &mut created).await?;
         mapped += map_everywhere(&mut tx, "bank_savings", &bank, &cash, actor).await?;
     }
     if request.debit_card {
-        let sales = ensure_leaf(&mut tx, "4001", &format!("Penjualan Debit Card {display}"), "C", "REVENUE", &mut created).await?;
+        let heading = heading_of(&mut tx, "revenue_debit").await?;
+        let sales = ensure_leaf(&mut tx, &heading, &format!("Penjualan Debit Card {display}"), "C", "REVENUE", &mut created).await?;
         mapped += map_everywhere(&mut tx, "revenue_debit", &bank, &sales, actor).await?;
-        mapped += map_everywhere(&mut tx, "card_receivable_debit", &bank, "1021", actor).await?;
-        mapped += map_everywhere(&mut tx, "card_fee", &bank, "6005", actor).await?;
-        mapped += map_everywhere(&mut tx, "sales_return", &bank, "4013", actor).await?;
+        for role in ["card_receivable_debit", "card_fee", "sales_return"] {
+            let usual = usual_account(&mut tx, role).await?;
+            mapped += map_everywhere(&mut tx, role, &bank, &usual, actor).await?;
+        }
+        // The bank's debit cards and its QRIS become payment methods the
+        // tills accept (0468), settling through the acquirer as the others do.
+        for (prefix, label, tender) in [("DEBIT", "Debit", "DEBIT_CARD"), ("QRIS", "QRIS", "QRIS")] {
+            sqlx::query(
+                "INSERT INTO payment_method (code, name, tender_type, bank_code, settlement_mode, created_by)
+                 VALUES ($1, $2, $3, $4, 'VIA_RECEIVABLE', $5)
+                 ON CONFLICT (tender_type, bank_code) DO NOTHING",
+            )
+            .bind(format!("{prefix}_{bank}"))
+            .bind(format!("{label} {name}"))
+            .bind(tender)
+            .bind(&bank)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
+        }
     }
     let mut terminals = 0i64;
     for terminal in &request.terminals {
@@ -494,7 +561,8 @@ pub async fn add_bank(
         }
         let site = request.account_site_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or("dc");
         let ledger: String = sqlx::query_scalar(
-            "SELECT account_code FROM account_map WHERE semantic_key = $1 AND site_id = $2 AND qualifier = $3",
+            "SELECT account_code FROM account_resolution
+              WHERE role = $1 AND site_id = $2 AND source_type = 'COMPANY' AND source_id = $3",
         )
         .bind(semantic)
         .bind(site)

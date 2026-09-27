@@ -3,7 +3,18 @@
 /**
  * One purchase, as a member's history lists it.
  */
-export type CustomerTransaction = { sale_id: string, occurred_at: string, site_id: string, currency: string, total_minor: number, discount_total_minor: number, points_earned: number, 
+export type CustomerTransaction = { sale_id: string, occurred_at: string, site_id: string, 
+/**
+ * The shop's own name, for a shopper who knows "Store 01" and not
+ * `store-01`. `None` for a site the centre has no row for.
+ */
+site_name: string | null, 
+/**
+ * `COMPLETED`, or `VOIDED` once the shop cancelled it. A voided sale stays
+ * in the history — the shopper was there and may ask about it — but it
+ * earned nothing and counts toward no total.
+ */
+status: string, currency: string, total_minor: number, discount_total_minor: number, points_earned: number, 
 /**
  * Units bought, not lines: two of the same shirt reads as two items on a
  * receipt and should read as two here.

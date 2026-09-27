@@ -34,6 +34,7 @@ use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use pricing_engine::Money;
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use uuid::Uuid;
 
 fn corrupt(what: &str, detail: String) -> AppError {
     AppError::Configuration(format!(
@@ -466,8 +467,9 @@ pub async fn file_adjustment(
 
     let inserted = sqlx::query(
         "INSERT INTO payroll_adjustment
-             (id, place_id, period, employee_id, component_code, basis, amount_minor, filed)
-         VALUES ($1, $2, $3, $4, $5, 'PER_OCCASION', $6, $7)
+             (id, place_id, period, employee_id, component_code, basis, amount_minor,
+              advance_id, filed)
+         VALUES ($1, $2, $3, $4, $5, 'PER_OCCASION', $6, $7, $8)
          ON CONFLICT (place_id, period, employee_id, component_code) DO NOTHING",
     )
     .bind(adjustment.id())
@@ -476,6 +478,7 @@ pub async fn file_adjustment(
     .bind(adjustment.employee_id())
     .bind(adjustment.code().as_str())
     .bind(adjustment.amount().minor)
+    .bind(adjustment.advance_id())
     .bind(serde_json::to_value(adjustment.filed())?)
     .execute(&mut *tx)
     .await?;
@@ -525,7 +528,7 @@ pub async fn withdraw_adjustment(
 ) -> Result<Option<PayrollAdjustment>, AppError> {
     let mut tx = pool.begin().await?;
     let row = sqlx::query(
-        "SELECT id, place_id, period, employee_id, component_code, amount_minor, filed
+        "SELECT id, place_id, period, employee_id, component_code, amount_minor, advance_id, filed
            FROM payroll_adjustment WHERE id = $1 FOR UPDATE",
     )
     .bind(id)
@@ -549,6 +552,7 @@ pub async fn withdraw_adjustment(
             .try_into()
             .map_err(|error: ComponentError| corrupt("component code", error.to_string()))?,
         amount: Money::new(row.try_get::<i64, _>("amount_minor")?),
+        advance_id: row.try_get("advance_id")?,
         filed: serde_json::from_value(row.try_get("filed")?)
             .map_err(|error| corrupt("adjustment authority", error.to_string()))?,
     })
@@ -583,6 +587,8 @@ pub struct PayrollAdjustmentRow {
     /// positive amount under a deduction; nothing here is signed.
     pub kind: String,
     pub amount_minor: i64,
+    /// The advance the figure repays, when the figure is a recovery (0347).
+    pub advance_id: Option<Uuid>,
     pub filed_by: String,
     pub filed_at: DateTime<Utc>,
     /// Why. Not decoration: this is the one figure on a payslip head office did
@@ -609,6 +615,7 @@ fn adjustment_row(row: &sqlx::postgres::PgRow) -> Result<PayrollAdjustmentRow, A
         label: row.try_get("label")?,
         kind: row.try_get("kind")?,
         amount_minor: row.try_get("amount_minor")?,
+        advance_id: row.try_get("advance_id")?,
         filed_by: filed.actor().to_string(),
         filed_at: filed.at(),
         reason: filed.reason().to_string(),
@@ -625,8 +632,8 @@ pub async fn adjustments(
 ) -> Result<Vec<PayrollAdjustmentRow>, AppError> {
     let rows = sqlx::query(
         "SELECT a.id, a.place_id, a.period, a.employee_id, e.code AS employee_code,
-                p.full_name, a.component_code, c.label, c.kind, a.amount_minor, a.filed,
-                r.state AS run_state
+                p.full_name, a.component_code, c.label, c.kind, a.amount_minor, a.advance_id,
+                a.filed, r.state AS run_state
            FROM payroll_adjustment a
            JOIN pay_component c ON c.code = a.component_code
            JOIN employee e ON e.id = a.employee_id
@@ -656,7 +663,7 @@ pub async fn adjustments_for_run(
     employee_id: &str,
 ) -> Result<Vec<PayrollAdjustment>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, place_id, period, employee_id, component_code, amount_minor, filed
+        "SELECT id, place_id, period, employee_id, component_code, amount_minor, advance_id, filed
            FROM payroll_adjustment
           WHERE place_id = $1 AND period = $2 AND employee_id = $3
           ORDER BY component_code",
@@ -683,6 +690,7 @@ pub async fn adjustments_for_run(
                         corrupt("component code", error.to_string())
                     })?,
                 amount: Money::new(row.try_get::<i64, _>("amount_minor")?),
+                advance_id: row.try_get("advance_id")?,
                 filed: serde_json::from_value(row.try_get("filed")?)
                     .map_err(|error| corrupt("adjustment authority", error.to_string()))?,
             })

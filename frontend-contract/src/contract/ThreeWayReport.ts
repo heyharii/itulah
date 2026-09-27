@@ -7,7 +7,7 @@ import type { UnmatchedBill } from "./UnmatchedBill";
  */
 export type ThreeWayReport = { receipts_not_billed: Array<ReceiptAging>, bills_not_matched: Array<UnmatchedBill>, 
 /**
- * What the suspend account should be carrying: the posted value of every
- * delivery nobody has billed. A figure to check `2012001002` against.
+ * Posted value of delivered merchandise for which no supplier invoice is
+ * matched yet; this remains open in trade payables.
  */
-suspense_expected_minor: number, };
+unbilled_receipt_payable_minor: number, };

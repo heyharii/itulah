@@ -54,8 +54,8 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import { Switch } from "@/components/ui/form"
 import { Named, Quiet } from "@/screens/commercial/parts"
 import { endOfDay, shift, startOfDay, today } from "@/lib/calendar"
-import { Choices, Section, Stepper, type Tile } from "@/components/ui/form"
-import { Terms } from "@/screens/commercial/controls"
+import { Section, Stepper } from "@/components/ui/form"
+import { More, Terms } from "@/screens/commercial/controls"
 import {
   consumed,
   describeEffect,
@@ -63,6 +63,7 @@ import {
   percent,
   useActor,
 } from "@/screens/commercial/shared"
+import { HardCap } from "@/screens/commercial/allocation"
 import { CampaignOutcome } from "@/screens/commercial/campaign-outcome"
 import {
   drawMetric,
@@ -113,27 +114,14 @@ const UNLIMITED = -1
 /// The lifecycle the engine actually models. A superset of the four a
 /// dashboard usually shows, and worth keeping whole: "cancelled" and "expired"
 /// are different endings and only one of them was somebody's decision.
-///
-/// Each carries the line that distinguishes it from the one beside it. As six
-/// rows of a dropdown they were six shouted enum names with nothing to choose
-/// between them; as six tiles the difference is on the glass, which is the
-/// whole reason the distinction was kept.
 const CAMPAIGN_STATES = [
-  { value: "DRAFT", label: "Draft", note: "Written down. Running nowhere." },
-  {
-    value: "SCHEDULED",
-    label: "Scheduled",
-    note: "Waits for the day it starts.",
-  },
-  { value: "ACTIVE", label: "Active", note: "Live the moment it lands." },
-  { value: "PAUSED", label: "Paused", note: "Published, and held." },
-  { value: "EXPIRED", label: "Expired", note: "Its window has passed." },
-  {
-    value: "CANCELLED",
-    label: "Cancelled",
-    note: "Called off. Not the same as expired.",
-  },
-] as const satisfies readonly Tile<string>[]
+  { value: "DRAFT", label: "Draft" },
+  { value: "SCHEDULED", label: "Scheduled" },
+  { value: "ACTIVE", label: "Active" },
+  { value: "PAUSED", label: "Paused" },
+  { value: "EXPIRED", label: "Expired" },
+  { value: "CANCELLED", label: "Cancelled" },
+] as const
 
 type CampaignState = (typeof CAMPAIGN_STATES)[number]["value"]
 
@@ -437,18 +425,31 @@ export function Campaigns() {
   })
   const shops = fleet.data?.shop_count ?? null
 
+  /// Rules grouped by the campaign they name, once. Filtering every rule for
+  /// every campaign was campaigns × rules on each recompute; a group keeps the
+  /// catalogue's own order, so each row lists its rules exactly as before.
+  const rulesOf = useMemo(() => {
+    const map = new Map<string, PromotionRow[]>()
+    for (const rule of catalogue.data?.rules ?? []) {
+      const id = rule.definition.campaign_id
+      if (id === null) continue
+      const group = map.get(id)
+      if (group) group.push(rule)
+      else map.set(id, [rule])
+    }
+    return map
+  }, [catalogue.data?.rules])
+
   const lines: CampaignLine[] = useMemo(
     () =>
       (catalogue.data?.campaigns ?? []).map((row) => ({
         row,
         usage: byKey.get(`CAMPAIGN:${row.campaign.campaign_id}`) ?? null,
-        rules: (catalogue.data?.rules ?? []).filter(
-          (rule) => rule.definition.campaign_id === row.campaign.campaign_id
-        ),
+        rules: rulesOf.get(row.campaign.campaign_id) ?? [],
         reached: row.book.activated_by.length,
         intent: byCampaign.get(row.campaign.campaign_id) ?? null,
       })),
-    [catalogue.data, byKey, byCampaign]
+    [catalogue.data?.campaigns, rulesOf, byKey, byCampaign]
   )
 
   /// Every campaign the books declare, for the one control that has to offer
@@ -555,26 +556,10 @@ export function Campaigns() {
         </div>
       )}
 
-      {receipt && (
-        <Banner
-          tone={receipt.delivered_to.length > 0 ? "ok" : "warn"}
-          className="mb-4"
-          onDismiss={() => setReceipt(null)}
-        >
-          {receipt.delivered_to.length > 0 ? (
-            <>
-              Book v{receipt.version} published and queued for{" "}
-              {count(receipt.delivered_to.length)} shop
-              {receipt.delivered_to.length === 1 ? "" : "s"} (
-              {receipt.delivered_to.join(", ")}).
-            </>
-          ) : (
-            <>
-              Book v{receipt.version} published, and queued for nobody. No shop
-              origin is registered, so nothing in this campaign will apply
-              anywhere.
-            </>
-          )}
+      {receipt && receipt.delivered_to.length === 0 && (
+        <Banner tone="warn" className="mb-4" onDismiss={() => setReceipt(null)}>
+          Book v{receipt.version} published, and queued for nobody. No shop
+          origin is registered, so nothing in this campaign will apply anywhere.
         </Banner>
       )}
 
@@ -584,7 +569,7 @@ export function Campaigns() {
           at once and the chips stay visible while somebody reads the rows they
           produced. Under 1440px it falls below rather than squeezing the
           table. */}
-      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
           {/* The read carries the first five hundred campaigns — see
               `promotionCatalogue` — and everything below is filtered and
@@ -625,14 +610,6 @@ export function Campaigns() {
                 ),
             })}
           </Card>
-
-          {catalogue.data && (
-            <p className="mt-2.5 text-[0.71875rem] text-mute">
-              Drawn from {count(catalogue.data.book_count)} published book
-              {catalogue.data.book_count === 1 ? "" : "s"}. Where one campaign
-              is in several, the newest wins — as it does at a till.
-            </p>
-          )}
         </div>
 
         <DockedFilters model={filters} id="campaigns" subject="Campaign" />
@@ -744,10 +721,7 @@ function Poster({ line }: { line: CampaignLine }) {
         />
       )}
       <div className="flex flex-col gap-2.5">
-        <Field
-          label="Headline"
-          hint="What a shopper reads. The campaign's own name is a filing code."
-        >
+        <Field label="Headline">
           <Input
             value={headline}
             onChange={(event) => setHeadline(event.target.value)}
@@ -789,7 +763,7 @@ function Poster({ line }: { line: CampaignLine }) {
           {save.isPending ? "Sending…" : "Save and send to shops"}
         </Button>
         {save.isSuccess && !changed && (
-          <span className="text-[0.71875rem] text-mute">Sent.</span>
+          <span className="text-[0.875rem] text-mute">Sent.</span>
         )}
       </div>
     </div>
@@ -867,6 +841,14 @@ function CampaignSheet({
                   <Fact term="From">{line.row.book.name}</Fact>
                 </Facts>
 
+                {(line.row.campaign.budget_minor !== null ||
+                  line.row.campaign.max_uses !== null) && (
+                  <HardCap
+                    kind="CAMPAIGN"
+                    subject={line.row.campaign.campaign_id}
+                  />
+                )}
+
                 <Poster line={line} />
               </div>
             ),
@@ -880,11 +862,7 @@ function CampaignSheet({
                   What is inside it
                 </SubHead>
                 {line.rules.length === 0 ? (
-                  <Quiet>
-                    No promotion names this campaign. A rule joins by setting
-                    its own `campaign_id`, so an empty campaign is an envelope
-                    nothing was put in.
-                  </Quiet>
+                  <Quiet>No promotion in this campaign yet.</Quiet>
                 ) : (
                   <>
                     <MiniTable
@@ -900,12 +878,12 @@ function CampaignSheet({
                             <Named name={rule.name} code={rule.status} />
                           </MiniCell>
                           <MiniCell>
-                            <span className="text-[0.71875rem] text-body">
+                            <span className="text-[0.875rem] text-body">
                               {describeScope(rule.definition)}
                             </span>
                           </MiniCell>
                           <MiniCell align="right">
-                            <span className="text-[0.71875rem] text-text">
+                            <span className="text-[0.875rem] text-text">
                               {describeEffect(rule.definition.effect)}
                             </span>
                           </MiniCell>
@@ -914,17 +892,15 @@ function CampaignSheet({
                     </MiniTable>
                     {/* No dead ends: if two things relate, the UI crosses
                         between them in one click. */}
-                    <p className="mt-2 text-[0.71875rem] text-mute">
-                      <AppLink
-                        to="/commercial/promotions"
-                        className="text-accent"
-                      >
-                        Open these on Promotions
-                      </AppLink>{" "}
-                      to pause one on its own. Pausing the campaign stops all of
-                      them at once — a rule is live only when both it and its
-                      campaign are.
-                    </p>
+                    {/* Pausing the campaign stops all of them at once — a
+                        rule is live only when both it and its campaign are —
+                        so pausing just one is done on Promotions. */}
+                    <AppLink
+                      to="/commercial/promotions"
+                      className="mt-2 inline-block text-meta text-accent"
+                    >
+                      Open on Promotions
+                    </AppLink>
                   </>
                 )}
               </div>
@@ -951,23 +927,8 @@ function CampaignSheet({
                         share >= 0.9 ? "bad" : share >= 0.7 ? "warn" : "accent"
                       }
                     />
-                    <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
-                      A budget is a brake, not a gate. Every shop enforces from
-                      the last count it received, so this figure is ahead of
-                      what the tills know — send the counts from Promotions to
-                      close the gap.
-                    </p>
                   </div>
                 )}
-
-                <p className="text-[0.71875rem] leading-relaxed text-mute">
-                  What it did is read over the campaign&apos;s OWN window, not
-                  over the period the tiles at the top of the screen are set to.
-                  &ldquo;Did Lebaran hit its target&rdquo; is asked over
-                  Lebaran&apos;s dates whatever today is — scoring a finished
-                  campaign against the last thirty days would report every past
-                  one as a failure the month after it ended.
-                </p>
               </div>
             ),
           },
@@ -978,10 +939,7 @@ function CampaignSheet({
               <div>
                 <SubHead aside={line.row.book.name}>In service at</SubHead>
                 {line.row.book.activated_by.length === 0 ? (
-                  <Quiet>
-                    No shop has put the book carrying this campaign into
-                    service, so nothing inside it is applying anywhere yet.
-                  </Quiet>
+                  <Quiet>Not in service at any shop yet.</Quiet>
                 ) : (
                   <MiniTable
                     head={[
@@ -999,7 +957,7 @@ function CampaignSheet({
                           />
                         </MiniCell>
                         <MiniCell>
-                          <span className="text-[0.71875rem] text-body">
+                          <span className="text-[0.875rem] text-body">
                             {moment(activation.activated_at)}
                           </span>
                         </MiniCell>
@@ -1212,21 +1170,31 @@ function CampaignForm({
 
   const problem =
     actor === ""
-      ? "Nobody is signed in, so no command can name who did this."
+      ? "Sign in to publish."
       : name.trim() === ""
-        ? "A campaign needs a name — it is what every offer inside it is filed under."
+        ? "Give the campaign a name."
         : windowBroken
-          ? "The end has to come after the start."
+          ? "The end date has to be after the start."
           : budget.trim() !== "" && budgetMinor === null
-            ? "A budget is whole rupiah. No decimals, and nothing but digits."
+            ? "The budget has to be whole rupiah."
             : chosenMetric?.unit === "bps" &&
                 targetValue !== null &&
                 targetValue > 10_000
-              ? "A sell-through target cannot pass 100% — it is basis points, so 8000 is 80%."
+              ? "A sell-through target cannot pass 100% (10000 bps)."
               : undefined
 
   const halted =
     publish.error instanceof BookWrittenNotPublished ? publish.error : null
+
+  /// How many of the shopper-facing fields are filled, and whether a target
+  /// has been set — the two folds say so while they are closed.
+  const shown = [headline, terms, image].filter(
+    (one) => one.trim() !== ""
+  ).length
+  const everyShop =
+    stores.length > 0 &&
+    stores.length ===
+      (fleet.data?.items ?? []).filter((one) => one.site_id !== null).length
 
   return (
     <Sheet
@@ -1241,22 +1209,19 @@ function CampaignForm({
       className="md:w-[clamp(32rem,66vw,58rem)]"
       footer={
         <div className="flex items-center justify-between gap-3">
-          <span className="min-w-0 text-[0.71875rem] leading-relaxed">
-            {problem !== undefined ? (
-              <span className="text-bad">{problem}</span>
-            ) : (
-              <span className="text-mute">
-                <span className="text-text">
-                  {readsCampaign(
-                    status,
-                    from === "" ? null : from,
-                    to === "" ? null : to,
-                    budgetMinor
-                  )}
-                </span>{" "}
-                — published and sent to every shop the moment you press this.
-              </span>
+          <span
+            className={cn(
+              "min-w-0 truncate text-[0.875rem]",
+              problem !== undefined ? "text-bad" : "text-text"
             )}
+          >
+            {problem ??
+              readsCampaign(
+                status,
+                from === "" ? null : from,
+                to === "" ? null : to,
+                budgetMinor
+              )}
           </span>
           <Button
             variant="primary"
@@ -1281,147 +1246,41 @@ function CampaignForm({
       {/* Measured on the sheet, not on the window — this panel is 66vw at a
           desk and the whole glass on a phone. */}
       <div className="@container">
-        <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] @3xl:gap-x-8">
+        <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] @3xl:gap-x-8">
           <div className="flex flex-col gap-6">
-            <Section title="The envelope">
-              <Field
-                label="What it is called"
-                hint="Lebaran, End of season — the name the business uses for the whole thing."
-              >
-                <Input
-                  value={name}
-                  autoFocus
-                  placeholder="Lebaran"
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </Field>
-            </Section>
-
-            {/* The section that makes this a campaign rather than a folder.
-                Everything else on this form is a CONSTRAINT on the promotions
-                inside — a window, a budget, a list of shops — and a thing whose
-                entire content is constraints on another thing does not need a
-                menu of its own.
-
-                Three answers and not one, because "+20%" is half a target:
-                nobody can say +20% OF WHAT. The objective is the intent, the
-                metric is how we will know, and the number is the line. */}
-            <Section title="What it is for" aside="not part of the book">
-              <Field label="Objective" hint={objectiveOf(objective)?.hint}>
-                <Select
-                  value={objective}
-                  onChange={(next: string) => {
-                    setObjective(next)
-                    // The usual measure for what was just picked, as a starting
-                    // point rather than a rule — a clearance measured by promo
-                    // sales is unusual and not wrong.
-                    const suggests = objectiveOf(next)?.suggests
-                    if (suggests !== undefined) setMetric(suggests)
-                  }}
-                >
-                  {OBJECTIVES.map((one) => (
-                    <option key={one.value} value={one.value}>
-                      {one.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Success metric" hint={chosenMetric?.hint}>
-                  <Select value={metric} onChange={setMetric}>
-                    {METRICS.map((one) => (
+            <Section title="Campaign">
+              <div className="grid gap-3 @lg:grid-cols-[minmax(0,1fr)_11rem]">
+                <Field label="Name">
+                  <Input
+                    value={name}
+                    autoFocus
+                    placeholder="Lebaran"
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </Field>
+                {/* A dropdown rather than six tiles: nearly every campaign is
+                    published Active, and the other five are answers somebody
+                    goes looking for rather than reads past. */}
+                <Field label="Status">
+                  <Select
+                    value={status}
+                    onChange={(next) => setStatus(next as CampaignState)}
+                  >
+                    {CAMPAIGN_STATES.map((one) => (
                       <option key={one.value} value={one.value}>
                         {one.label}
                       </option>
                     ))}
                   </Select>
                 </Field>
-                <Field
-                  label={`Target (${chosenMetric?.direction === "AT_MOST" ? "at most" : "at least"})`}
-                  hint={
-                    chosenMetric?.unit === "bps"
-                      ? "Basis points: 8000 is 80%."
-                      : chosenMetric?.unit === "money"
-                        ? "Whole rupiah."
-                        : "A whole number. Leave it empty to decide later."
-                  }
-                >
-                  <Money
-                    value={target}
-                    onChange={setTarget}
-                    prefix={chosenMetric?.unit === "money" ? "Rp" : undefined}
-                    suffix={chosenMetric?.unit === "bps" ? "bps" : undefined}
-                    placeholder="Not set"
-                    label="Target"
-                  />
-                </Field>
               </div>
-              <p className="text-[0.71875rem] leading-relaxed text-mute">
-                None of this reaches a till, and none of it is in the price book
-                — a shop has no use for &ldquo;clear seasonal inventory&rdquo;.
-                It is kept at the centre so the goal can be moved without
-                repricing the estate.
-              </p>
             </Section>
 
-            <Section title="What a shopper reads" aside="the only part they do">
-              <Field
-                label="Headline"
-                hint="What the shopper sees. The name above is only a filing code."
-              >
-                <Input
-                  value={headline}
-                  placeholder={
-                    name.trim() === ""
-                      ? "Diskon Lebaran — sampai 30 September"
-                      : name.trim()
-                  }
-                  onChange={(event) => setHeadline(event.target.value)}
-                />
-              </Field>
-              <Field label="Terms" hint="Small print, printed as written.">
-                <Textarea
-                  value={terms}
-                  rows={3}
-                  placeholder={
-                    "Selama persediaan masih ada.\nTidak dapat digabung dengan promo lain."
-                  }
-                  onChange={(event) => setTerms(event.target.value)}
-                />
-              </Field>
-              <Field
-                label="Banner image"
-                hint="A catalogue-media key or a URL — the same shape an article's picture carries, so one proxy serves both."
-              >
-                <Input
-                  value={image}
-                  placeholder="https://…"
-                  onChange={(event) => setImage(event.target.value)}
-                />
-              </Field>
-            </Section>
-
-            <Section title="What state it starts in" aside="six, not four">
-              <Choices
-                options={CAMPAIGN_STATES}
-                value={status}
-                onChange={setStatus}
-                columns={3}
-                label="The state this campaign is published in"
-              />
-              <p className="text-[0.71875rem] leading-relaxed text-mute">
-                Six states and not four: cancelled and expired are different
-                endings, and only one of them was a decision. A rule is live
-                only when both it and its campaign are, so publishing this
-                paused holds every offer inside it without touching any of them.
-              </p>
-            </Section>
-          </div>
-
-          <div className="flex flex-col gap-6">
-            <Section title="When it runs" aside="days, not minutes">
+            {/* A whole day each end, so "until 30 September" includes the
+                thirtieth. */}
+            <Section title="Schedule">
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Runs from">
+                <Field label="Starts">
                   <Day
                     value={from}
                     onChange={setFrom}
@@ -1435,17 +1294,17 @@ function CampaignForm({
                   />
                 </Field>
                 <Field
-                  label="Until"
+                  label="Ends"
                   problem={
                     windowBroken
-                      ? "The end has to come after the start."
+                      ? "The end date has to be after the start."
                       : undefined
                   }
                 >
                   <Day
                     value={to}
                     onChange={setTo}
-                    placeholder="Open ended"
+                    placeholder="No end date"
                     label="The last day this campaign runs"
                     notBefore={from}
                     presets={[
@@ -1460,7 +1319,10 @@ function CampaignForm({
               </div>
             </Section>
 
-            <Section title="Where it runs" aside="both lists bind">
+            {/* Naming none means everywhere. Naming some is a CONSTRAINT, not a
+                default: an offer inside this campaign runs where both its own
+                list and this one allow. */}
+            <Section title="Shops">
               <Stores
                 chosen={stores}
                 onToggle={(id) =>
@@ -1473,69 +1335,127 @@ function CampaignForm({
                 onClear={() => setStores([])}
                 shops={fleet.data?.items ?? []}
               />
-              <p className="text-[0.71875rem] leading-relaxed text-mute">
-                Naming none means everywhere. Naming some is a CONSTRAINT, not a
-                default: an offer inside this campaign runs where both its own
-                list and this one allow, so a student offer named for six shops
-                inside a campaign named for thirteen runs in six — and an offer
-                naming thirteen inside a campaign named for six still runs in
-                six.
-              </p>
             </Section>
 
-            <Section title="How far it may go" aside="shared by every offer">
-              <Field
-                label="Budget for the whole window"
-                hint="The whole window, shared by every offer inside. Empty is unlimited."
-              >
-                <Money
-                  value={budget}
-                  onChange={setBudget}
-                  prefix="Rp"
-                  placeholder="Unlimited"
-                  label="Budget for the whole window"
-                />
-              </Field>
-              {/* Narrower than the column it sits in: a stepper stretched to
-                  full width puts its two buttons a hand apart, which is the
-                  one thing a stepper is supposed to save you. */}
-              <Field
-                label="Most baskets"
-                hint="Shared across every offer inside it."
-                className="max-w-[13rem]"
-              >
-                <Stepper
-                  value={maxUses}
-                  onChange={setMaxUses}
-                  min={1}
-                  placeholder="Unlimited"
-                  label="Most baskets"
-                />
-              </Field>
-              <p className="text-[0.71875rem] leading-relaxed text-mute">
-                Offers join a campaign from the promotion form, by naming it. A
-                per-customer limit is not offered here: the server refuses one,
-                because nothing counts a customer&rsquo;s own history and the
-                limit would never bite.
-              </p>
+            {/* Shared by every offer inside, not given to each of them. A
+                per-customer limit is not offered: the server refuses one on a
+                campaign, because nothing counts a customer's own history. */}
+            <Section title="Limits">
+              <div className="grid gap-3 @lg:grid-cols-2">
+                <Field label="Budget">
+                  <Money
+                    value={budget}
+                    onChange={setBudget}
+                    prefix="Rp"
+                    placeholder="Unlimited"
+                    label="Budget for the whole window"
+                  />
+                </Field>
+                <Field label="Max. baskets">
+                  <Stepper
+                    value={maxUses}
+                    onChange={setMaxUses}
+                    min={1}
+                    placeholder="Unlimited"
+                    label="Most baskets"
+                  />
+                </Field>
+              </div>
             </Section>
 
-            {/* Deliberately NOT the promotion's terms, and not for the reason
-                it first looks.
+            <div className="flex flex-col gap-2.5">
+              {/* The three a SHOPPER reads. They ride on the campaign and
+                  nowhere else — a campaign is the one thing in a price book a
+                  shopper is meant to read. Empty headline means shops show the
+                  name above. */}
+              <More label="What shoppers see" count={shown}>
+                <Field label="Headline">
+                  <Input
+                    value={headline}
+                    placeholder={
+                      name.trim() === ""
+                        ? "Diskon Lebaran — sampai 30 September"
+                        : name.trim()
+                    }
+                    onChange={(event) => setHeadline(event.target.value)}
+                  />
+                </Field>
+                <Field label="Terms">
+                  <Textarea
+                    value={terms}
+                    rows={3}
+                    placeholder={
+                      "Selama persediaan masih ada.\nTidak dapat digabung dengan promo lain."
+                    }
+                    onChange={(event) => setTerms(event.target.value)}
+                  />
+                </Field>
+                <Field label="Banner image URL">
+                  <Input
+                    value={image}
+                    placeholder="https://…"
+                    onChange={(event) => setImage(event.target.value)}
+                  />
+                </Field>
+              </More>
 
-                A campaign carries no scope and no effect, so it has no "20%
-                off" of its own to state. But it is emphatically NOT invisible
-                to a shopper — the opposite: `PublicationCampaign` says a
-                campaign is the ONE thing in a price book a shopper is meant to
-                read, which is why the banner, the headline and the small print
-                ride on it and on nothing else. A price rule describes a number;
-                a campaign describes an event.
+              {/* Why it is being run. None of this reaches a till or the price
+                  book — it is kept at the centre so the goal can be moved
+                  without repricing the estate. Three answers and not one,
+                  because "+20%" is half a target: nobody can say +20% OF WHAT. */}
+              <More label="Goal" count={target.trim() === "" ? 0 : 1}>
+                <Field label="Objective">
+                  <Select
+                    value={objective}
+                    onChange={(next: string) => {
+                      setObjective(next)
+                      // The usual measure for what was just picked, as a
+                      // starting point rather than a rule — a clearance
+                      // measured by promo sales is unusual and not wrong.
+                      const suggests = objectiveOf(next)?.suggests
+                      if (suggests !== undefined) setMetric(suggests)
+                    }}
+                  >
+                    {OBJECTIVES.map((one) => (
+                      <option key={one.value} value={one.value}>
+                        {one.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <div className="grid gap-3 @lg:grid-cols-2">
+                  <Field label="Success metric">
+                    <Select value={metric} onChange={setMetric}>
+                      {METRICS.map((one) => (
+                        <option key={one.value} value={one.value}>
+                          {one.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field
+                    label={`Target (${chosenMetric?.direction === "AT_MOST" ? "at most" : "at least"})`}
+                  >
+                    <Money
+                      value={target}
+                      onChange={setTarget}
+                      prefix={chosenMetric?.unit === "money" ? "Rp" : undefined}
+                      suffix={chosenMetric?.unit === "bps" ? "bps" : undefined}
+                      placeholder="Not set"
+                      label="Target"
+                    />
+                  </Field>
+                </div>
+              </More>
+            </div>
+          </div>
 
-                So this reads back both halves: the poster as the shop will
-                print it, and under it what the envelope does to whatever is
-                filed inside — the half people get wrong, because a campaign
-                looks like a bigger promotion and is not one. */}
-            <Section title="How it will read" aside="poster, then effect">
+          {/* The poster as the shop will print it, and under it what the
+              envelope does to whatever is filed inside — the half people get
+              wrong, because a campaign looks like a bigger promotion and is
+              not one. Pinned while the form scrolls. */}
+          <div className="@3xl:sticky @3xl:top-0 @3xl:self-start">
+            <Section title="Summary">
               <Terms
                 headline={
                   headline.trim() !== ""
@@ -1548,25 +1468,28 @@ function CampaignForm({
                 }
                 name={name}
                 prose={terms}
-                empty="Name it, and what it does to the offers filed under it will be written here."
+                empty="Name the campaign to see its summary."
                 clauses={[
-                  headline.trim() !== "" &&
-                    validFrom !== null &&
-                    `It shows from ${day(validFrom)}${validTo === null ? " onwards" : ` to ${day(validTo)}`}.`,
                   name.trim() !== "" &&
-                    `An offer filed under it is live only while this is ${label(status)} — and only while the offer itself is live too.`,
+                    "An offer filed under it runs only while this campaign is active.",
                   validFrom !== null &&
                     validTo !== null &&
-                    "An offer inside it cannot run outside those two days, whatever its own dates say.",
+                    "Offers inside it cannot run outside these dates.",
+                  stores.length > 0 &&
+                    `Runs in ${count(stores.length)} shop${stores.length === 1 ? "" : "s"} only.`,
+                  // Naming all of them and naming none behave identically today
+                  // and diverge the moment a new shop opens.
+                  everyShop &&
+                    "Every shop is named, so a shop opened later is not included.",
                   budgetMinor !== null &&
-                    `${money(budgetMinor)} is shared by every offer inside it — not given to each of them.`,
+                    `${money(budgetMinor)} is shared by every offer inside it.`,
                   maxUses.trim() !== "" &&
-                    `${count(Number(maxUses))} baskets across every offer inside it, together.`,
-                  "Nothing in it yet. An offer joins by naming this campaign on its own form.",
+                    `${count(Number(maxUses))} baskets across every offer inside it.`,
+                  "Offers join it by naming this campaign on their own form.",
                 ]}
                 foot={
                   headline.trim() === "" && terms.trim() === ""
-                    ? "No headline: shops will show the filing name."
+                    ? "No headline: shops will show the campaign name."
                     : undefined
                 }
               />
@@ -1624,55 +1547,41 @@ function Stores({
   onClear: () => void
   shops: readonly { site_id: string | null; label: string | null }[]
 }) {
-  const named = shops
-    .map((one) => one.site_id)
-    .filter((one): one is string => one !== null)
   const everywhere = chosen.length === 0
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-1.5">
-        <button
-          type="button"
-          onClick={onClear}
-          className={cn(
-            "rounded-full border px-2.5 py-1 text-meta transition-colors",
-            everywhere
-              ? "border-accent bg-accent-bg font-medium text-accent"
-              : "border-hairline text-mute hover:text-ink"
-          )}
-        >
-          Everywhere
-        </button>
-        {shops.map((shop) => {
-          const id = shop.site_id
-          if (id === null) return null
-          const on = chosen.includes(id)
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => onToggle(id)}
-              className={cn(
-                "rounded-full border px-2.5 py-1 text-meta transition-colors",
-                on
-                  ? "border-accent bg-accent-bg font-medium text-accent"
-                  : "border-hairline text-body hover:text-ink"
-              )}
-            >
-              {shop.label ?? id}
-            </button>
-          )
-        })}
-      </div>
-      {!everywhere && chosen.length === named.length && named.length > 0 && (
-        // Naming all thirteen and naming none behave identically today and
-        // diverge the moment a fourteenth shop opens: the named list would
-        // leave it out. Said here rather than corrected silently.
-        <p className="text-[0.71875rem] text-warn-fg">
-          Every shop is named, which is not the same as &ldquo;everywhere&rdquo;
-          — a shop opened after this is published would not be included.
-        </p>
-      )}
+    <div className="flex flex-wrap gap-1.5">
+      <button
+        type="button"
+        onClick={onClear}
+        className={cn(
+          "rounded-full border px-2.5 py-1 text-meta transition-colors",
+          everywhere
+            ? "border-accent bg-accent-bg font-medium text-accent"
+            : "border-hairline text-mute hover:text-ink"
+        )}
+      >
+        Everywhere
+      </button>
+      {shops.map((shop) => {
+        const id = shop.site_id
+        if (id === null) return null
+        const on = chosen.includes(id)
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onToggle(id)}
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-meta transition-colors",
+              on
+                ? "border-accent bg-accent-bg font-medium text-accent"
+                : "border-hairline text-body hover:text-ink"
+            )}
+          >
+            {shop.label ?? id}
+          </button>
+        )
+      })}
     </div>
   )
 }

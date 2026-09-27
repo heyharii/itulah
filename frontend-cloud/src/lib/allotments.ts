@@ -491,8 +491,10 @@ export function sourcePoolsFor(type: AllotmentType, pools: readonly Pool[]): Poo
   const placements = pools.filter((pool) => !pool.is_rollup)
   switch (type) {
     case "TO_STORE":
+      // `HO`, not `DC`: since 0353 the warehouse's site is kind head office,
+      // and the server refuses a TO_STORE line sourced anywhere else.
       return placements.filter(
-        (pool) => pool.site_kind === "DC" && DC_FULFILLMENT_POOL_CODES.has(pool.pool_code),
+        (pool) => pool.site_kind === "HO" && DC_FULFILLMENT_POOL_CODES.has(pool.pool_code),
       )
     case "RETURN_TO_DC":
       return placements.filter(

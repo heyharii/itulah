@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
+import type { Tone } from "@/lib/format"
 import type {
   CalendarView,
   CalendarYearsView,
@@ -15,6 +16,7 @@ import type {
   LeaveTypeView,
   OvertimeOrderView,
   OvertimePolicyView,
+  PayComponentView,
   PayRecordView,
   PayrollIdentityView,
   PayrollHandoverView,
@@ -638,6 +640,8 @@ export interface NewAccount {
   readonly edge?: {
     readonly originId: string
     readonly role: "CASHIER" | "SUPERVISOR" | "ADMIN"
+    /// Empty means none: allowed at a DC, which signs people in with their
+    /// Cloud session.
     readonly edgePassword: string
   }
   readonly reason: string
@@ -681,7 +685,10 @@ export function provisionAccount(
         ? {
             origin_id: account.edge.originId,
             role: account.edge.role,
-            edge_password: account.edge.edgePassword,
+            edge_password:
+              account.edge.edgePassword === ""
+                ? null
+                : account.edge.edgePassword,
             offline_ttl_seconds: null,
           }
         : null,
@@ -1055,6 +1062,9 @@ function newOvertimeId(): string {
 /// month refuses both a new day and a change to an existing one.
 
 export const rosterKeys = {
+  /// Every roster answer, whichever place or person it was asked about — what
+  /// a write that moves two people's days at once has to drop.
+  all: () => ["people", "roster"] as const,
   shifts: () => ["people", "shifts"] as const,
   place: (place: string, from: string, to: string) =>
     ["people", "roster", place, from, to] as const,
@@ -1182,6 +1192,9 @@ export const payKeys = {
     ["people", "payroll", runId, "handover"] as const,
   reconciliation: (runId: string) =>
     ["people", "payroll", runId, "reconciliation"] as const,
+  components: () => ["people", "payroll", "components"] as const,
+  adjustments: (placeId: string, period: string) =>
+    ["people", "payroll", "adjustments", placeId, period] as const,
   pay: (employeeId: string) => ["people", "pay", employeeId] as const,
   identity: (employeeId: string) =>
     ["people", "pay", employeeId, "identity"] as const,
@@ -1379,6 +1392,118 @@ export function handoverLabel(state: string): string {
     default:
       return state
   }
+}
+
+// ── the one-offs a place files ─────────────────────────────────────────────
+
+/// What one place has filed for one month, as the batch screen needs it.
+///
+/// The employee's code and name are joined because a list of employee ids is
+/// not a list a person can check, and checking is what the place is for.
+///
+/// # Structural until the next `make contract`
+///
+/// Exactly like `WorkforcePage` above: the shape is generated from the Rust
+/// struct at `postgres::components`, and the backend lane is landing
+/// `advance_id` against the same written agreement this form files under.
+/// When the export next runs, this becomes that import and the interface
+/// below goes.
+export interface PayrollAdjustmentRow {
+  readonly id: string
+  readonly place_id: string
+  /// `YYYY-MM`.
+  readonly period: string
+  readonly employee_id: string
+  readonly employee_code: string
+  readonly full_name: string | null
+  readonly component_code: string
+  readonly label: string
+  /// `EARNING` or `DEDUCTION`, from the component. A *kasbon* instalment is a
+  /// positive amount under a deduction; nothing here is signed.
+  readonly kind: string
+  readonly amount_minor: number
+  readonly filed_by: string
+  readonly filed_at: string
+  /// Why. Not decoration: this is the one figure on a payslip head office did
+  /// not agree in advance, so the reason is the whole of what it approves.
+  readonly reason: string
+  /// Whether it can still be withdrawn — false once the place has submitted
+  /// the batch carrying it.
+  readonly withdrawable: boolean
+  /// The advance this filing repays, when it is one. The settlement head
+  /// office's approval posts lands on this advance, and the direction is
+  /// pinned to a deduction: money coming back out of a wage is never an
+  /// earning.
+  readonly advance_id: string | null
+}
+
+/// The catalogue, with each component's shape and kind. Ungated on the
+/// server — a rule that governs somebody is owed to them — and read here for
+/// the one-off form, which may only file against a `PER_OCCASION` component:
+/// one with no standing figure of its own.
+export function payComponents(
+  signal?: AbortSignal
+): Promise<PayComponentView[]> {
+  return node.get<PayComponentView[]>("/api/v1/payroll/components", { signal })
+}
+
+/// What has been filed, for one place or everywhere the caller reaches,
+/// narrowed to one month when asked. Bounded by reach on the server: a place
+/// manager reads their own unit and nothing else.
+export function listAdjustments(
+  options: { place?: string; period?: string } = {},
+  signal?: AbortSignal
+): Promise<PayrollAdjustmentRow[]> {
+  const params = new URLSearchParams()
+  if (options.place) params.set("place", options.place)
+  if (options.period) params.set("period", options.period)
+  const suffix = params.size > 0 ? `?${params.toString()}` : ""
+  return node.get<PayrollAdjustmentRow[]>(
+    `/api/v1/payroll/adjustments${suffix}`,
+    { signal }
+  )
+}
+
+/// File one. **The place's act**, for its own unit and its own month.
+///
+/// The id is minted on the server, and the figure is frozen the moment this
+/// lands — head office decides it with the batch. `advanceId` present makes
+/// the filing a recovery: it must ride a `DEDUCTION` component, belong to the
+/// same person, and not exceed what is still out. The server checks all three
+/// at filing and again at approval — filings sit while months move — and its
+/// answer is the one that counts.
+export function fileAdjustment(ask: {
+  readonly placeId: string
+  readonly period: string
+  readonly employeeId: string
+  readonly componentCode: string
+  readonly amountMinor: number
+  readonly reason: string
+  readonly advanceId?: string
+}): Promise<PayrollAdjustmentRow[]> {
+  return node.post<PayrollAdjustmentRow[]>("/api/v1/payroll/adjustments", {
+    place_id: ask.placeId,
+    period: ask.period,
+    employee_id: ask.employeeId,
+    component_code: ask.componentCode,
+    amount_minor: ask.amountMinor,
+    reason: ask.reason,
+    // Absent rather than null: the key's presence is the claim being made,
+    // and a body that names no advance files a plain one-off.
+    ...(ask.advanceId !== undefined ? { advance_id: ask.advanceId } : {}),
+  })
+}
+
+/// Take one back, while the batch is still the place's. The reason is the
+/// audit entry — the server refuses a blank one before anything is removed.
+export function withdrawAdjustment(
+  id: string,
+  reason: string
+): Promise<PayrollAdjustmentRow[]> {
+  return node.post<PayrollAdjustmentRow[]>(
+    `/api/v1/payroll/adjustments/${encodeURIComponent(id)}/withdrawal`,
+    { reason }
+  )
 }
 
 // ── asking for a new employee ──────────────────────────────────────────────
@@ -1601,12 +1726,16 @@ export function fileCorrection(
 
 /// Approve or refuse. The requester and the decider must be different actors,
 /// and the server refuses the same one — this is not a screen-level rule.
+///
+/// Answers with the day's whole chain rather than the one row decided: an
+/// approval can supersede an earlier correction of the same day, and the row
+/// alone would not say which one is now in force.
 export function decideCorrection(
   id: string,
   approve: boolean,
   reason: string
-): Promise<CorrectionRow> {
-  return node.post<CorrectionRow>(
+): Promise<CorrectionRow[]> {
+  return node.post<CorrectionRow[]>(
     `/api/v1/attendance-corrections/${encodeURIComponent(id)}/decision`,
     { approve, reason }
   )
@@ -1685,10 +1814,1548 @@ export function withdrawFinger(
 
 /// Push a unit's roster and its people down to that unit's station, so a
 /// terminal with the line down still greets by name and knows the shift.
-export function publishEmployeeBook(
-  placeId: string
-): Promise<BookPublished> {
+export function publishEmployeeBook(placeId: string): Promise<BookPublished> {
   return node.post<BookPublished>("/api/v1/attendance/employee-book", {
     place_id: placeId,
   })
+}
+
+// ── expense claims ─────────────────────────────────────────────────────────
+
+/// Petty cash, asked for on paper and sanctioned by two people.
+///
+/// A claim is filed — by the person themselves, or by a manager for one of
+/// their staff — submitted exactly once, decided exactly once by somebody who
+/// did not file it, and paid exactly once out of the place's petty cash.
+/// Approving one posts what the company owes the moment it is approved, so the
+/// ledger carries the debt during the days a claim sits approved and unpaid;
+/// the payout only moves the money.
+///
+/// # The shapes below are structural, not generated — for now
+///
+/// Exactly like `WorkforcePage` above: the backend lane and this one are
+/// landing against the same written agreement, and the generated union in
+/// `@itulah/contract` will carry these shapes at its next `make contract`.
+/// Until then the agreement — not this file — is what keeps the two sides
+/// honest, and the shapes say so in one place rather than in every screen.
+
+export type ClaimState =
+  "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "PAID" | "WITHDRAWN"
+
+export interface ClaimTypeRow {
+  readonly code: string
+  readonly name: string
+  readonly retired_at: string | null
+  readonly created_at: string
+}
+
+/// One row of the folded history. `detail` is where a document number lands —
+/// the payout names the entry it posted, and the trail is where it says so.
+export interface ClaimEventRow {
+  readonly actor: string
+  readonly action: string
+  readonly reason: string | null
+  readonly at: string
+  readonly detail?: string | null
+}
+
+export interface ClaimLineRow {
+  readonly line_id: string
+  readonly type_code: string
+  readonly type_name: string
+  readonly description: string
+  readonly spent_on: string
+  readonly claimed_minor: number
+  /// The decider's figure, per line. Null until decided — which is what lets
+  /// a claim read as "asked for" rather than "granted" while it waits.
+  readonly sanctioned_minor: number | null
+  readonly line_number: number
+}
+
+export interface ClaimRow {
+  readonly claim_id: string
+  readonly claim_number: string
+  readonly place_id: string
+  readonly place_name: string | null
+  readonly employee_id: string
+  readonly employee_code: string | null
+  readonly employee_name: string | null
+  readonly posted_on: string
+  readonly state: ClaimState
+  /// The sum of the lines as filed.
+  readonly claimed_minor: number
+  /// The sum of the sanctioned lines. Null while undecided, by the same rule
+  /// as the lines under it.
+  readonly sanctioned_minor: number | null
+  readonly claimed_by: string
+  readonly decided_by: string | null
+  readonly decided_at: string | null
+  readonly decide_reason: string | null
+  readonly paid_at: string | null
+  readonly paid_by: string | null
+  /// The journal entry the payout posted, set exactly when the state is PAID.
+  /// Not shown as a figure — it is the receipt's handle in the ledger.
+  readonly paid_entry_id: string | null
+  readonly lines: readonly ClaimLineRow[]
+  readonly history: readonly ClaimEventRow[]
+}
+
+export const claimsKeys = {
+  types: () => ["people", "claims", "types"] as const,
+  /// What is waiting on a decision. No place in the key: the server bounds it
+  /// by the caller's own posting, so two managers never share an answer.
+  queue: () => ["people", "claims", "queue"] as const,
+  list: (filters: ClaimFilters = {}) =>
+    [
+      "people",
+      "claims",
+      "list",
+      filters.place ?? null,
+      filters.state ?? null,
+      filters.employee ?? null,
+    ] as const,
+  of: (employeeId: string) => ["people", "claims", "of", employeeId] as const,
+  /// The finance advances still out with one person. Keyed here, dropped with
+  /// the module: a section on the Directory sheet has no business leaving
+  /// what it read about a person in the cache after that person signs out.
+  advances: (employeeId: string) =>
+    ["people", "claims", "advances", employeeId] as const,
+}
+
+export interface ClaimFilters {
+  readonly place?: string
+  readonly state?: string
+  readonly employee?: string
+}
+
+/// What a claim state means in a sentence.
+///
+/// `SUBMITTED` is spelled as what it is waiting for, the way the leave queue
+/// spells `PENDING`: the only thing anybody opening this list wants to know is
+/// whether it is still on somebody's desk. `APPROVED` is spelled as what it
+/// *costs* — approved and unpaid is money owed, and a pill saying only
+/// "approved" hides that.
+export function claimStateLabel(state: string): string {
+  switch (state) {
+    case "DRAFT":
+      return "Draft — not sent yet"
+    case "SUBMITTED":
+      return "Waiting on a decision"
+    case "APPROVED":
+      return "Approved, not yet paid"
+    case "REJECTED":
+      return "Refused"
+    case "PAID":
+      return "Paid"
+    case "WITHDRAWN":
+      return "Taken back"
+    default:
+      return state
+  }
+}
+
+/// Which tint a claim state wears. `info` for approved-unpaid is the one
+/// choice worth naming: the money is in motion — owed, en route to the
+/// petty-cash drawer — and sky is what this language reserves for that.
+export function claimStateTone(state: string): Tone {
+  switch (state) {
+    case "SUBMITTED":
+      return "warn"
+    case "APPROVED":
+      return "info"
+    case "PAID":
+      return "ok"
+    default:
+      return "neutral"
+  }
+}
+
+/// What a history action means, said to a person.
+export function claimActionLabel(action: string): string {
+  switch (action) {
+    case "FILED":
+      return "Filed"
+    case "SUBMITTED":
+      return "Sent in"
+    case "DECIDED":
+      return "Decided"
+    case "RETURNED":
+      return "Sent back"
+    case "PAID":
+      return "Paid"
+    case "WITHDRAWN":
+      return "Taken back"
+    default:
+      return action
+  }
+}
+
+// ── the catalogue ──────────────────────────────────────────────────────────
+
+export function listClaimTypes(signal?: AbortSignal): Promise<ClaimTypeRow[]> {
+  return node.get<ClaimTypeRow[]>("/api/v1/expense-claim-types", { signal })
+}
+
+/// Ratify a kind of expense. There is no edit and no delete: redefining a kind
+/// would change what every claim already filed against it meant, and deleting
+/// one would leave those claims pointing at nothing.
+///
+/// `expenseCategory` is Finance's expense category the kind is filed under —
+/// one with `for_claims` set. Its account links say which account the cost
+/// lands on and which liability it is owed on; the server refuses a kind
+/// without one.
+export function defineClaimType(
+  code: string,
+  name: string,
+  expenseCategory: string
+): Promise<ClaimTypeRow[]> {
+  return node.post<ClaimTypeRow[]>("/api/v1/expense-claim-types", {
+    code,
+    name,
+    expense_category: expenseCategory,
+  })
+}
+
+/// Retire, never delete — the shift-pattern rule. A claim already filed
+/// against a kind keeps naming it, and the trail stays readable.
+export function retireClaimType(
+  code: string,
+  reason: string
+): Promise<ClaimTypeRow[]> {
+  return node.post<ClaimTypeRow[]>(
+    `/api/v1/expense-claim-types/${encodeURIComponent(code)}/retirement`,
+    { reason }
+  )
+}
+
+// ── reading and writing claims ─────────────────────────────────────────────
+
+/// The claims the caller may see — a place's, or every place's — narrowed by
+/// whichever of the three the caller asked for. The queue is this same route
+/// asked for SUBMITTED and nothing else.
+export function listClaims(
+  filters: ClaimFilters = {},
+  signal?: AbortSignal
+): Promise<ClaimRow[]> {
+  const params = new URLSearchParams()
+  if (filters.place) params.set("place", filters.place)
+  if (filters.state) params.set("state", filters.state)
+  if (filters.employee) params.set("employee", filters.employee)
+  const suffix = params.size > 0 ? `?${params.toString()}` : ""
+  return node.get<ClaimRow[]>(`/api/v1/expense-claims${suffix}`, { signal })
+}
+
+/// Everything waiting on a decision, bounded by the caller's posting.
+export function pendingClaims(signal?: AbortSignal): Promise<ClaimRow[]> {
+  return listClaims({ state: "SUBMITTED" }, signal)
+}
+
+/// One person's claims, in the same row shape the list serves.
+///
+/// Its own route rather than the list narrowed: the Directory sheet asks
+/// about a person, and a claimant reads their own under the same bound.
+export function claimsOf(
+  employeeId: string,
+  signal?: AbortSignal
+): Promise<ClaimRow[]> {
+  return node.get<ClaimRow[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/expense-claims`,
+    { signal }
+  )
+}
+
+export interface NewClaimLine {
+  readonly typeCode: string
+  readonly description: string
+  /// A day, `YYYY-MM-DD` — when the money was spent, not when the claim is
+  /// filed. The two differ by however long the receipt sat in a pocket.
+  readonly spentOn: string
+  /// Whole rupiah as an integer — the server's minor unit is already the
+  /// rupiah, and a fraction of one is not a thing a receipt shows.
+  readonly amountMinor: number
+}
+
+/// File a claim on behalf of one of the caller's staff, or on the caller's own
+/// behalf — the server checks which of the two the caller may do, and the body
+/// is the same either way. The place is not asked for because it is not the
+/// filer's to choose: the claim belongs to the place the *employee* is posted
+/// to, and the server knows where that is.
+export function fileClaim(
+  employeeId: string,
+  lines: readonly NewClaimLine[],
+  reason: string
+): Promise<ClaimRow> {
+  return node.post<ClaimRow>("/api/v1/expense-claims", {
+    employee_id: employeeId,
+    lines: lines.map((line) => ({
+      type_code: line.typeCode,
+      description: line.description,
+      spent_on: line.spentOn,
+      claimed_minor: line.amountMinor,
+    })),
+    // Required by the server: a claim with no stated purpose is half an audit
+    // trail, and the filing actor is assembled from the session rather than
+    // from the body.
+    reason,
+  })
+}
+
+/// DRAFT → SUBMITTED. The filer's own act: a claim that leaves the desk does
+/// so under the name that put it on the desk.
+export function submitClaim(
+  claimId: string,
+  reason: string
+): Promise<ClaimRow> {
+  return node.post<ClaimRow>(
+    `/api/v1/expense-claims/${encodeURIComponent(claimId)}/submission`,
+    // The server refuses an empty reason rather than recording a submission
+    // nobody explained.
+    { reason }
+  )
+}
+
+/// Take a claim back — the filer's, while it is still theirs to take.
+export function withdrawClaim(
+  claimId: string,
+  reason: string
+): Promise<ClaimRow> {
+  return node.post<ClaimRow>(
+    `/api/v1/expense-claims/${encodeURIComponent(claimId)}/withdrawal`,
+    { reason }
+  )
+}
+
+/// Decide, with a figure per line.
+///
+/// The sanctions travel with the decision because they *are* the decision:
+/// approving "Rp 300.000 of a Rp 450.000 claim" is not one fact but one per
+/// line, and the server totals them into the header rather than trusting a
+/// browser's arithmetic. A line sanctioned to nothing is refused by name, so
+/// an input left at zero stops the form rather than the ledger.
+export function decideClaim(
+  claimId: string,
+  approve: boolean,
+  reason: string,
+  sanctions: readonly { lineId: string; sanctionedMinor: number }[]
+): Promise<ClaimRow> {
+  return node.post<ClaimRow>(
+    `/api/v1/expense-claims/${encodeURIComponent(claimId)}/decision`,
+    {
+      approve,
+      reason,
+      lines: sanctions.map((one) => ({
+        line_id: one.lineId,
+        sanctioned_minor: one.sanctionedMinor,
+      })),
+    }
+  )
+}
+
+/// Send it back to the filer. Not a refusal: the claim returns to DRAFT with
+/// the reason attached, and can be corrected and sent in again.
+export function returnClaim(
+  claimId: string,
+  reason: string
+): Promise<ClaimRow> {
+  return node.post<ClaimRow>(
+    `/api/v1/expense-claims/${encodeURIComponent(claimId)}/returnal`,
+    { reason }
+  )
+}
+
+/// Pay an approved claim out of the place's petty cash.
+///
+/// No body: there is nothing to decide here and nothing to explain — the
+/// decision was the previous act, and this one only moves the money it
+/// already owes. The document number is minted where the entry is posted.
+export function payClaim(claimId: string): Promise<ClaimRow> {
+  return node.post<ClaimRow>(
+    `/api/v1/expense-claims/${encodeURIComponent(claimId)}/payout`,
+    // No body here either — the decision was the previous act.
+    {}
+  )
+}
+
+// ── the advances beside them ───────────────────────────────────────────────
+
+/// One open advance the finance lane (0280) is holding for this person, with
+/// every leg money has come back by.
+///
+/// # Structural until the next `make contract`
+///
+/// The mirror of `postgres::claims::EmployeeAdvanceView`, read through the
+/// employee route served for it. The settlement figures are a fold over
+/// `advance_settlement`, not columns — an advance's outstanding is the
+/// arithmetic of what came back, and storing it beside the ledger would be
+/// the halfway state that crate exists to make impossible. (`party_type`,
+/// not `party_kind`: 0299 renamed the column when it minted the registry.)
+export interface EmployeeAdvanceRow {
+  readonly advance_id: string
+  readonly advance_number: string
+  readonly site_id: string
+  readonly purpose: string
+  readonly amount_minor: number
+  /// Receipts handed in against it.
+  readonly settled_minor: number
+  /// Cash the person paid back.
+  readonly refunded_minor: number
+  /// Repaid out of a wage: the settlements an approved run posts, one per
+  /// recovery the place filed against this advance.
+  readonly recovered_minor: number
+  /// The amount minus the three legs — what is still out.
+  readonly outstanding_minor: number
+  readonly status: string
+  readonly requested_at: string
+  readonly paid_at: string | null
+}
+
+/// What is still out with one person — money they are holding that has not
+/// come back as receipts, as a refund, or out of a wage.
+///
+/// This is People *reading* Finance's table, not rebuilding it: advances are
+/// the finance lane's (0280), and a second module storing its own answer
+/// would be two answers. The narrowing to one employee is the server's now —
+/// the employee route answers one person directly, which is where the fix
+/// this fetcher's earlier shape predicted ended up living.
+export function openAdvances(
+  employeeId: string,
+  signal?: AbortSignal
+): Promise<EmployeeAdvanceRow[]> {
+  return node
+    .get<EmployeeAdvanceRow[]>(
+      `/api/v1/employees/${encodeURIComponent(employeeId)}/advances`,
+      { signal }
+    )
+    .then((rows) =>
+      rows.filter(
+        (row) =>
+          // What is still out is the fact a manager acts on; a settled advance
+          // is history the finance screens already keep.
+          row.outstanding_minor > 0
+      )
+    )
+}
+
+// ── grievances ─────────────────────────────────────────────────────────────
+
+/// The confidential channel, and the reason it is head office's.
+///
+/// A grievance against a store manager cannot be investigated by that store
+/// manager, and in a thirteen-store estate the only place that is nobody's
+/// posting is head office. So the queue is HO's — reading it is its own key,
+/// finer than the ladder, precisely so the accused supervisor who holds
+/// `people.employee.read` does not therefore read the queue.
+///
+/// # Two actors, twice
+///
+/// Nobody investigates or resolves their own filing, and investigating and
+/// resolving are two signatures under two keys — the payroll lesson again.
+/// The screen offers the acts and lets the server answer, which is the claims
+/// sheet's rule: a button that appears a moment late is worse than one that
+/// is answered honestly.
+///
+/// # The shapes below are structural, not generated — for now
+///
+/// The same arrangement as the claims above: the backend lane and this one
+/// are landing against the same written agreement, and the generated union in
+/// `@itulah/contract` carries these shapes at its next `make contract`.
+
+export type GrievanceState =
+  "OPEN" | "INVESTIGATED" | "RESOLVED" | "INVALID" | "WITHDRAWN"
+
+export interface GrievanceTypeRow {
+  readonly code: string
+  readonly name: string
+  readonly retired_at: string | null
+  readonly created_at: string
+}
+
+/// One row of the folded history. Same decode discipline as a claim's.
+export interface GrievanceEventRow {
+  readonly actor: string
+  readonly action: string
+  readonly reason: string | null
+  readonly at: string
+  readonly detail?: string | null
+}
+
+export interface GrievanceRow {
+  readonly grievance_id: string
+  readonly place_id: string
+  readonly place_name: string | null
+  readonly type_code: string
+  /// Resolved from the catalogue on the server, falling back to the code —
+  /// the words survive even if the kind is retired.
+  readonly type_name: string
+  readonly raised_by: string
+  readonly raised_by_name: string | null
+  /// Who put it on the desk — the person themselves, or a manager filing for
+  /// their staff. A username: the two-actor rule compares these.
+  readonly filed_by: string
+  /// Optional: a grievance may be against a policy, not a person.
+  readonly against_employee: string | null
+  readonly against_name: string | null
+  readonly subject: string
+  readonly description: string
+  readonly cause: string | null
+  readonly state: GrievanceState
+  readonly investigated_by: string | null
+  readonly investigated_at: string | null
+  readonly investigation_note: string | null
+  readonly resolved_by: string | null
+  readonly resolved_at: string | null
+  readonly resolved_on: string | null
+  readonly resolution_detail: string | null
+  readonly withdrawn_at: string | null
+  readonly created_at: string
+  readonly history: readonly GrievanceEventRow[]
+}
+
+export const grievanceKeys = {
+  types: () => ["people", "grievances", "types"] as const,
+  /// One state's rows, or every row the caller may see. No place in the key:
+  /// reading is head office's, bounded by nothing — and for a caller without
+  /// the read key the same key holds their own filings, which is the server's
+  /// branch to make, not the browser's.
+  list: (state: string | null) =>
+    ["people", "grievances", "list", state] as const,
+}
+
+export interface GrievanceFilters {
+  readonly state?: string
+}
+
+/// What a grievance state means in a sentence.
+///
+/// The two live states are spelled as what they wait for, because that is the
+/// only thing anybody opening the queue wants to know: an OPEN grievance waits
+/// to be investigated, an INVESTIGATED one waits for the decision itself —
+/// two signatures, and the pill says which desk it is on.
+export function grievanceStateLabel(state: string): string {
+  switch (state) {
+    case "OPEN":
+      return "Open — waiting to be investigated"
+    case "INVESTIGATED":
+      return "Investigated — awaiting the decision"
+    case "RESOLVED":
+      return "Resolved — upheld"
+    case "INVALID":
+      return "Not upheld"
+    case "WITHDRAWN":
+      return "Withdrawn"
+    default:
+      return state
+  }
+}
+
+/// Which tint a grievance state wears. `info` for investigated is the claims
+/// rule: the file is in motion between two desks, and sky is what this
+/// language reserves for that.
+export function grievanceStateTone(state: string): Tone {
+  switch (state) {
+    case "OPEN":
+      return "warn"
+    case "INVESTIGATED":
+      return "info"
+    case "RESOLVED":
+      return "ok"
+    default:
+      return "neutral"
+  }
+}
+
+/// What a history action means, said to a person.
+export function grievanceActionLabel(action: string): string {
+  switch (action) {
+    case "FILED":
+      return "Filed"
+    case "INVESTIGATED":
+      return "Investigated"
+    case "RESOLVED":
+      return "Resolved — upheld"
+    case "INVALID":
+      return "Not upheld"
+    case "WITHDRAWN":
+      return "Withdrawn"
+    default:
+      return action
+  }
+}
+
+// ── the catalogue ──────────────────────────────────────────────────────────
+
+export function listGrievanceTypes(
+  signal?: AbortSignal
+): Promise<GrievanceTypeRow[]> {
+  return node.get<GrievanceTypeRow[]>("/api/v1/grievance-types", { signal })
+}
+
+/// Ratify a kind of grievance. There is no edit and no delete — the
+/// leave-types rule: redefining a kind would change what every grievance
+/// already filed against it meant.
+export function defineGrievanceType(
+  code: string,
+  name: string
+): Promise<GrievanceTypeRow[]> {
+  return node.post<GrievanceTypeRow[]>("/api/v1/grievance-types", {
+    code,
+    name,
+  })
+}
+
+/// Retire, never delete — a grievance already filed against a kind keeps
+/// naming it.
+export function retireGrievanceType(
+  code: string,
+  reason: string
+): Promise<GrievanceTypeRow[]> {
+  return node.post<GrievanceTypeRow[]>(
+    `/api/v1/grievance-types/${encodeURIComponent(code)}/retirement`,
+    { reason }
+  )
+}
+
+// ── reading and writing grievances ─────────────────────────────────────────
+
+/// The grievances the caller may see. For head office that is the queue, whole;
+/// for anybody else it is their own filings and nothing else — the server
+/// branches on the caller, and this surface does not re-implement the branch.
+/// The queue tab is the two live states asked separately and merged, because
+/// OPEN and INVESTIGATED are both waiting on head office and the route takes
+/// one state per call.
+export function listGrievances(
+  filters: GrievanceFilters = {},
+  signal?: AbortSignal
+): Promise<GrievanceRow[]> {
+  const suffix = filters.state
+    ? `?state=${encodeURIComponent(filters.state)}`
+    : ""
+  return node.get<GrievanceRow[]>(`/api/v1/grievances${suffix}`, { signal })
+}
+
+/// File one, for a member of staff or for yourself.
+///
+/// `employeeId` absent means the caller's own — the server checks which of the
+/// two the caller may do, and the body is the same either way. The place is
+/// not asked for because it is not the filer's to choose: the grievance
+/// belongs to the place the *employee* is posted to, and the server knows
+/// where that is.
+export function fileGrievance(ask: {
+  readonly employeeId?: string
+  readonly typeCode: string
+  readonly againstEmployee?: string
+  readonly subject: string
+  readonly description: string
+  readonly cause?: string
+}): Promise<GrievanceRow> {
+  return node.post<GrievanceRow>("/api/v1/grievances", {
+    employee_id: ask.employeeId,
+    type_code: ask.typeCode,
+    against_employee: ask.againstEmployee,
+    subject: ask.subject,
+    description: ask.description,
+    cause: ask.cause,
+  })
+}
+
+/// Record the investigation. The first of the two signatures — it moves the
+/// grievance to INVESTIGATED and writes the note, but decides nothing.
+export function investigateGrievance(
+  grievanceId: string,
+  note: string
+): Promise<GrievanceRow> {
+  return node.post<GrievanceRow>(
+    `/api/v1/grievances/${encodeURIComponent(grievanceId)}/investigation`,
+    { note }
+  )
+}
+
+/// Decide it. The second signature, under its own key: upheld becomes
+/// RESOLVED, not upheld becomes INVALID, and either way the detail is
+/// required — a decision that says what changed but not why is half an audit
+/// trail.
+export function resolveGrievance(
+  grievanceId: string,
+  valid: boolean,
+  detail: string
+): Promise<GrievanceRow> {
+  return node.post<GrievanceRow>(
+    `/api/v1/grievances/${encodeURIComponent(grievanceId)}/resolution`,
+    { valid, detail }
+  )
+}
+
+/// Take it back — the filer's own act, while it is still live.
+export function withdrawGrievance(
+  grievanceId: string,
+  reason: string
+): Promise<GrievanceRow> {
+  return node.post<GrievanceRow>(
+    `/api/v1/grievances/${encodeURIComponent(grievanceId)}/withdrawal`,
+    { reason }
+  )
+}
+
+// ── exits: the interview and the full & final statement ────────────────────
+
+/// One per person, at the end.
+///
+/// The employment machine already terminates with a reason; the exit
+/// interview records what the person *said* when they went. It is created
+/// automatically as PENDING when an employment ends, and completing it is
+/// head office's — the store is a party to the exit, never its author.
+///
+/// A terminated leaver also carries money in both directions, and the full &
+/// final statement is the *frozen* answer: what Finance settles against
+/// stops moving the moment the statement is settled. The advance and
+/// approved-unpaid claim totals are reads of live tables at creation; the
+/// settle re-reads them and refuses on drift, naming what moved.
+
+export type ExitInterviewState = "PENDING" | "COMPLETED" | "CANCELLED"
+
+export type ExitStance = "RETAINED" | "EXIT_CONFIRMED"
+
+export interface ExitInterviewRow {
+  readonly exit_id: string
+  readonly employee_id: string
+  readonly employee_code: string | null
+  readonly employee_name: string | null
+  readonly place_id: string
+  readonly place_name: string | null
+  readonly state: ExitInterviewState
+  readonly employee_stance: ExitStance
+  readonly interview_summary: string | null
+  readonly conducted_by: string | null
+  readonly completed_at: string | null
+  readonly cancelled_by: string | null
+  readonly cancel_reason: string | null
+  readonly created_at: string
+}
+
+export type FnFState = "DRAFT" | "SETTLED" | "CANCELLED"
+
+/// One row of the statement's folded history. `detail` is where the journal
+/// entry number lands — the settlement names the entry it posted, and the
+/// trail is where it says so.
+export interface FnFEventRow {
+  readonly actor: string
+  readonly action: string
+  readonly reason: string | null
+  readonly at: string
+  readonly detail?: string | null
+}
+
+export interface FnFRow {
+  readonly fnf_id: string
+  readonly employee_id: string
+  readonly employee_code: string | null
+  readonly employee_name: string | null
+  readonly place_id: string
+  readonly place_name: string | null
+  readonly transaction_on: string
+  readonly state: FnFState
+  /// The aggregated reads, frozen at creation and compared again at settle.
+  /// Money the leaver is still holding (advances) and money still owed to
+  /// them (approved, unpaid claims), in the ledger's minor unit.
+  readonly advance_outstanding_minor: number
+  readonly claim_payable_minor: number
+  /// The manual asset-recovery rows summed.
+  readonly asset_recovery_minor: number
+  /// The last run's gross, or a stated figure.
+  readonly final_pay_minor: number
+  /// The net the settlement posts, computed by the server from the frozen
+  /// figures — final pay and claims payable out, advances and asset recovery
+  /// back. The screens display this field; none of them recompute it, so the
+  /// figure a person reads is the figure the journal settles.
+  readonly net_payable_minor: number
+  /// The journal entry the settlement posted, set exactly when SETTLED.
+  readonly settled_entry_id: string | null
+  readonly settled_by: string | null
+  readonly settled_at: string | null
+  readonly cancelled_by: string | null
+  readonly cancel_reason: string | null
+  readonly created_by: string
+  readonly created_at: string
+  readonly history: readonly FnFEventRow[]
+}
+
+export const exitKeys = {
+  /// Every interview the caller may see — the server bounds it by reach, so a
+  /// shop sees its own leavers and head office sees every one.
+  list: (filters: { readonly state?: string } = {}) =>
+    ["people", "exits", "interviews", filters.state ?? null] as const,
+  of: (employeeId: string) =>
+    ["people", "exits", "interviews", "of", employeeId] as const,
+}
+
+export const fnfKeys = {
+  list: () => ["people", "exits", "fnf", "list"] as const,
+  of: (employeeId: string) =>
+    ["people", "exits", "fnf", "of", employeeId] as const,
+}
+
+/// What an interview state means in a sentence.
+export function exitInterviewStateLabel(state: string): string {
+  switch (state) {
+    case "PENDING":
+      return "Waiting to be conducted"
+    case "COMPLETED":
+      return "Completed"
+    case "CANCELLED":
+      return "Cancelled"
+    default:
+      return state
+  }
+}
+
+export function exitInterviewStateTone(state: string): Tone {
+  switch (state) {
+    case "PENDING":
+      return "warn"
+    case "COMPLETED":
+      return "ok"
+    default:
+      return "neutral"
+  }
+}
+
+/// What the leaver said, said plainly — the one sentence the interview exists
+/// to record.
+export function exitStanceLabel(stance: string): string {
+  switch (stance) {
+    case "RETAINED":
+      return "Wanted to stay"
+    case "EXIT_CONFIRMED":
+      return "Confirmed the exit"
+    default:
+      return stance
+  }
+}
+
+/// What a statement state means in a sentence.
+export function fnfStateLabel(state: string): string {
+  switch (state) {
+    case "DRAFT":
+      return "Draft — not settled"
+    case "SETTLED":
+      return "Settled"
+    case "CANCELLED":
+      return "Cancelled"
+    default:
+      return state
+  }
+}
+
+export function fnfStateTone(state: string): Tone {
+  switch (state) {
+    case "DRAFT":
+      return "warn"
+    case "SETTLED":
+      return "ok"
+    default:
+      return "neutral"
+  }
+}
+
+/// What a history action means, said to a person.
+export function fnfActionLabel(action: string): string {
+  switch (action) {
+    case "CREATED":
+      return "Opened"
+    case "SETTLED":
+      return "Settled"
+    case "CANCELLED":
+      return "Cancelled"
+    default:
+      return action
+  }
+}
+
+// ── reading and writing exits ──────────────────────────────────────────────
+
+/// The exit interviews the caller may see, bounded by their own reach.
+export function listExitInterviews(
+  filters: { readonly state?: string; readonly employee?: string } = {},
+  signal?: AbortSignal
+): Promise<ExitInterviewRow[]> {
+  const params = new URLSearchParams()
+  if (filters.state) params.set("state", filters.state)
+  if (filters.employee) params.set("employee", filters.employee)
+  const suffix = params.size > 0 ? `?${params.toString()}` : ""
+  return node.get<ExitInterviewRow[]>(`/api/v1/exit-interviews${suffix}`, {
+    signal,
+  })
+}
+
+/// Open the interview for a leaver whose employment ended before the hook
+/// existed. Idempotent on the server — an interview that already exists comes
+/// back rather than a second one — and refused for anybody not TERMINATED.
+export function fileExitInterview(
+  employeeId: string
+): Promise<ExitInterviewRow> {
+  return node.post<ExitInterviewRow>("/api/v1/exit-interviews", {
+    employee_id: employeeId,
+  })
+}
+
+/// Complete it: what the person said, and whether they went anyway.
+export function completeExitInterview(
+  exitId: string,
+  stance: ExitStance,
+  summary?: string
+): Promise<ExitInterviewRow> {
+  return node.post<ExitInterviewRow>(
+    `/api/v1/exit-interviews/${encodeURIComponent(exitId)}/completion`,
+    { stance, summary }
+  )
+}
+
+/// The statements, whole rows — the sheet finds its row in the list, the way
+/// the claims screen does, and narrows to one leaver with `?employee=`.
+export function listFnF(
+  employee?: string,
+  signal?: AbortSignal
+): Promise<FnFRow[]> {
+  const suffix = employee ? `?employee=${encodeURIComponent(employee)}` : ""
+  return node.get<FnFRow[]>(`/api/v1/full-and-final-statements${suffix}`, {
+    signal,
+  })
+}
+
+/// A manual asset-recovery row: something of the company's the leaver is
+/// returning, at an agreed figure. The asset id is the assets module's own.
+export interface NewFnFAsset {
+  readonly assetId: string
+  readonly note: string
+  readonly recoveryMinor: number
+}
+
+/// Open a statement. Creation freezes the live reads — open advances,
+/// approved-unpaid claims — into the row, and the settle re-reads them and
+/// refuses on drift. Only what the caller states here travels on the wire:
+/// the frozen totals are the server's reads, not the browser's arithmetic.
+export function openFnFStatement(ask: {
+  readonly employeeId: string
+  readonly transactionOn: string
+  readonly finalPayMinor?: number
+  readonly assets?: readonly NewFnFAsset[]
+}): Promise<FnFRow> {
+  return node.post<FnFRow>("/api/v1/full-and-final-statements", {
+    employee_id: ask.employeeId,
+    transaction_on: ask.transactionOn,
+    final_pay_minor: ask.finalPayMinor,
+    assets: ask.assets?.map((asset) => ({
+      asset_id: asset.assetId,
+      note: asset.note,
+      recovery_minor: asset.recoveryMinor,
+    })),
+  })
+}
+
+/// Settle it. Posts one journal entry for the net, freezes the totals as the
+/// settlement's figures, and refuses — naming what moved — if the live reads
+/// have drifted from the frozen ones. The document number is minted where
+/// the entry is posted.
+export function settleFnF(fnfId: string): Promise<FnFRow> {
+  return node.post<FnFRow>(
+    `/api/v1/full-and-final-statements/${encodeURIComponent(fnfId)}/settlement`,
+    // No body: there is nothing left to decide — the statement is the decision.
+    {}
+  )
+}
+
+/// Cancel a DRAFT. A settled statement is what Finance settled against and
+/// does not come back on its own.
+export function cancelFnF(fnfId: string, reason: string): Promise<FnFRow> {
+  return node.post<FnFRow>(
+    `/api/v1/full-and-final-statements/${encodeURIComponent(fnfId)}/cancellation`,
+    { reason }
+  )
+}
+
+// ── the next generation ─────────────────────────────────────────────────────
+//
+// Roster swaps, employment change proposals, the onboarding and separation
+// checklist, the recruitment pipeline, performance, training, the rule
+// numbers and the org masters. Everything here reads the routes the 0359
+// backend added; every write carries a reason like the rest of the module.
+
+export type RosterSwapView = {
+  id: string
+  employee_id: string
+  with_employee_id: string
+  place_id: string
+  on_date: string
+  reason: string
+  state: "PENDING" | "APPROVED" | "REJECTED" | "WITHDRAWN"
+  requested_by: string
+  decided_by: string | null
+}
+
+export type ChangeProposalView = {
+  id: string
+  employee_id: string
+  place_id: string
+  kind: "PROMOTION" | "TRANSFER" | "SALARY" | "SEPARATION"
+  props: { field: string; from: string; to: string }[]
+  effective_on: string
+  reason: string
+  state: "PENDING" | "APPROVED" | "REJECTED" | "WITHDRAWN"
+  filed_by: string
+  decided_by: string | null
+  decision_note: string | null
+  applied_at: string | null
+}
+
+export type LifecycleTaskView = {
+  id: string
+  employee_id: string
+  kind: "ONBOARDING" | "SEPARATION"
+  template_id: string
+  label: string
+  owner: "HEAD_OFFICE" | "STORE" | "IT" | "EMPLOYEE"
+  position: number
+  state: "PENDING" | "DONE"
+  done_by: string | null
+}
+
+export type StaffingPlanView = {
+  id: string
+  place_id: string
+  position: string
+  span: string
+  headcount: number
+  cost_minor: number
+}
+
+export type ApplicantView = {
+  id: string
+  proposal_id: string
+  place_id: string
+  name: string
+  phone: string | null
+  source: string
+  referrer_employee_id: string | null
+  stage: "NEW" | "SHORTLIST" | "INTERVIEW" | "OFFER" | "HIRED" | "REJECTED"
+  stage_note: string | null
+  applied_on: string
+}
+
+export type InterviewView = {
+  id: string
+  applicant_id: string
+  scheduled_at: string
+  interviewer_employee_id: string
+  result: "SCHEDULED" | "PASS" | "FAIL"
+  ratings: Record<string, number>
+  note: string | null
+  recorded_by: string
+}
+
+export type OfferView = {
+  id: string
+  applicant_id: string
+  base_minor: number
+  grade: string
+  starts_on: string
+  term: string
+  state: "WAITING" | "ACCEPTED" | "DECLINED" | "WITHDRAWN"
+  offered_by: string
+  decided_by: string | null
+  hired_employee_id: string | null
+}
+
+export type PerformanceTemplateView = {
+  position: string
+  metric: string
+  weight: number
+  source: string
+}
+
+export type PerformanceScoreView = {
+  employee_id: string
+  period: string
+  kpi_pct: number
+  manager_score: number
+  note: string | null
+  recorded_by: string
+  bonus_rate_pct: number
+}
+
+export type TrainingProgramView = {
+  id: string
+  title: string
+  on_date: string
+  place: string
+  cost_minor: number
+  state: "SCHEDULED" | "DONE"
+  participants: number
+}
+
+export type UniformIssuanceView = {
+  id: string
+  employee_id: string
+  issued_on: string
+  sets: number
+  recorded_by: string
+}
+
+export type RuleView = {
+  key: string
+  group: string
+  label: string
+  value: number
+  unit: string
+  updated_by: string | null
+}
+
+export type GradeView = {
+  code: string
+  floor_minor: number
+  ceiling_minor: number
+}
+export type PositionView = {
+  name: string
+  grade_floor: string
+  grade_ceiling: string
+  structure: string
+}
+export type StructureView = {
+  code: string
+  name: string
+  bonus_cap_policy: string | null
+  components: string[]
+}
+
+export const nextKeys = {
+  all: ["people", "next"] as const,
+  swaps: () => [...nextKeys.all, "swaps"] as const,
+  pendingSwaps: () => [...nextKeys.all, "swaps", "pending"] as const,
+  changes: (state?: string) =>
+    [...nextKeys.all, "changes", state ?? "all"] as const,
+  tasks: (kind?: string) => [...nextKeys.all, "tasks", kind ?? "all"] as const,
+  plans: () => [...nextKeys.all, "plans"] as const,
+  applicants: (stage?: string) =>
+    [...nextKeys.all, "applicants", stage ?? "all"] as const,
+  offers: () => [...nextKeys.all, "offers"] as const,
+  performanceTemplates: () =>
+    [...nextKeys.all, "performance", "templates"] as const,
+  scores: (period?: string) =>
+    [...nextKeys.all, "performance", period ?? "all"] as const,
+  training: () => [...nextKeys.all, "training"] as const,
+  rules: (group?: string) =>
+    [...nextKeys.all, "rules", group ?? "all"] as const,
+  org: () => [...nextKeys.all, "org"] as const,
+}
+
+const enc = encodeURIComponent
+
+// ── roster swaps ────────────────────────────────────────────────────────────
+
+export function pendingSwaps(signal?: AbortSignal): Promise<RosterSwapView[]> {
+  return node.get<RosterSwapView[]>("/api/v1/roster-swaps/pending", { signal })
+}
+
+export function swapsOf(
+  employeeId: string,
+  signal?: AbortSignal
+): Promise<RosterSwapView[]> {
+  return node.get<RosterSwapView[]>(
+    `/api/v1/employees/${enc(employeeId)}/roster-swaps`,
+    { signal }
+  )
+}
+
+export function fileSwap(body: {
+  with_employee_id: string
+  on_date: string
+  reason: string
+}): Promise<RosterSwapView> {
+  return node.post<RosterSwapView>("/api/v1/roster-swaps", body)
+}
+
+export function decideSwap(
+  id: string,
+  body: { approved: boolean; reason: string }
+): Promise<RosterSwapView> {
+  return node.post<RosterSwapView>(
+    `/api/v1/roster-swaps/${enc(id)}/decision`,
+    body
+  )
+}
+
+// ── employment change proposals ─────────────────────────────────────────────
+
+export function listChangeProposals(
+  query: { state?: string; place_id?: string } = {},
+  signal?: AbortSignal
+): Promise<ChangeProposalView[]> {
+  const params = new URLSearchParams()
+  if (query.state) params.set("state", query.state)
+  if (query.place_id) params.set("place_id", query.place_id)
+  const suffix = params.size > 0 ? `?${params.toString()}` : ""
+  return node.get<ChangeProposalView[]>(`/api/v1/change-proposals${suffix}`, {
+    signal,
+  })
+}
+
+export function fileChangeProposal(
+  employeeId: string,
+  body: {
+    kind: string
+    props: { field: string; to_text?: string; to_minor?: number }[]
+    effective_on: string
+    reason: string
+  }
+): Promise<ChangeProposalView> {
+  return node.post<ChangeProposalView>(
+    `/api/v1/employees/${enc(employeeId)}/change-proposals`,
+    body
+  )
+}
+
+export function decideChangeProposal(
+  id: string,
+  body: { approved: boolean; reason: string; note?: string }
+): Promise<ChangeProposalView> {
+  return node.post<ChangeProposalView>(
+    `/api/v1/change-proposals/${enc(id)}/decision`,
+    body
+  )
+}
+
+// ── the onboarding and separation checklist ─────────────────────────────────
+
+export function listLifecycleTasks(
+  query: { kind?: string; owner?: string; employee_id?: string } = {},
+  signal?: AbortSignal
+): Promise<LifecycleTaskView[]> {
+  const params = new URLSearchParams()
+  if (query.kind) params.set("kind", query.kind)
+  if (query.owner) params.set("owner", query.owner)
+  if (query.employee_id) params.set("employee_id", query.employee_id)
+  const suffix = params.size > 0 ? `?${params.toString()}` : ""
+  return node.get<LifecycleTaskView[]>(`/api/v1/lifecycle/tasks${suffix}`, {
+    signal,
+  })
+}
+
+export function completeLifecycleTask(
+  taskId: string,
+  reason: string
+): Promise<LifecycleTaskView> {
+  return node.post<LifecycleTaskView>(
+    `/api/v1/lifecycle/tasks/${enc(taskId)}/completion`,
+    { reason }
+  )
+}
+
+// ── the recruitment pipeline ────────────────────────────────────────────────
+
+export function listStaffingPlans(
+  signal?: AbortSignal
+): Promise<StaffingPlanView[]> {
+  return node.get<StaffingPlanView[]>("/api/v1/recruitment/plans", { signal })
+}
+
+export function defineStaffingPlan(body: {
+  place_id: string
+  position: string
+  span: string
+  headcount: number
+  cost_minor: number
+  reason: string
+}): Promise<StaffingPlanView[]> {
+  return node.post<StaffingPlanView[]>("/api/v1/recruitment/plans", body)
+}
+
+export function listApplicants(
+  query: { stage?: string; proposal_id?: string } = {},
+  signal?: AbortSignal
+): Promise<ApplicantView[]> {
+  const params = new URLSearchParams()
+  if (query.stage) params.set("stage", query.stage)
+  if (query.proposal_id) params.set("proposal_id", query.proposal_id)
+  const suffix = params.size > 0 ? `?${params.toString()}` : ""
+  return node.get<ApplicantView[]>(`/api/v1/recruitment/applicants${suffix}`, {
+    signal,
+  })
+}
+
+export function fileApplicant(
+  proposalId: string,
+  body: {
+    name: string
+    phone?: string
+    source: string
+    referrer_employee_id?: string
+  }
+): Promise<ApplicantView> {
+  return node.post<ApplicantView>(
+    `/api/v1/recruitment/proposals/${enc(proposalId)}/applicants`,
+    body
+  )
+}
+
+export function moveApplicantStage(
+  applicantId: string,
+  body: { stage: string; note?: string; reason: string }
+): Promise<ApplicantView> {
+  return node.post<ApplicantView>(
+    `/api/v1/recruitment/applicants/${enc(applicantId)}/stage`,
+    body
+  )
+}
+
+export function scheduleInterview(
+  applicantId: string,
+  body: {
+    scheduled_at: string
+    interviewer_employee_id: string
+    reason: string
+  }
+): Promise<InterviewView> {
+  return node.post<InterviewView>(
+    `/api/v1/recruitment/applicants/${enc(applicantId)}/interviews`,
+    body
+  )
+}
+
+export function recordInterview(
+  interviewId: string,
+  body: {
+    result: "PASS" | "FAIL"
+    ratings: Record<string, number>
+    note?: string
+    reason: string
+  }
+): Promise<InterviewView> {
+  return node.post<InterviewView>(
+    `/api/v1/recruitment/interviews/${enc(interviewId)}/result`,
+    body
+  )
+}
+
+export function makeOffer(
+  applicantId: string,
+  body: {
+    base_minor: number
+    grade: string
+    starts_on: string
+    term: string
+    reason: string
+  }
+): Promise<OfferView> {
+  return node.post<OfferView>(
+    `/api/v1/recruitment/applicants/${enc(applicantId)}/offer`,
+    body
+  )
+}
+
+export function listOffers(signal?: AbortSignal): Promise<OfferView[]> {
+  return node.get<OfferView[]>("/api/v1/recruitment/offers", { signal })
+}
+
+export function decideOffer(
+  offerId: string,
+  body: { accepted: boolean; reason: string }
+): Promise<OfferView> {
+  return node.post<OfferView>(
+    `/api/v1/recruitment/offers/${enc(offerId)}/decision`,
+    body
+  )
+}
+
+export function hireOffer(offerId: string, reason: string): Promise<OfferView> {
+  return node.post<OfferView>(
+    `/api/v1/recruitment/offers/${enc(offerId)}/hire`,
+    { reason }
+  )
+}
+
+// ── performance ─────────────────────────────────────────────────────────────
+
+export function listPerformanceTemplates(
+  signal?: AbortSignal
+): Promise<PerformanceTemplateView[]> {
+  return node.get<PerformanceTemplateView[]>("/api/v1/performance/templates", {
+    signal,
+  })
+}
+
+export function listPerformanceScores(
+  query: { period?: string; place_id?: string } = {},
+  signal?: AbortSignal
+): Promise<PerformanceScoreView[]> {
+  const params = new URLSearchParams()
+  if (query.period) params.set("period", query.period)
+  if (query.place_id) params.set("place_id", query.place_id)
+  const suffix = params.size > 0 ? `?${params.toString()}` : ""
+  return node.get<PerformanceScoreView[]>(
+    `/api/v1/performance/scores${suffix}`,
+    {
+      signal,
+    }
+  )
+}
+
+export function recordPerformanceScore(
+  employeeId: string,
+  period: string,
+  body: {
+    kpi_pct: number
+    manager_score: number
+    note?: string
+    reason: string
+  }
+): Promise<PerformanceScoreView> {
+  return node.put<PerformanceScoreView>(
+    `/api/v1/employees/${enc(employeeId)}/performance/${period}`,
+    body
+  )
+}
+
+// ── training ────────────────────────────────────────────────────────────────
+
+export function listTrainingPrograms(
+  signal?: AbortSignal
+): Promise<TrainingProgramView[]> {
+  return node.get<TrainingProgramView[]>("/api/v1/training-programs", {
+    signal,
+  })
+}
+
+export function defineTrainingProgram(body: {
+  title: string
+  on_date: string
+  place: string
+  cost_minor: number
+  reason: string
+}): Promise<TrainingProgramView[]> {
+  return node.post<TrainingProgramView[]>("/api/v1/training-programs", body)
+}
+
+export function nominateForTraining(
+  programId: string,
+  body: { employee_id: string; reason: string }
+): Promise<TrainingProgramView> {
+  return node.post<TrainingProgramView>(
+    `/api/v1/training-programs/${enc(programId)}/participants`,
+    body
+  )
+}
+
+// ── benefits ────────────────────────────────────────────────────────────────
+
+export function listUniformIssuances(
+  employeeId: string,
+  signal?: AbortSignal
+): Promise<UniformIssuanceView[]> {
+  return node.get<UniformIssuanceView[]>(
+    `/api/v1/employees/${enc(employeeId)}/uniform-issuances`,
+    { signal }
+  )
+}
+
+export function recordUniformIssuance(
+  employeeId: string,
+  body: { issued_on: string; sets: number; reason: string }
+): Promise<UniformIssuanceView[]> {
+  return node.post<UniformIssuanceView[]>(
+    `/api/v1/employees/${enc(employeeId)}/uniform-issuances`,
+    body
+  )
+}
+
+// ── the rule numbers and the org masters ────────────────────────────────────
+
+export function readRules(
+  query: { group?: string } = {},
+  signal?: AbortSignal
+): Promise<RuleView[]> {
+  const suffix = query.group ? `?group=${enc(query.group)}` : ""
+  return node.get<RuleView[]>(`/api/v1/people-policy${suffix}`, { signal })
+}
+
+export function setRule(
+  key: string,
+  body: { value: number; reason: string }
+): Promise<RuleView[]> {
+  return node.put<RuleView[]>(`/api/v1/people-policy/${enc(key)}`, body)
+}
+
+export function listGrades(signal?: AbortSignal): Promise<GradeView[]> {
+  return node.get<GradeView[]>("/api/v1/org/grades", { signal })
+}
+
+export function listPositions(signal?: AbortSignal): Promise<PositionView[]> {
+  return node.get<PositionView[]>("/api/v1/org/positions", { signal })
+}
+
+export function listStructures(signal?: AbortSignal): Promise<StructureView[]> {
+  return node.get<StructureView[]>("/api/v1/org/structures", { signal })
+}
+
+// ── the clock's own HR work ─────────────────────────────────────────────────
+//
+// What the scheduler ran, and a door to run the pass now. The run ledger is
+// read as evidence: a monthly accrual that did not run leaves balances empty,
+// and the screen beside it is the only place that says so.
+
+export interface SchedulerRunRow {
+  readonly job: string
+  readonly run_key: string
+  readonly outcome: "RAN" | "FAILED" | "SKIPPED"
+  readonly detail: unknown
+  readonly started_at: string
+  readonly finished_at: string | null
+}
+
+export interface SchedulerJobResult {
+  readonly job: string
+  readonly status: "RAN" | "FAILED" | "SKIPPED"
+  readonly detail: unknown
+}
+
+export const schedulerKeys = {
+  runs: () => ["people", "scheduler", "runs"] as const,
+}
+
+export function listSchedulerRuns(
+  signal?: AbortSignal
+): Promise<SchedulerRunRow[]> {
+  return node.get<SchedulerRunRow[]>("/api/v1/hr-scheduler/runs?limit=100", {
+    signal,
+  })
+}
+
+/// Run the pass by hand. `asOf` is a backfill or a test; absent means today
+/// where the shops are. A reason is required because the run ledger has
+/// nowhere else to put it.
+export function runSchedulerNow(ask: {
+  readonly asOf?: string
+  readonly reason: string
+}): Promise<SchedulerJobResult[]> {
+  return node.post<SchedulerJobResult[]>("/api/v1/hr-scheduler/run-now", {
+    as_of: ask.asOf !== undefined && ask.asOf !== "" ? ask.asOf : null,
+    reason: ask.reason,
+  })
+}
+
+/// The bonus tier a KPI figure earns under today's rule numbers. Derived
+/// here the way the server derives it on read, so a screen can show the tier
+/// before anybody has recorded a score.
+export function bonusTierFor(
+  rules: RuleView[] | undefined,
+  kpi: number
+): number | null {
+  if (!rules) return null
+  const num = (key: string) =>
+    Number(rules.find((r) => r.key === key)?.value ?? NaN)
+  const t2 = num("pay.bonus_tier2_min_kpi")
+  const t1 = num("pay.bonus_tier1_min_kpi")
+  if (Number.isNaN(t2) || Number.isNaN(t1)) return null
+  if (kpi >= t2) return num("pay.bonus_tier2_rate")
+  if (kpi >= t1) return num("pay.bonus_tier1_rate")
+  return 0
 }

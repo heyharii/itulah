@@ -37,7 +37,7 @@ export function Thumbnail({
           className="size-full object-cover object-[center_15%]"
         />
       ) : (
-        <span className="grid size-full place-items-center px-1 text-center text-[0.6875rem] text-mute">
+        <span className="grid size-full place-items-center px-1 text-center text-[0.875rem] text-mute">
           {fallback}
         </span>
       )}

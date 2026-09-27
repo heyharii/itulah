@@ -253,11 +253,18 @@ pub struct SetUserRoleRequest {
     pub role: Role,
 }
 
-/// Giving somebody access to one Edge, or rotating the PIN they use there.
+/// Giving somebody access to one Edge, changing their role there, or rotating
+/// the password they use there.
 ///
 /// `edge_password` is separate from their Cloud password on purpose: the same
 /// person signs in at head office with one credential and at a till with
 /// another, and the Edge never receives the Cloud one.
+///
+/// It is optional at a DC, where the hub signs people in with their Cloud
+/// session (`docs/cloud-dc-single-sign-on.md`): without one, the assignment
+/// can be used only through that exchange. A store has no such exchange, so a
+/// new store grant needs one. On an existing grant, absent means "keep the
+/// password it has".
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct UpsertEdgeAssignmentRequest {
@@ -265,7 +272,8 @@ pub struct UpsertEdgeAssignmentRequest {
     pub user_id: Uuid,
     pub role: Role,
     /// Hashed immediately; never stored in the clear and never sent to the Edge.
-    pub edge_password: String,
+    #[serde(default)]
+    pub edge_password: Option<String>,
     pub offline_ttl_seconds: Option<i32>,
 }
 
@@ -304,9 +312,11 @@ pub struct ProvisionAccountRequest {
 pub struct ProvisionEdgeAccess {
     pub origin_id: String,
     pub role: Role,
-    /// The PIN used at the till. Separate from the Cloud password on purpose:
-    /// the Edge never receives the Cloud one.
-    pub edge_password: String,
+    /// The password used at the till. Separate from the Cloud password on purpose:
+    /// the Edge never receives the Cloud one. Optional at a DC, which signs
+    /// people in with their Cloud session — see `UpsertEdgeAssignmentRequest`.
+    #[serde(default)]
+    pub edge_password: Option<String>,
     pub offline_ttl_seconds: Option<i32>,
 }
 

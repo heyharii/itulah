@@ -18,7 +18,7 @@
 -- voucher's liability is `65`, a giveaway is `74 Biaya Promosi`, advertising is
 -- `76`, a discount is `47`, a return is `49`, COGS is `45` against `61
 -- Persediaan`. Not one of those needs a new code, so not one is added here, and
--- the check at the bottom counts the forty to prove it.
+-- the check at the bottom counts the forty-three to prove it.
 --
 -- 1. **`voucher_liability` is mapped for every site** — `2401` (the client's
 --    `65`), qualified `VOUCHER_LIABILITY`, the category 0290 gave the remap row
@@ -47,6 +47,8 @@
 -- 4. **One source kind is added**: `VOUCHER_ISSUE`, for the entry item 1 makes
 --    possible. Restated in full rather than appended to, for the reason 0257
 --    learned: a DROP-and-ADD constraint two lanes both touch loses whichever
+--    half merged second, silently.
+
 -- The map. `2401` is the client's `65`; the category is the one 0290 read off
 -- `ledger_account_remap` for `2012305001 Hutang Voucher`.
 INSERT INTO account_map (semantic_key, site_id, qualifier, account_code, category_code, set_by, note)
@@ -75,6 +77,9 @@ SELECT 'advertising_expense', s.id, '', '6101', 'BIAYA_ADVERTISING_IKLAN', 'migr
   FROM site s
  WHERE NOT EXISTS (
            SELECT 1 FROM account_map m
+            WHERE m.semantic_key = 'advertising_expense' AND m.site_id = s.id AND m.qualifier = ''
+       );
+
 ALTER TABLE journal_entry DROP CONSTRAINT IF EXISTS journal_entry_source_kind_check;
 ALTER TABLE journal_entry ADD CONSTRAINT journal_entry_source_kind_check
     CHECK (source_kind IN (
@@ -120,8 +125,8 @@ BEGIN
     -- The count is the client's, unchanged. This migration NAMES accounts; it
     -- does not mint them, and a wrong turn that added one would otherwise be
     -- invisible until the estate reconciled against the chart.
-    IF (SELECT count(*) FROM ledger_account WHERE NOT is_group AND is_active) <> 40 THEN
-        RAISE EXCEPTION 'this migration must leave the forty postable accounts exactly as it found them';
+    IF (SELECT count(*) FROM ledger_account WHERE NOT is_group AND is_active) <> 43 THEN
+        RAISE EXCEPTION 'this migration must leave the forty-three postable accounts exactly as it found them';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint
                     WHERE conname = 'journal_entry_source_kind_check'
@@ -129,6 +134,3 @@ BEGIN
         RAISE EXCEPTION 'VOUCHER_ISSUE is not allowed as a source kind';
     END IF;
 END $$;
-            WHERE m.semantic_key = 'advertising_expense' AND m.site_id = s.id AND m.qualifier = ''
-       );
---    half merged second, silently.

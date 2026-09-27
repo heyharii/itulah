@@ -293,6 +293,16 @@ pub async fn issue(
 ) -> Result<Json<OvertimeOrderView>, AppError> {
     let access = resolve(&state, &principal, &raw).await?;
     access.may(actions::OVERTIME_ORDER)?;
+    // The rule is two written acts by two people: the employer's instruction
+    // and the worker's agreement. Ordering your own overtime and then agreeing
+    // to it would be one person producing both, so the instruction for a
+    // supervisor's own evening comes from somebody else who reaches them.
+    if access.own {
+        return Err(AppError::Forbidden(format!(
+            "{} may not order overtime for themselves; somebody else who reaches them orders it",
+            principal.username
+        )));
+    }
     let place_id = reaches_subject(&state, &access).await?.ok_or_else(|| {
         AppError::Conflict(format!(
             "{} is not posted anywhere, so there is no place to order overtime at",

@@ -1357,7 +1357,7 @@ async fn run_tool(state: &AppState, name: &str, input: &Value) -> Result<ToolOut
             }
             // No overlay: a preview shows the report as defined, which is what
             // the person is being asked to keep.
-            let preview = infrastructure::run_spec(&state.db, &spec, &[]).await;
+            let preview = infrastructure::run_spec(&state.db, &spec, &[], state.clock.now()).await;
             return match preview {
                 Ok(mut result) => {
                     if let Some(object) = result.as_object_mut() {

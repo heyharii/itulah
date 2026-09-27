@@ -59,11 +59,11 @@ fun SetupScreen(
     var paper by remember { mutableStateOf(config.paper) }
     var power by remember { mutableStateOf((if (config.readerPower <= 0) 12 else config.readerPower).toFloat()) }
 
-    Box(Modifier.fillMaxSize().background(Soft), contentAlignment = Alignment.TopCenter) {
+    Box(Modifier.fillMaxSize().background(Soft3), contentAlignment = Alignment.TopCenter) {
         Column(
             Modifier.widthIn(max = 560.dp).verticalScroll(rememberScrollState()).padding(20.dp),
         ) {
-            Text("Kasir", fontSize = 24.sp)
+            Text("Kasir", style = Type.hero.copy(fontSize = 24.sp, letterSpacing = (-0.6).sp))
             Text(
                 "Satu APK melayani setiap konter. Konter mana yang ini adalah " +
                     "fakta pemasangan, bukan fakta kode.",
@@ -120,8 +120,8 @@ fun SetupScreen(
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GhostButton("58mm", { paper = "NARROW" }, Modifier.weight(1f), tone = if (paper == "NARROW") Ink else Mute)
-                    GhostButton("80mm", { paper = "WIDE" }, Modifier.weight(1f), tone = if (paper == "WIDE") Ink else Mute)
+                    ChoiceTile("58mm", selected = paper == "NARROW", onClick = { paper = "NARROW" }, modifier = Modifier.weight(1f), height = 46.dp)
+                    ChoiceTile("80mm", selected = paper == "WIDE", onClick = { paper = "WIDE" }, modifier = Modifier.weight(1f), height = 46.dp)
                 }
                 Text(
                     "Node yang mencetak, bukan tablet — node yang satu jaringan " +

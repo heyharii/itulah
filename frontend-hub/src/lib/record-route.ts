@@ -45,11 +45,18 @@ const WHERE: Partial<Record<RecordKind, { to: string; sheet?: SheetKey }>> = {
   asset: { to: "/assets", sheet: "asset" },
 
   // Finance
-  bill: { to: "/finance/bills", sheet: "bill" },
-  bank_statement: { to: "/finance/bank", sheet: "statement" },
+  bill: { to: "/finance/payables/bills", sheet: "bill" },
+  bank_statement: { to: "/finance/cash-bank/bank-reconciliation", sheet: "statement" },
 
   // People
   employee: { to: "/people", sheet: "employee" },
+
+  // Marketing. The marketing watch raises notices about a promotion or a
+  // campaign that has used up its budget or crossed a guardrail, and both
+  // screens open the record from the URL. A price book has no screen of its
+  // own, so a rollout notice names it in words and offers no link.
+  commercial_rule: { to: "/commercial/promotions", sheet: "rule" },
+  campaign: { to: "/commercial/campaigns", sheet: "campaign" },
 }
 
 /// The screen a record is on, or `null` when nothing shows that kind by id.

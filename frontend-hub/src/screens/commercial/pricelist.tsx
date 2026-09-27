@@ -472,11 +472,14 @@ export function Pricelist() {
 
   /// The two halves of what is waiting to be published, counted apart because
   /// they are not the same promise — see the editor's `PendingEdit`.
-  const sales = pending.filter(
-    (one): one is PendingMarkdown => one.kind === "markdown"
+  const sales = useMemo(
+    () =>
+      pending.filter((one): one is PendingMarkdown => one.kind === "markdown"),
+    [pending]
   )
-  const priced = pending.filter(
-    (one): one is PendingPrice => one.kind === "price"
+  const priced = useMemo(
+    () => pending.filter((one): one is PendingPrice => one.kind === "price"),
+    [pending]
   )
 
   /// The number a new book has to carry to win. The engine ranks by version
@@ -629,20 +632,20 @@ export function Pricelist() {
                   const nowhere = receipt.filter(
                     (one) => one.delivered_to.length === 0
                   )
-                  const shops = [
-                    ...new Set(receipt.flatMap((one) => one.delivered_to)),
-                  ]
+                  // A book that reached its shops says nothing: the grid's
+                  // "pembaruan pending" and each cell already show delivery,
+                  // and a green paragraph after every publish was noise.
+                  if (nowhere.length === 0) return null
                   return (
                     <Banner
-                      tone={nowhere.length === 0 ? "ok" : "warn"}
+                      tone="warn"
                       className="mb-4"
                       onDismiss={() => setReceipt([])}
                     >
                       {nowhere.length === receipt.length ? (
-                        // The important case, and the reason the receipt is a
-                        // banner rather than a toast: published and reaching
-                        // nobody looks exactly like success everywhere else on
-                        // this screen.
+                        // The reason the receipt is a banner rather than a
+                        // toast: published and reaching nobody looks exactly
+                        // like success everywhere else on this screen.
                         <>
                           {receipt.map(named).join(", ")}{" "}
                           {receipt.length === 1 ? "was" : "were"} published, and
@@ -650,21 +653,7 @@ export function Pricelist() {
                           till will ever see these prices.
                         </>
                       ) : (
-                        <>
-                          {receipt.map(named).join(", ")}{" "}
-                          {receipt.length === 1 ? "was" : "were"} published and
-                          queued for {count(shops.length)} shop
-                          {shops.length === 1 ? "" : "s"} ({shops.join(", ")}).
-                          Each one starts charging when it takes the message,
-                          which is a separate moment — open a cell to see who
-                          has.
-                          {nowhere.length > 0 && (
-                            <>
-                              {" "}
-                              {nowhere.map(named).join(" and ")} reached nobody.
-                            </>
-                          )}
-                        </>
+                        <>{nowhere.map(named).join(" and ")} reached nobody.</>
                       )}
                     </Banner>
                   )
@@ -997,6 +986,22 @@ function PriceGrid({
     return map
   }, [upcoming])
 
+  /// Each row's shops by site, built once per page of rows. Every cell used to
+  /// `find` its shop in the row — twice — which is shops² per row per render,
+  /// and a selection click re-renders all of them.
+  const shopsOf = useMemo(() => {
+    const byRow = new Map<ArticlePriceRow, Map<string, ArticlePriceShop>>()
+    for (const row of items) {
+      const bySite = new Map<string, ArticlePriceShop>()
+      // First wins, as `find` did.
+      for (const shop of row.shops) {
+        if (!bySite.has(shop.site_id)) bySite.set(shop.site_id, shop)
+      }
+      byRow.set(row, bySite)
+    }
+    return byRow
+  }, [items])
+
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       {/* Fixed layout and separated borders, so a column keeps its width as
@@ -1062,7 +1067,7 @@ function PriceGrid({
                     still a click away, in the column tooltip and in the cell. */}
                 {(shop.active_version === null ||
                   shop.pending_publication !== null) && (
-                  <span className="block text-[0.65625rem] font-normal text-mute">
+                  <span className="block text-[0.875rem] font-normal text-mute">
                     {shop.active_version === null
                       ? "belum terkonfirmasi"
                       : "pembaruan pending"}
@@ -1075,10 +1080,11 @@ function PriceGrid({
 
         <tbody>
           {items.map((row) => {
+            const bySite = shopsOf.get(row)
             const lines = new Map<string, readonly Line[]>(
               page.shops.map((shop) => [
                 shop.site_id,
-                linesFor(row.shops.find((one) => one.site_id === shop.site_id)),
+                linesFor(bySite?.get(shop.site_id)),
               ])
             )
             const full = depthOf(lines)
@@ -1113,9 +1119,7 @@ function PriceGrid({
                 )}
 
                 {page.shops.map((shop, index) => {
-                  const priced = row.shops.find(
-                    (one) => one.site_id === shop.site_id
-                  )
+                  const priced = bySite?.get(shop.site_id)
                   const key = cellKey(row.article_code, shop.site_id)
                   const here = lines.get(shop.site_id) ?? []
                   const top = priced === undefined ? undefined : winner(priced)
@@ -1497,7 +1501,7 @@ function PriceCell({
           {changing && (
             <span
               aria-hidden
-              className="shrink-0 text-[0.6875rem] text-info-fg"
+              className="shrink-0 text-[0.875rem] text-info-fg"
             >
               {later!.min_unit_price_minor > rule!.min_unit_price_minor
                 ? "↑"
@@ -1700,7 +1704,7 @@ function CellSheet({
                             >
                               {describeSource(rule.source)}
                             </span>
-                            <span className="block text-[0.65625rem] text-mute">
+                            <span className="block text-[0.875rem] text-mute">
                               {bookNames.get(rule.publication_version) ?? "—"}
                             </span>
                           </>
@@ -1711,8 +1715,8 @@ function CellSheet({
                           <span
                             className={
                               index === 0
-                                ? "text-[0.71875rem] text-body"
-                                : "text-[0.71875rem] text-mute"
+                                ? "text-[0.875rem] text-body"
+                                : "text-[0.875rem] text-mute"
                             }
                           >
                             {describeLevel(rule.applies_to)}
@@ -1739,7 +1743,7 @@ function CellSheet({
                   ))
                 )}
               </MiniTable>
-              <p className="mt-2 text-[0.71875rem] leading-relaxed text-body">
+              <p className="mt-2 text-[0.875rem] leading-relaxed text-body">
                 The top row is what the till charges. The rows under it are
                 prices that lost — the newest book wins, then the most specific
                 price, then the one that started last. They are shown because
@@ -1772,7 +1776,7 @@ function CellSheet({
                       </span>
                     </MiniCell>
                     <MiniCell align="right">
-                      <span className="font-mono text-[0.65625rem] text-mute">
+                      <span className="font-mono text-[0.875rem] text-mute">
                         {point.sku_codes.join(", ")}
                       </span>
                     </MiniCell>
@@ -1864,10 +1868,10 @@ function InService({ version }: { version: number }) {
                 />
               </MiniCell>
               <MiniCell>
-                <span className="text-[0.71875rem] text-body">
+                <span className="text-[0.875rem] text-body">
                   {moment(activation.activated_at)}
                 </span>
-                <span className="block text-[0.65625rem] text-mute">
+                <span className="block text-[0.875rem] text-mute">
                   told us {moment(activation.reported_at)}
                 </span>
               </MiniCell>
@@ -1915,7 +1919,7 @@ function ProductLine({ line, scope }: { line: ShelfPrice; scope: PriceScope }) {
           <Named name={line.sku_code} />
         </span>
         {isMarkedDown(line) && (
-          <span className="text-[0.71875rem] text-mute tabular-nums line-through">
+          <span className="text-[0.875rem] text-mute tabular-nums line-through">
             {money(line.base_unit_price_minor)}
           </span>
         )}
@@ -2027,7 +2031,7 @@ function PriceHistorySection({
                 <MiniRow key={`${period.from}-${period.publication_version}`}>
                   <MiniCell>
                     <span className="text-ink">{day(period.from)}</span>
-                    <span className="block text-[0.65625rem] text-mute">
+                    <span className="block text-[0.875rem] text-mute">
                       {period.until === null
                         ? "still in force"
                         : `until ${day(period.until)}`}
@@ -2037,7 +2041,7 @@ function PriceHistorySection({
                     <span className="text-ink">
                       {describeSource(period.source)}
                     </span>
-                    <span className="block text-[0.65625rem] text-mute">
+                    <span className="block text-[0.875rem] text-mute">
                       {period.publication_name ??
                         `v${period.publication_version}`}
                       {period.published_by !== null &&
@@ -2173,7 +2177,7 @@ function ArticleSheet({
                 {money(low)} – {money(high)}
               </Pill>
             )}
-            <span className="text-[0.71875rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               {count(row.sku_count)} SKU
             </span>
           </span>
@@ -2223,7 +2227,7 @@ function ArticleSheet({
                       {column.label ?? column.site_id}
                     </button>
                     {column.active_version === null && (
-                      <span className="block text-[0.6875rem] text-mute">
+                      <span className="block text-[0.875rem] text-mute">
                         belum terkonfirmasi
                       </span>
                     )}
@@ -2254,7 +2258,7 @@ function ArticleSheet({
                         <span className="font-medium text-ink tabular-nums">
                           {amounts(top)}
                         </span>
-                        <span className="text-[0.6875rem] text-mute">
+                        <span className="text-[0.875rem] text-mute">
                           {bookNames.get(top.publication_version) ??
                             describeSource(top.source)}
                         </span>
@@ -2269,7 +2273,7 @@ function ArticleSheet({
           {/* The qualification the grid's own column headings carry, kept
               here so a drill-down never asserts a shop's price without it —
               but as one line, not a paragraph. */}
-          <p className="text-[0.71875rem] text-mute">
+          <p className="text-[0.875rem] text-mute">
             What each shop has put into service, not what head office has
             published.
           </p>
@@ -2425,7 +2429,7 @@ function StoreSheet({
                         <span className="block truncate text-ink">
                           {style.name}
                         </span>
-                        <span className="block truncate font-mono text-[0.6875rem] text-mute">
+                        <span className="block truncate font-mono text-[0.875rem] text-mute">
                           {style.code} · {count(style.skus)} SKU
                         </span>
                       </MiniCell>

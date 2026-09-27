@@ -33,7 +33,7 @@
 use super::poster::{post, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
-    approval_is_sufficient, approval_level_for, cashier_equation, fund_accountability,
+    approval_is_sufficient_up_to, approval_level_for, cashier_equation, fund_accountability,
     remittance_standing, ApprovalLevel, CashierEquation, DrawerMovement, ExecutionState,
     FundAccountability, LineExecution, LineProgress, RemittanceStanding,
 };
@@ -865,10 +865,11 @@ pub struct HandOverDepositRequest {
 ///   Dr affiliate_receivable [site, counter dc] / Cr cash [site]
 ///
 /// The shop's own books, balanced on their own: the cash on hand (1002) is
-/// gone and head office owes the shop for it (1057 Piutang Affiliasi
-/// Pembiayaan). This used to post `Dr cash_in_transit / Cr cash`, and because
-/// `cash_in_transit` also resolves to 1002 the whole step was a no-op that left
-/// the money on the till until the bank agreed. The owner's rule is that money
+/// gone and the shop owes head office that much less (the meaning resolves at
+/// a unit to 2028 Hutang Affiliasi Pembiayaan, owner 25 Sep / 0380). This used
+/// to post `Dr cash_in_transit / Cr cash`, and because `cash_in_transit` also
+/// resolves to 1002 the whole step was a no-op that left the money on the till
+/// until the bank agreed. The owner's rule is that money
 /// leaving a shop's balance is an inter-unit balance from that moment, and the
 /// pair sits unmatched in the inter-unit reconciliation until head office's
 /// half (below) is posted.
@@ -905,7 +906,7 @@ pub async fn store_deposit_hand_over(
         memo: Some(format!("{number} — setoran keluar")),
         lines: vec![
             PostingLine::debit("affiliate_receivable", &site_id, amount)
-                .with_qualifier("PEMBIAYAAN:dc")
+                .with_qualifier("PEMBIAYAAN")
                 .with_counter_site(HEAD_OFFICE_SITE_ID),
             PostingLine::credit("cash", &site_id, amount),
         ],
@@ -944,7 +945,8 @@ pub struct ConfirmDepositRequest {
 ///   Dr bank [dc, qualifier] / Cr affiliate_payable [dc, counter shop]
 ///
 /// Head office's own books, balanced on their own: the bank received the money
-/// and head office now owes the shop for it (2028 Hutang Affiliasi Pembiayaan).
+/// and head office's claim on the shop is that much less (the meaning resolves
+/// at head office to 1057 Piutang Affiliasi Pembiayaan, owner 25 Sep / 0380).
 /// The shop's matching half is `store_deposit_hand_over` above. Each entry
 /// balances in its own site, so the poster adds no leg and the pair shows as an
 /// unmatched inter-unit balance until both exist — which is the owner's stated
@@ -994,7 +996,7 @@ pub async fn store_deposit_confirm(
             PostingLine::debit(&bank_key, HEAD_OFFICE_SITE_ID, amount)
                 .with_qualifier(&bank_qualifier),
             PostingLine::credit("affiliate_payable", HEAD_OFFICE_SITE_ID, amount)
-                .with_qualifier(&format!("PEMBIAYAAN:{site_id}"))
+                .with_qualifier("PEMBIAYAAN")
                 .with_counter_site(&site_id),
         ],
     };
@@ -1789,7 +1791,7 @@ pub async fn operating_fund_send(
                     HEAD_OFFICE_SITE_ID,
                     request.amount_minor,
                 )
-                .with_qualifier(&format!("PEMBIAYAAN:{}", request.site_id));
+                .with_qualifier("PEMBIAYAAN");
                 leg.counter_site_id = Some(request.site_id.clone());
                 leg
             },
@@ -1879,7 +1881,7 @@ pub async fn operating_fund_receive(
             PostingLine::debit("petty_cash", &site_id, amount),
             {
                 let mut leg = PostingLine::credit("affiliate_payable", &site_id, amount)
-                    .with_qualifier(&format!("PEMBIAYAAN:{HEAD_OFFICE_SITE_ID}"));
+                    .with_qualifier("PEMBIAYAAN");
                 leg.counter_site_id = Some(HEAD_OFFICE_SITE_ID.to_string());
                 leg
             },
@@ -2035,7 +2037,8 @@ pub async fn fund_settlement_record(
                 AppError::Validation("a direct expense has to say which account it lands in".into())
             })?;
             vec![
-                PostingLine::debit(key, &site_id, request.amount_minor),
+                PostingLine::debit("expense", &site_id, request.amount_minor)
+                    .from_source("EXPENSE_CATEGORY", key),
                 PostingLine::credit("petty_cash", &site_id, request.amount_minor),
             ]
         }
@@ -2973,11 +2976,18 @@ pub async fn store_expense_approve(
         ));
     }
     let amount: i64 = row.try_get("amount_minor")?;
-    if !approval_is_sufficient(level, amount) {
+    // The limit is Finance's setting (0472), not a constant.
+    let manager_limit: i64 = sqlx::query_scalar(
+        "SELECT COALESCE((SELECT round(value_numeric)::bigint FROM finance_setting
+                           WHERE setting_key = 'store_expense.manager_limit_minor'), $1)",
+    )
+    .bind(crate::cloud::domain::STORE_EXPENSE_MANAGER_LIMIT_MINOR)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !approval_is_sufficient_up_to(level, amount, manager_limit) {
         return Err(AppError::Forbidden(format!(
-            "{number} is {amount} and a store manager may approve up to {}. This one needs head \
-             office finance.",
-            crate::cloud::domain::STORE_EXPENSE_MANAGER_LIMIT_MINOR
+            "{number} is {amount} and a store manager may approve up to {manager_limit}. This one \
+             needs head office finance."
         )));
     }
 
@@ -3002,7 +3012,8 @@ pub async fn store_expense_approve(
         currency: row.try_get::<String, _>("currency")?,
         memo: Some(format!("{number} — {vendor}")),
         lines: vec![
-            PostingLine::debit(&category, &site_id, amount),
+            PostingLine::debit("expense", &site_id, amount)
+                .from_source("EXPENSE_CATEGORY", &category),
             PostingLine::credit(credit_key, &site_id, amount),
         ],
     };
@@ -3277,16 +3288,17 @@ pub async fn store_cash_position(
     // The asset balances, from the ledger, so the position and the trial
     // balance cannot disagree.
     let balances = sqlx::query(
-        "SELECT m.semantic_key, COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS balance
-           FROM account_map m
+        "SELECT m.role AS semantic_key,
+                COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS balance
+           FROM account_resolution m
            LEFT JOIN journal_line l
                   ON l.account_code = m.account_code
            LEFT JOIN journal_entry e
                   ON e.entry_id = l.entry_id
                  AND ($2::date IS NULL OR e.posting_date <= $2)
           WHERE m.site_id = $1
-            AND m.semantic_key IN ('cash', 'petty_cash', 'cashier_float', 'cash_in_transit')
-          GROUP BY m.semantic_key",
+            AND m.role IN ('cash', 'petty_cash', 'cashier_float', 'cash_in_transit')
+          GROUP BY m.role",
     )
     .bind(site_id)
     .bind(when)

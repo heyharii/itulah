@@ -1,15 +1,17 @@
-import { useQueries, useQuery } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Field, Input, Money } from "@/components/ui/field"
-import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
+import { Section } from "@/components/ui/form"
+import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
 import {
   commercialKeys,
   commercialProducts,
+  commercialProductsByArticles,
   minorOf,
   type CommercialChannel,
   type CommercialProduct,
@@ -167,7 +169,7 @@ function ShopTile({
 }: {
   on: boolean
   label: string
-  /// The site id, when the shop has a name that is not it. Small, and under —
+  /// The site id, when the shop has a name that is not it — on hover, since
   /// two shops in one city can read almost identically by name alone.
   note?: string
   onClick: () => void
@@ -178,6 +180,7 @@ function ShopTile({
       type="button"
       aria-pressed={on}
       onClick={onClick}
+      title={note}
       className={cn(
         "flex min-w-0 flex-col items-start gap-0.5 rounded-inner border px-3 py-2.5 text-left transition-colors",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
@@ -189,17 +192,12 @@ function ShopTile({
     >
       <span
         className={cn(
-          "w-full truncate text-[0.8125rem] font-medium",
+          "w-full truncate text-[0.875rem] font-medium",
           on ? "text-accent" : "text-ink"
         )}
       >
         {label}
       </span>
-      {note !== undefined && (
-        <span className="w-full truncate text-[0.71875rem] text-mute">
-          {note}
-        </span>
-      )}
     </button>
   )
 }
@@ -246,33 +244,25 @@ export function NewPriceSheet({
 
   /// The styles the grid pointed at, expanded into their products.
   ///
-  /// One query per article code and not one query for all of them: `q` is a
-  /// single substring, so a joined list would match nothing. The results are
-  /// then narrowed to an exact article code — `q` is an ILIKE, and a code that
-  /// is a prefix of another would otherwise drag the neighbour in.
-  const seeds = seed?.articleCodes ?? []
-  const seeded = useQueries({
-    queries: seeds.map((code) => ({
-      queryKey: commercialKeys.products(code, 500),
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        commercialProducts(code, 500, signal),
-      enabled: open,
-    })),
-    // `combine` rather than a `useMemo` over the results: `useQueries` hands
-    // back a new array every render, so a memo keyed on it never holds.
-    combine: (answers) => ({
-      loading: answers.some((one) => one.isPending),
-      failed: answers.some((one) => one.isError),
-      items: answers.flatMap((one) => one.data ?? []),
-    }),
+  /// One read for all of them, matched on whole article codes by the server.
+  /// It used to be a substring search per style, which was a request per
+  /// style and a prefix dragging its neighbour in. The narrowing below stays
+  /// as a guard: it costs nothing, and a node that has not learned
+  /// `article_codes` would otherwise hand back the first five hundred products.
+  const seeds = useMemo(() => seed?.articleCodes ?? [], [seed])
+  const seededRead = useQuery({
+    queryKey: commercialKeys.productsByArticles(seeds, 500),
+    queryFn: ({ signal }) => commercialProductsByArticles(seeds, 500, signal),
+    enabled: open && seeds.length > 0,
   })
-  const fromSeed = useMemo(
-    () => seeded.items.filter((one) => seeds.includes(one.article_code)),
-    // `seeds` is rebuilt each render from the `seed` prop, so the prop is what
-    // the memo actually depends on.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [seeded.items, seed]
-  )
+  const seeded = {
+    loading: seededRead.isPending,
+    failed: seededRead.isError,
+  }
+  const fromSeed = useMemo(() => {
+    const wanted = new Set(seeds)
+    return (seededRead.data ?? []).filter((one) => wanted.has(one.article_code))
+  }, [seededRead.data, seeds])
 
   /// Picked by hand, and dropped by hand.
   ///
@@ -487,10 +477,17 @@ export function NewPriceSheet({
       width="wide"
       footer={
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.71875rem] text-mute">
+          <span
+            className={cn(
+              "min-w-0 truncate text-[0.875rem]",
+              unpriced.length > 0 ? "text-bad" : "text-text"
+            )}
+          >
             {chosen.length === 0
-              ? "Nothing chosen yet."
-              : `${count(chosen.length)} product${chosen.length === 1 ? "" : "s"} · ${where}`}
+              ? "Choose the products."
+              : unpriced.length > 0
+                ? `${count(unpriced.length)} product${unpriced.length === 1 ? " has" : "s have"} no price yet.`
+                : `${count(chosen.length)} product${chosen.length === 1 ? "" : "s"} · ${where}`}
           </span>
           <Button variant="primary" disabled={!ready} onClick={commit}>
             Add to the book
@@ -498,21 +495,15 @@ export function NewPriceSheet({
         </div>
       }
     >
-      <div className="flex flex-col gap-5">
-        <Banner tone="info">
-          Nothing is amended. This writes a new price, and the newest book that
-          names a product is the one every till reads — so pushing 179.000 is
-          the whole of changing 219.000, and the old figure stays in the book
-          that carried it.
-        </Banner>
-
+      {/* Nothing is amended: this writes a new price, and the newest book that
+          names a product is the one every till reads — the old figure stays in
+          the book that carried it. */}
+      <div className="flex flex-col gap-6">
         {/* ── products ───────────────────────────────────────────────────── */}
-        <div>
-          <SubHead aside="server-side search">Which products</SubHead>
+        <Section title="Products">
           <Input
             value={search}
-            placeholder="A style, a product code or a description — ART-0001, SKU-0001-002, kemeja"
-            className="mb-2"
+            placeholder="Search a style, SKU or description"
             onChange={(event) => setSearch(event.target.value)}
           />
 
@@ -531,100 +522,99 @@ export function NewPriceSheet({
           {needle.length === 0 ? null : needle.length < 2 ? (
             <Quiet>Two characters is enough to start.</Quiet>
           ) : results.isError ? (
-            <Quiet>
-              The product search is not answering. `GET
-              /api/v1/commercial/products` is not on the node this app is
-              talking to, and without it a price cannot name its products.
-            </Quiet>
+            <Quiet>The product search is not answering.</Quiet>
           ) : results.data === undefined ? (
             <Quiet>Searching the catalogue…</Quiet>
           ) : results.data.length === 0 ? (
             <Quiet>Nothing matches “{needle}”.</Quiet>
           ) : (
-            <>
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <span className="text-[0.71875rem] text-mute">
-                  {count(results.data.length)} product
-                  {results.data.length === 1 ? "" : "s"} match
-                </span>
+            <div>
+              <div className="mb-1.5 flex justify-end">
                 <Button
                   variant="quiet"
                   onClick={() => results.data.forEach(pick)}
                 >
-                  Add all shown
+                  Add all {count(results.data.length)}
                 </Button>
               </div>
-              <MiniTable
-                head={[
-                  "Product",
-                  { label: "", align: "left" },
-                  "Company now",
-                  { label: "", align: "right" },
-                ]}
-              >
-                {results.data.map((product) => {
-                  const on = chosen.some((one) => one.sku_id === product.sku_id)
-                  return (
-                    <MiniRow key={product.sku_id}>
-                      <MiniCell>
-                        <Named
-                          name={product.article_name ?? product.article_code}
-                          code={product.sku_code}
-                        />
-                      </MiniCell>
-                      <MiniCell>
-                        <span className="text-[0.71875rem] text-mute">
-                          {variantOf(product)}
-                        </span>
-                      </MiniCell>
-                      <MiniCell align="right">
-                        {money(product.unit_price_minor)}
-                      </MiniCell>
-                      <MiniCell align="right">
-                        <Button
-                          variant="quiet"
-                          onClick={() =>
-                            on ? drop(product.sku_id) : pick(product)
-                          }
-                        >
-                          {on ? "Remove" : "Add"}
-                        </Button>
-                      </MiniCell>
-                    </MiniRow>
-                  )
-                })}
-              </MiniTable>
-            </>
+              {/* A window onto the matches rather than the whole list, so the
+                  price and the shops stay on screen while somebody picks. */}
+              <div className="max-h-[17rem] overflow-y-auto rounded-inner border border-hairline-2 px-3">
+                <MiniTable
+                  head={[
+                    "Product",
+                    { label: "Variant", align: "left" },
+                    "Now",
+                    { label: "", align: "right" },
+                  ]}
+                >
+                  {results.data.map((product) => {
+                    const on = chosen.some(
+                      (one) => one.sku_id === product.sku_id
+                    )
+                    return (
+                      <MiniRow key={product.sku_id}>
+                        <MiniCell>
+                          <Named
+                            name={product.article_name ?? product.article_code}
+                            code={product.sku_code}
+                          />
+                        </MiniCell>
+                        <MiniCell>
+                          <span className="text-[0.875rem] text-mute">
+                            {variantOf(product)}
+                          </span>
+                        </MiniCell>
+                        <MiniCell align="right">
+                          {money(product.unit_price_minor)}
+                        </MiniCell>
+                        <MiniCell align="right">
+                          <Button
+                            variant="quiet"
+                            onClick={() =>
+                              on ? drop(product.sku_id) : pick(product)
+                            }
+                          >
+                            {on ? "Remove" : "Add"}
+                          </Button>
+                        </MiniCell>
+                      </MiniRow>
+                    )
+                  })}
+                </MiniTable>
+              </div>
+            </div>
           )}
-        </div>
+        </Section>
 
         {/* ── the figure ─────────────────────────────────────────────────── */}
-        <Field
-          label="What they cost"
-          hint={
-            minorOf(bulk) === null
-              ? "Whole rupiah, as it would be written on a ticket. Any product below can be given its own."
-              : `${money(minorOf(bulk))} each, unless a row below says otherwise.`
-          }
-          problem={
-            bulk.trim() !== "" && minorOf(bulk) === null
-              ? "A price is whole rupiah. No decimals, and nothing but digits."
-              : undefined
-          }
-        >
-          <Money value={bulk} onChange={setBulk} placeholder="199.000" />
-        </Field>
+        {/* One figure for everything chosen; any row below can be given its
+            own. "Now" is the company price the last published book gave each
+            product — a shop charging something else is read on the grid. */}
+        <Section title="Price">
+          <Field
+            label="New price for all"
+            className="max-w-[16rem]"
+            problem={
+              bulk.trim() !== "" && minorOf(bulk) === null
+                ? "Whole rupiah only."
+                : undefined
+            }
+          >
+            <Money
+              value={bulk}
+              onChange={setBulk}
+              prefix="Rp"
+              placeholder="199.000"
+            />
+          </Field>
 
-        {chosen.length > 0 && (
-          <div>
-            <SubHead aside={`${count(chosen.length)} chosen`}>
-              What this book will say
-            </SubHead>
+          {chosen.length > 0 && (
             <MiniTable
               head={[
                 "Product",
-                "Company now",
-                { label: "Becomes", align: "right" },
+                "Now",
+                { label: "New price", align: "right" },
                 { label: "", align: "right" },
               ]}
             >
@@ -651,7 +641,7 @@ export function NewPriceSheet({
                         label={`Price for ${product.sku_code}`}
                         placeholder="—"
                         className={cn(
-                          "h-7 w-28 px-2.5 text-right text-[0.78125rem]",
+                          "h-7 w-28 px-2.5 text-right text-[0.875rem]",
                           minor === null && priceText(product.sku_id) !== ""
                             ? "border-bad"
                             : undefined
@@ -673,29 +663,11 @@ export function NewPriceSheet({
                 )
               })}
             </MiniTable>
-            {unpriced.length > 0 && (
-              <p className="mt-2 text-[0.71875rem] leading-relaxed text-bad">
-                {count(unpriced.length)} product
-                {unpriced.length === 1 ? " has" : "s have"} no readable price.
-                Every row in a book carries its own figure — there is no such
-                thing as a price rule without one.
-              </p>
-            )}
-            <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
-              “Company now” is the price the last published book gave each
-              product fleet-wide. A shop already charging something else — from
-              its own price or from a clearance — is not shown here; the grid
-              behind this sheet is where that is read.
-            </p>
-          </div>
-        )}
+          )}
+        </Section>
 
         {/* ── the level ──────────────────────────────────────────────────── */}
-        <div>
-          <SubHead aside={scope === "FLEET" ? "company price" : where}>
-            Where it applies
-          </SubHead>
-
+        <Section title="Shops">
           {/* Every shop is a tile of its own rather than the absence of one.
               "Nothing lit" and "the company price" are the same state to the
               engine, but not to a reader: an empty grid looks like a question
@@ -705,7 +677,6 @@ export function NewPriceSheet({
             <ShopTile
               on={scope === "FLEET"}
               label="Every shop"
-              note="the company price"
               onClick={() => setSiteIds([])}
               className="col-span-full sm:col-span-1"
             />
@@ -721,11 +692,11 @@ export function NewPriceSheet({
           </div>
 
           {siteIds.length > 0 && (
-            <div className="mt-2.5 overflow-hidden rounded-inner border border-hairline-2">
+            <div className="overflow-hidden rounded-inner border border-hairline-2">
               {/* The header only appears where the row is a row. Below `sm`
                   the three fields stack, and a caption sitting above the first
                   of three stacks would be labelling one of them. */}
-              <div className="hidden bg-soft px-3 py-1.5 text-[0.6875rem] font-medium tracking-[0.06em] text-mute uppercase sm:grid sm:grid-cols-[1fr_8.5rem_10.5rem] sm:gap-2">
+              <div className="hidden bg-soft px-3 py-1.5 text-[0.875rem] font-medium tracking-[0.06em] text-mute uppercase sm:grid sm:grid-cols-[1fr_8.5rem_10.5rem] sm:gap-2">
                 <span>Shop</span>
                 <span>Its own price</span>
                 <span>Starts</span>
@@ -735,18 +706,16 @@ export function NewPriceSheet({
                   key={id}
                   className="grid grid-cols-1 gap-1.5 border-t border-hairline px-3 py-2 first:border-t-0 sm:grid-cols-[1fr_8.5rem_10.5rem] sm:items-center sm:gap-2 sm:first:border-t"
                 >
-                  <span className="min-w-0">
-                    <span className="block truncate text-[0.8125rem] text-ink">
-                      {labelOf(id)}
-                    </span>
-                    <span className="block truncate text-[0.6875rem] text-mute">
-                      {id}
-                    </span>
+                  <span
+                    title={id}
+                    className="min-w-0 truncate text-[0.875rem] text-ink"
+                  >
+                    {labelOf(id)}
                   </span>
                   <Money
                     value={shopPrice[id] ?? ""}
                     label={`What ${labelOf(id)} charges`}
-                    placeholder="as above"
+                    placeholder="Same"
                     onChange={(digits) =>
                       setShopPrice((was) => ({ ...was, [id]: digits }))
                     }
@@ -767,29 +736,17 @@ export function NewPriceSheet({
             </div>
           )}
 
+          {/* A price carries no date of its own — the book's window is
+              what every till reads — so two start dates are two books. And
+              shops that agree on figure and date are one price naming several
+              shops, which a shop added to the group later is priced by. */}
           {books.length > 1 && (
-            <Banner tone="info" className="mt-2">
-              {count(books.length)} start dates means {count(books.length)}{" "}
-              books, one per date. A price carries no date of its own — the
-              book's window is what every till reads.
+            <Banner tone="info">
+              {count(books.length)} start dates — published as{" "}
+              {count(books.length)} books.
             </Banner>
           )}
-
-          {/* What the tiles have actually come to, in one line. This was four
-              paragraphs explaining the engine's ranking; the reader is
-              choosing a level, not learning a cascade, and the sentence they
-              need is the consequence — who else this reaches, and who it
-              leaves behind. */}
-          <p className="mt-2 text-[0.71875rem] text-mute">
-            {scope === "FLEET"
-              ? "Every shop — and the price any shop opened later falls back to."
-              : targets.some((one) => one.siteIds !== null)
-                ? "One price naming several shops. A shop added to the group later is priced by it."
-                : targets.length === 1
-                  ? "This shop only. It beats the company price inside this book."
-                  : "One price each — these shops differ on the figure or the day."}
-          </p>
-        </div>
+        </Section>
       </div>
     </Sheet>
   )

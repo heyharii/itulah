@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button"
 import { Field, Input, Select } from "@/components/ui/field"
 import { Segmented } from "@/components/ui/segmented"
 import { Banner } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
 import { day } from "@/lib/format"
 import {
   articleConsequences,
@@ -274,10 +273,6 @@ export function ArticleForm({
         <span className="font-mono text-id text-body">
           {article.article_code}
         </span>
-        <p className="mt-1 text-[0.71875rem] text-mute">
-          Minted by a setup session and fixed. So are the SKU codes below it —
-          every one is already encoded into the EPCs tagged onto goods.
-        </p>
       </div>
 
       <form.Field name="name">
@@ -294,10 +289,7 @@ export function ArticleForm({
 
       <form.Field name="division">
         {(field) => (
-          <Field
-            label="Division"
-            hint="Our own vocabulary, so a supplier's shirt and our shirt are the same word."
-          >
+          <Field label="Division">
             <Select
               value={field.state.value}
               onChange={(next) => {
@@ -312,13 +304,13 @@ export function ArticleForm({
                 </option>
               ))}
               {/* The one this article is already filed under, when it has
-                  been retired since. Selectable only because it is already
+                  been cancelled since. Selectable only because it is already
                   selected: picking another is a one-way door, which is what
                   retiring a division means. */}
               {needsDivisions && article.division_code !== null && (
                 <option value={article.division_code}>
                   {retiredLabel(retiredDivisions.data, article.division_code)} ·
-                  Retired
+                  Cancelled
                 </option>
               )}
             </Select>
@@ -328,10 +320,7 @@ export function ArticleForm({
 
       <form.Field name="image">
         {(field) => (
-          <Field
-            label="Picture"
-            hint="The article's own image. The per-colourway photographs are filed against the setup session, not here."
-          >
+          <Field label="Picture">
             <Input
               value={field.state.value}
               onBlur={field.handleBlur}
@@ -345,11 +334,11 @@ export function ArticleForm({
       <form.Field name="tags">
         {(field) => (
           <div className="flex flex-col gap-1.5">
-            <span className="text-[0.78125rem] font-medium text-text">
+            <span className="text-[0.875rem] font-medium text-text">
               Tags
             </span>
             {(vocabulary?.tags ?? []).length === 0 && !needsTags ? (
-              <span className="text-[0.71875rem] text-mute">
+              <span className="text-[0.875rem] text-mute">
                 The vocabulary has no tags in it yet.
               </span>
             ) : (
@@ -373,8 +362,8 @@ export function ArticleForm({
                       }}
                       className={
                         on
-                          ? "inline-flex h-[1.625rem] items-center rounded-full bg-accent-bg px-2.5 text-[0.71875rem] font-medium text-info-fg"
-                          : "inline-flex h-[1.625rem] items-center rounded-full bg-soft-2 px-2.5 text-[0.71875rem] font-medium text-body transition-colors hover:bg-hairline hover:text-ink"
+                          ? "inline-flex h-[1.625rem] items-center rounded-full bg-accent-bg px-2.5 text-[0.875rem] font-medium text-info-fg"
+                          : "inline-flex h-[1.625rem] items-center rounded-full bg-soft-2 px-2.5 text-[0.875rem] font-medium text-body transition-colors hover:bg-hairline hover:text-ink"
                       }
                     >
                       {term.label}
@@ -394,17 +383,17 @@ export function ArticleForm({
                       key={code}
                       type="button"
                       aria-pressed
-                      title="Retired. It can be taken off, not put back."
+                      title="Cancelled. It can be taken off, not put back."
                       onClick={() => {
                         field.handleChange(
                           field.state.value.filter((each) => each !== code)
                         )
                         setAccepted(false)
                       }}
-                      className="inline-flex h-[1.625rem] items-center gap-1.5 rounded-full border border-dashed border-hairline-2 px-2.5 text-[0.71875rem] font-medium text-body"
+                      className="inline-flex h-[1.625rem] items-center gap-1.5 rounded-full border border-dashed border-hairline-2 px-2.5 text-[0.875rem] font-medium text-body"
                     >
                       {retiredLabel(retiredTags.data, code)}
-                      <span className="text-mute">Retired</span>
+                      <span className="text-mute">Cancelled</span>
                     </button>
                   ))}
               </div>
@@ -429,22 +418,17 @@ export function ArticleForm({
       <form.Field name="active">
         {(field) => (
           <div className="flex flex-col gap-1.5">
-            <span className="text-[0.78125rem] font-medium text-text">
+            <span className="text-[0.875rem] font-medium text-text">
               Sold
             </span>
             <Segmented
               options={[
                 { value: "active", label: "Active" },
-                { value: "retired", label: "Retired" },
+                { value: "cancelled", label: "Cancelled" },
               ]}
-              value={field.state.value ? "active" : "retired"}
+              value={field.state.value ? "active" : "cancelled"}
               onChange={(next) => field.handleChange(next === "active")}
             />
-            <span className="text-[0.71875rem] text-mute">
-              Retiring an article stops it being sold. It does not remove it:
-              the SKUs, their EPCs and everything already sold under them stay
-              exactly where they are.
-            </span>
           </div>
         )}
       </form.Field>
@@ -470,7 +454,7 @@ export function ArticleForm({
                   <ConsequenceLine key={one.rule_id} one={one} />
                 ))}
               </ul>
-              <p className="mt-1.5 text-[0.71875rem] text-warn-fg">
+              <p className="mt-1.5 text-[0.875rem] text-warn-fg">
                 Their products are worked out when they start, so they will be
                 worked out against this article as it is then.
               </p>
@@ -486,7 +470,7 @@ export function ArticleForm({
                 scheduled.length > 0 ? "border-t border-hairline pt-2.5" : ""
               }
             >
-              <p className="text-[0.71875rem] text-body">
+              <p className="text-[0.875rem] text-body">
                 {consequences.data?.started_note}
               </p>
               <ul className="mt-1.5 flex flex-col gap-1">
@@ -529,12 +513,6 @@ export function ArticleForm({
           Cancel
         </Button>
       </div>
-
-      <p className="text-[0.71875rem] text-mute">
-        Saving is guarded on version <Tag>{article.version}</Tag> — if anybody
-        else has saved since this sheet opened, the write is refused rather than
-        quietly winning.
-      </p>
     </form>
   )
 }

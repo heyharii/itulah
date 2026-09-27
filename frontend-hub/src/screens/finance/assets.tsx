@@ -250,7 +250,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
       const asset = row.original
       if (asset.acquired_via !== null) {
         return (
-          <span className="font-mono text-[0.71875rem] text-body">
+          <span className="font-mono text-[0.875rem] text-body">
             {asset.acquired_via}
           </span>
         )
@@ -456,7 +456,7 @@ export function AssetRegister() {
         {/* The effective answer, in words. Which location, and what the rows
             on screen are worth — the same figure the chart below totals, so
             the two cannot disagree. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {site === "" ? "Every location" : <SiteName id={site} />}
           {" · "}
           {count(rows.length)} registered ·{" "}
@@ -486,7 +486,7 @@ export function AssetRegister() {
         <Card className="mb-3">
           <CardHeader>
             <CardTitle>Book value by category</CardTitle>
-            <span className="text-[0.71875rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               Capitalised assets only · cost less what has been depreciated
             </span>
           </CardHeader>
@@ -571,7 +571,7 @@ function Refusal({ error }: { error: unknown }) {
     <Banner tone="bad">
       {message.slice(0, at)}
       <AppLink
-        to="/finance/account-map"
+        to="/finance/setup/account-links"
         sheet={{ key: "mapping", value: key }}
         className="underline underline-offset-2"
       >
@@ -775,12 +775,12 @@ function Schedule({ assetId }: { assetId: string }) {
             </div>
 
             {data.charged.length === 0 ? (
-              <p className="text-[0.71875rem] text-body">
+              <p className="text-[0.875rem] text-body">
                 Nothing has been charged yet. Land never charges, and an asset
                 capitalised this month has not been reached — the run is a
                 month-end step on{" "}
                 <AppLink
-                  to="/finance/periods"
+                  to="/finance/setup/periods"
                   className="text-accent hover:underline"
                 >
                   Period close
@@ -808,9 +808,9 @@ function Schedule({ assetId }: { assetId: string }) {
                       <MiniCell>{monthOf(row.period_month)}</MiniCell>
                       <MiniCell>
                         <AppLink
-                          to="/finance/journal"
+                          to="/finance/accounting/journal-entries"
                           sheet={{ key: "entry", value: row.entry_id }}
-                          className="font-mono text-[0.71875rem] text-accent hover:underline"
+                          className="font-mono text-[0.875rem] text-accent hover:underline"
                         >
                           {row.entry_number}
                         </AppLink>
@@ -1022,7 +1022,7 @@ function AssetSheet({
       footer={
         asset && !gone ? (
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[0.71875rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               The reason is required on both decisions.
             </span>
             <form.Subscribe
@@ -1130,7 +1130,7 @@ function AssetSheet({
                     {asset.disposal_journal_entry_id && (
                       <Fact term="Disposal entry">
                         <AppLink
-                          to="/finance/journal"
+                          to="/finance/accounting/journal-entries"
                           sheet={{
                             key: "entry",
                             value: asset.disposal_journal_entry_id,
@@ -1159,7 +1159,7 @@ function AssetSheet({
               )}
 
               {gone ? (
-                <p className="text-[0.71875rem] text-body">
+                <p className="text-[0.875rem] text-body">
                   This asset left the books on {day(asset.disposed_on)}. Nothing
                   more can be recorded against it — reverse its disposal entry
                   if it should not have gone.
@@ -1200,7 +1200,7 @@ function AssetSheet({
                   <form.Field name="decision">
                     {(field) => (
                       <div className="flex flex-col gap-1.5">
-                        <span className="text-[0.78125rem] font-medium text-text">
+                        <span className="text-[0.875rem] font-medium text-text">
                           Decision
                         </span>
                         <Choices
@@ -1518,7 +1518,7 @@ function TransferForm({ asset }: { asset: AssetRow }) {
 
       {confirming ? (
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.71875rem] text-body">
+          <span className="text-[0.875rem] text-body">
             Move it to <SiteName id={to} className="font-medium text-ink" /> on{" "}
             {day(movedOn)}? A transfer is a record of a move — correcting one
             means moving it back.
@@ -1649,7 +1649,7 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
             the clearest sign these are two decisions rather than one setting
             with two values. */}
         <div className="col-span-2 flex flex-col gap-1.5">
-          <span className="text-[0.78125rem] font-medium text-text">How</span>
+          <span className="text-[0.875rem] font-medium text-text">How</span>
           <Choices
             options={DISPOSALS}
             value={method as Disposal}
@@ -1709,7 +1709,7 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
         <Input value={memo} onChange={(event) => setMemo(event.target.value)} />
       </Field>
 
-      <div className="flex items-baseline justify-between gap-3 text-[0.71875rem]">
+      <div className="flex items-baseline justify-between gap-3 text-[0.875rem]">
         <span className="text-mute">
           Book value{" "}
           <span className="text-ink tabular-nums">{money(book)}</span>
@@ -1730,7 +1730,7 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
 
       {confirming ? (
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.71875rem] text-body">
+          <span className="text-[0.875rem] text-body">
             Take {asset.asset_number} off the books on {day(disposedOn)} for{" "}
             {money(amount)}? Nothing can be recorded against it afterwards.
           </span>
@@ -1862,7 +1862,7 @@ function RegisterSheet({
       title="Register an asset"
       footer={
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.71875rem] text-mute">
+          <span className="text-[0.875rem] text-mute">
             No money here — Finance assesses it next.
           </span>
           <form.Subscribe selector={(state) => registrationReady(state.values)}>

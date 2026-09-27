@@ -252,7 +252,7 @@ export function GiroPrinting() {
                     )}
                   >
                     <span>{template.bank_qualifier}</span>
-                    <span className="font-mono text-[0.65625rem] text-mute">
+                    <span className="font-mono text-[0.875rem] text-mute">
                       {template.width_mm}×{template.height_mm}
                     </span>
                   </button>
@@ -305,12 +305,16 @@ export function GiroPrinting() {
                     <Nudge
                       label="x (mm)"
                       value={selected.x_mm}
-                      onChange={(x_mm) => nudge(selected.field_code, { x_mm })}
+                      onChange={(x_mm) =>
+                        x_mm !== null && nudge(selected.field_code, { x_mm })
+                      }
                     />
                     <Nudge
                       label="y (mm)"
                       value={selected.y_mm}
-                      onChange={(y_mm) => nudge(selected.field_code, { y_mm })}
+                      onChange={(y_mm) =>
+                        y_mm !== null && nudge(selected.field_code, { y_mm })
+                      }
                     />
                     <Nudge
                       label="width (mm)"
@@ -331,6 +335,7 @@ export function GiroPrinting() {
                       value={selected.font_pt}
                       step={0.5}
                       onChange={(font_pt) =>
+                        font_pt !== null &&
                         nudge(selected.field_code, { font_pt })
                       }
                     />

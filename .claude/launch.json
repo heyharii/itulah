@@ -2,6 +2,42 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "demo-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5350",
+        "--strictPort"
+      ],
+      "port": 5350,
+      "cwd": "frontend-hub",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8180",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8182"
+      }
+    },
+    {
+      "name": "final-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5370",
+        "--strictPort"
+      ],
+      "port": 5370,
+      "cwd": "frontend-hub",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8590",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8592"
+      }
+    },
+    {
       "name": "frontend-cloud",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
@@ -104,23 +140,6 @@
       }
     },
     {
-      "name": "store-sales-verify",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "--",
-        "--port",
-        "5185",
-        "--strictPort"
-      ],
-      "port": 5185,
-      "cwd": "frontend-store",
-      "env": {
-        "VITE_API_TARGET": "http://127.0.0.1:8121"
-      }
-    },
-    {
       "name": "ollama-design",
       "runtimeExecutable": "node",
       "runtimeArgs": [
@@ -180,23 +199,6 @@
       "cwd": "frontend-customer",
       "env": {
         "VITE_API_TARGET": "http://127.0.0.1:8080"
-      }
-    },
-    {
-      "name": "tanstack-store",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "--",
-        "--port",
-        "5302",
-        "--strictPort"
-      ],
-      "port": 5302,
-      "cwd": "frontend-store",
-      "env": {
-        "VITE_API_TARGET": "http://127.0.0.1:8081"
       }
     },
     {
@@ -361,12 +363,29 @@
     },
     {
       "name": "cloud-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8080,
       "env": {
-        "DATABASE_URL": "postgresql:///inventory_tanstack",
+        "DATABASE_URL": "postgresql:///inventory_marketing_dogfood",
+        "BIND_ADDR": "127.0.0.1:8080",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "cloud-store-design",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8080,
+      "env": {
+        "DATABASE_URL": "postgresql:///inventory_store_design",
         "BIND_ADDR": "127.0.0.1:8080",
         "INVENTORY_NODE_ID": "cloud-primary",
         "INVENTORY_NODE_ROLE": "CLOUD",
@@ -378,7 +397,7 @@
     },
     {
       "name": "till-edge",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/store",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/store",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8081,
@@ -392,8 +411,24 @@
       }
     },
     {
+      "name": "store-node-dev",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/store",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8081,
+      "env": {
+        "BIND_ADDR": "127.0.0.1:8081",
+        "INVENTORY_SITE_ID": "store-07",
+        "INVENTORY_NODE_ID": "store-07-edge",
+        "INVENTORY_DATABASE_PATH": "../till-dev.sqlite3",
+        "INVENTORY_AUTH_MODE": "required",
+        "INVENTORY_BOOTSTRAP_ADMIN_PASSWORD": "till-admin-pass",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
       "name": "catalogue-node",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/store",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/store",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8087,
@@ -426,7 +461,7 @@
     },
     {
       "name": "assistant-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8098,
@@ -516,7 +551,7 @@
     },
     {
       "name": "dc-node",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/dc",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/dc",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8082,
@@ -567,7 +602,7 @@
     },
     {
       "name": "accounts-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8199,
@@ -619,7 +654,7 @@
     },
     {
       "name": "cloud-preview",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8095,
@@ -653,7 +688,7 @@
     },
     {
       "name": "member-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8126,
@@ -703,7 +738,7 @@
     },
     {
       "name": "login-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8093,
@@ -737,7 +772,7 @@
     },
     {
       "name": "dc-demo-node",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/dc",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/dc",
       "runtimeArgs": [],
       "cwd": "demo/dc",
       "port": 8092,
@@ -745,7 +780,7 @@
     },
     {
       "name": "cloud-observed",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8096,
@@ -771,7 +806,7 @@
     },
     {
       "name": "po-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8131,
@@ -851,7 +886,7 @@
     },
     {
       "name": "cloud-rfid",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8080,
@@ -886,7 +921,7 @@
     },
     {
       "name": "article-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8134,
@@ -920,7 +955,7 @@
     },
     {
       "name": "fleet-verify",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8097,
@@ -972,7 +1007,7 @@
     },
     {
       "name": "dc-review",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/dc",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/dc",
       "runtimeArgs": [],
       "cwd": "demo/dc",
       "port": 8092,
@@ -984,7 +1019,7 @@
     },
     {
       "name": "finance-proto-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8140,
@@ -1000,7 +1035,7 @@
     },
     {
       "name": "people-fix-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8141,
@@ -1115,26 +1150,8 @@
       "cwd": "frontend-hub-2"
     },
     {
-      "name": "floor",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "--",
-        "--port",
-        "5277",
-        "--strictPort",
-        "--host"
-      ],
-      "cwd": "frontend-floor",
-      "port": 5277,
-      "env": {
-        "VITE_API_TARGET": "http://127.0.0.1:8092"
-      }
-    },
-    {
       "name": "floor-dc-node",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/dc",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/dc",
       "runtimeArgs": [],
       "cwd": "demo/dc",
       "port": 8092,
@@ -1145,7 +1162,7 @@
     },
     {
       "name": "promo-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/release/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/release/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8142,
@@ -1179,7 +1196,7 @@
     },
     {
       "name": "master-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "port": 8093,
       "cwd": "backend",
@@ -1208,7 +1225,7 @@
     },
     {
       "name": "records-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8143,
@@ -1286,7 +1303,7 @@
     },
     {
       "name": "till-open",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/store",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/store",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8081,
@@ -1301,7 +1318,7 @@
     },
     {
       "name": "cloud-assets",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8097,
@@ -1320,7 +1337,7 @@
     },
     {
       "name": "health-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8094,
@@ -1355,7 +1372,7 @@
     },
     {
       "name": "finance-final-api",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8090,
@@ -1388,20 +1405,8 @@
       }
     },
     {
-      "name": "floor-served",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/dc",
-      "runtimeArgs": [],
-      "cwd": "demo/dc",
-      "port": 8092,
-      "env": {
-        "SYNC_UPLOAD_URL": "",
-        "RUST_LOG": "inventory_backend=info",
-        "FRONTEND_DIR": "/Users/hari/itulah/frontend-floor/dist"
-      }
-    },
-    {
       "name": "e2e-cloud",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8150,
@@ -1413,13 +1418,13 @@
         "INVENTORY_AUTH_MODE": "disabled",
         "INVENTORY_ENABLE_TEST_CONTROLS": "true",
         "INVENTORY_ORIGIN_GENERATION": "1",
-        "FRONTEND_DIR": "/Users/hari/itulah/frontend-hub/dist",
+        "FRONTEND_DIR": "/Users/hari/Documents/itulah/frontend-hub/dist",
         "RUST_LOG": "inventory_backend=info,tower_http=warn"
       }
     },
     {
       "name": "e2e-dc",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/dc",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/dc",
       "runtimeArgs": [],
       "cwd": "demo/e2e",
       "port": 8092,
@@ -1431,7 +1436,6 @@
         "INVENTORY_ORIGIN_GENERATION": "1",
         "BIND_ADDR": "0.0.0.0:8092",
         "INVENTORY_AUTH_MODE": "required",
-        "FRONTEND_DIR": "/Users/hari/itulah/frontend-floor/dist",
         "SYNC_UPLOAD_URL": "http://127.0.0.1:8150",
         "SYNC_UPLOAD_KEY": "e2e-dc01-ingest-key-0123456789abcdef",
         "SYNC_INTERVAL_SECONDS": "5",
@@ -1462,7 +1466,7 @@
     },
     {
       "name": "flow-cloud",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
       "runtimeArgs": [],
       "cwd": "backend",
       "port": 8152,
@@ -1471,15 +1475,19 @@
         "BIND_ADDR": "127.0.0.1:8152",
         "INVENTORY_NODE_ID": "cloud-primary",
         "INVENTORY_NODE_ROLE": "CLOUD",
-        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_AUTH_MODE": "required",
         "INVENTORY_ENABLE_TEST_CONTROLS": "true",
         "INVENTORY_ORIGIN_GENERATION": "1",
-        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+        "RUST_LOG": "inventory_backend=info,tower_http=warn",
+        "INVENTORY_BOOTSTRAP_ADMIN_PASSWORD": "e2e-admin-pass",
+        "INVENTORY_AUTH_COOKIE_SECURE": "false",
+        "INVENTORY_AUTH_TOKEN_TTL_MINUTES": "720",
+        "PAYMENT_DESTINATION_KEY": "flow-dev-key-do-not-use-in-production"
       }
     },
     {
       "name": "flow-dc",
-      "runtimeExecutable": "/Users/hari/itulah/backend/target/debug/dc",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/dc",
       "runtimeArgs": [],
       "cwd": "demo/flow",
       "port": 8192,
@@ -1504,7 +1512,7 @@
     },
     {
       "name": "flow-hub",
-      "runtimeExecutable": "npm",
+      "runtimeExecutable": "/Users/hari/Library/Application Support/fnm/node-versions/v24.21.0/installation/bin/npm",
       "runtimeArgs": [
         "run",
         "dev",
@@ -1517,25 +1525,545 @@
       "port": 5334,
       "env": {
         "VITE_API_TARGET": "http://127.0.0.1:8152",
-        "VITE_EDGE_TARGET": "http://127.0.0.1:8192"
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8192",
+        "PATH": "/Users/hari/Library/Application Support/fnm/node-versions/v24.21.0/installation/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
       }
     },
     {
-      "name": "flow-floor",
+      "name": "employee-dev-api",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8160,
+      "env": {
+        "DATABASE_URL": "postgresql:///itulah_employee_dev",
+        "BIND_ADDR": "127.0.0.1:8160",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "required",
+        "INVENTORY_BOOTSTRAP_ADMIN_PASSWORD": "0vekZg9nwjycEz4h",
+        "INVENTORY_AUTH_COOKIE_SECURE": "false",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "employee-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
         "dev",
         "--",
         "--port",
-        "5278",
+        "5319",
+        "--strictPort"
+      ],
+      "cwd": "frontend-employee",
+      "port": 5319,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8160"
+      }
+    },
+    {
+      "name": "flow-seed",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8153,
+      "env": {
+        "DATABASE_URL": "postgresql:///inventory_flow",
+        "BIND_ADDR": "127.0.0.1:8153",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "PAYMENT_DESTINATION_KEY": "flow-dev-key-do-not-use-in-production",
+        "RUST_LOG": "inventory_backend=warn"
+      }
+    },
+    {
+      "name": "floorcheck-cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8252,
+      "env": {
+        "DATABASE_URL": "postgres://inventory:inventory@localhost:5432/floorcheck_fresh",
+        "BIND_ADDR": "127.0.0.1:8252",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "SYNC_INGEST_KEY": "floorcheck-master-sync-key-0123456789abcdef",
+        "INVENTORY_BOOTSTRAP_ADMIN_PASSWORD": "floorcheck-admin",
+        "INVENTORY_AUTH_COOKIE_SECURE": "false",
+        "INVENTORY_AUTH_TOKEN_TTL_MINUTES": "720",
+        "PAYMENT_DESTINATION_KEY": "floorcheck-payment-destination-key-0001",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "floorcheck-dc",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/dc",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8292,
+      "env": {
+        "INVENTORY_NODE_ID": "dc-01-edge",
+        "INVENTORY_SITE_ID": "dc",
+        "INVENTORY_NODE_ROLE": "DC",
+        "INVENTORY_DATABASE_PATH": "/private/tmp/claude-501/-Users-hari-Documents-itulah/5368b394-4418-4d13-8c36-0993d93288b0/scratchpad/rig/dc-edge.sqlite3",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "BIND_ADDR": "127.0.0.1:8292",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "SYNC_UPLOAD_URL": "http://127.0.0.1:8252",
+        "SYNC_UPLOAD_KEY": "floorcheck-dc01-ingest-key-0123456789ab",
+        "SYNC_INTERVAL_SECONDS": "5",
+        "SYNC_BATCH_LIMIT": "100",
+        "INVENTORY_BOOTSTRAP_ADMIN_PASSWORD": "floorcheck-admin",
+        "INVENTORY_AUTH_COOKIE_SECURE": "false",
+        "INVENTORY_AUTH_TOKEN_TTL_MINUTES": "720",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "floorcheck-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5289",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5289,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8252",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8292"
+      }
+    },
+    {
+      "name": "customer-e2e",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5331",
+        "--strictPort"
+      ],
+      "port": 5331,
+      "cwd": "frontend-customer",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8180"
+      }
+    },
+    {
+      "name": "pos-e2e",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "/private/tmp/claude-501/-Users-hari-Documents-itulah/0e056e1b-6e65-4b6a-8f15-42b9fc05002b/scratchpad/pos-shim/vite.config.mjs"
+      ],
+      "port": 5419,
+      "cwd": "pos-desktop/ui",
+      "env": {
+        "STORE_TARGET": "http://127.0.0.1:8181",
+        "PORT": "5419",
+        "TOKEN_FILE": "/private/tmp/claude-501/-Users-hari-Documents-itulah/0e056e1b-6e65-4b6a-8f15-42b9fc05002b/scratchpad/store.token"
+      }
+    },
+    {
+      "name": "pos-ui-mock",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "/private/tmp/claude-501/-Users-hari-Documents-itulah/b7f68b4e-5187-4b16-99ea-8e9e3ab5900a/scratchpad/pos-mock/vite.config.mjs"
+      ],
+      "port": 5412,
+      "cwd": "pos-desktop/ui"
+    },
+    {
+      "name": "floor-audit-dc",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/dc",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8092,
+      "env": {
+        "BIND_ADDR": "127.0.0.1:8092",
+        "INVENTORY_SITE_ID": "dc-01",
+        "INVENTORY_NODE_ID": "dc-01-edge",
+        "INVENTORY_NODE_ROLE": "DC",
+        "INVENTORY_DATABASE_PATH": "/private/tmp/claude-501/-Users-hari-Documents-itulah/ec3498aa-310e-4259-88ec-ee485a871937/scratchpad/floor-audit-dc.sqlite3",
+        "INVENTORY_AUTH_MODE": "required",
+        "INVENTORY_BOOTSTRAP_ADMIN_PASSWORD": "floor-audit-pass",
+        "INVENTORY_AUTH_COOKIE_SECURE": "false",
+        "SYNC_UPLOAD_URL": "",
+        "RUST_LOG": "inventory_backend=info"
+      }
+    },
+    {
+      "name": "hr-check-api",
+      "runtimeExecutable": "/private/tmp/claude-501/-Users-hari-Documents-itulah/b218c642-539c-4a8f-ac98-74228f6d0156/scratchpad/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8171,
+      "env": {
+        "DATABASE_URL": "postgresql:///itulah_hr_check",
+        "BIND_ADDR": "127.0.0.1:8171",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "required",
+        "INVENTORY_BOOTSTRAP_ADMIN_PASSWORD": "hr-check-admin-pass-1",
+        "INVENTORY_AUTH_COOKIE_SECURE": "false",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=warn,tower_http=warn"
+      }
+    },
+    {
+      "name": "hr-check-employee",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5341",
+        "--strictPort"
+      ],
+      "cwd": "frontend-employee",
+      "port": 5341,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8171"
+      }
+    },
+    {
+      "name": "hr-check-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5342",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5342,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8171"
+      }
+    },
+    {
+      "name": "cloud-api-mobile-check",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8185,
+      "env": {
+        "DATABASE_URL": "postgresql:///hub_mobile_check",
+        "BIND_ADDR": "127.0.0.1:8185",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "hub-mobile-check",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5336",
         "--strictPort",
         "--host"
       ],
-      "cwd": "frontend-floor",
-      "port": 5278,
+      "cwd": "frontend-hub",
+      "port": 5336,
       "env": {
-        "VITE_API_TARGET": "http://127.0.0.1:8192"
+        "VITE_API_TARGET": "http://127.0.0.1:8185"
+      }
+    },
+    {
+      "name": "review-api-auth",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/review/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8188,
+      "env": {
+        "DATABASE_URL": "postgresql:///hr_ga_review",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=warn,tower_http=warn",
+        "BIND_ADDR": "127.0.0.1:8188",
+        "INVENTORY_AUTH_MODE": "required",
+        "INVENTORY_BOOTSTRAP_ADMIN_PASSWORD": "review-admin-pass-1",
+        "INVENTORY_AUTH_COOKIE_SECURE": "false"
+      }
+    },
+    {
+      "name": "review-api",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/review/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8187,
+      "env": {
+        "DATABASE_URL": "postgresql:///hr_ga_review",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=warn,tower_http=warn",
+        "BIND_ADDR": "127.0.0.1:8187",
+        "INVENTORY_AUTH_MODE": "disabled"
+      }
+    },
+    {
+      "name": "review-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5344",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5344,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8187"
+      }
+    },
+    {
+      "name": "review-stack",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "trap 'kill 0' EXIT; ../backend/target/review/debug/cloud & npm run dev -- --port 5344 --strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5344,
+      "env": {
+        "DATABASE_URL": "postgresql:///hr_ga_review",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=warn,tower_http=warn",
+        "BIND_ADDR": "127.0.0.1:8187",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "VITE_API_TARGET": "http://127.0.0.1:8187"
+      }
+    },
+    {
+      "name": "e2e-store",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5385",
+        "--strictPort"
+      ],
+      "port": 5385,
+      "cwd": "frontend-store-new",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8381",
+        "VITE_CLOUD_TARGET": "http://127.0.0.1:8380"
+      }
+    },
+    {
+      "name": "floor-mobile-dc",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/dc",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8093,
+      "env": {
+        "BIND_ADDR": "127.0.0.1:8093",
+        "INVENTORY_SITE_ID": "dc",
+        "INVENTORY_NODE_ID": "dc",
+        "INVENTORY_NODE_ROLE": "DC",
+        "INVENTORY_DATABASE_PATH": "/private/tmp/claude-501/-Users-hari-Documents-itulah/ec3498aa-310e-4259-88ec-ee485a871937/scratchpad/floor-demo-dc.sqlite3",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "SYNC_UPLOAD_URL": "",
+        "RUST_LOG": "inventory_backend=info"
+      }
+    },
+    {
+      "name": "demo-hub-live",
+      "url": "http://localhost:5350",
+      "port": 5350
+    },
+    {
+      "name": "demo-store",
+      "url": "http://localhost:5353",
+      "port": 5353
+    },
+    {
+      "name": "supplier-po-cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8599,
+      "env": {
+        "DATABASE_URL": "postgresql:///supplier_po_verify",
+        "BIND_ADDR": "127.0.0.1:8599",
+        "INVENTORY_BOOTSTRAP_ADMIN_PASSWORD": "Password01",
+        "INVENTORY_AUTH_MODE": "required",
+        "INVENTORY_NODE_ID": "cloud-rig",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_ENABLE_TEST_CONTROLS": "true",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "INVENTORY_STORE_INBOUND_COMMANDS": "1",
+        "INVENTORY_SSO_SIGNING_KEY_HEX": "13b9c9a5801b797f10a1105cefd08e0173e3e598a5acf425a90b78616c5fb179",
+        "RUST_LOG": "info"
+      }
+    },
+    {
+      "name": "supplier-po-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5399",
+        "--strictPort"
+      ],
+      "port": 5399,
+      "cwd": "frontend-hub",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8599"
+      }
+    },
+    {
+      "name": "enrol-cloud",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8740,
+      "env": {
+        "DATABASE_URL": "postgresql:///enrol_verify",
+        "BIND_ADDR": "127.0.0.1:8740",
+        "INVENTORY_NODE_ID": "cloud-primary",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "enrol-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5740",
+        "--strictPort"
+      ],
+      "port": 5740,
+      "cwd": "frontend-hub",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8740",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8742"
+      }
+    },
+    {
+      "name": "enrol-store",
+      "runtimeExecutable": "/Users/hari/Documents/itulah/backend/target/debug/store",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8742,
+      "env": {
+        "ITULAH_DATA_DIR": "/private/tmp/claude-501/-Users-hari-Documents-itulah/1ded43a7-5f7f-4e11-9f0f-abb39dcd3db0/scratchpad/storenode",
+        "ITULAH_CLOUD_URL": "http://127.0.0.1:8740",
+        "BIND_ADDR": "127.0.0.1:8742",
+        "RUST_LOG": "inventory_backend=info"
+      }
+    },
+    {
+      "name": "console-proto",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8790",
+        "--bind",
+        "127.0.0.1"
+      ],
+      "port": 8790,
+      "cwd": "backend/src/edge"
+    },
+    {
+      "name": "notif-cloud",
+      "runtimeExecutable": "/private/tmp/claude-501/-Users-hari-Documents-itulah/1ded43a7-5f7f-4e11-9f0f-abb39dcd3db0/scratchpad/bin/cloud",
+      "runtimeArgs": [],
+      "cwd": "backend",
+      "port": 8756,
+      "env": {
+        "DATABASE_URL": "postgresql:///notif_verify",
+        "BIND_ADDR": "127.0.0.1:8756",
+        "INVENTORY_NODE_ID": "cloud-notif",
+        "INVENTORY_NODE_ROLE": "CLOUD",
+        "INVENTORY_AUTH_MODE": "disabled",
+        "INVENTORY_ORIGIN_GENERATION": "1",
+        "WEB_PUSH_VAPID_PRIVATE_KEY": "Uh4AFFI9JdBFosLsXy9wHVPMxI6g8S7Ujr8ASBX2IlA",
+        "WEB_PUSH_SUBJECT": "mailto:ops@itulah.test",
+        "RUST_LOG": "inventory_backend=info,tower_http=warn"
+      }
+    },
+    {
+      "name": "notif-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5376",
+        "--strictPort"
+      ],
+      "port": 5376,
+      "cwd": "frontend-hub",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8756",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8757"
+      }
+    },
+    {
+      "name": "vm-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5741",
+        "--strictPort"
+      ],
+      "port": 5741,
+      "cwd": "frontend-hub",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8741",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8082"
       }
     }
   ]

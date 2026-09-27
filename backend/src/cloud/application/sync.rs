@@ -241,20 +241,16 @@ pub async fn run_sync_agent(state: AppState, transport: Arc<dyn SyncTransport>) 
     }
 }
 
-/// How often the fleet is told what promotions have cost so far.
+/// How often the fleet is told which campaigns are running, as a net under the
+/// switch that already dispatches when somebody pulls it.
 ///
-/// A budget at a shop is a brake and never a gate: an offline till cannot know
-/// what thirty other shops have spent this morning, so the counts it holds are
-/// as fresh as its last broadcast and no fresher. That is by design — but until
-/// this loop existed the broadcast happened only when somebody pressed a button
-/// on a screen, so "as fresh as the last broadcast" meant "as fresh as the last
-/// time a human thought of it", and a budget nobody refreshed is not a slow
-/// brake, it is a brake with nobody standing on it.
-///
-/// Fifteen minutes because the cost of being late is bounded by how much one
-/// shop can give away in that time, and the cost of being early is one command
-/// per shop carrying a few hundred rows.
-const USAGE_BROADCAST_EVERY: Duration = Duration::from_secs(15 * 60);
+/// The promotion COUNTS no longer ride this beat. They used to — every fifteen
+/// minutes whether or not anything had been sold — which let a crossed budget
+/// wait up to a quarter of an hour to reach a till and sent every shop the same
+/// figure ninety-six times a day when nothing moved. The usage watch
+/// (`postgres::marketing_watch`) sends them when they change, and at once when
+/// a line is crossed.
+const CAMPAIGN_BROADCAST_EVERY: Duration = Duration::from_secs(15 * 60);
 
 /// Facts a stream applies per pass — bounds one pass's work, not throughput:
 /// the next pass continues where this one stopped.
@@ -266,7 +262,8 @@ const APPLY_PER_STREAM: i64 = 200;
 pub async fn run_apply_agent(state: AppState) {
     let interval = Duration::from_secs(state.config.sync_interval_seconds.clamp(1, 3600) as u64);
     let mut last_purge = Instant::now();
-    let mut last_usage_broadcast = Instant::now();
+    let mut last_campaign_broadcast = Instant::now();
+    let mut usage_watch = infrastructure::UsageWatch::default();
     info!(
         interval_seconds = interval.as_secs(),
         per_stream = APPLY_PER_STREAM,
@@ -296,24 +293,51 @@ pub async fn run_apply_agent(state: AppState) {
             }
             Err(error) => warn!(%error, "sync apply cycle errored"),
         }
-        // What promotions have cost, out to the fleet. It runs here rather
-        // than in a loop of its own because it must not overtake the applier:
-        // usage is built from sale facts, so broadcasting counts that have not
-        // been applied yet would send every shop a figure lower than the truth.
-        if last_usage_broadcast.elapsed() >= USAGE_BROADCAST_EVERY {
-            last_usage_broadcast = Instant::now();
-            match infrastructure::publish_commercial_usage_to_fleet(&state.db, "system").await {
-                Ok(report) => info!(?report, "commercial usage broadcast"),
-                Err(error) => warn!(%error, "commercial usage broadcast failed"),
+        // A delivery is owed the moment it is accepted. The DC's verification
+        // arrives here as receipt lines, and this values them straight after
+        // the pass that applied them — outside it, so a month nobody has opened
+        // can hold up a debt but never the warehouse's stream. What cannot post
+        // yet is left to the one-minute sweep in `bin/cloud.rs`, which says so.
+        match infrastructure::receipts_post_pending(&state.db, true, "system:goods-receipt").await
+        {
+            Ok(sweep) => {
+                for posting in &sweep.posted {
+                    info!(
+                        receipt = %posting.receipt_number,
+                        entry = %posting.entry_number,
+                        value_minor = posting.value_minor,
+                        "accepted delivery owed to its supplier"
+                    );
+                }
             }
-            // Which campaigns are on, on the same beat. `switch_campaign` already
-            // dispatches when somebody pulls the lever, so this is the net
-            // under it: a shop that was unreachable at that moment learns here
-            // rather than at the next price book, which could be a season away.
-            //
-            // Sharing the beat rather than taking its own is deliberate — both
-            // are whole pictures of a handful of rows, and a second timer would
-            // be a second thing to reason about when a shop is out of date.
+            Err(error) => warn!(%error, "accepted deliveries could not be valued"),
+        }
+        // What promotions have cost, out to the fleet, and head office told
+        // when a budget or basket cap has just been crossed. It runs here
+        // rather than in a loop of its own because it must not overtake the
+        // applier: usage is built from sale facts, so a count taken before
+        // they are applied would send every shop a figure lower than the
+        // truth. Every tick, because a crossing is news the moment the sale
+        // that caused it lands; the watch itself decides whether a count is
+        // due, and sends nothing when nothing has changed.
+        match infrastructure::watch_commercial_usage(&state.db, &mut usage_watch).await {
+            Ok(report) => {
+                if report.announced > 0 || report.sent.is_some() {
+                    info!(
+                        announced = report.announced,
+                        sent = ?report.sent,
+                        "commercial usage watch"
+                    );
+                }
+            }
+            Err(error) => warn!(%error, "commercial usage watch failed"),
+        }
+        // Which campaigns are on. `switch_campaign` already dispatches when
+        // somebody pulls the lever, so this is the net under it: a shop that
+        // was unreachable at that moment learns here rather than at the next
+        // price book, which could be a season away.
+        if last_campaign_broadcast.elapsed() >= CAMPAIGN_BROADCAST_EVERY {
+            last_campaign_broadcast = Instant::now();
             match infrastructure::publish_campaign_switches_to_fleet(&state.db, "system").await {
                 Ok(report) => info!(?report, "campaign switches broadcast"),
                 Err(error) => warn!(%error, "campaign switches broadcast failed"),

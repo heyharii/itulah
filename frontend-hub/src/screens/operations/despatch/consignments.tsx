@@ -131,22 +131,21 @@ export function Consignments() {
         />
       </KpiStrip>
 
-      {progress !== null && (
+      {progress !== null && progress.failed.length > 0 && (
         <Banner
-          tone={progress.failed.length === 0 ? "ok" : "bad"}
+          tone="bad"
           className="mb-[1.125rem]"
           onDismiss={() => setProgress(null)}
         >
           {progress.message}
-          {progress.failed.length > 0 &&
-            " Try those cartons again from the list — the safe retry is the step they failed at."}
+          {" Try those cartons again from the list — the safe retry is the step they failed at."}
         </Banner>
       )}
 
       <Card className="overflow-hidden">
         <CardHeader>
           <CardTitle>Shipments</CardTitle>
-          <span className="text-[0.75rem] text-mute">
+          <span className="text-[0.875rem] text-mute">
             click one for its surat jalan
           </span>
         </CardHeader>
@@ -189,7 +188,7 @@ export function Consignments() {
                       <span className="block truncate font-mono text-id text-ink">
                         {row.shipment_number}
                       </span>
-                      <span className="block truncate text-[0.6875rem] text-mute">
+                      <span className="block truncate text-[0.875rem] text-mute">
                         {row.destination_store_id} · {count(row.koli_count)}{" "}
                         cartons · {count(row.unit_count)} pieces
                       </span>
@@ -221,7 +220,7 @@ export function Consignments() {
         title="New shipment"
         footer={
           <div className="flex flex-wrap items-center gap-2.5">
-            <span className="text-[0.75rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               {chosen.size === 0
                 ? "Tick the cartons going on it"
                 : `${count(chosen.size)} of ${count(boxes.length)} cartons`}
@@ -237,7 +236,7 @@ export function Consignments() {
           </div>
         }
       >
-        <p className="text-[0.78125rem] text-body">
+        <p className="text-[0.875rem] text-body">
           Sealed cartons become one surat jalan — and the stock follows it. One
           shop per consignment: choosing cartons for two shops is refused by the
           node rather than silently split.
@@ -283,12 +282,12 @@ export function Consignments() {
                         <span className="block truncate font-mono text-id text-ink">
                           {box.koli_number}
                         </span>
-                        <span className="block truncate text-[0.6875rem] text-mute">
+                        <span className="block truncate text-[0.875rem] text-mute">
                           {box.destination_store_id} · sealed{" "}
                           {clock(box.sealed_at)}
                         </span>
                       </span>
-                      <span className="shrink-0 text-[0.78125rem] text-body tabular-nums">
+                      <span className="shrink-0 text-[0.875rem] text-body tabular-nums">
                         {count(box.unit_count)}
                       </span>
                     </button>
@@ -375,7 +374,7 @@ function ShipmentSheet({
                 <p className="font-mono text-id text-ink">
                   {record.qr_payload}
                 </p>
-                <p className="mt-1 text-[0.71875rem] text-mute">
+                <p className="mt-1 text-[0.875rem] text-mute">
                   Scanned at the shop to open the whole consignment at once,
                   rather than one carton at a time.
                 </p>
@@ -396,7 +395,7 @@ function ShipmentSheet({
                       <AppLink
                         to="/operations/packing"
                         sheet={{ key: "koli", value: manifest.koli.koli_id }}
-                        className="font-mono text-[0.71875rem] text-ink underline underline-offset-2"
+                        className="font-mono text-[0.875rem] text-ink underline underline-offset-2"
                       >
                         {manifest.koli.koli_number}
                       </AppLink>

@@ -1,0 +1,79 @@
+import type { LucideIcon } from "lucide-react"
+import type { Role } from "@itulah/contract"
+
+import {
+  domains,
+  modulesOfDomain,
+  visibleItems,
+  type AppModule,
+} from "@/lib/navigation"
+import { homeNav } from "@/screens/home/nav"
+import { reportsNav } from "@/screens/reports/nav"
+import { systemNav } from "@/screens/system/nav"
+import { libraryNav } from "@/screens/workplace/nav"
+
+/// One tile of the phone's app launcher: a department's screens behind one
+/// icon, the way a super-app puts a service behind one.
+export interface AppTile {
+  readonly id: string
+  readonly label: string
+  readonly icon: LucideIcon
+  readonly modules: readonly AppModule[]
+}
+
+/// The screens behind a tile, when there is exactly one of them — a tile that
+/// opens a list of one is a tap that asks nothing. `undefined` means the tile
+/// opens its sheet.
+export function onlyScreen(tile: AppTile): string | undefined {
+  const items = tile.modules.flatMap((module) => visibleItems(module))
+  return items.length === 1 ? items[0].path : undefined
+}
+
+/// The apps a role is offered on the phone's launcher.
+///
+/// By ROLE for now, on the owner's call (2026-09-25): the per-module answer
+/// needs the server to say what each account may open, and until it does, a
+/// cashier who signed in was shown the whole office console and refused by
+/// the server screen by screen. So:
+///
+///  - CASHIER — no office apps. Their phone is Messages, Notifications and
+///    their Profile; the launcher says so instead of offering ten doors that
+///    are locked.
+///  - SUPERVISOR — every department.
+///  - ADMIN — every department, and System.
+///
+/// Chat and Discussions are not tiles: they are the Messages tab.
+export function appsFor(role: Role | undefined): readonly AppTile[] {
+  if (role === undefined || role === "CASHIER") return []
+  const departments: AppTile[] = [
+    {
+      id: homeNav.id,
+      label: homeNav.label,
+      icon: homeNav.icon,
+      modules: [homeNav],
+    },
+    ...domains.map((domain) => ({
+      id: domain.id,
+      label: domain.label,
+      icon: domain.icon,
+      modules: modulesOfDomain(domain),
+    })),
+    ...[libraryNav, reportsNav].map((module) => ({
+      id: module.id,
+      label: module.label,
+      icon: module.icon,
+      modules: [module],
+    })),
+  ]
+  if (role === "ADMIN") {
+    departments.push({
+      id: systemNav.id,
+      label: systemNav.label,
+      icon: systemNav.icon,
+      modules: [systemNav],
+    })
+  }
+  return departments.filter((tile) =>
+    tile.modules.some((module) => visibleItems(module).length > 0)
+  )
+}

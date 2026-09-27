@@ -150,12 +150,13 @@ pub fn check_definition(definition: &SegmentDefinition) -> Result<(), AppError> 
 }
 
 /// Compile a definition into a predicate, numbering from `bound + 1`.
-pub fn narrowing_of(definition: &SegmentDefinition, bound: usize) -> Narrowing {
+pub fn narrowing_of(definition: &SegmentDefinition, bound: usize, now: DateTime<Utc>) -> Narrowing {
     narrow(
         members(),
         &definition.filters,
         definition.match_ == Match::All,
         bound,
+        now,
     )
 }
 
@@ -170,9 +171,10 @@ pub async fn segment_narrowing(
     pool: &PgPool,
     id: Uuid,
     bound: usize,
+    now: DateTime<Utc>,
 ) -> Result<Narrowing, AppError> {
-    let saved = read_segment(pool, id, "", false).await?;
-    Ok(narrowing_of(&saved.definition, bound))
+    let saved = read_segment(pool, id, "", false, now).await?;
+    Ok(narrowing_of(&saved.definition, bound, now))
 }
 
 /// Count what a definition matches, without saving it.
@@ -184,9 +186,10 @@ pub async fn segment_narrowing(
 pub async fn preview_segment(
     pool: &PgPool,
     definition: &SegmentDefinition,
+    now: DateTime<Utc>,
 ) -> Result<SegmentTally, AppError> {
     check_definition(definition)?;
-    let narrowing = narrowing_of(definition, 0);
+    let narrowing = narrowing_of(definition, 0, now);
     let Some(predicate) = narrowing.sql.as_deref() else {
         // Unreachable while `check_definition` refuses an empty list, and
         // cheaper to answer than to prove unreachable at every call site.
@@ -253,7 +256,11 @@ pub struct NewSegment<'a> {
 }
 
 /// Save a new segment at version 1.
-pub async fn create_segment(pool: &PgPool, new: NewSegment<'_>) -> Result<SavedSegment, AppError> {
+pub async fn create_segment(
+    pool: &PgPool,
+    new: NewSegment<'_>,
+    now: DateTime<Utc>,
+) -> Result<SavedSegment, AppError> {
     check_definition(new.definition)?;
     let name = new.name.trim();
     if name.is_empty() {
@@ -293,7 +300,7 @@ pub async fn create_segment(pool: &PgPool, new: NewSegment<'_>) -> Result<SavedS
     .await?;
     tx.commit().await.map_err(named)?;
 
-    read_segment(pool, id, new.owner, true).await
+    read_segment(pool, id, new.owner, true, now).await
 }
 
 /// The one refusal a person will actually meet, said in words.
@@ -322,6 +329,7 @@ pub async fn revise_segment(
     name: &str,
     purpose: Option<&str>,
     definition: &SegmentDefinition,
+    now: DateTime<Utc>,
 ) -> Result<SavedSegment, AppError> {
     check_definition(definition)?;
     let owner: Option<String> =
@@ -371,7 +379,7 @@ pub async fn revise_segment(
     .map_err(named)?;
     tx.commit().await?;
 
-    read_segment(pool, id, actor, true).await
+    read_segment(pool, id, actor, true, now).await
 }
 
 /// Retire a segment. Archived rather than deleted, because the versions are
@@ -429,6 +437,7 @@ pub async fn read_segment(
     id: Uuid,
     actor: &str,
     with_tally: bool,
+    now: DateTime<Utc>,
 ) -> Result<SavedSegment, AppError> {
     let row = sqlx::query(&format!(
         "{SAVED_COLUMNS} WHERE g.segment_id = $1 AND g.archived_at IS NULL"
@@ -441,7 +450,7 @@ pub async fn read_segment(
     };
     let mut saved = saved_from_row(&row, actor)?;
     if with_tally {
-        saved.tally = Some(preview_segment(pool, &saved.definition).await?);
+        saved.tally = Some(preview_segment(pool, &saved.definition, now).await?);
     }
     Ok(saved)
 }
@@ -454,7 +463,11 @@ pub async fn read_segment(
 /// one answer that cannot be half-loaded. The ordinal is written into the SQL
 /// as an integer this function generated — never a value from a caller — which
 /// is what lets the rows be matched back to the definitions that produced them.
-pub async fn list_segments(pool: &PgPool, actor: &str) -> Result<Vec<SavedSegment>, AppError> {
+pub async fn list_segments(
+    pool: &PgPool,
+    actor: &str,
+    now: DateTime<Utc>,
+) -> Result<Vec<SavedSegment>, AppError> {
     let rows = sqlx::query(&format!(
         "{SAVED_COLUMNS} WHERE g.archived_at IS NULL ORDER BY g.name"
     ))
@@ -472,7 +485,7 @@ pub async fn list_segments(pool: &PgPool, actor: &str) -> Result<Vec<SavedSegmen
     let mut params = Vec::new();
     let mut bound = 0usize;
     for (index, one) in saved.iter().enumerate() {
-        let narrowing = narrowing_of(&one.definition, bound);
+        let narrowing = narrowing_of(&one.definition, bound, now);
         // A definition that no longer compiles — every clause naming a column
         // the catalogue has since dropped — matches nobody rather than
         // everybody. The screen says so; a segment that quietly became "all

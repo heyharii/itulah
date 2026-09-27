@@ -2,14 +2,21 @@
 import type { Role } from "./Role";
 
 /**
- * Giving somebody access to one Edge, or rotating the password they use there.
+ * Giving somebody access to one Edge, changing their role there, or rotating
+ * the password they use there.
  *
  * `edge_password` is separate from their Cloud password on purpose: the same
  * person signs in at head office with one credential and at a till with
  * another, and the Edge never receives the Cloud one.
+ *
+ * It is optional at a DC, where the hub signs people in with their Cloud
+ * session (`docs/cloud-dc-single-sign-on.md`): without one, the assignment
+ * can be used only through that exchange. A store has no such exchange, so a
+ * new store grant needs one. On an existing grant, absent means "keep the
+ * password it has".
  */
 export type UpsertEdgeAssignmentRequest = { origin_id: string, user_id: string, role: Role, 
 /**
  * Hashed immediately; never stored in the clear and never sent to the Edge.
  */
-edge_password: string, offline_ttl_seconds: number | null, };
+edge_password: string | null, offline_ttl_seconds: number | null, };

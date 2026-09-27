@@ -21,6 +21,21 @@ import { useActor } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import type { Koli } from "@itulah/contract"
 
+type ShipmentProgressJob = {
+  readonly shipmentNumber: string
+  readonly koliIds: readonly string[]
+}
+
+function fulfillmentKey(koliId: string, stage: string) {
+  return `floor-fulfillment-${koliId}-${stage}`
+}
+
+async function settleFulfillment(requests: readonly Promise<unknown>[]) {
+  const results = await Promise.allSettled(requests)
+  const failure = results.find((result) => result.status === "rejected")
+  if (failure?.status === "rejected") throw failure.reason
+}
+
 /// The door: cartons gather into consignments, consignments onto a truck, and
 /// the truck leaves.
 ///
@@ -74,8 +89,33 @@ function LooseKoli() {
   const client = useQueryClient()
   const actor = useActor()
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set())
+  const [progressJob, setProgressJob] = useState<ShipmentProgressJob | null>(
+    null,
+  )
 
   const loose = useQuery(reads.koli({ unassigned: true, ready: true }))
+
+  const recordShipmentProgress = useMutation({
+    mutationFn: (job: ShipmentProgressJob) =>
+      settleFulfillment(
+        job.koliIds.map((koliId) =>
+          dc.koliToShipment(koliId, {
+            shipment_reference: job.shipmentNumber,
+            actor_id: actor,
+            idempotency_key: fulfillmentKey(koliId, "shipment"),
+          }),
+        ),
+      ),
+    onSuccess: () => {
+      setProgressJob(null)
+      void client.invalidateQueries({ queryKey: keys.dc.all })
+      void client.invalidateQueries({ queryKey: keys.pools() })
+    },
+    onError: () => {
+      void client.invalidateQueries({ queryKey: keys.dc.all })
+      void client.invalidateQueries({ queryKey: keys.pools() })
+    },
+  })
 
   const shops = useMemo(() => {
     const byShop = new Map<string, Koli[]>()
@@ -88,29 +128,51 @@ function LooseKoli() {
   }, [loose.data])
 
   const create = useMutation({
-    mutationFn: (koliIds: readonly string[]) =>
-      dc.createShipment({ koli_ids: [...koliIds], actor_id: actor }),
-    onSuccess: () => {
+    mutationFn: async (koliIds: readonly string[]) => ({
+      shipment: await dc.createShipment({
+        koli_ids: [...koliIds],
+        actor_id: actor,
+      }),
+      koliIds,
+    }),
+    onSuccess: ({ shipment, koliIds }) => {
       setDropped(new Set())
       void client.invalidateQueries({ queryKey: keys.dc.all })
+      const job = { shipmentNumber: shipment.shipment_number, koliIds }
+      setProgressJob(job)
+      recordShipmentProgress.mutate(job)
     },
   })
 
   return queryState(loose, {
     loading: "Menanyakan koli tersegel…",
-    render: (boxes) =>
-      boxes.length === 0 ? (
-        <EmptyState>
-          Tidak ada koli tersegel yang menunggu. Koli sampai di sini begitu
-          stasiun kemas menyegelnya.
-        </EmptyState>
-      ) : (
-        <>
-          {create.isError && (
-            <Banner tone="bad" className="mb-4">
-              {describe(create.error)}
-            </Banner>
-          )}
+    render: (boxes) => (
+      <>
+        {create.isError && (
+          <Banner tone="bad" className="mb-4">
+            {describe(create.error)}
+          </Banner>
+        )}
+        {recordShipmentProgress.isError && progressJob !== null && (
+          <Banner tone="bad" className="mb-4">
+            Shipment {progressJob.shipmentNumber} sudah dibuat, tetapi
+            perpindahan koli belum seluruhnya tercatat.{" "}
+            {describe(recordShipmentProgress.error)}
+            <Button
+              className="mt-3"
+              disabled={recordShipmentProgress.isPending}
+              onClick={() => recordShipmentProgress.mutate(progressJob)}
+            >
+              Ulangi pencatatan shipment
+            </Button>
+          </Banner>
+        )}
+        {boxes.length === 0 ? (
+          <EmptyState>
+            Tidak ada koli tersegel yang menunggu. Koli sampai di sini begitu
+            stasiun kemas menyegelnya.
+          </EmptyState>
+        ) : (
           <Section title="Koli tersegel">
             <CardList>
               {shops.map(([shop, group]) => {
@@ -164,7 +226,12 @@ function LooseKoli() {
                     <Button
                       variant="primary"
                       block
-                      disabled={chosen.length === 0 || create.isPending}
+                      disabled={
+                        chosen.length === 0 ||
+                        create.isPending ||
+                        recordShipmentProgress.isPending ||
+                        progressJob !== null
+                      }
                       onClick={() =>
                         create.mutate(chosen.map((box) => box.koli_id))
                       }
@@ -176,8 +243,9 @@ function LooseKoli() {
               })}
             </CardList>
           </Section>
-        </>
-      ),
+        )}
+      </>
+    ),
   })
 }
 

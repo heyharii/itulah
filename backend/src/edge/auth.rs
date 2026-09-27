@@ -10,7 +10,7 @@ use crate::{
     security,
 };
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::{
     env,
     str::FromStr,
@@ -21,6 +21,10 @@ use uuid::Uuid;
 const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const LOGIN_FAILURE_LIMIT: i64 = 5;
 const MIN_PASSWORD_LENGTH: usize = 8;
+const EDGE_SSO_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0042_cloud_to_dc_sso.sql"
+));
 
 #[derive(Clone, Debug)]
 pub struct EdgeAuthConfig {
@@ -189,6 +193,7 @@ impl EdgeAuth {
             node,
             config,
         };
+        auth.lock()?.execute_batch(EDGE_SSO_SCHEMA).map_err(db)?;
         auth.bootstrap_admin()?;
         Ok(auth)
     }
@@ -457,6 +462,136 @@ impl EdgeAuth {
         )
     }
 
+    /// Exchange a Cloud-signed, single-use ticket for a normal local session.
+    ///
+    /// The ticket proves only the Cloud user id and target DC. The authority
+    /// and role come from the latest locally applied Cloud policy, and the
+    /// user's local lease must still be current. Ticket consumption and
+    /// session creation share a SQLite transaction so parallel replays cannot
+    /// both open sessions.
+    pub fn exchange_cloud_ticket(&self, ticket: &str) -> Result<IssuedEdgeSession, EdgeError> {
+        if !self.config.enabled {
+            return Err(EdgeError::Conflict(
+                "authentication is disabled on this Edge".into(),
+            ));
+        }
+        if self.node.role != crate::edge::EdgeRole::Dc {
+            return Err(EdgeError::Forbidden(
+                "Cloud session exchange is available only on a DC".into(),
+            ));
+        }
+
+        let mut connection = self.lock()?;
+        let trust: Option<(String, String, Option<String>, i64)> = connection
+            .query_row(
+                "SELECT origin_id,node_role,public_key_hex,policy_version
+                 FROM edge_sso_trust WHERE singleton=1 AND valid_until>?1",
+                params![now_text()],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(db)?;
+        let Some((trusted_origin, trusted_role, public_key, policy_version)) = trust else {
+            return Err(EdgeError::Unauthorized(
+                "the DC has no current Cloud sign-in policy".into(),
+            ));
+        };
+        let Some(public_key) = public_key else {
+            return Err(EdgeError::Unauthorized(
+                "Cloud sign-in is not enabled for this DC".into(),
+            ));
+        };
+        if trusted_origin != self.node.node_id || trusted_role != "DC" {
+            return Err(EdgeError::Unauthorized(
+                "Cloud sign-in policy belongs to another node".into(),
+            ));
+        }
+
+        let claims = crate::security::sso::verify_ticket(ticket, &public_key)
+            .map_err(EdgeError::Unauthorized)?;
+        let user_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| EdgeError::Unauthorized("invalid Cloud SSO subject".into()))?;
+        let jti = Uuid::parse_str(&claims.jti)
+            .map_err(|_| EdgeError::Unauthorized("invalid Cloud SSO ticket id".into()))?;
+        let now = Utc::now();
+        let now_epoch = now.timestamp();
+        if claims.aud != self.node.node_id
+            || claims.origin_id != self.node.node_id
+            || claims.exp <= now_epoch
+            || claims.iat > now_epoch + 5
+            || claims.exp <= claims.iat
+            || claims.exp - claims.iat > 60
+        {
+            return Err(EdgeError::Unauthorized(
+                "Cloud SSO ticket is expired or intended for another DC".into(),
+            ));
+        }
+
+        let user: Option<(String, String, String, String, i64)> = connection
+            .query_row(
+                "SELECT id,username,display_name,role,auth_version
+                 FROM edge_user
+                 WHERE id=?1 AND source='CLOUD' AND active=1
+                   AND policy_version=?2 AND valid_until>?3",
+                params![user_id.to_string(), policy_version, time_text(now)],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(db)?;
+        let Some((id, username, display_name, role, auth_version)) = user else {
+            return Err(EdgeError::Unauthorized(
+                "the Cloud user is inactive or has no current DC lease".into(),
+            ));
+        };
+
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        transaction
+            .execute(
+                "DELETE FROM edge_sso_ticket_replay WHERE expires_at_epoch<=?1",
+                params![now_epoch],
+            )
+            .map_err(db)?;
+        let inserted = transaction.execute(
+            "INSERT OR IGNORE INTO edge_sso_ticket_replay(jti,expires_at_epoch)
+             VALUES(?1,?2)",
+            params![jti.to_string(), claims.exp],
+        )
+        .map_err(db)?;
+        if inserted != 1 {
+            return Err(EdgeError::Unauthorized(
+                "Cloud SSO ticket has already been used".into(),
+            ));
+        }
+        let issued = self.write_session(
+            &transaction,
+            id,
+            username,
+            display_name,
+            role,
+            auth_version,
+            "CLOUD".into(),
+        )?;
+        transaction.commit().map_err(db)?;
+        Ok(issued)
+    }
+
     /// Turn an already-decided identity into a session.
     ///
     /// Split out of [`Self::login`] rather than copied, because a second
@@ -477,6 +612,30 @@ impl EdgeAuth {
         auth_version: i64,
         source: String,
     ) -> Result<IssuedEdgeSession, EdgeError> {
+        let transaction = connection.transaction().map_err(db)?;
+        let issued = self.write_session(
+            &transaction,
+            id,
+            username,
+            display_name,
+            role,
+            auth_version,
+            source,
+        )?;
+        transaction.commit().map_err(db)?;
+        Ok(issued)
+    }
+
+    fn write_session(
+        &self,
+        transaction: &Transaction<'_>,
+        id: String,
+        username: String,
+        display_name: String,
+        role: String,
+        auth_version: i64,
+        source: String,
+    ) -> Result<IssuedEdgeSession, EdgeError> {
         let now = Utc::now();
         let user_id = Uuid::parse_str(&id)
             .map_err(|error| EdgeError::Persistence(format!("invalid edge user id: {error}")))?;
@@ -486,7 +645,6 @@ impl EdgeAuth {
         let csrf_token = security::random_token();
         let session_id = Uuid::new_v4();
         let expires_at = now + Duration::minutes(self.config.session_ttl_minutes);
-        let transaction = connection.transaction().map_err(db)?;
         transaction
             .execute(
                 "INSERT INTO edge_auth_session
@@ -513,7 +671,6 @@ impl EdgeAuth {
                 params![user_id.to_string(), time_text(now)],
             )
             .map_err(db)?;
-        transaction.commit().map_err(db)?;
         Ok(IssuedEdgeSession {
             token,
             csrf_token,
@@ -737,6 +894,78 @@ mod tests {
         .unwrap_or_else(|error| panic!("auth: {error}"))
     }
 
+    fn dc_auth_with_cloud_user() -> (EdgeAuth, [u8; 32], Uuid) {
+        let node = NodeContext::new(
+            "dc-01-edge",
+            EdgeRole::Dc,
+            SiteId::new("dc-01").unwrap_or_else(|error| panic!("site: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("node: {error}"));
+        let edge = SqliteEdge::open_in_memory(node.clone())
+            .unwrap_or_else(|error| panic!("edge: {error}"));
+        let auth = EdgeAuth::new(
+            edge.connection(),
+            node,
+            EdgeAuthConfig {
+                enabled: true,
+                session_ttl_minutes: 60,
+                session_idle_minutes: 30,
+                cookie_secure: false,
+                bootstrap_admin_password: None,
+            },
+        )
+        .unwrap_or_else(|error| panic!("auth: {error}"));
+        let seed = [29u8; 32];
+        let public_key = crate::security::sso::public_key_from_seed(&seed)
+            .unwrap_or_else(|error| panic!("public key: {error}"));
+        let user_id = Uuid::new_v4();
+        let now = Utc::now();
+        let connection = auth
+            .lock()
+            .unwrap_or_else(|error| panic!("connection: {error}"));
+        connection
+            .execute(
+                "INSERT INTO edge_user
+                     (id,username,display_name,password_hash,role,active,auth_version,source,
+                      policy_version,valid_until,created_at,updated_at)
+                 VALUES(?1,'dc.operator','DC Operator',?4,'SUPERVISOR',1,3,'CLOUD',
+                        4,?2,?3,?3)",
+                params![
+                    user_id.to_string(),
+                    time_text(now + Duration::hours(12)),
+                    time_text(now),
+                    crate::security::SSO_ONLY_VERIFIER,
+                ],
+            )
+            .unwrap_or_else(|error| panic!("Cloud user: {error}"));
+        connection
+            .execute(
+                "INSERT INTO edge_sso_trust
+                     (singleton,origin_id,node_role,policy_version,public_key_hex,valid_until,updated_at)
+                 VALUES(1,'dc-01-edge','DC',4,?1,?2,?3)",
+                params![public_key, time_text(now + Duration::hours(24)), time_text(now)],
+            )
+            .unwrap_or_else(|error| panic!("SSO trust: {error}"));
+        drop(connection);
+        (auth, seed, user_id)
+    }
+
+    fn cloud_ticket(seed: &[u8; 32], user_id: Uuid, origin_id: &str) -> String {
+        let issued_at = Utc::now().timestamp();
+        crate::security::sso::issue_ticket(
+            &crate::security::sso::TicketClaims {
+                sub: user_id.to_string(),
+                aud: origin_id.to_owned(),
+                origin_id: origin_id.to_owned(),
+                iat: issued_at,
+                exp: issued_at + 60,
+                jti: Uuid::new_v4().to_string(),
+            },
+            seed,
+        )
+        .unwrap_or_else(|error| panic!("ticket: {error}"))
+    }
+
     #[test]
     fn edge_session_is_local_revocable_and_role_checked() {
         let auth = auth();
@@ -803,5 +1032,65 @@ mod tests {
         assert!(auth.login("admin", "admin-password-1").is_err());
         auth.login("admin", "admin-password-2")
             .unwrap_or_else(|error| panic!("new password login: {error}"));
+    }
+
+    #[test]
+    fn cloud_ticket_uses_local_role_and_is_consumed_once() {
+        let (auth, seed, user_id) = dc_auth_with_cloud_user();
+        let ticket = cloud_ticket(&seed, user_id, "dc-01-edge");
+
+        let issued = auth
+            .exchange_cloud_ticket(&ticket)
+            .unwrap_or_else(|error| panic!("Cloud exchange: {error}"));
+        assert_eq!(issued.principal.user_id, user_id);
+        assert_eq!(issued.principal.username, "dc.operator");
+        assert_eq!(issued.principal.role, Role::Supervisor);
+        assert_eq!(issued.principal.source, "CLOUD");
+        let (authenticated, _) = auth
+            .authenticate(&issued.token, false)
+            .unwrap_or_else(|error| panic!("local session: {error}"));
+        assert_eq!(authenticated.role, Role::Supervisor);
+
+        assert!(matches!(
+            auth.exchange_cloud_ticket(&ticket),
+            Err(EdgeError::Unauthorized(_))
+        ));
+    }
+
+    #[test]
+    fn a_cloud_user_without_a_dc_password_signs_in_only_through_cloud() {
+        let (auth, seed, user_id) = dc_auth_with_cloud_user();
+        // Not even the verifier itself, typed as a password, opens it.
+        for attempt in ["", crate::security::SSO_ONLY_VERIFIER, "any-password-1"] {
+            assert!(matches!(
+                auth.login("dc.operator", attempt),
+                Err(EdgeError::Unauthorized(_))
+            ));
+        }
+        auth.exchange_cloud_ticket(&cloud_ticket(&seed, user_id, "dc-01-edge"))
+            .unwrap_or_else(|error| panic!("Cloud exchange: {error}"));
+    }
+
+    #[test]
+    fn cloud_ticket_rejects_wrong_destination_and_expired_user_lease() {
+        let (auth, seed, user_id) = dc_auth_with_cloud_user();
+        let wrong_destination = cloud_ticket(&seed, user_id, "another-dc");
+        assert!(matches!(
+            auth.exchange_cloud_ticket(&wrong_destination),
+            Err(EdgeError::Unauthorized(_))
+        ));
+
+        auth.lock()
+            .unwrap_or_else(|error| panic!("connection: {error}"))
+            .execute(
+                "UPDATE edge_user SET valid_until=?2 WHERE id=?1",
+                params![user_id.to_string(), time_text(Utc::now() - Duration::seconds(1))],
+            )
+            .unwrap_or_else(|error| panic!("expire lease: {error}"));
+        let ticket = cloud_ticket(&seed, user_id, "dc-01-edge");
+        assert!(matches!(
+            auth.exchange_cloud_ticket(&ticket),
+            Err(EdgeError::Unauthorized(_))
+        ));
     }
 }

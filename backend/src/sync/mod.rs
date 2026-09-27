@@ -21,8 +21,10 @@
 //! the signing canonical — live in the domain and are called from here. If a
 //! settlement rule ever appears in this file, the split has failed.
 
+pub mod enrolment;
 pub mod handshake;
 pub mod inventory;
+pub mod node_status;
 pub mod port;
 pub mod rfid;
 pub mod transfer;

@@ -7,6 +7,7 @@ import {
   PackageSearch,
   PackageX,
   Radar,
+  Ruler,
   Scale,
   ShieldCheck,
 } from "lucide-react"
@@ -78,6 +79,14 @@ export const inventoryNav: AppModule = {
           icon: ArrowLeftRight,
         },
         { path: "/inventory/observations", label: "Sightings", icon: Radar },
+        // Master data rather than a reading: the units an order may be
+        // typed in, and how many pieces each is. Sought by name — a buyer
+        // setting up KODI goes looking for it — so it is a sub-item.
+        {
+          path: "/inventory/units",
+          label: "Units & conversions",
+          icon: Ruler,
+        },
         {
           path: "/inventory/missing",
           label: "Missing",

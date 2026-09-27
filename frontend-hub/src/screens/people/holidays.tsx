@@ -447,7 +447,7 @@ function LoadCalendar({
         <span className="text-meta font-medium text-ink">
           Load a year at once
         </span>
-        <span className="text-[0.6875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           date, name, kind, places — one day per line
         </span>
         <label className="ml-auto">
@@ -469,7 +469,7 @@ function LoadCalendar({
               event.target.value = ""
             }}
           />
-          <span className="inline-flex h-8 cursor-pointer items-center rounded-full border border-hairline-strong px-3 text-[0.78125rem] font-medium text-text hover:bg-soft-2">
+          <span className="inline-flex h-8 cursor-pointer items-center rounded-full border border-hairline-strong px-3 text-[0.875rem] font-medium text-text hover:bg-soft-2">
             Choose a file
           </span>
         </label>
@@ -491,7 +491,7 @@ function LoadCalendar({
           Read the lines
         </Button>
         {loaded !== null && (
-          <span className="text-[0.78125rem] text-body">
+          <span className="text-[0.875rem] text-body">
             {loaded} day{loaded === 1 ? "" : "s"} added
             {rejected !== null && rejected.length > 0
               ? `, ${rejected.length} refused`
@@ -507,7 +507,7 @@ function LoadCalendar({
           <div className="flex flex-col gap-1">
             <span>These lines were not added:</span>
             {rejected.slice(0, 6).map((one) => (
-              <span key={one.line} className="text-[0.75rem]">
+              <span key={one.line} className="text-[0.875rem]">
                 <b>Line {one.line}</b> — {one.why}:{" "}
                 <span className="font-mono text-id">
                   {one.text.slice(0, 60)}
@@ -515,7 +515,7 @@ function LoadCalendar({
               </span>
             ))}
             {rejected.length > 6 && (
-              <span className="text-[0.75rem]">
+              <span className="text-[0.875rem]">
                 …and {rejected.length - 6} more.
               </span>
             )}

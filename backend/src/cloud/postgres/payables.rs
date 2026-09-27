@@ -1399,20 +1399,25 @@ pub(super) async fn validate_bill(
     let withholding_code = match request.withholding_code.as_deref().map(str::trim) {
         None | Some("") => None,
         Some(code) => {
-            let known = crate::cloud::domain::withholding::category(code).ok_or_else(|| {
-                AppError::Validation(format!(
-                    "'{code}' is not a withholding this system computes; it knows {}",
-                    crate::cloud::domain::withholding::category_codes().join(", ")
-                ))
-            })?;
-            Some(known.code)
+            let active: Vec<String> = sqlx::query_scalar(
+                "SELECT code FROM tax_template WHERE is_active AND kind = 'WITHHOLDING' ORDER BY code",
+            )
+            .fetch_all(pool)
+            .await?;
+            if !active.iter().any(|known| known == code) {
+                return Err(AppError::Validation(format!(
+                    "'{code}' is not a withholding Finance keeps; it keeps {}",
+                    active.join(", ")
+                )));
+            }
+            Some(code.to_string())
         }
     };
 
     Ok(ValidatedBill {
         kind,
         total,
-        withholding_code: withholding_code.map(str::to_string),
+        withholding_code,
     })
 }
 
@@ -1535,13 +1540,16 @@ pub(super) async fn insert_bill(
             // two bills claiming it serialise, so the second reads the first
             // one's link and is refused.
             let row = sqlx::query(
+                // The value is a scalar subquery rather than a GROUP BY:
+                // Postgres refuses FOR UPDATE on a grouped query, and the lock
+                // on the receipt row is the whole point.
                 "SELECT r.supplier_id,
-                        COALESCE(SUM(rl.quantity * pl.unit_price_minor), 0)::bigint AS ordered
+                        (SELECT COALESCE(SUM(rl.quantity * pl.unit_price_minor), 0)::bigint
+                           FROM goods_receipt_line rl
+                           LEFT JOIN purchase_order_line pl ON pl.po_line_id = rl.po_line_id
+                          WHERE rl.receipt_id = r.receipt_id) AS ordered
                    FROM goods_receipt r
-                   LEFT JOIN goods_receipt_line rl ON rl.receipt_id = r.receipt_id
-                   LEFT JOIN purchase_order_line pl ON pl.po_line_id = rl.po_line_id
                   WHERE r.receipt_id = $1
-                  GROUP BY r.receipt_id, r.supplier_id
                     FOR UPDATE OF r",
             )
             .bind(receipt_id)
@@ -1707,7 +1715,7 @@ pub async fn post_bill(
     // EXPENSE — Dr each line's own account, at that line's location + Dr input
     // VAT / Cr non-merchandise payable.
     //
-    // The line's account is named directly rather than through `account_map`,
+    // The line's account is named directly rather than through `account_resolution`,
     // and that is not the rule breaking 0050's "nothing in Rust names a client
     // account code". Nothing here names one: the code comes off the document,
     // chosen by the person who read the paper, exactly as it does on a manual
@@ -1753,6 +1761,7 @@ pub async fn post_bill(
                             .with_qualifier(class)
                     }
                     _ => PostingLine {
+                        dimensions: Vec::new(),
                         account: LineAccount::Account {
                             account_code: line.account_code.clone(),
                             // The person's own coding, carried from the line
@@ -2056,6 +2065,15 @@ pub struct PayablesAging {
     /// has to be able to say "n ditahan" rather than silently hide it.
     pub on_hold_count: i64,
     pub on_hold_minor: i64,
+    /// The general ledger's own answer: the balance of every account mapped to
+    /// `trade_payable` or `non_merchandise_payable`, as at `as_of`, in this
+    /// scope, as a positive debt.
+    ///
+    /// Resolved through `account_resolution` here rather than by an account code in
+    /// the screen: the screen used to ask for a client code (`2012001`) that
+    /// the chart in use does not have, got a ledger of nothing back, and
+    /// reported the whole ageing as a difference "against the books".
+    pub books_minor: i64,
 }
 
 /// Ageing over posted supplier invoices and unbilled goods receipts, as at a date.
@@ -2096,13 +2114,22 @@ pub async fn payables_aging(
                         AS age_days,
                     (i.total_minor - settled.paid_minor) AS outstanding_minor
                FROM supplier_invoice i
+               -- Payments AND advances set against the bill: an applied
+               -- advance posts `Dr trade_payable` and settles the payment-
+               -- ledger item, so leaving it out owed it twice (0391). Wound
+               -- back by the application's own posting date.
                CROSS JOIN LATERAL (
-                   SELECT COALESCE(SUM(al.amount_minor), 0)::bigint AS paid_minor
-                     FROM supplier_payment_allocation al
-                     JOIN supplier_payment p USING (payment_id)
-                    WHERE al.invoice_id = i.invoice_id
-                      AND p.status = 'POSTED'
-                      AND p.payment_date <= $1
+                   SELECT (COALESCE((SELECT SUM(al.amount_minor)
+                                       FROM supplier_payment_allocation al
+                                       JOIN supplier_payment p USING (payment_id)
+                                      WHERE al.invoice_id = i.invoice_id
+                                        AND p.status = 'POSTED'
+                                        AND p.payment_date <= $1), 0)
+                           + COALESCE((SELECT SUM(ap.amount_minor)
+                                         FROM supplier_advance_application ap
+                                         JOIN journal_entry e ON e.entry_id = ap.journal_entry_id
+                                        WHERE ap.invoice_id = i.invoice_id
+                                          AND e.posting_date <= $1), 0))::bigint AS paid_minor
                ) settled
                -- The earliest instalment the payments made by `$1` have not
                -- covered. A bill whose advance was settled ages from its
@@ -2128,8 +2155,13 @@ pub async fn payables_aging(
              -- Before its invoice arrives, the receipt itself is the open
              -- supplier debt. The Payment Ledger carries its receipt date and
              -- the same supplier/location dimensions as the eventual bill.
+             -- The name from the supplier register when the item does not carry
+             -- one: receipts valued before 0390 were filed without it, and a
+             -- supplier code in the ageing is a row nobody recognises.
              SELECT i.party_id AS supplier_id,
-                    COALESCE(i.party_name, i.party_id) AS supplier_name,
+                    COALESCE(i.party_name,
+                             (SELECT s.name FROM supplier s WHERE s.supplier_code = i.party_id),
+                             i.party_id) AS supplier_name,
                     i.age_days,
                     i.outstanding_minor
                FROM payment_ledger_as_of($1) i
@@ -2216,6 +2248,24 @@ pub async fn payables_aging(
     .fetch_one(pool)
     .await?;
 
+    // The books, for the reconciliation beside the ageing. By POSTING date,
+    // which is the ledger's calendar; the ageing counts a bill from its
+    // invoice date, and a difference between the two is that statement.
+    let books_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(l.credit_minor - l.debit_minor), 0)::bigint
+           FROM journal_line l
+           JOIN journal_entry e ON e.entry_id = l.entry_id
+          WHERE l.account_code IN (
+                SELECT m.account_code FROM account_resolution m
+                 WHERE m.role IN ('trade_payable', 'non_merchandise_payable'))
+            AND e.posting_date <= $1
+            AND ($2::text IS NULL OR l.site_id = $2)",
+    )
+    .bind(as_of)
+    .bind(site_id)
+    .fetch_one(pool)
+    .await?;
+
     Ok(PayablesAging {
         as_of,
         site_id: site_id.map(str::to_string),
@@ -2223,6 +2273,7 @@ pub async fn payables_aging(
         total,
         on_hold_count: held.try_get("n")?,
         on_hold_minor: held.try_get("total")?,
+        books_minor,
     })
 }
 

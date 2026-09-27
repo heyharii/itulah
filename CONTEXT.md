@@ -1,7 +1,7 @@
 # Central — procurement, receiving, stock and supplier settlement
 
-The language this repository uses for buying goods, receiving them at a
-distribution centre, holding and moving them, and settling what the supplier is
+The language this repository uses for buying goods, receiving them at the
+Gudang, holding and moving them, and settling what the supplier is
 owed. One word per concept: where the trade has several, the one below is ours
 and the rest are listed as things to avoid.
 
@@ -64,7 +64,7 @@ _Avoid_: cancel, void, short close
 
 **Price Amendment**:
 A request to settle a line at a price other than the one agreed, raised at the
-DC by the verifier who is holding the supplier's invoice, decided centrally.
+Gudang by the verifier who is holding the supplier's invoice, decided centrally.
 _Avoid_: price change, repricing
 
 ## The arrival
@@ -120,19 +120,27 @@ _Avoid_: product, style (when our identity is meant)
 An article in one colour and one size.
 
 **EPC**:
-The identifier written to one physical tag, minted centrally, one per unit.
+The identifier written to one physical tag, minted centrally, one per piece.
 
 ## The stock
 
 **Subject**:
-One thing the ledger can count. A `UNIT` is a single physical piece carrying its
-own EPC; a `QUANTITY` is a number of pieces not yet told apart.
-_Avoid_: item, stock record, inventory line
+One thing the ledger can count. A `TAGGED` subject is a single physical piece
+carrying its own EPC; a `QUANTITY` is a number of pieces not yet told apart.
+`TAGGED` is still stored as `UNIT` until the rename lands.
+_Avoid_: item, stock record, inventory line; `UNIT` (as the name of the kind)
 
 **Pool**:
-A physical stage goods stand in — the DC racks, a store's floor, one store's
-reject corner. Named by a canonical id, never by a label.
+A physical stage goods stand in — the Gudang racks, a shop's floor, a shop's
+stockroom, one store's return pool at the Gudang. Named by a canonical id, never
+by a label. Its *role* is fixed and defined in code — receiving/pending,
+stockroom, floor (saleable), reject, return, the outbound stages; pool
+instances are data, created from a site template.
 _Avoid_: location, bin, warehouse (when a pool is meant), status
+
+**Stockroom**:
+The back-of-shop storage pool inside a shop site.
+_Avoid_: warehouse (for this pool), gudang
 
 **Inventory State**:
 Whether goods in a pool are there (`on_hand`) or should be and are not
@@ -214,31 +222,124 @@ One reader seeing one EPC in one pool over one span of time. It never moves
 anything.
 _Avoid_: scan, count, sighting (as a record name)
 
-## The fleet
+## The organisation
+
+**Company**:
+One legal entity. It has no table; it appears only as the chart-of-accounts
+dimension `company`.
+_Avoid_: tenant, org
+
+**Unit**:
+The organisational and accounting unit: the head office and each store (today
+C001–C013; how many is data, not fixed). A unit owns books — every entry
+balances per unit — its inter-unit balances, the postings of its people, its
+store money and an access scope, its **reach**. Kinds: `HO`, `STORE` (`ONLINE`
+later, as data). Identified by an internal id never shown to users, the client's
+`code` (C004) and a `name` (Bumiayu). Has one **PIC**. A unit of kind `STORE` is
+a store; its premises are a shop (a site). Bare "unit" means this and nothing
+else.
+_Avoid_: site (when the owner of books is meant), store (when any unit is
+meant), place, org_place, branch, cabang — and "unit" for anything else: see
+**UoM**, **Grain** and `TAGGED` under **Subject**
+
+**Head Office** (HO):
+The unit of kind `HO`, found by its kind and never by a hard-coded id. The
+warehouse is a site of this unit, the **Gudang**, not a unit of its own.
+_Avoid_: DC, distribution centre (as a unit)
+
+**PIC**:
+The one person answerable for a unit (optionally for a site), with
+effective-dated history. Must be an active employee posted at that unit; gets
+the unit's reach and its approvals.
+_Avoid_: owner — that word means the business owner, and **Inventory Owner** is
+a node
 
 **Site**:
-A distribution centre or a shop. The unit that owns stock.
-_Avoid_: location, branch
+A physical premises — an office, a warehouse (the Gudang) or a shop — belonging
+to exactly one unit. It has an address, a timezone and a kind (`OFFICE`,
+`WAREHOUSE`, `SHOP`), and holds pools if it keeps goods. Two sites may share an
+address (HO's office and the Gudang do today) and may move apart; moving is an
+address change. Goods move between sites; their value is booked to the unit
+that owns the site, and a move that crosses units is inter-unit. Rule of thumb:
+needs a truck or a courier → a different site; carried by hand → a different
+pool.
+_Avoid_: unit (for the owner of books), location, branch, place
+
+**Gudang**:
+HO's warehouse site. The word stays Indonesian in English text.
+_Avoid_: DC, distribution centre, dc
+
+**Channel**:
+How a sale reached us — a store, online, a marketplace. Not a unit.
+
+**UoM**:
+Unit of measure. "Satuan" in the UI; spelled `uom_code` in columns.
+_Avoid_: unit
+
+**Grain**:
+The time step a report groups by — day, week, month.
+_Avoid_: unit
+
+## The fleet
+
+**Node**:
+One machine running the edge server for exactly one site. Its id on the sync
+wire is `origin_id`. A site may have several nodes, but exactly one Inventory
+Owner.
+_Avoid_: site (for the machine), store server
+
+**Device**:
+A machine enrolled to a node — a till, a handheld, a network RFID reader, a
+network printer, an EDC, an attendance terminal. It inherits its site and unit
+from its node. A till joins by discovering the node and a supervisor's
+approval. A person's phone or laptop is a session, not a device; staff are
+signed in on one device at a time (the customer app is exempt).
+_Avoid_: device (for a phone or laptop session, or for a peripheral)
+
+**Peripheral**:
+Hardware attached to one till and not enrolled on its own — a customer display,
+a USB desk RFID reader, a cash drawer, a scanner, a USB printer.
+_Avoid_: device
 
 **Inventory Owner**:
-The one node entitled to write the ledger for a site. One site, one owner,
-enforced by a unique index.
+The one node entitled to write the ledger for a site. However many nodes a site
+has, it has one owner, enforced by a unique index.
 _Avoid_: master, primary
 
 **Fact**:
-An immutable movement group a node sends upward, in a sequence that may not have
-holes.
+An immutable movement group a node sends upward under its `origin_id`, in a
+sequence that may not have holes.
 _Avoid_: event, sync record
 
 **Checkpoint**:
-A node's snapshot of all its pool balances at one instant. It says how fresh our
-knowledge is, never how much stock there is.
+A node's snapshot of all its site's pool balances at one instant. It says how
+fresh our knowledge is, never how much stock there is.
 _Avoid_: snapshot (when the ledger is meant), balance
 
 **Claim**:
-Evidence two independent nodes each publish about the same shipment — the DC
-that it left, the store that it arrived. Reconciled centrally; never a movement.
+Evidence two independent nodes each publish about the same shipment — the node
+at the site it left (the Gudang, say) and the node at the site it reached.
+Reconciled centrally; never a movement.
 _Avoid_: transfer, handover
+
+## Flow templates
+
+**Stage**:
+A step type whose meaning — its movements, its journal meaning, the proof it
+requires, its fixed rules — lives in code: pick, pack, close koli, load, depart,
+receive, inspect, ready for pickup, handover, approval; and the receiving stages
+arrival, blind count, verification, tagging, putaway.
+_Avoid_: status
+
+**Flow Template**:
+Data: an ordered set of stages for one route (origin kind → destination), with
+its parameters — who may start it, who performs each stage, the proof required,
+deadlines, which stages may be skipped, the destination pool. Whatever the
+template, the invariants hold: a flow to our own site ends in Receive; to an
+outside party, in Handover with proof; crossing units posts inter-unit
+automatically; supplier returns leave only from an HO site (stores never deal
+with suppliers); a template names meanings, never accounts (finance rule I9).
+_Avoid_: workflow (for the template), process
 
 ## The money
 

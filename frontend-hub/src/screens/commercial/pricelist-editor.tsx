@@ -1,8 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { Percent, Tag } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Field, Input, Money } from "@/components/ui/field"
+import { Choices, type Tile } from "@/components/ui/form"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, ErrorState } from "@/components/ui/states"
@@ -22,17 +24,21 @@ import {
   type TaxRuleInput,
 } from "@/lib/queries/commercial"
 import { cn } from "@/lib/utils"
+import { Question } from "@/screens/commercial/controls"
 import { Named } from "@/screens/commercial/parts"
-import {
-  cellKey,
-  localInput,
-  percent,
-  useActor,
-} from "@/screens/commercial/shared"
+import { cellKey, localInput, useActor } from "@/screens/commercial/shared"
 
 /// Monday first, ISO order — the numbering the engine stores, and the order a
 /// week is read in.
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const
+
+/// The two intents, and the difference between them is duration rather than
+/// direction: a sale price keeps the base price visible and expires, a
+/// permanent one moves the base and stays.
+const INTENTS: readonly Tile<"SALE" | "FIXED">[] = [
+  { value: "SALE", label: "Sale price", icon: Percent },
+  { value: "FIXED", label: "Permanent price", icon: Tag },
+]
 
 /// Writing prices from the grid.
 ///
@@ -277,7 +283,9 @@ export function SalePriceSheet({
           : Math.max(top, cell.currentMinor),
     null
   )
-  const below = typed !== null && highest !== null && typed < highest
+  /// A sale price above what the shop charges now. Legal — the engine only
+  /// refuses a negative number — and worth a second look before it goes out.
+  const above = typed !== null && highest !== null && typed > highest
 
   const untilAt = until === "" ? null : instantOf(until)
   const untilBroken = until !== "" && untilAt === null
@@ -309,10 +317,14 @@ export function SalePriceSheet({
           ? `${cells[0].articleCode} · ${cells[0].siteLabel}`
           : undefined
       }
+      // Three questions and a short table: the rail's default width left the
+      // price box a hand's width from its label.
+      className="md:w-[clamp(27.5rem,44vw,38rem)]"
       footer={
+        // Held in the bar until published; nothing reaches a till from here.
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.71875rem] text-mute">
-            Held here until you publish. Nothing reaches a till yet.
+          <span className="min-w-0 truncate text-[0.875rem] text-warn-fg">
+            {intent === "SALE" && above ? "Higher than the current price." : ""}
           </span>
           <Button
             variant="primary"
@@ -344,114 +356,39 @@ export function SalePriceSheet({
       }
     >
       <div className="flex flex-col gap-4">
-        <Field
-          label="New price"
-          hint={
-            typed === null
-              ? "Whole rupiah, as it would be written on a ticket."
-              : `${money(typed)} per unit.`
-          }
-          problem={problem}
-        >
+        <Field label="New price" problem={problem}>
           <Money
             value={price}
             onChange={setPrice}
             autoFocus
+            prefix="Rp"
             placeholder="95.000"
           />
         </Field>
 
-        {/* The two intents, and the difference between them is duration rather
-            than direction. A markdown keeps the base price visible and expires;
-            a fixed price moves the base and stays. The engine only refuses a
-            negative number — a markdown *above* the base is legal and is
-            sometimes exactly what somebody means — so the typed figure decides
-            which is offered first and never which is allowed. */}
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1.5 text-[0.78125rem] font-medium text-text">
-            What kind of change is this?
-          </legend>
-
-          <label
-            className={cn(
-              "flex cursor-pointer items-start gap-2.5 rounded-inner border px-3 py-2.5",
-              intent === "SALE"
-                ? "border-accent bg-accent-bg"
-                : "border-hairline"
-            )}
-          >
-            <input
-              type="radio"
-              name="intent"
-              checked={intent === "SALE"}
-              onChange={() => setIntent("SALE")}
-              className="mt-0.5 accent-accent"
-            />
-            <span className="min-w-0">
-              <span className="block text-[0.8125rem] font-medium text-ink">
-                Sale price
-              </span>
-              <span className="block text-[0.71875rem] leading-relaxed text-body">
-                Temporary. It replaces what the shop charges and leaves the
-                original price visible underneath, so a receipt can show what
-                was saved.
-                {below
-                  ? " Below the current price, which is the ordinary case."
-                  : typed !== null && highest !== null
-                    ? " Above the current price — legal, and worth a second look."
-                    : ""}
-              </span>
-            </span>
-          </label>
-
-          <label
-            className={cn(
-              "flex cursor-pointer items-start gap-2.5 rounded-inner border px-3 py-2.5",
-              intent === "FIXED"
-                ? "border-accent bg-accent-bg"
-                : "border-hairline"
-            )}
-          >
-            <input
-              type="radio"
-              name="intent"
-              checked={intent === "FIXED"}
-              onChange={() => setIntent("FIXED")}
-              className="mt-0.5 accent-accent"
-            />
-            <span className="min-w-0">
-              <span className="block text-[0.8125rem] font-medium text-ink">
-                Fixed price
-              </span>
-              <span className="block text-[0.71875rem] leading-relaxed text-body">
-                Permanent — it becomes what the style costs, with no old figure
-                underneath. It is written per product rather than per style, so
-                choosing this carries{" "}
-                {cells.length === 1
-                  ? "this cell"
-                  : `these ${count(cells.length)} cells`}{" "}
-                into the composer where the sizes and colours can be named.
-              </span>
-            </span>
-          </label>
-        </fieldset>
-
-        {intent === "FIXED" && (
-          <Banner tone="info">
-            Nothing is amended. A price book is a list of changes and the newest
-            book naming a product wins, so this pushes a new figure and the old
-            one stops being reached — there is no second act that retires it.
-          </Banner>
-        )}
+        {/* The typed figure decides nothing about which is allowed. A sale
+            price is written for the whole style at that shop — every colour
+            and size — and ends; a permanent price is written per product, so
+            choosing it carries these cells into the composer where the sizes
+            and colours can be named. */}
+        <Question label="Type">
+          <Choices
+            options={INTENTS}
+            value={intent}
+            onChange={setIntent}
+            columns={2}
+            className="grid-cols-2"
+            label="What kind of change this is"
+          />
+        </Question>
 
         {/* Only a sale price ends. A base price has no dates of its own at all
-            — `commercial_price_rule` carries none, and the engine reads the
-            book's window for every price in it — so offering an end date here
-            for a fixed price would be a control that quietly went nowhere. */}
+            — `commercial_price_rule` carries none — so an end date here for a
+            permanent price would be a control that quietly went nowhere. Empty
+            is a clearance that runs until the stock is gone. */}
         {intent === "SALE" && (
           <Field
-            label="On sale until"
-            hint="Leave empty for a clearance that runs until the stock is gone."
+            label="Sale ends (optional)"
             problem={
               untilBroken ? "That is not a date this can read." : undefined
             }
@@ -464,47 +401,26 @@ export function SalePriceSheet({
           </Field>
         )}
 
-        <div>
-          <MiniTable
-            head={["Cell", { label: "Now", align: "right" }, "Becomes"]}
-          >
-            {cells.map((cell) => (
-              <MiniRow key={cellKey(cell.articleCode, cell.siteId)}>
-                <MiniCell>
-                  <Named
-                    name={cell.articleName ?? cell.articleCode}
-                    code={`${cell.articleCode} · ${cell.siteLabel}`}
-                  />
-                </MiniCell>
-                <MiniCell align="right">
-                  <span className="text-mute">{money(cell.currentMinor)}</span>
-                </MiniCell>
-                <MiniCell align="right">
-                  <span className={typed === null ? "text-mute" : "text-ink"}>
-                    {typed === null ? "—" : money(typed)}
-                  </span>
-                </MiniCell>
-              </MiniRow>
-            ))}
-          </MiniTable>
-          <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
-            {intent === "SALE" ? (
-              <>
-                A sale price is written for the whole style at that shop — every
-                colour and every size. A style priced per size loses that spread
-                for as long as the sale runs, which is what a clearance normally
-                means and is worth knowing before it is published.
-              </>
-            ) : (
-              <>
-                A fixed price is written per product, so the spread across sizes
-                is kept — the composer opens with every product of these styles
-                listed and one price filled in, and any of them can be given its
-                own.
-              </>
-            )}
-          </p>
-        </div>
+        <MiniTable head={["Cell", { label: "Now", align: "right" }, "New"]}>
+          {cells.map((cell) => (
+            <MiniRow key={cellKey(cell.articleCode, cell.siteId)}>
+              <MiniCell>
+                <Named
+                  name={cell.articleName ?? cell.articleCode}
+                  code={`${cell.articleCode} · ${cell.siteLabel}`}
+                />
+              </MiniCell>
+              <MiniCell align="right">
+                <span className="text-mute">{money(cell.currentMinor)}</span>
+              </MiniCell>
+              <MiniCell align="right">
+                <span className={typed === null ? "text-mute" : "text-ink"}>
+                  {typed === null ? "—" : money(typed)}
+                </span>
+              </MiniCell>
+            </MiniRow>
+          ))}
+        </MiniTable>
       </div>
     </Sheet>
   )
@@ -788,6 +704,24 @@ export function PublishSheet({
     edits.length > 0 &&
     !publish.isPending
 
+  /// What is holding the button, said beside it.
+  const problem =
+    actor === ""
+      ? "Sign in to publish."
+      : name.trim() === ""
+        ? "Give this book a name."
+        : effectiveFrom === null
+          ? "Set when it starts."
+          : windowBroken
+            ? "The end has to be after the start."
+            : slotBroken
+              ? "Give both hours, or neither."
+              : taxConflict !== undefined
+                ? "Two prices disagree on tax."
+                : books.some((book) => book.from === null)
+                  ? "A shop's start date cannot be read."
+                  : undefined
+
   const halted =
     publish.error instanceof BookWrittenNotPublished ? publish.error : null
 
@@ -799,18 +733,23 @@ export function PublishSheet({
       id={`v${nextVersion}`}
       footer={
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.71875rem] text-mute">
-            {[
-              sales.length > 0
-                ? `${count(sales.length)} sale price${sales.length === 1 ? "" : "s"}`
-                : null,
-              priced.length > 0
-                ? `${count(priced.length)} new price${priced.length === 1 ? "" : "s"}`
-                : null,
-            ]
-              .filter((one) => one !== null)
-              .join(" · ")}
-            .
+          <span
+            className={cn(
+              "min-w-0 truncate text-[0.875rem]",
+              problem !== undefined ? "text-bad" : "text-text"
+            )}
+          >
+            {problem ??
+              [
+                sales.length > 0
+                  ? `${count(sales.length)} sale price${sales.length === 1 ? "" : "s"}`
+                  : null,
+                priced.length > 0
+                  ? `${count(priced.length)} new price${priced.length === 1 ? "" : "s"}`
+                  : null,
+              ]
+                .filter((one) => one !== null)
+                .join(" · ")}
           </span>
           <Button
             variant="primary"
@@ -844,36 +783,27 @@ export function PublishSheet({
           <ErrorState error={publish.error} />
         ) : null}
 
+        {/* A price carries no date of its own — every till reads the book's
+            window — so prices starting on different days go out as one book
+            per date. A shop reads every open book, so the later ones add a
+            price where they name one and leave the rest standing. */}
         {books.length > 1 && (
           <Banner tone="info">
-            These prices do not all start on the same day, and a price carries
-            no date of its own — every till reads the book's window. So this
-            writes {count(books.length)} books, v{nextVersion} to v
-            {nextVersion + books.length - 1}, one per date:{" "}
-            {books
-              .map(
-                (book) =>
-                  `${book.from === null ? "an unreadable date" : day(book.from)} (${count(book.prices.length)} price${book.prices.length === 1 ? "" : "s"})`
-              )
-              .join(", ")}
-            . A shop reads every book whose window is open, so the later ones
-            add a price where they name one and leave the rest standing.
+            Published as {count(books.length)} books, v{nextVersion}–v
+            {nextVersion + books.length - 1}, one per start date.
           </Banner>
         )}
 
+        {/* A book holds one rule per tax class, so one of the two readings
+            would be applied to both. */}
         {taxConflict !== undefined && (
           <Banner tone="bad">
-            Two of these prices are filed under {taxConflict.taxCategory} at
-            different rates. A book holds one rule per tax class, so one of the
-            two readings would be applied to both — discard the prices from one
-            of the batches and publish them separately.
+            Two prices are filed under {taxConflict.taxCategory} at different
+            rates. Publish them separately.
           </Banner>
         )}
 
-        <Field
-          label="What this book is called"
-          hint="How it will read in a shop's activation log, and on every price it sets."
-        >
+        <Field label="Name">
           <Input
             value={name}
             autoFocus
@@ -882,38 +812,37 @@ export function PublishSheet({
           />
         </Field>
 
-        <Field
-          label="In force from"
-          hint="Before this instant the tills keep charging what the last book gave them."
-        >
-          <Input
-            type="datetime-local"
-            value={from}
-            onChange={(event) => setFrom(event.target.value)}
-          />
-        </Field>
+        {/* Before the start the tills keep charging what the last book gave
+            them. The end is optional; each sale price can also end earlier on
+            its own. */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Starts">
+            <Input
+              type="datetime-local"
+              value={from}
+              onChange={(event) => setFrom(event.target.value)}
+            />
+          </Field>
+          <Field
+            label="Ends (optional)"
+            problem={
+              windowBroken ? "The end has to be after the start." : undefined
+            }
+          >
+            <Input
+              type="datetime-local"
+              value={until}
+              onChange={(event) => setUntil(event.target.value)}
+            />
+          </Field>
+        </div>
 
-        <Field
-          label="Until"
-          hint="Optional. The book stops applying then; each sale price can also end earlier on its own."
-          problem={
-            windowBroken ? "The end has to come after the start." : undefined
-          }
-        >
-          <Input
-            type="datetime-local"
-            value={until}
-            onChange={(event) => setUntil(event.target.value)}
-          />
-        </Field>
-
-        {/* Hours belong to a markdown and to nothing else. A base price has no
-            schedule at all, so on a book carrying only prices this control
-            would set a field with nowhere to go. */}
+        {/* Hours belong to a markdown and to nothing else, in the shop's own
+            time. Outside them the tills charge the full price again — the
+            label on the garment will not. */}
         {sales.length > 0 && (
           <Field
-            label="Only between these hours"
-            hint="Optional, and in the shop's own time. Leave empty and the sale prices are down all day."
+            label="Sale hours (optional)"
             problem={slotBroken ? "Give both hours, or neither." : undefined}
           >
             <div className="flex items-center gap-2">
@@ -922,7 +851,7 @@ export function PublishSheet({
                 value={slotFrom}
                 onChange={(event) => setSlotFrom(event.target.value)}
               />
-              <span className="text-[0.75rem] text-mute">to</span>
+              <span className="text-[0.875rem] text-mute">to</span>
               <Input
                 type="time"
                 value={slotTo}
@@ -946,7 +875,7 @@ export function PublishSheet({
                       )
                     }
                     className={cn(
-                      "h-7 rounded-full px-2.5 text-[0.71875rem] font-medium transition-colors",
+                      "h-7 rounded-full px-2.5 text-[0.875rem] font-medium transition-colors",
                       on
                         ? "bg-ink text-white"
                         : "border border-hairline-2 bg-canvas text-body"
@@ -957,21 +886,12 @@ export function PublishSheet({
                 )
               })}
             </div>
-            {/* Said where the decision is made, not in a document nobody opens.
-              A promotion outside its hours simply does not fire; a price drop
-              outside its hours means the ticket on the garment is wrong. */}
-            {(slotStart !== null || slotDays.length > 0) && (
-              <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
-                Outside these hours the tills charge the full price again — the
-                label on the garment will not.
-              </p>
-            )}
           </Field>
         )}
 
         {sales.length > 0 && (
           <div>
-            <SubHead aside="whole style, one shop">Sale prices</SubHead>
+            <SubHead>Sale prices</SubHead>
             <MiniTable
               head={["Cell", { label: "Until", align: "left" }, "Price"]}
             >
@@ -984,7 +904,7 @@ export function PublishSheet({
                     />
                   </MiniCell>
                   <MiniCell>
-                    <span className="text-[0.71875rem] text-body">
+                    <span className="text-[0.875rem] text-body">
                       {edit.until === null ? "No end date" : day(edit.until)}
                     </span>
                   </MiniCell>
@@ -997,7 +917,7 @@ export function PublishSheet({
 
         {priced.length > 0 && (
           <div>
-            <SubHead aside="per product">New prices</SubHead>
+            <SubHead>New prices</SubHead>
             <MiniTable
               head={["Product", { label: "Where", align: "left" }, "Price"]}
             >
@@ -1012,14 +932,14 @@ export function PublishSheet({
                     />
                   </MiniCell>
                   <MiniCell>
-                    <span className="block text-[0.71875rem] text-body">
+                    <span className="block text-[0.875rem] text-body">
                       {price.where}
                     </span>
                     {/* Only where it differs from the book's, because a date
                         printed on every row would read as a per-row window,
                         which is the one thing a price rule does not have. */}
                     {price.from !== null && (
-                      <span className="block text-[0.6875rem] text-mute">
+                      <span className="block text-[0.875rem] text-mute">
                         from {day(instantOf(price.from) ?? price.from)}
                       </span>
                     )}
@@ -1042,36 +962,8 @@ export function PublishSheet({
                 </MiniRow>
               ))}
             </MiniTable>
-            {taxRulesOf(priced).length > 0 && (
-              <p className="mt-2 text-[0.71875rem] leading-relaxed text-mute">
-                Filed under{" "}
-                {taxRulesOf(priced)
-                  .map(
-                    (tax) =>
-                      `${tax.tax_category} at ${percent(tax.rate_bps)}${tax.tax_inclusive ? ", inclusive" : ", on top"}`
-                  )
-                  .join(" · ")}
-                . A book that sets prices carries the tax rule that categorises
-                them; one that sets none may not.
-              </p>
-            )}
           </div>
         )}
-
-        <p className="text-[0.71875rem] leading-relaxed text-mute">
-          A book is a list of changes, not a replacement. Anything it does not
-          name keeps the price the last book gave it — and the newest book that
-          names a product wins, whether or not this one meant to touch it.
-          {priced.length > 0 && (
-            <>
-              {" "}
-              The book's window is when its prices apply.{" "}
-              {books.length > 1
-                ? "The date above is the first book's; the rest start when their prices asked."
-                : ""}
-            </>
-          )}
-        </p>
       </div>
     </Sheet>
   )

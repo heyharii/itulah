@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { FileWarning, LayoutGrid, Rows3, Search, Upload } from "lucide-react"
-import { useMemo, useRef, useState, useSyncExternalStore } from "react"
+import { useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
@@ -17,6 +17,7 @@ import { Pill } from "@/components/ui/pill"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
+import { usePanelDock } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
   listFiles,
@@ -94,7 +95,7 @@ const columns: ColumnDef<TableSetup, VaultRow>[] = [
           <span className="block truncate font-medium text-ink">
             {row.original.title}
           </span>
-          <span className="block truncate font-mono text-[0.65625rem] text-mute">
+          <span className="block truncate font-mono text-[0.875rem] text-mute">
             {row.original.source === "FILED" && row.original.folder.length > 0
               ? folderOf(row.original)
               : row.original.name}
@@ -182,7 +183,7 @@ const columns: ColumnDef<TableSetup, VaultRow>[] = [
     size: 120,
     meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
-      <span className="font-mono text-[0.65625rem] text-body">
+      <span className="font-mono text-[0.875rem] text-body">
         {fileKind(row.original.name)}
       </span>
     ),
@@ -362,7 +363,7 @@ export function Library() {
     <UploadZone onFiles={setPicked}>
       <PageContent>
         <PageHeader
-          title="Library"
+          title="Files"
           sub="Everything filed, and everything attached in a room you can read. One drawer."
         />
 
@@ -380,7 +381,7 @@ export function Library() {
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search the library"
               aria-label="Search the library"
-              className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+              className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
             />
           </span>
           {!docked && <FilterPanel model={filters} table={table} />}
@@ -401,7 +402,7 @@ export function Library() {
           />
         )}
 
-        <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
           <div className="flex min-w-0 flex-col">
             {queryState(drawer, {
               loading: "Opening the drawer…",
@@ -490,21 +491,15 @@ export function Library() {
 /// `lib/layout.ts`'s tiers: the panel's width is a fact about the panel and
 /// the table it leaves room for, not about what the shell can afford.
 ///
-/// Asked in JavaScript rather than written as `min-[1440px]:hidden`, and that
+/// Asked in JavaScript rather than written as `dock:hidden`, and that
 /// is not a style preference. The docked panel and the `<FilterPanel>` button
 /// are two doors onto the same `?filters=` sheet; hiding one with CSS leaves
 /// it mounted, and opening the filters would open two sheets stacked on each
 /// other. One of them exists at a time, so only one can answer.
 function useDockedFilters(): boolean {
-  return useSyncExternalStore(
-    (changed) => {
-      const query = window.matchMedia("(width >= 1440px)")
-      query.addEventListener("change", changed)
-      return () => query.removeEventListener("change", changed)
-    },
-    () => window.matchMedia("(width >= 1440px)").matches,
-    () => false
-  )
+  // The shell's answer, so this panel docks at the same page width as every
+  // other list's — see `usePanelDock` in `lib/layout.ts`.
+  return usePanelDock()
 }
 
 /// Grid or list, midday's switch.

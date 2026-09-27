@@ -16,7 +16,7 @@ ordered_value_minor: number,
  * What the deliveries were actually posted at. Equal to the ordered value
  * unless a delivery was posted and then had lines added to it.
  */
-suspend_value_minor: number, 
+receipt_value_minor: number, 
 /**
  * Billed minus posted. Positive is a debit to purchase price variance.
  */

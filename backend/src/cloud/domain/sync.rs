@@ -618,6 +618,59 @@ pub const COMMAND_COMMERCIAL_USAGE: &str = "commercial.usage.v1";
 pub struct CommercialUsagePayload {
     pub counted_at: DateTime<Utc>,
     pub counts: Vec<CommercialUsageCount>,
+    /// How far the centre had applied each shop's stream when it counted.
+    ///
+    /// A till counts its own sales as it rings them (edge `0043`) and has to
+    /// stop counting each one the moment the centre's figure includes it —
+    /// not before, or the sale is counted nowhere; not after, or it is counted
+    /// twice. Receiving a fact is not counting it: the centre counts a sale
+    /// when it APPLIES it, and only this says how far that had got. Read in
+    /// the same snapshot as `counts`, so the two describe one instant.
+    ///
+    /// Empty from a centre older than this field. A till then falls back to
+    /// what it can see itself — see `apply_commercial_usage` on the edge.
+    /// Additive on purpose: an older till ignores it, and the signature covers
+    /// the payload as sent, so it still verifies there.
+    #[serde(default)]
+    pub applied_through: Vec<UsageAppliedThrough>,
+    /// Each shop's allowance under a promotion head office has split between
+    /// the shops (postgres `0387`), with that shop's own count under it —
+    /// read in the same snapshot as `applied_through`, so the till adds its
+    /// own uncounted rows to it without missing or repeating a sale.
+    ///
+    /// Empty when nothing is split, and from a centre older than this field.
+    /// A till then enforces the fleet's count alone, as it always has.
+    #[serde(default)]
+    pub allowances: Vec<UsageAllowance>,
+}
+
+/// One shop's allowance under one split limit.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct UsageAllowance {
+    pub origin_id: String,
+    /// `RULE` or `CAMPAIGN`.
+    pub kind: String,
+    pub key: String,
+    /// What this shop may give away in total, where the budget is split.
+    #[serde(default)]
+    pub budget_minor: Option<i64>,
+    /// How many baskets, where the basket limit is split.
+    #[serde(default)]
+    pub max_uses: Option<i64>,
+    /// This shop's own sales under the limit, as the centre had counted them.
+    pub own_uses: i64,
+    pub own_spent_minor: i64,
+}
+
+/// One stream, and the last of its facts the centre had applied.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct UsageAppliedThrough {
+    pub origin_id: String,
+    /// Per generation, because a re-sequenced stream is a new one: a fact
+    /// acknowledged under the old generation keeps its old seq and is applied
+    /// under it.
+    pub generation: i64,
+    pub applied_seq: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -805,6 +858,32 @@ pub fn parse_commercial_usage(payload: &Value) -> Result<CommercialUsagePayload,
         }
         if count.uses < 0 || count.spent_minor < 0 {
             return Err("a usage count cannot be negative".into());
+        }
+    }
+    for allowance in &parsed.allowances {
+        if !matches!(allowance.kind.as_str(), "RULE" | "CAMPAIGN") {
+            return Err(format!("an allowance cannot be held on {}", allowance.kind));
+        }
+        if allowance.origin_id.trim().is_empty() || allowance.key.trim().is_empty() {
+            return Err("an allowance must name its shop and what it limits".into());
+        }
+        if allowance.budget_minor.is_some_and(|value| value < 0)
+            || allowance.max_uses.is_some_and(|value| value < 0)
+            || allowance.own_uses < 0
+            || allowance.own_spent_minor < 0
+        {
+            return Err(format!("an allowance for {} is out of range", allowance.key));
+        }
+    }
+    for stream in &parsed.applied_through {
+        if stream.origin_id.trim().is_empty() {
+            return Err("an applied-through entry must name its stream".into());
+        }
+        if stream.generation < 1 || stream.applied_seq < 0 {
+            return Err(format!(
+                "an applied-through entry for {} is out of range",
+                stream.origin_id
+            ));
         }
     }
     Ok(parsed)
@@ -1432,22 +1511,44 @@ pub struct AuthPolicySnapshot {
     pub issued_at: DateTime<Utc>,
     pub valid_until: DateTime<Utc>,
     pub content_hash: String,
+    /// Ed25519 verifier for one-time Cloud-to-Edge sign-in. It is conveyed
+    /// over this policy because the policy already travels on the signed
+    /// Cloud-to-Edge command lane.
+    #[serde(default)]
+    pub sso_public_key: Option<String>,
     pub users: Vec<AuthPolicyUser>,
     pub devices: Vec<AuthPolicyDevice>,
 }
 
 pub fn auth_policy_content_hash(snapshot: &AuthPolicySnapshot) -> String {
     use sha2::{Digest as _, Sha256};
-    let canonical = serde_json::to_vec(&(
-        snapshot.version,
-        &snapshot.origin_id,
-        &snapshot.site_id,
-        &snapshot.node_role,
-        snapshot.issued_at,
-        snapshot.valid_until,
-        &snapshot.users,
-        &snapshot.devices,
-    ))
+    // Preserve the exact canonical form used by already-issued keyless
+    // policies. A queued command from before SSO was configured must remain
+    // applicable after a Cloud upgrade. Once a key is present, it becomes
+    // part of the digest and rotates atomically with the policy version.
+    let canonical = match snapshot.sso_public_key.as_ref() {
+        Some(public_key) => serde_json::to_vec(&(
+            snapshot.version,
+            &snapshot.origin_id,
+            &snapshot.site_id,
+            &snapshot.node_role,
+            snapshot.issued_at,
+            snapshot.valid_until,
+            public_key,
+            &snapshot.users,
+            &snapshot.devices,
+        )),
+        None => serde_json::to_vec(&(
+            snapshot.version,
+            &snapshot.origin_id,
+            &snapshot.site_id,
+            &snapshot.node_role,
+            snapshot.issued_at,
+            snapshot.valid_until,
+            &snapshot.users,
+            &snapshot.devices,
+        )),
+    }
     .unwrap_or_default();
     hex::encode(Sha256::digest(canonical))
 }
@@ -1476,6 +1577,11 @@ pub fn parse_auth_policy(payload: &Value) -> Result<AuthPolicySnapshot, String> 
             .all(|character| character.is_ascii_hexdigit())
     {
         return Err("auth policy content_hash must be 64 hex characters".into());
+    }
+    if snapshot.sso_public_key.as_ref().is_some_and(|key| {
+        key.len() != 64 || !key.chars().all(|character| character.is_ascii_hexdigit())
+    }) {
+        return Err("auth policy SSO public key must be 64 hexadecimal characters".into());
     }
     let mut user_ids = HashSet::new();
     let mut usernames = HashSet::new();
@@ -1731,7 +1837,7 @@ mod catalog_tests {
             active: true,
             base_price_minor: Some(10_000),
             article_code: Some("ART-1".into()),
-            division_code: Some("MENSWEAR".into()),
+            division_code: Some("PRIA".into()),
             tags: vec!["LEBARAN".into()],
             image_url: Some(format!("https://cdn.example/{sku}.jpg")),
         }
@@ -1815,6 +1921,56 @@ mod catalog_tests {
 /// `movement_group_id`, so a reconciliation can always ask "does the stock
 /// that left match the stock that was billed".
 pub const FACT_SALES_COMPLETED: &str = "sales.completed";
+
+/// The shop took a sale back whole.
+///
+/// A void is not a delete on the shop's own ledger and is not one here either:
+/// the `edge_sale` row keeps its money, and this fact only flips its state.
+/// What the centre does with it is narrow and deliberate — mark the sale, so
+/// money reports can leave it out, and take back the points the sale had
+/// awarded. The campaign and coupon counters stay gross: a budget is a brake
+/// on giving, and the giving happened before the void did.
+///
+/// Carries no customer and no points on purpose. Both already sit on the
+/// `edge_sale` row the `sale_id` names; a second copy would be a second
+/// opinion about what the member has.
+pub const FACT_SALES_VOIDED: &str = "sales.voided";
+
+/// One shop's statement that a completed sale was voided.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SalesVoidedPayload {
+    pub sale_id: Uuid,
+    #[serde(default)]
+    pub site_id: Option<String>,
+    pub voided_at: DateTime<Utc>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub refund_minor: Option<i64>,
+    #[serde(default)]
+    pub actor_id: Option<String>,
+    #[serde(default)]
+    pub approved_by: Option<String>,
+}
+
+/// Parse a void fact. Little to check at the boundary — the centre holds the
+/// sale this names, and everything that matters about it — but the identity
+/// fields must be present, because an unattributable void is a state change
+/// nobody can be asked about.
+pub fn parse_sales_voided(payload: &Value) -> Result<SalesVoidedPayload, String> {
+    let voided: SalesVoidedPayload = serde_json::from_value(payload.clone())
+        .map_err(|e| format!("malformed {FACT_SALES_VOIDED} payload: {e}"))?;
+    if voided
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
+        return Err("a voided sale carries no reason".into());
+    }
+    Ok(voided)
+}
 
 /// A shop that took money and could not turn it into a sale.
 ///
@@ -2395,6 +2551,37 @@ mod sales_fact_tests {
 /// unit, and by when. Price stays at the centre.
 pub const COMMAND_PURCHASE_ORDER_ACTIVATE: &str = "purchase.order.activate";
 
+/// The same order, rewritten at the centre before anything arrived against
+/// it. The payload is the whole order in the activation's shape: a line whose
+/// `po_line_id` the DC already holds is updated, a new one is added, and one
+/// the order no longer lists is dropped.
+pub const COMMAND_PURCHASE_ORDER_REVISE: &str = "purchase.order.revise";
+
+/// An order the centre called off before anything arrived against it. The DC
+/// keeps its copy but takes it off the receiving bay's worklist and refuses
+/// any new count against it.
+pub const COMMAND_PURCHASE_ORDER_CANCEL: &str = "purchase.order.cancel";
+
+/// What the DC is told when an order is cancelled.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PurchaseOrderCancellation {
+    pub purchase_order_id: Uuid,
+    pub po_number: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+pub fn parse_purchase_order_cancellation(
+    payload: &Value,
+) -> Result<PurchaseOrderCancellation, String> {
+    let cancellation: PurchaseOrderCancellation = serde_json::from_value(payload.clone())
+        .map_err(|e| format!("malformed {COMMAND_PURCHASE_ORDER_CANCEL} payload: {e}"))?;
+    if cancellation.po_number.trim().is_empty() {
+        return Err("a cancelled purchase order still names its number".into());
+    }
+    Ok(cancellation)
+}
+
 /// A DC reporting what physically arrived against a PO line.
 /// One line of a delivery, counted and accepted by a second person.
 pub const FACT_GOODS_RECEIPT_LINE: &str = "goods_receipt.line";
@@ -2439,6 +2626,39 @@ pub struct PurchaseOrderLinePayload {
     pub unit_price_minor: i64,
     #[serde(default)]
     pub promised_date: Option<String>,
+    /// The unit the line was ordered in and the units it may be counted in.
+    /// `ordered_quantity` above stays pieces; this is how the bay reads and
+    /// types it (owner, 2026-09-26: order and count in any unit, keep pieces).
+    /// Absent on orders sent before it.
+    #[serde(default)]
+    pub units: Option<PurchaseLineUnits>,
+}
+
+/// How a purchase line is spoken of in units other than the piece.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PurchaseLineUnits {
+    /// What the buyer ordered in — `KODI` — or absent when it was pieces.
+    #[serde(default)]
+    pub order_unit_code: Option<String>,
+    /// How many of that unit, as a decimal string: "10", "9.5".
+    #[serde(default)]
+    pub order_unit_quantity: Option<String>,
+    /// Pieces in one of that unit, the day the order was placed.
+    #[serde(default)]
+    pub unit_factor: Option<String>,
+    /// Every unit the bay may count this item in, with its factor to pieces:
+    /// the base unit, the global conversions and the item's own pack sizes.
+    #[serde(default)]
+    pub count_units: Vec<CountUnit>,
+}
+
+/// One unit a count may be typed in.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CountUnit {
+    pub code: String,
+    pub label: String,
+    /// Pieces in one, as a decimal string.
+    pub factor: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -2451,6 +2671,11 @@ pub struct PurchaseOrderPayload {
     /// The DC this order is for. The command is addressed to exactly this
     /// site, never broadcast: goods arrive somewhere specific.
     pub destination_site_id: String,
+    /// Who raised the order at head office. The DC lets only this person
+    /// verify the counts against it (owner, 2026-09-26). Optional on the
+    /// wire: orders sent before it carry none.
+    #[serde(default)]
+    pub created_by: Option<String>,
     pub lines: Vec<PurchaseOrderLinePayload>,
 }
 
@@ -2660,7 +2885,7 @@ mod purchase_tests {
             "line_number": number,
             "article_code": "SANDANG-KMJ-LP-01",
             "article_name": "Kemeja Lengan Panjang",
-            "division_code": "MENSWEAR",
+            "division_code": "PRIA",
             "tags": ["KEMEJA", "LENGAN_PANJANG"],
             "ordered_quantity": qty,
             "unit_price_minor": 300_000,
@@ -2676,7 +2901,7 @@ mod purchase_tests {
         // Pieces, straight through. Nothing to convert, so nothing to get
         // wrong twice.
         assert_eq!(parsed.lines[0].ordered_quantity, 120);
-        assert_eq!(parsed.lines[0].division_code.as_deref(), Some("MENSWEAR"));
+        assert_eq!(parsed.lines[0].division_code.as_deref(), Some("PRIA"));
         assert_eq!(parsed.lines[0].tags, vec!["KEMEJA", "LENGAN_PANJANG"]);
     }
 

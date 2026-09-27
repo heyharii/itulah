@@ -19,7 +19,7 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
-import { count, day, moment } from "@/lib/format"
+import { day, moment } from "@/lib/format"
 import {
   listEdgeAssignments,
   listOrigins,
@@ -35,6 +35,7 @@ import {
   type EdgeAssignmentList,
   type RfidDevice,
   type RfidDeviceList,
+  type SyncOrigin,
 } from "@/lib/queries/system"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -52,7 +53,7 @@ import type { Role } from "@itulah/contract"
 /// omission: every field a row carries is already a column, so a sheet would
 /// cost a click and show nothing new. What a row needs is a decision — suspend,
 /// restore, rotate — and those sit in the row. The forms that write are
-/// composers, so their state is local: a half-typed PIN must never be
+/// composers, so their state is local: a half-typed password must never be
 /// linkable.
 ///
 /// Nothing here ever renders a secret. The server mints a reader's device key
@@ -184,7 +185,7 @@ function peopleColumns(on: {
             disabled={on.busy}
             onClick={() => on.rotate(row.original)}
           >
-            Rotate PIN
+            Rotate password
           </button>
           <button
             type="button"
@@ -324,9 +325,8 @@ export function Access() {
   const client = useQueryClient()
   const [tab, setTab] = useState<Tab>("people")
   const [query, setQuery] = useState("")
-  const [said, setSaid] = useState<string | null>(null)
   // Composer state: which record a form is being written FOR, not which record
-  // is open for reading. A half-typed PIN must not be linkable.
+  // is open for reading. A half-typed password must not be linkable.
   const [granting, setGranting] = useState<EdgeAssignment | null | "new">(null)
   const [registering, setRegistering] = useState(false)
   const [rotatingReader, setRotatingReader] = useState<RfidDevice | null>(null)
@@ -345,10 +345,7 @@ export function Access() {
       setEdgeAssignmentActive(input.row.origin_id, input.row.user_id, {
         active: input.active,
       }),
-    onSuccess: (done) => {
-      setSaid(
-        `${done.active ? "Restored" : "Suspended"} at ${done.origin_id}. Policy version ${count(done.policy.version)} is on its way to the node.`
-      )
+    onSuccess: () => {
       void client.invalidateQueries({ queryKey: systemKeys.edgeAssignments() })
       void client.invalidateQueries({ queryKey: systemKeys.fleet() })
     },
@@ -357,10 +354,7 @@ export function Access() {
   const switchReader = useMutation({
     mutationFn: (input: { row: RfidDevice; active: boolean }) =>
       setRfidDeviceActive(input.row.device_id, input.active),
-    onSuccess: (done) => {
-      setSaid(
-        `${done.device_id} is ${done.active ? "on" : "off"}. Policy version ${count(done.policy.version)} is on its way to ${done.origin_id}.`
-      )
+    onSuccess: () => {
       void client.invalidateQueries({ queryKey: systemKeys.rfidDevices() })
       void client.invalidateQueries({ queryKey: systemKeys.fleet() })
     },
@@ -426,11 +420,6 @@ export function Access() {
         }
       />
 
-      {said && (
-        <Banner tone="ok" className="mb-3" onDismiss={() => setSaid(null)}>
-          {said}
-        </Banner>
-      )}
       {failure && (
         <Banner tone="bad" className="mb-3">
           {saying(failure)}
@@ -471,17 +460,14 @@ export function Access() {
         }
         assignment={granting}
         onClose={() => setGranting(null)}
-        onDone={setSaid}
       />
       <RegisterReaderSheet
         open={registering}
         onClose={() => setRegistering(false)}
-        onDone={setSaid}
       />
       <RotateReaderSheet
         device={rotatingReader}
         onClose={() => setRotatingReader(null)}
-        onDone={setSaid}
       />
     </PageContent>
   )
@@ -647,27 +633,48 @@ function ReadersTab({
   )
 }
 
-/// Granting somebody access at a node, or rotating the PIN they use there.
+/// Granting somebody access at a node, changing their role there, or rotating
+/// the password they use there.
 ///
-/// One endpoint does both, and it deliberately does NOT restore a suspended
-/// assignment: handing out a new PIN and readmitting somebody are two
-/// decisions, and a form that silently did both would readmit people nobody
-/// meant to. The PIN is separate from their Cloud password by design — the same
-/// person signs in at head office with one credential and at a till with
-/// another, and the node never receives the Cloud one.
+/// One endpoint does all three, and it deliberately does NOT restore a
+/// suspended assignment: handing out a new password and readmitting somebody
+/// are two decisions, and a form that silently did both would readmit people
+/// nobody meant to. The node password is separate from their Cloud password by
+/// design — the same person signs in at head office with one credential and at
+/// a till with another, and the node never receives the Cloud one.
+///
+/// At a DC the password is optional: the hub signs people in there with their
+/// Cloud session, and a node password only matters for signing in while the
+/// Cloud link is down. Left empty on an existing grant, it keeps the one the
+/// grant already has.
 interface GrantDraft {
   originId: string
   userId: string
   role: Role | null
-  pin: string
+  edgePassword: string
   lease: string
 }
 
-/// A PIN, and — when the assignment does not already say — who and where.
-function grantReady(draft: GrantDraft, rotating: boolean): boolean {
+/// For a new grant: who, where, and a password unless the node is a DC. For an
+/// existing one: something to change.
+function grantReady(
+  draft: GrantDraft,
+  rotating: boolean,
+  atDc: boolean
+): boolean {
+  if (rotating) return draft.edgePassword !== "" || draft.role !== null
   return (
-    draft.pin !== "" &&
-    (rotating || (draft.originId !== "" && draft.userId !== ""))
+    draft.originId !== "" &&
+    draft.userId !== "" &&
+    (atDc || draft.edgePassword !== "")
+  )
+}
+
+/// Whether a node signs people in with their Cloud session. Only a DC does.
+function isDc(origins: readonly SyncOrigin[] | undefined, originId: string) {
+  return (
+    origins?.find((origin) => origin.origin_id === originId)?.node_role ===
+    "DC"
   )
 }
 
@@ -692,11 +699,9 @@ function readerReady(draft: ReaderDraft): boolean {
 function GrantSheet({
   assignment,
   onClose,
-  onDone,
 }: {
   assignment: EdgeAssignment | null | "new"
   onClose: () => void
-  onDone: (said: string) => void
 }) {
   const client = useQueryClient()
   const existing =
@@ -722,14 +727,11 @@ function GrantSheet({
         origin_id: existing?.origin_id ?? draft.originId,
         user_id: existing?.user_id ?? draft.userId,
         role: draft.role ?? existing?.role ?? "CASHIER",
-        edge_password: draft.pin,
+        edge_password: draft.edgePassword === "" ? null : draft.edgePassword,
         offline_ttl_seconds:
           draft.lease.trim() === "" ? null : Number(draft.lease),
       }),
-    onSuccess: (done) => {
-      onDone(
-        `${existing ? "Rotated the PIN" : "Granted access"} at ${done.origin_id}. Policy version ${count(done.policy.version)} is on its way to the node.`
-      )
+    onSuccess: () => {
       void client.invalidateQueries({ queryKey: systemKeys.edgeAssignments() })
       void client.invalidateQueries({ queryKey: systemKeys.fleet() })
       clear()
@@ -741,18 +743,21 @@ function GrantSheet({
     defaultValues: {
       originId: "",
       userId: "",
-      // `null` means "not touched": rotating a PIN keeps the role the
+      // `null` means "not touched": rotating a password keeps the role the
       // assignment already carries unless somebody deliberately changes it.
       // The sheet is reused across assignments, so a default read from the
       // record at mount would be the previous one's.
       role: null,
-      pin: "",
+      edgePassword: "",
       lease: "",
     } as GrantDraft,
     onSubmit: ({ value }) => grant.mutate(value),
   })
 
-  /// The PIN goes with the rest of the draft: it is never read back by anything,
+  const atDc = (values: GrantDraft) =>
+    isDc(origins.data, existing?.origin_id ?? values.originId)
+
+  /// The password goes with the rest of the draft: it is never read back by anything,
   /// so a closed sheet still holding one is a credential nobody is watching.
   function clear() {
     form.reset()
@@ -771,7 +776,7 @@ function GrantSheet({
       id={existing?.origin_id}
       title={
         existing
-          ? `Rotate ${existing.display_name}'s PIN`
+          ? `Change ${existing.display_name}'s node access`
           : "Grant access at a node"
       }
       footer={
@@ -786,7 +791,9 @@ function GrantSheet({
             Cancel
           </Button>
           <form.Subscribe
-            selector={(state) => grantReady(state.values, existing !== null)}
+            selector={(state) =>
+              grantReady(state.values, existing !== null, atDc(state.values))
+            }
           >
             {(ready) => (
               <Button
@@ -796,7 +803,7 @@ function GrantSheet({
                 {grant.isPending
                   ? "Saving…"
                   : existing
-                    ? "Rotate PIN"
+                    ? "Save"
                     : "Grant"}
               </Button>
             )}
@@ -810,7 +817,11 @@ function GrantSheet({
         onSubmit={(event) => {
           event.preventDefault()
           if (
-            grantReady(form.state.values, existing !== null) &&
+            grantReady(
+              form.state.values,
+              existing !== null,
+              atDc(form.state.values)
+            ) &&
             !grant.isPending
           ) {
             form.handleSubmit()
@@ -820,8 +831,9 @@ function GrantSheet({
       >
         {existing ? (
           <Banner tone="info">
-            Rotating a PIN does not restore a suspended assignment. Those are
-            two decisions, and this form only makes one of them.
+            Changing a role or a password does not restore a suspended
+            assignment. Those are two decisions, and this form only makes one
+            of them.
           </Banner>
         ) : null}
 
@@ -884,19 +896,33 @@ function GrantSheet({
           )}
         </form.Field>
 
-        <form.Field name="pin">
-          {(field) => (
-            <Field
-              label="PIN at this node"
-              hint="Hashed the moment it arrives. Never stored in the clear, never sent to the node, and never shown again."
-            >
-              <Secret
-                value={field.state.value}
-                onChange={(event) => field.handleChange(event.target.value)}
-              />
-            </Field>
+        <form.Subscribe selector={(state) => atDc(state.values)}>
+          {(dc) => (
+            <form.Field name="edgePassword">
+              {(field) => (
+                <Field
+                  label={
+                    dc
+                      ? "Offline password at this DC (optional)"
+                      : "Password at this node"
+                  }
+                  hint={
+                    dc
+                      ? "Not needed to sign in: the hub uses their Central Dashboard account. Set one only for signing in while the DC cannot reach the centre. Hashed on arrival and never shown again."
+                      : existing
+                        ? "Leave empty to keep the current one. Separate from the Cloud password; hashed on arrival and never shown again."
+                        : "Used to sign in at the till, separately from the Cloud password. Hashed on arrival and never shown again."
+                  }
+                >
+                  <Secret
+                    value={field.state.value}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                  />
+                </Field>
+              )}
+            </form.Field>
           )}
-        </form.Field>
+        </form.Subscribe>
 
         <form.Field name="lease">
           {(field) => (
@@ -924,16 +950,13 @@ function GrantSheet({
 ///
 /// The server mints a device key and returns it exactly once. This console does
 /// not receive it — the query layer drops it — so provisioning the reader is
-/// done at the node, and the banner says so rather than pretending the job is
-/// finished here.
+/// done at the node.
 function RegisterReaderSheet({
   open,
   onClose,
-  onDone,
 }: {
   open: boolean
   onClose: () => void
-  onDone: (said: string) => void
 }) {
   const client = useQueryClient()
 
@@ -958,10 +981,7 @@ function RegisterReaderSheet({
         offline_ttl_seconds:
           draft.lease.trim() === "" ? null : Number(draft.lease),
       }),
-    onSuccess: (done) => {
-      onDone(
-        `${done.device_id} is registered at ${done.origin_id}, policy version ${count(done.policy.version)}. Its key was issued once and is not shown here — provision the reader from the node.`
-      )
+    onSuccess: () => {
       void client.invalidateQueries({ queryKey: systemKeys.rfidDevices() })
       void client.invalidateQueries({ queryKey: systemKeys.fleet() })
       clear()
@@ -1132,20 +1152,15 @@ function RegisterReaderSheet({
 function RotateReaderSheet({
   device,
   onClose,
-  onDone,
 }: {
   device: RfidDevice | null
   onClose: () => void
-  onDone: (said: string) => void
 }) {
   const client = useQueryClient()
 
   const rotate = useMutation({
     mutationFn: () => rotateRfidDeviceKey(device!.device_id),
-    onSuccess: (done) => {
-      onDone(
-        `${done.device_id} has a new key, policy version ${count(done.policy.version)}. The old one stops working when that reaches ${done.origin_id} — provision the reader again from the node.`
-      )
+    onSuccess: () => {
       void client.invalidateQueries({ queryKey: systemKeys.rfidDevices() })
       void client.invalidateQueries({ queryKey: systemKeys.fleet() })
       onClose()
@@ -1162,7 +1177,7 @@ function RotateReaderSheet({
         }
       }}
       id={device?.device_id}
-      title="Retire this reader's key"
+      title="Cancel this reader's key"
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="quiet" onClick={onClose}>
@@ -1184,7 +1199,7 @@ function RotateReaderSheet({
           node, and the new key is not shown in this console. Somebody has to be
           at {device?.origin_id ?? "the node"} to provision it again.
         </Banner>
-        <p className="text-[0.78125rem] text-body">
+        <p className="text-[0.875rem] text-body">
           {device?.label} · last seen{" "}
           {device?.last_seen_at ? moment(device.last_seen_at) : "never"}.
         </p>

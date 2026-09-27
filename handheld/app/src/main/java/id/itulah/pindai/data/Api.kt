@@ -153,6 +153,43 @@ class Api(
     }
 
     /**
+     * Deliveries announced to this shop. See [Inbound] for why none of them
+     * carries a quantity while it is in transit.
+     *
+     * Operator-authenticated, like every store action: the bearer token rides
+     * along from Setelan exactly as it does for packing and counting.
+     */
+    fun inboundDeliveries(status: String = Inbound.IN_TRANSIT): JSONObject =
+        get("/api/v1/store/inbound?status=" + java.net.URLEncoder.encode(status, "UTF-8"))
+
+    /** One delivery, with its lines once it has been received. */
+    fun inboundDelivery(deliveryId: String): JSONObject =
+        get("/api/v1/store/inbound/" + pathSegment(deliveryId))
+
+    /**
+     * Receive one delivery: every tag of ours this sweep found, in ONE request.
+     *
+     * One, not chunks. The comparison the node answers with is only true over
+     * the whole delivery — a first chunk would report everything in the second
+     * as missing, and the node closes the delivery on the first receive it
+     * accepts. The node takes up to [Inbound.MAX_EPCS], which is more than a
+     * lorry carries.
+     */
+    fun receiveInbound(
+        deliveryId: String,
+        epcs: List<String>,
+        actorId: String,
+        idempotencyKey: String,
+    ): JSONObject {
+        val payload = JSONObject().apply {
+            put("epcs", JSONArray().apply { epcs.forEach { put(it) } })
+            put("actor_id", actorId)
+            put("idempotency_key", idempotencyKey)
+        }
+        return post("/api/v1/store/inbound/" + pathSegment(deliveryId) + "/receive", payload)
+    }
+
+    /**
      * Open the socket before anything needs it.
      *
      * The first request of a sweep pays for the connection; every later one
@@ -169,6 +206,10 @@ class Api(
             emptyMap(), false)
         return response.optString("token")
     }
+
+    /** An id as one URL path segment. `URLEncoder` is for queries, hence the `+`. */
+    private fun pathSegment(id: String): String =
+        java.net.URLEncoder.encode(id.trim(), "UTF-8").replace("+", "%20")
 
     @Synchronized
     private fun nextSequence(): Long {

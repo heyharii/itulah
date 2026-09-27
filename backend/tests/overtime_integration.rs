@@ -99,6 +99,8 @@ fn browser(set_cookies: &[String]) -> (String, String) {
 
 fn config() -> AppConfig {
     AppConfig {
+        po_import: inventory_backend::cloud::intake::po::PoImportConfig::from_env(),
+        clock: None,
         bind_addr: "127.0.0.1:0"
             .parse::<SocketAddr>()
             .unwrap_or_else(|error| panic!("bind: {error}")),
@@ -109,6 +111,7 @@ fn config() -> AppConfig {
         observed_window_hours: 24,
         lost_risk_window_days: 30,
         enable_test_controls: false,
+        finance_automation_enabled: false,
         frontend_dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend"),
         sync_upload_url: None,
         sync_upload_key: None,
@@ -418,6 +421,14 @@ async fn a_supervisor_cannot_answer_for_the_worker(pool: PgPool) {
     assert_eq!(agreed.body["authorized_minutes"], 120);
     assert_eq!(agreed.body["answered_by"], "siti");
     assert_eq!(agreed.body["answered_reason"], "bersedia");
+
+    // Nor may she order her own evening, by id or as `me`: she would then be
+    // the one to agree to it, and the two written acts would be one person's.
+    for subject in [rina.as_str(), "me"] {
+        let own =
+            order_overtime(&app, &hers, &her_csrf, subject, "OT-0009", "2026-04-07", 60).await;
+        assert_eq!(own.status, StatusCode::FORBIDDEN, "{subject}: {:?}", own.body);
+    }
 }
 
 /// A refusal a sufficiently senior person can reverse is not a refusal.

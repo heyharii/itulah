@@ -142,7 +142,7 @@ export function NoAccessState({
 }
 
 const banner = cva(
-  "flex items-start gap-2.5 rounded-inner px-3.5 py-2.5 text-[0.71875rem] leading-relaxed",
+  "flex items-start gap-2.5 rounded-inner px-3.5 py-2.5 text-[0.875rem] leading-relaxed",
   {
     variants: {
       tone: {

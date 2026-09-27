@@ -24,7 +24,13 @@ import {
 } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
-import { count, day, label, money, toneFor } from "@/lib/format"
+import { count, label, moment, money, toneFor } from "@/lib/format"
+import {
+  changeKeys,
+  eventKeys,
+  listPriceChanges,
+  listPriceEvents,
+} from "@/lib/queries/changes"
 import {
   CATALOGUE_PAGE,
   commercialFleet,
@@ -38,13 +44,14 @@ import {
   type PromotionRow,
   type PromotionUsage,
   type PublishReceipt,
-  type UsageReceipt,
+  type ShopActivation,
 } from "@/lib/queries/commercial"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { PerformanceHeader } from "@/screens/commercial/performance-header"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Switch } from "@/components/ui/form"
+import { HardCap } from "@/screens/commercial/allocation"
 import { RuleForm } from "@/screens/commercial/rule-form"
 import { Terms } from "@/screens/commercial/controls"
 import {
@@ -110,6 +117,10 @@ interface PromotionLine {
   /// How many shops are charging the book this rule arrived in. Empty is the
   /// interesting case: published, and reaching no till.
   readonly reached: number
+  /// How many shops reported they could NOT put that book into service. Read
+  /// from the rollout, which is the shop's own account — a failure is never a
+  /// subtraction.
+  readonly failed: number
 }
 
 /// What a promotion has actually been taken up on: how often, and what that
@@ -142,14 +153,42 @@ function Usage({ usage }: { usage: PromotionUsage | null }) {
 /// were missing or none. Zero keeps its warning rather than becoming "0 / 13"
 /// in the ordinary type: a published promotion reaching nobody costs nothing
 /// and sells nothing, and in a list of live offers it reads as success.
-function Reached({ shops, of }: { shops: number; of: number | null }) {
+function Reached({
+  shops,
+  failed,
+  of,
+}: {
+  shops: number
+  failed: number
+  of: number | null
+}) {
   const total = of === null ? null : ` / ${count(of)}`
-  return shops === 0 ? (
-    <Pill tone="warn">0{total ?? " shops"}</Pill>
-  ) : (
-    <span className="text-text tabular-nums">
-      {count(shops)}
-      {total === null ? " shops" : <span className="text-mute">{total}</span>}
+  // Every shop that has neither applied the book nor said it could not. The
+  // fleet is the denominator because a promotion book goes to every shop; a
+  // shop that has not reported yet is outstanding whether or not it was told.
+  const pending = of === null ? 0 : Math.max(of - shops - failed, 0)
+  return (
+    <span className="inline-flex items-center justify-end gap-1.5 whitespace-nowrap tabular-nums">
+      {shops === 0 ? (
+        <Pill tone="warn">0{total ?? " shops"}</Pill>
+      ) : (
+        <span className="text-text">
+          {count(shops)}
+          {total === null ? (
+            " shops"
+          ) : (
+            <span className="text-mute">{total}</span>
+          )}
+        </span>
+      )}
+      {pending > 0 && (
+        <span className="text-warn-fg">· {count(pending)} pending</span>
+      )}
+      {failed > 0 && (
+        <span className="font-medium text-bad-fg">
+          · {count(failed)} failed
+        </span>
+      )}
     </span>
   )
 }
@@ -204,7 +243,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     header: "Applies to",
     size: 160,
     // **Not a facet.** The accessor is a sentence `describeScope` composes —
-    // "3 products", "Division MENSWEAR", "The whole basket" — so a picker over
+    // "3 products", "Division PRIA", "The whole basket" — so a picker over
     // it would offer one option per rule rather than one per kind of scope,
     // and ticking "2 articles" would narrow to the two unrelated rules that
     // happen to name two articles each. The kind is not on the row to ask
@@ -236,7 +275,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     id: "reached",
     accessorFn: (row) => row.reached,
     header: "Stores",
-    size: 110,
+    size: 190,
     // Published and in force are different things, and this is the clause that
     // separates them: a promotion used 0 times in 13 shops has not caught on,
     // and one used 0 times in 0 shops was never carried anywhere. They look
@@ -248,6 +287,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     cell: ({ row, table }) => (
       <Reached
         shops={row.original.reached}
+        failed={row.original.failed}
         of={actionsOf<PromotionLine>(table)?.shops ?? null}
       />
     ),
@@ -373,7 +413,6 @@ export function Promotions() {
   const [phase, setPhase] = useState<(typeof PHASES)[number]["value"]>("ALL")
   const [writing, setWriting] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
-  const [sent, setSent] = useState<UsageReceipt | null>(null)
   const [receipt, setReceipt] = useState<PublishReceipt | null>(null)
   const [sorting, setSorting] = useState<SortingState>([
     { id: "usage", desc: true },
@@ -399,6 +438,25 @@ export function Promotions() {
   })
   const shops = fleet.data?.shop_count ?? null
 
+  /// What each book's rollout says, for the failures. Settled books included,
+  /// because a promotion keeps running from a book long after the Changes list
+  /// has stopped calling it work.
+  const changes = useQuery({
+    queryKey: changeKeys.list(true),
+    queryFn: ({ signal }) => listPriceChanges(true, signal),
+    staleTime: 30_000,
+  })
+  const failedByBook = useMemo(
+    () =>
+      new Map(
+        (changes.data ?? []).map((one) => [
+          one.publication_id,
+          one.rollout.failed,
+        ])
+      ),
+    [changes.data]
+  )
+
   /// The two halves joined here and nowhere else. The count is an observation
   /// and changes with every sale; the limit is a decision, frozen with the book
   /// that declared it. A rule that has never fired is absent from usage — which
@@ -415,8 +473,9 @@ export function Promotions() {
         row,
         usage: byKey.get(`RULE:${row.rule_id}`) ?? null,
         reached: row.book.activated_by.length,
+        failed: failedByBook.get(row.book.id) ?? 0,
       })),
-    [catalogue.data, byKey]
+    [catalogue.data, byKey, failedByBook]
   )
 
   /// Pause and resume, through the one function that knows how a status is
@@ -437,6 +496,7 @@ export function Promotions() {
         // two decisions, not one retried.
         idempotencyKey: crypto.randomUUID(),
       }),
+    onSuccess: (published) => setReceipt(published),
     onSettled: () => {
       setBusy(null)
       client.invalidateQueries({ queryKey: commercialKeys.all })
@@ -447,8 +507,7 @@ export function Promotions() {
 
   const send = useMutation({
     mutationFn: () => publishUsageToFleet(actor, idempotencyKey),
-    onSuccess: (result) => {
-      setSent(result)
+    onSuccess: () => {
       // Sending does not change what has been given away — these counts come
       // from sales, not from dispatches. The read is refreshed only so the
       // receipt describes the figures now on screen rather than a list somebody
@@ -562,34 +621,10 @@ export function Promotions() {
         </div>
       )}
 
-      {receipt && (
-        <Banner
-          tone={receipt.delivered_to.length > 0 ? "ok" : "warn"}
-          className="mb-4"
-          onDismiss={() => setReceipt(null)}
-        >
-          {receipt.delivered_to.length > 0 ? (
-            <>
-              Book v{receipt.version} published and queued for{" "}
-              {count(receipt.delivered_to.length)} shop
-              {receipt.delivered_to.length === 1 ? "" : "s"} (
-              {receipt.delivered_to.join(", ")}).
-            </>
-          ) : (
-            <>
-              Book v{receipt.version} published, and queued for nobody. No shop
-              origin is registered, so this offer will never apply anywhere.
-            </>
-          )}
-        </Banner>
-      )}
-
-      {sent && (
-        <Banner tone="ok" className="mb-4" onDismiss={() => setSent(null)}>
-          Counts as at {day(sent.counted_at)} sent to{" "}
-          {count(sent.sent_to.length)} shop
-          {sent.sent_to.length === 1 ? "" : "s"}. Until each one takes the
-          message, it is still enforcing from the count before this.
+      {receipt && receipt.delivered_to.length === 0 && (
+        <Banner tone="warn" className="mb-4" onDismiss={() => setReceipt(null)}>
+          Book v{receipt.version} published, and queued for nobody. No shop
+          origin is registered, so this offer will never apply anywhere.
         </Banner>
       )}
 
@@ -607,7 +642,7 @@ export function Promotions() {
           every other list in the module. The phase tabs and the search stay
           over the table: they are what somebody reaches for first, and the
           rail is where the fields live. */}
-      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
           <Toolbar className="mb-3">
             <Segmented options={PHASES} value={phase} onChange={setPhase} />
@@ -675,15 +710,6 @@ export function Promotions() {
                 ),
             })}
           </Card>
-
-          {catalogue.data && (
-            // Where the list comes from, and the one rule worth knowing.
-            <p className="mt-2.5 text-[0.71875rem] text-mute">
-              Drawn from {count(catalogue.data.book_count)} published book
-              {catalogue.data.book_count === 1 ? "" : "s"}. Where one rule is in
-              several, the newest wins — as it does at a till.
-            </p>
-          )}
         </div>
 
         <DockedFilters model={filters} id="promotions" subject="Promotion" />
@@ -691,6 +717,7 @@ export function Promotions() {
 
       <PromotionSheet
         line={promotions.find((one) => one.row.rule_id === sheet.value) ?? null}
+        fleet={fleet.data?.items ?? []}
         onClose={sheet.close}
       />
 
@@ -799,16 +826,20 @@ function campaignFor(
 /// the reader to stop looking at it, and then it is missed on the tenth.
 function PromotionSheet({
   line,
+  fleet,
   onClose,
 }: {
   line: PromotionLine | null
+  /// Every registered shop, so the Activity tab can name the ones that have
+  /// said nothing at all — the row a list of reports can never contain.
+  fleet: readonly ShopActivation[]
   onClose: () => void
 }) {
   const spent = line?.usage?.spent_minor ?? 0
   const share = consumed(spent, line?.usage?.budget_minor ?? null)
   const rule = line?.row.definition
   // Codes rather than words: a published rule carries what it matches on, and
-  // the master list that turns `MENSWEAR` into "Menswear" is not fetched for a
+  // the master list that turns `PRIA` into "Pria" is not fetched for a
   // panel — so the code is shown, which is also what a shop's own log says.
   const reading = rule === undefined ? null : termsOf(rule)
   const coupon =
@@ -905,17 +936,6 @@ function PromotionSheet({
                             : count(caps.max_uses)}
                         </Fact>
                       </Facts>
-                      {/* Said out loud because the counter is the only place
-                          these numbers come from, and a coupon nobody has
-                          presented looks exactly like a coupon that does not
-                          work. */}
-                      <p className="text-meta text-mute">
-                        One code, counted at the centre from the sales the shops
-                        have reported. A till enforces the limit with the count
-                        it last received, so a code at its ceiling can still be
-                        taken once or twice before every shop hears — the number
-                        that binds is this one.
-                      </p>
                     </div>
                   ),
                 },
@@ -949,34 +969,21 @@ function PromotionSheet({
                     />
                   </div>
                 )}
+
+                {/* Only where the rule declares a limit: there is nothing
+                    else to split. */}
+                {(caps?.budget != null || caps?.max_uses != null) && (
+                  <HardCap kind="RULE" subject={line.row.rule_id} />
+                )}
               </div>
             ),
           },
           {
             value: "activity",
-            label: `Activity (${count(line.row.book.activated_by.length)})`,
-            content: (
-              <div>
-                <SubHead aside={count(line.reached)}>In service at</SubHead>
-                {line.row.book.activated_by.length === 0 ? (
-                  // Published and reaching nobody looks exactly like success
-                  // everywhere else on this screen, so it is said in words.
-                  <p className="py-3 text-meta text-mute">
-                    No shop has put the book carrying this promotion into
-                    service, so it is applying nowhere yet.
-                  </p>
-                ) : (
-                  <MiniTable head={["Shop", { label: "Since", align: "left" }]}>
-                    {line.row.book.activated_by.map((shop) => (
-                      <MiniRow key={shop.origin_id}>
-                        <MiniCell>{shop.site_id ?? shop.origin_id}</MiniCell>
-                        <MiniCell>{day(shop.activated_at)}</MiniCell>
-                      </MiniRow>
-                    ))}
-                  </MiniTable>
-                )}
-              </div>
-            ),
+            label: `Activity (${count(line.reached)}${
+              fleet.length > 0 ? `/${count(fleet.length)}` : ""
+            })`,
+            content: <Rollout line={line} fleet={fleet} />,
           },
         ]
 
@@ -1007,4 +1014,185 @@ function PromotionSheet({
       {null}
     </Sheet>
   )
+}
+
+type ShopState = "ACTIVE" | "FAILED" | "PENDING" | "SILENT"
+
+/// One shop's standing on the book a promotion arrived in.
+interface ShopStanding {
+  readonly origin_id: string
+  readonly name: string
+  readonly state: ShopState
+  /// When the state was reached: applied, failed, or handed over.
+  readonly at: string | null
+  /// The shop's own words, when it could not apply the book.
+  readonly error: string | null
+}
+
+/// Worst first: a failure needs a phone call, a shop that has said nothing
+/// needs a look, and one in service needs nothing.
+const STATE_ORDER: Record<ShopState, number> = {
+  FAILED: 0,
+  PENDING: 1,
+  SILENT: 2,
+  ACTIVE: 3,
+}
+
+/// Every shop against the book this promotion arrived in: in service, told
+/// and not yet applied, tried and failed, or never heard from.
+///
+/// Built from the book's own event log — the rollout rows as `SENT`,
+/// `ACTIVATED` and `FAILED`, each stamped with the shop it came from — laid
+/// over the fleet, so a shop with no report at all is still a row. The
+/// activations carried on the catalogue are folded in too: they are the same
+/// fact, and a log read with a limit must never be what makes a shop that is
+/// charging these prices look as if it is not.
+function Rollout({
+  line,
+  fleet,
+}: {
+  line: PromotionLine
+  fleet: readonly ShopActivation[]
+}) {
+  const book = line.row.book
+  const events = useQuery({
+    queryKey: eventKeys.list(book.version, null),
+    queryFn: ({ signal }) => listPriceEvents(book.version, null, 200, signal),
+    staleTime: 30_000,
+  })
+
+  const standings = useMemo(() => {
+    const names = new Map(
+      fleet.map((shop) => [
+        shop.origin_id,
+        shop.label ?? shop.site_id ?? shop.origin_id,
+      ])
+    )
+    const told = new Map<string, string>()
+    const applied = new Map<string, string>()
+    const failed = new Map<string, { at: string; error: string | null }>()
+    for (const event of events.data ?? []) {
+      // The shop is the event's actor on every per-shop kind.
+      if (event.publication_id !== book.id || event.actor === null) continue
+      if (event.kind === "SENT") told.set(event.actor, event.at)
+      else if (event.kind === "ACTIVATED") applied.set(event.actor, event.at)
+      else if (event.kind === "FAILED")
+        failed.set(event.actor, { at: event.at, error: event.detail })
+    }
+    for (const shop of book.activated_by)
+      applied.set(shop.origin_id, shop.activated_at)
+
+    const origins = new Set([
+      ...names.keys(),
+      ...told.keys(),
+      ...applied.keys(),
+      ...failed.keys(),
+    ])
+    return [...origins]
+      .map((origin): ShopStanding => {
+        const name = names.get(origin) ?? origin
+        const done = applied.get(origin)
+        if (done !== undefined)
+          return {
+            origin_id: origin,
+            name,
+            state: "ACTIVE",
+            at: done,
+            error: null,
+          }
+        const broke = failed.get(origin)
+        if (broke !== undefined)
+          return {
+            origin_id: origin,
+            name,
+            state: "FAILED",
+            at: broke.at,
+            error: broke.error,
+          }
+        const sent = told.get(origin)
+        return {
+          origin_id: origin,
+          name,
+          state: sent === undefined ? "SILENT" : "PENDING",
+          at: sent ?? null,
+          error: null,
+        }
+      })
+      .sort(
+        (left, right) =>
+          STATE_ORDER[left.state] - STATE_ORDER[right.state] ||
+          left.name.localeCompare(right.name)
+      )
+  }, [events.data, fleet, book])
+
+  const tally = (state: ShopState) =>
+    standings.filter((one) => one.state === state).length
+  const waiting = tally("PENDING") + tally("SILENT")
+  const summary = [
+    `${count(tally("ACTIVE"))} in service`,
+    waiting > 0 && `${count(waiting)} pending`,
+    tally("FAILED") > 0 && `${count(tally("FAILED"))} failed`,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+
+  return (
+    <div>
+      <SubHead aside={summary}>Shops · v{book.version}</SubHead>
+      {events.isError && (
+        <Banner tone="warn" className="mb-3">
+          The rollout log is not answering, so only the shops in service are
+          shown.
+        </Banner>
+      )}
+      {standings.length === 0 ? (
+        <p className="py-3 text-meta text-mute">No shop is registered.</p>
+      ) : (
+        <MiniTable
+          head={[
+            "Shop",
+            { label: "Status", align: "left" },
+            { label: "When", align: "left" },
+          ]}
+        >
+          {standings.map((shop) => (
+            <MiniRow key={shop.origin_id}>
+              <MiniCell>
+                <span className="block truncate text-ink">{shop.name}</span>
+                {shop.error !== null && (
+                  <span className="mt-0.5 block text-[0.875rem] leading-relaxed whitespace-normal text-bad-fg">
+                    {shop.error}
+                  </span>
+                )}
+              </MiniCell>
+              <MiniCell>
+                <Pill tone={STATE_TONE[shop.state]}>
+                  {STATE_WORD[shop.state]}
+                </Pill>
+              </MiniCell>
+              <MiniCell>
+                <span className="text-[0.875rem] text-body tabular-nums">
+                  {shop.at === null ? "—" : moment(shop.at)}
+                </span>
+              </MiniCell>
+            </MiniRow>
+          ))}
+        </MiniTable>
+      )}
+    </div>
+  )
+}
+
+const STATE_WORD: Record<ShopState, string> = {
+  ACTIVE: "In service",
+  FAILED: "Failed",
+  PENDING: "Sent, not applied",
+  SILENT: "No report",
+}
+
+const STATE_TONE: Record<ShopState, "ok" | "bad" | "warn" | "neutral"> = {
+  ACTIVE: "ok",
+  FAILED: "bad",
+  PENDING: "warn",
+  SILENT: "neutral",
 }

@@ -1063,6 +1063,66 @@ pub async fn ple_delink(
     })
 }
 
+/// Take ONE allocation back, leaving the payment and the obligation both open.
+///
+/// [`ple_delink`] is all-or-nothing for a voucher: every settlement it made
+/// goes at once, which is what undoing the payment means. Unmatching is
+/// smaller — one obligation was answered by mistake and the money should
+/// answer something else — so this is the settlement-scoped cut of the same
+/// act, keyed on the open item the settlement landed on. Rematching is an
+/// unmatch and then an allocate, never a move: a failure halfway has to say
+/// which half happened.
+///
+/// The entry's `outstanding_minor` needs no arithmetic here. It is generated
+/// from the settlement rows (0143) and re-summed by trigger, so flipping
+/// `delinked` IS the restore — the same reason [`ple_delink`] carries none.
+pub async fn ple_unsettle(
+    tx: &mut Transaction<'_, Postgres>,
+    against_voucher_kind: &str,
+    against_voucher_id: &str,
+    entry_id: Uuid,
+    reason: &str,
+    actor: &str,
+) -> Result<i64, AppError> {
+    let kind = against_voucher_kind.trim();
+    let voucher = against_voucher_id.trim();
+    if kind.is_empty() || voucher.is_empty() {
+        return Err(AppError::Validation(
+            "unmatching needs the document whose allocation is being taken back".into(),
+        ));
+    }
+    let why = reason.trim();
+    if why.is_empty() {
+        return Err(AppError::Validation(
+            "unmatching needs a reason; it is the only record of why the money was pointed \
+             somewhere else"
+                .into(),
+        ));
+    }
+    let row = sqlx::query(
+        "UPDATE payment_ledger_settlement
+            SET delinked=true, delinked_reason=$4, delinked_by=$5,
+                delinked_at=now(), delinked_on=CURRENT_DATE
+          WHERE against_voucher_kind=$1 AND against_voucher_id=$2
+            AND entry_id=$3 AND NOT delinked
+          RETURNING amount_minor",
+    )
+    .bind(kind)
+    .bind(voucher)
+    .bind(entry_id)
+    .bind(why)
+    .bind(actor)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| {
+        AppError::NotFound(format!(
+            "an open allocation by {kind} {voucher} against this obligation -- there is \
+             nothing taken back to take back"
+        ))
+    })?;
+    Ok(row.try_get("amount_minor")?)
+}
+
 // ---------------------------------------------------------------------------
 // Reading
 // ---------------------------------------------------------------------------

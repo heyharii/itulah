@@ -1,0 +1,313 @@
+account_code,name,parent_code,root_class,depth,is_group,posting_leaf,normal_balance_candidate,is_contra_candidate,dimension_candidate,requires_counterparty_candidate,source_code_candidate,source_match_status,source_match_basis,source_site_codes,statement_section_candidate,dimension_basis
+1000,CURRENT ASSET,1,1,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+1001,KAS & SETARA KAS,1000,1,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+1002,CASH ON HAND,1001,1,4,false,true,D,false,UNIT,false,1011001001,MAPPED,exact,14,ASSET,client location variants
+1003,PETTY CASH,1001,1,4,false,true,D,false,UNIT,false,1011001002,MAPPED,exact,14,ASSET,client location variants
+1004,MODAL KASIR,1001,1,4,false,true,D,false,UNIT,false,1011001003,MAPPED,exact,14,ASSET,client location variants
+1005,Cash In Bank Giro Bank BCA,1001,1,4,false,true,D,false,UNIT,false,1011002001,MAPPED,exact,14,ASSET,client location variants
+1006,Cash In Bank Giro Bank MANDIRI,1001,1,4,false,true,D,false,UNIT,false,1011002002,MAPPED,exact,14,ASSET,client location variants
+1007,Cash In Bank Giro Bank BRI,1001,1,4,false,true,D,false,UNIT,false,1011002003,MAPPED,exact,14,ASSET,client location variants
+1008,Cash In Bank Giro Bank BNI,1001,1,4,false,true,D,false,UNIT,false,1011002004,MAPPED,exact,14,ASSET,client location variants
+1009,Cash In Bank Giro Bank DANAMON,1001,1,4,false,true,D,false,UNIT,false,1011002005,MAPPED,exact,14,ASSET,client location variants
+1010,Cash In Bank Tabungan Bank BCA,1001,1,4,false,true,D,false,UNIT,false,1011003001,MAPPED,exact,14,ASSET,client location variants
+1011,Cash In Bank Tabungan Bank Mandiri,1001,1,4,false,true,D,false,UNIT,false,1011003002,MAPPED,exact,14,ASSET,client location variants
+1012,Cash In Bank Tabungan Bank BRI,1001,1,4,false,true,D,false,UNIT,false,1011003003,MAPPED,exact,14,ASSET,client location variants
+1013,Cash In Bank Tabungan Bank BNI,1001,1,4,false,true,D,false,UNIT,false,1011003004,MAPPED,exact,14,ASSET,client location variants
+1014,Cash In Bank Tabungan Bank BTN,1001,1,4,false,true,D,false,UNIT,false,1011003005,MAPPED,exact,14,ASSET,client location variants
+1015,TIME DEPOSIT BANK BCA,1001,1,4,false,true,D,false,UNIT,false,1011004001,MAPPED,exact,14,ASSET,client location variants
+1016,TIME DEPOSIT BANK MANDIRI,1001,1,4,false,true,D,false,COMPANY,false,1011004002,MAPPED,exact,0,ASSET,no client location-coded variants; head-office scope inferred
+1017,TIME DEPOSIT BANK BRI,1001,1,4,false,true,D,false,COMPANY,false,1011004003,MAPPED,exact,0,ASSET,no client location-coded variants; head-office scope inferred
+1018,TIME DEPOSIT BANK BNI,1001,1,4,false,true,D,false,COMPANY,false,1011004004,MAPPED,exact,0,ASSET,no client location-coded variants; head-office scope inferred
+1019,PIUTANG,1000,1,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+1020,Piutang kartu Kredit,1019,1,4,false,true,D,false,UNIT,false,1011101001,MAPPED,exact,14,ASSET,client location variants
+1021,Piutang Debit Card,1019,1,4,false,true,D,false,UNIT,false,1011101002,MAPPED,exact,14,ASSET,client location variants
+1022,PIUTANG PEGAWAI,1019,1,4,false,true,D,false,UNIT,false,1011102001,MAPPED,exact,14,ASSET,client location variants
+1023,PIUTANG KEPALA TOKO,1019,1,4,false,true,D,false,UNIT,false,1011102002,MAPPED,exact,14,ASSET,client location variants
+1024,PIUTANG MANAJEMEN,1019,1,4,false,true,D,false,UNIT,false,1011102003,MAPPED,exact,14,ASSET,client location variants
+1025,"Cad, Penghapusan Piutang Tak Tertagih, Piutang Kartu Kredit",1019,1,4,false,true,C,true,UNIT,false,1011103001,MAPPED,exact,14,ASSET,client location variants
+1026,"Cad, Penghapusan Piutang Tak Tertagih, Piutang Debit Card",1019,1,4,false,true,C,true,UNIT,false,1011103002,MAPPED,exact,14,ASSET,client location variants
+1027,"Cad, Penghapusan Piutang Tak Tertagih, Piutang Pegawai",1019,1,4,false,true,C,true,UNIT,false,1011103003,MAPPED,exact,14,ASSET,client location variants
+1028,INVENTORY,1000,1,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+1029,Persediaan Barang Dagangan,1028,1,4,false,true,D,false,UNIT,false,1011201001,MAPPED,exact,14,ASSET,client location variants
+1030,Persediaan Kantong Belanja,1028,1,4,false,true,D,false,UNIT,false,1011202,MAPPED,exact,14,ASSET,client location variants
+1031,BDP Barang Dagangan,1028,1,4,false,true,D,false,UNIT,true,1011203,ALIAS,client family branch,14,ASSET,client location variants
+1032,BDP Kantong Belanja,1028,1,4,false,true,D,false,UNIT,true,1011204,ALIAS,client family branch,14,ASSET,client location variants
+1033,Cadangan Kerusakan atau kehilangan Barang - Barang Dagangan,1028,1,4,false,true,C,true,UNIT,false,1011299001,MAPPED,exact,14,ASSET,client location variants
+1034,Cadangan Kerusakan atau kehilangan Barang - Kantong Belanja,1028,1,4,false,true,C,true,UNIT,false,1011299002,MAPPED,exact,14,ASSET,client location variants
+1035,PREPAID,1000,1,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+1036,Asuransi Bayar Dimuka,1035,1,4,false,true,D,false,UNIT,false,1011301001,MAPPED,exact,14,ASSET,client location variants
+1037,Sewa Tanah Bayar Dimuka,1035,1,4,false,true,D,false,UNIT,false,1011301002,MAPPED,exact,14,ASSET,client location variants
+1038,Sewa Toko Bayar Dimuka,1035,1,4,false,true,D,false,UNIT,false,1011301003,MAPPED,exact,14,ASSET,client location variants
+1039,Sewa Rumah Bayar Dimuka,1035,1,4,false,true,D,false,UNIT,false,1011301004,MAPPED,exact,14,ASSET,client location variants
+1040,Kontrak Maintenance Bayar Dimuka,1035,1,4,false,true,D,false,UNIT,false,1011301005,MAPPED,exact,14,ASSET,client location variants
+1041,Sewa Kendaraan Bayar Dimuka,1035,1,4,false,true,D,false,UNIT,false,1011301006,MAPPED,exact,14,ASSET,client location variants
+1042,Biaya Promosi Bayar Dimuka,1035,1,4,false,true,D,false,UNIT,false,1011301007,MAPPED,exact,14,ASSET,client location variants
+1043,Biaya Ijin Usaha Bayar Dimuka,1035,1,4,false,true,D,false,UNIT,false,1011301008,MAPPED,exact,14,ASSET,client location variants
+1044,Biaya Bayar Dimuka Lain Lain,1035,1,4,false,true,D,false,UNIT,false,1011301009,MAPPED,exact,14,ASSET,client location variants
+1045,Prepaid - PPh Pasal 21,1035,1,4,false,true,D,false,UNIT,false,1011302001,MAPPED,exact,14,ASSET,client location variants
+1046,Prepaid - PPh Pasal 25,1035,1,4,false,true,D,false,UNIT,false,1011302002,MAPPED,exact,14,ASSET,client location variants
+1047,Prepaid - PPh Pasal 29,1035,1,4,false,true,D,false,UNIT,false,1011302003,MAPPED,exact,14,ASSET,client location variants
+1048,Prepaid - VAT (PPN Masukan),1035,1,4,false,true,D,false,UNIT,false,1011302004,MAPPED,exact,14,ASSET,client location variants
+1049,Prepaid - Land Tax (PBB),1035,1,4,false,true,D,false,UNIT,false,1011302005,MAPPED,exact,14,ASSET,client location variants
+1050,Prepaid - Other Tax,1035,1,4,false,true,D,false,UNIT,false,1011302006,MAPPED,exact,14,ASSET,client location variants
+1051,Advanced - Travelling,1035,1,4,false,true,D,false,UNIT,false,1011303001,MAPPED,exact,14,ASSET,client location variants
+1052,Advanced - Purchase,1035,1,4,false,true,D,false,UNIT,false,1011303002,MAPPED,exact,14,ASSET,client location variants
+1053,Advanced - To Contractors,1035,1,4,false,true,D,false,UNIT,false,1011303003,MAPPED,exact,14,ASSET,client location variants
+1054,Advanced - Others,1035,1,4,false,true,D,false,UNIT,false,1011303004,MAPPED,exact,14,ASSET,client location variants
+1055,NON CURRENT ASSET,1,1,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+1056,PIUTANG AFFILIASI ANTAR UNIT,1055,1,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+1057,Piutang Affiliasi Pembiayaan,1056,1,4,false,true,D,false,UNIT,true,1021401,MAPPED,exact,14,ASSET,client location variants
+1058,Piutang Affiliasi Atas Barang,1056,1,4,false,true,D,false,UNIT,true,1021402,MAPPED,exact,14,ASSET,client location variants
+1059,Piutang Affiliasi Lain-lain,1056,1,4,false,true,D,false,UNIT,true,1021403,MAPPED,exact,14,ASSET,client location variants
+1060,AKTIVA TETAP,1055,1,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+1061,Tanah Hak Milik,1060,1,4,false,true,D,false,UNIT,false,1021501001,MAPPED,exact,14,ASSET,client location variants
+1062,Hak Sewa Tanah / HGB,1060,1,4,false,true,D,false,UNIT,false,1021501002,MAPPED,exact,14,ASSET,client location variants
+1063,Bangunan Utama,1060,1,4,false,true,D,false,UNIT,false,1021502001,MAPPED,exact,14,ASSET,client location variants
+1064,Bangunan Tambahan,1060,1,4,false,true,D,false,UNIT,false,1021502002,MAPPED,exact,14,ASSET,client location variants
+1065,Bangunan Staff House / Mess,1060,1,4,false,true,D,false,UNIT,false,1021502003,MAPPED,exact,14,ASSET,client location variants
+1066,Instalasi Mekanikal Elektrikal,1060,1,4,false,true,D,false,UNIT,false,1021503001,MAPPED,exact,14,ASSET,client location variants
+1067,Air Conditioner,1060,1,4,false,true,D,false,UNIT,false,1021504001,MAPPED,exact,14,ASSET,client location variants
+1068,Lift,1060,1,4,false,true,D,false,UNIT,false,1021504002,MAPPED,exact,14,ASSET,client location variants
+1069,Eskalator,1060,1,4,false,true,D,false,UNIT,false,1021504003,MAPPED,exact,14,ASSET,client location variants
+1070,Genset,1060,1,4,false,true,D,false,UNIT,false,1021504004,MAPPED,exact,14,ASSET,client location variants
+1071,Mobil,1060,1,4,false,true,D,false,UNIT,false,1021505001,MAPPED,exact,14,ASSET,client location variants
+1072,Sepeda Motor,1060,1,4,false,true,D,false,UNIT,false,1021505002,MAPPED,exact,14,ASSET,client location variants
+1073,FFE Office,1060,1,4,false,true,D,false,UNIT,false,1021506001,MAPPED,exact,14,ASSET,client location variants
+1074,FFE Toko dan Gudang,1060,1,4,false,true,D,false,UNIT,false,1021506002,MAPPED,exact,14,ASSET,client location variants
+1075,FFE Komputer,1060,1,4,false,true,D,false,UNIT,false,1021506003,MAPPED,exact,14,ASSET,client location variants
+1076,FFE Music,1060,1,4,false,true,D,false,UNIT,false,1021506004,MAPPED,exact,14,ASSET,client location variants
+1077,FFE Staff House / Mess,1060,1,4,false,true,D,false,UNIT,false,1021506005,MAPPED,exact,14,ASSET,client location variants
+1078,FFE Interior,1060,1,4,false,true,D,false,UNIT,false,1021506006,MAPPED,exact,14,ASSET,client location variants
+1079,FFE Exterior,1060,1,4,false,true,D,false,UNIT,false,1021506007,MAPPED,exact,14,ASSET,client location variants
+1080,Operating Equipment,1060,1,4,false,true,D,false,UNIT,false,1021507,MAPPED,exact,14,ASSET,client location variants
+1081,AKUMULASI PENYUSUTAN AKTIVA TETAP,1055,1,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+1082,Akumulasi Penyusu - Hak Pengelolaan Tanah (Land Right) / HGB,1081,1,4,false,true,C,true,UNIT,false,1021601002,MAPPED,exact,14,ASSET,client location variants
+1083,Akum Penyusu - Bangunan Utama,1081,1,4,false,true,C,true,UNIT,false,1021602001,MAPPED,exact,14,ASSET,client location variants
+1084,Akum-Penyusu - Bangunan Tambahan,1081,1,4,false,true,C,true,UNIT,false,1021602002,MAPPED,exact,14,ASSET,client location variants
+1085,Akum-Penyusu - Bangunan Staff House / Mess,1081,1,4,false,true,C,true,UNIT,false,1021602003,MAPPED,exact,14,ASSET,client location variants
+1086,Akum - Penyusu - Instalasi - Mekanikal Electrical,1081,1,4,false,true,C,true,UNIT,false,1021603001,MAPPED,exact,14,ASSET,client location variants
+1087,Akum-Penyu Mesin - Air Conditioner,1081,1,4,false,true,C,true,UNIT,false,1021604001,MAPPED,exact,14,ASSET,client location variants
+1088,Akum-Penyu Mesin - Lift,1081,1,4,false,true,C,true,UNIT,false,1021604002,MAPPED,exact,14,ASSET,client location variants
+1089,Akum-Penyu Mesin - Esklator,1081,1,4,false,true,C,true,UNIT,false,1021604003,MAPPED,exact,14,ASSET,client location variants
+1090,Akum-Penyu Mesin - Genset,1081,1,4,false,true,C,true,UNIT,false,1021604004,MAPPED,exact,14,ASSET,client location variants
+1091,Akum Penyusutan - Mobil,1081,1,4,false,true,C,true,UNIT,false,1021605001,MAPPED,exact,14,ASSET,client location variants
+1092,Akum Penyusutan - Sepeda Motor,1081,1,4,false,true,C,true,UNIT,false,1021605002,MAPPED,exact,14,ASSET,client location variants
+1093,Akum Penyusu - FFE Office,1081,1,4,false,true,C,true,UNIT,false,1021606001,MAPPED,exact,14,ASSET,client location variants
+1094,Akum Penyusu - FFE Toko dan Gudang,1081,1,4,false,true,C,true,UNIT,false,1021606002,MAPPED,exact,14,ASSET,client location variants
+1095,Akum Penyusu - FFE Komputer,1081,1,4,false,true,C,true,UNIT,false,1021606003,MAPPED,exact,14,ASSET,client location variants
+1096,Akum Penyusu - FFE Music,1081,1,4,false,true,C,true,UNIT,false,1021606004,MAPPED,exact,14,ASSET,client location variants
+1097,Akum Penyusu - FFE Staff House / Mess,1081,1,4,false,true,C,true,UNIT,false,1021606005,MAPPED,exact,14,ASSET,client location variants
+1098,Akum Penyusu - FFE Interior,1081,1,4,false,true,C,true,UNIT,false,1021606006,MAPPED,exact,14,ASSET,client location variants
+1099,Akum Penyusu - FFE Exterior,1081,1,4,false,true,C,true,UNIT,false,1021606007,MAPPED,exact,14,ASSET,client location variants
+1100,Reserve Replacement - Operating Equipment,1081,1,4,false,true,C,true,UNIT,false,1021607,MAPPED,exact,14,ASSET,client location variants
+1103,INTANGIBLE ASSET,1055,1,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+1104,Seventh Soft Application,1103,1,4,false,true,D,false,UNIT,false,1021701001,MAPPED,exact,14,ASSET,client location variants
+1105,Opti Tex System,1103,1,4,false,true,D,false,UNIT,false,1021701002,MAPPED,exact,14,ASSET,client location variants
+1106,Acc Amort Sevent Soft Application,1103,1,4,false,true,C,true,UNIT,false,1021702001,MAPPED,exact,14,ASSET,client location variants
+1107,Acc Amort Opti Tex System,1103,1,4,false,true,C,true,UNIT,false,1021702002,MAPPED,exact,14,ASSET,client location variants
+1108,OTHER ASSETS,1,1,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+1109,Other Asset,1108,1,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+1110,Disposed Inventory,1109,1,4,false,true,D,false,UNIT,false,1031801001,MAPPED,exact,14,ASSET,client location variants
+1111,Pre Opening,1109,1,4,false,true,D,false,UNIT,false,1031802001,MAPPED,exact,14,ASSET,client location variants
+1112,Akumulasi Amortisasi Pre Opening,1109,1,4,false,true,C,true,UNIT,false,1031802002,MAPPED,exact,14,ASSET,client location variants
+1113,Contract In Progress (CIP),1109,1,4,false,true,D,false,UNIT,false,1031803001,MAPPED,exact,14,ASSET,client location variants
+2000,HUTANG JANGKA PENDEK,2,2,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+2001,HUTANG DAGANG,2000,2,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+2002,Hutang Suppliers Barang Dagangan,2001,2,4,false,true,C,false,UNIT,false,2012001001,MAPPED,exact,14,LIABILITY,client location variants
+2003,Hutang Supplier Barang Dagang - Suspend,2001,2,4,false,true,C,false,UNIT,false,2012001002,MAPPED,exact,14,LIABILITY,client location variants
+2004,Hutang Supplier Non Barang Dagang,2001,2,4,false,true,C,false,UNIT,false,2012001003,MAPPED,exact,14,LIABILITY,client location variants
+2005,Outstanding Giro Bank BCA,2001,2,4,false,true,C,false,UNIT,false,2012002001,MAPPED,exact,14,LIABILITY,client location variants
+2006,Outstanding Giro Bank Mandiri,2001,2,4,false,true,C,false,UNIT,false,2012002002,MAPPED,exact,14,LIABILITY,client location variants
+2007,Outstanding Giro Bank BRI,2001,2,4,false,true,C,false,UNIT,false,2012002003,MAPPED,exact,14,LIABILITY,client location variants
+2008,Outstanding Giro Bank BNI,2001,2,4,false,true,C,false,UNIT,false,2012002004,MAPPED,exact,14,LIABILITY,client location variants
+2009,Outstanding Giro Bank DANAMON,2001,2,4,false,true,C,false,UNIT,false,2012002005,MAPPED,exact,14,LIABILITY,client location variants
+2010,HUTANG PAJAK,2000,2,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+2011,Hutang Pajak PPH Pasal 21,2010,2,4,false,true,C,false,UNIT,false,2012101001,MAPPED,exact,14,LIABILITY,client location variants
+2012,Hutang Pajak PPH Pasal 23 (withold),2010,2,4,false,true,C,false,UNIT,false,2012101002,MAPPED,exact,14,LIABILITY,client location variants
+2013,Hutang VAT PPN Keluaran,2010,2,4,false,true,C,false,UNIT,false,2012101003,MAPPED,exact,14,LIABILITY,client location variants
+2014,Hutang Pajak Bumi & Bangunan,2010,2,4,false,true,C,false,UNIT,false,2012101004,MAPPED,exact,14,LIABILITY,client location variants
+2015,Hutang Pajak PPH Pasal 25,2010,2,4,false,true,C,false,UNIT,false,2012101005,MAPPED,exact,14,LIABILITY,client location variants
+2016,ACCRUED EXPENSE (BIAYA YANG MASIH HARUS DIBAYAR),2000,2,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+2017,Biaya Gaji dan Upah YMHD,2016,2,4,false,true,C,false,UNIT,false,2012201001,MAPPED,exact,14,LIABILITY,client location variants
+2018,THR/Insentif/Bonus/Pesangon YMHD,2016,2,4,false,true,C,false,UNIT,false,2012201002,MAPPED,exact,14,LIABILITY,client location variants
+2019,Biaya Bunga Pinjaman YMHD,2016,2,4,false,true,C,false,UNIT,false,2012201003,MAPPED,exact,14,LIABILITY,client location variants
+2020,Biaya Pengobatan YMHD,2016,2,4,false,true,C,false,UNIT,false,2012201004,MAPPED,exact,14,LIABILITY,client location variants
+2021,Biaya Asuransi dan BPJS YMHD,2016,2,4,false,true,C,false,UNIT,false,2012201005,MAPPED,exact,14,LIABILITY,client location variants
+2022,"Biaya Telephone, Fax, Modem YMHD",2016,2,4,false,true,C,false,UNIT,false,2012201006,MAPPED,exact,14,LIABILITY,client location variants
+2023,Biaya Pemakaian Listrik YMHD,2016,2,4,false,true,C,false,UNIT,false,2012201007,MAPPED,exact,14,LIABILITY,client location variants
+2024,Biaya Pemakaian Air Bersih YMHD,2016,2,4,false,true,C,false,UNIT,false,2012201008,MAPPED,exact,14,LIABILITY,client location variants
+2025,Biaya Sewa Kantor / Toko YMHD,2016,2,4,false,true,C,false,UNIT,false,2012201009,MAPPED,exact,14,LIABILITY,client location variants
+2026,Biaya Sewa Rumah / Mess YMHD,2016,2,4,false,true,C,false,UNIT,false,2012201010,MAPPED,exact,14,LIABILITY,client location variants
+2027,HUTANG LAIN-LAIN,2000,2,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+2028,Hutang Affiliasi Pembiayaan,2027,2,4,false,true,C,false,UNIT,true,2012301,MAPPED,exact,14,LIABILITY,client location variants
+2029,Hutang Affiliasi Atas Barang,2027,2,4,false,true,C,false,UNIT,true,2012302,MAPPED,exact,14,LIABILITY,client location variants
+2030,Hutang Lain-lain Principal,2027,2,4,false,true,C,false,UNIT,false,2012303,MAPPED,exact,14,LIABILITY,client location variants
+2031,Hutang Lain - Lain,2027,2,4,false,true,C,false,UNIT,false,2012304,MAPPED,exact,14,LIABILITY,client location variants
+2032,Giro Keluar,2027,2,4,false,true,C,false,COMPANY,false,204001,MAPPED,exact,0,LIABILITY,no client location-coded variants; head-office scope inferred
+2033,Uang Muka - Penjualan,2027,2,4,false,true,C,false,COMPANY,false,205001,MAPPED,exact,0,LIABILITY,no client location-coded variants; head-office scope inferred
+2034,PINJAMAN JANGKA PANJANG JATUH TEMPO,2000,2,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+2035,PJP Jatuh Tempo - Principal,2034,2,4,false,true,C,false,UNIT,false,2012501001,MAPPED,exact,14,LIABILITY,client location variants
+2036,PJP Jatuh Tempo Bank BCA,2034,2,4,false,true,C,false,UNIT,false,2012502001,MAPPED,exact,14,LIABILITY,client location variants
+2037,PJP Jatuh Tempo Bank Mandiri,2034,2,4,false,true,C,false,UNIT,false,2012502002,MAPPED,exact,14,LIABILITY,client location variants
+2038,PJP Jatuh Tempo Bank BRI,2034,2,4,false,true,C,false,UNIT,false,2012502003,MAPPED,exact,14,LIABILITY,client location variants
+2039,PJP Jatuh Tempo Bank BNI,2034,2,4,false,true,C,false,UNIT,false,2012502004,MAPPED,exact,14,LIABILITY,client location variants
+2040,PJP Jatuh Tempo Bank Danamon,2034,2,4,false,true,C,false,UNIT,false,2012502005,MAPPED,exact,14,LIABILITY,client location variants
+2041,PINJAMAN JANGKA PANJANG,2,2,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+2042,PINJAMAN JANGKA PANJANG,2041,2,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+2043,Pinjaman Jangka Panjang Principal,2042,2,4,false,true,C,false,UNIT,false,2022401001,MAPPED,exact,14,LIABILITY,client location variants
+2044,Pinjaman Jangka Panjang Bank BCA,2042,2,4,false,true,C,false,UNIT,false,2022402001,MAPPED,exact,14,LIABILITY,client location variants
+2045,Pinjaman Jangka Panjang Bank Mandiri,2042,2,4,false,true,C,false,UNIT,false,2022402002,MAPPED,exact,14,LIABILITY,client location variants
+2046,Pinjaman Jangka Panjang Bank BRI,2042,2,4,false,true,C,false,UNIT,false,2022402003,MAPPED,exact,14,LIABILITY,client location variants
+2047,Pinjaman Jangka Panjang Bank BNI,2042,2,4,false,true,C,false,UNIT,false,2022402004,MAPPED,exact,14,LIABILITY,client location variants
+2048,Pinjaman Jangka Panjang Bank Danamon,2042,2,4,false,true,C,false,UNIT,false,2022402005,MAPPED,exact,14,LIABILITY,client location variants
+3000,MODAL,3,3,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+3001,MODAL,3000,3,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+3002,Modal Setor,3001,3,4,false,true,C,false,UNIT,false,3013001001,MAPPED,exact,14,EQUITY,client location variants
+3003,Laba (Rugi) Ditahan,3001,3,4,false,true,C,false,UNIT,false,3013001002,MAPPED,exact,14,EQUITY,client location variants
+3004,Prive,3001,3,4,false,true,D,true,UNIT,false,3013001004,MAPPED,exact,14,EQUITY,client location variants
+4000,PENJUALAN,4,4,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+4001,PENJUALAN,4000,4,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+4002,Penjualan Tunai,4001,4,4,false,true,C,false,UNIT,false,4010110001,MAPPED,exact,14,REVENUE,client location variants
+4003,Penjualan Debit Card Bank BCA,4001,4,4,false,true,C,false,UNIT,false,4010111001,MAPPED,exact,14,REVENUE,client location variants
+4004,Penjualan Debit Card Bank Mandiri,4001,4,4,false,true,C,false,UNIT,false,4010111002,MAPPED,exact,14,REVENUE,client location variants
+4005,Penjualan Debit Card Bank BRI,4001,4,4,false,true,C,false,UNIT,false,4010111003,MAPPED,exact,14,REVENUE,client location variants
+4006,Penjualan Debit Card Bank BNI,4001,4,4,false,true,C,false,UNIT,false,4010111004,MAPPED,exact,14,REVENUE,client location variants
+4007,Penjualan Kartu Kredit VISA Card,4001,4,4,false,true,C,false,UNIT,false,4010112001,MAPPED,exact,14,REVENUE,client location variants
+4008,Penjualan Kartu Kredit Master Card,4001,4,4,false,true,C,false,UNIT,false,4010112002,MAPPED,exact,14,REVENUE,client location variants
+4009,Penjualan Online Sendiri,4001,4,4,false,true,C,false,UNIT,false,4010113001,MAPPED,exact,14,REVENUE,client location variants
+4010,Penjualan Online Market Place,4001,4,4,false,true,C,false,UNIT,false,4010113002,MAPPED,exact,14,REVENUE,client location variants
+4011,DISCOUNT / POTONGAN DAN RETURN PENJUALAN,4000,4,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+4012,Discount / Potongan Penjualan,4011,4,4,false,true,D,true,UNIT,false,4010213001,MAPPED,exact,14,REVENUE,client location variants
+4013,Retur Penjualan,4011,4,4,false,true,D,true,UNIT,false,4010214001,MAPPED,exact,14,REVENUE,client location variants
+4014,MANAGEMENT FEE,4,4,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+4015,MANAGEMENT FEE,4014,4,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+4016,Management Fee,4015,4,4,false,true,C,false,UNIT,false,4020110001,MAPPED,exact,14,REVENUE,client location variants
+5000,HARGA POKOK PEMBELIAN,5,5,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+5001,HARGA POKOK PEMBELIAN,5000,5,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+5002,Harga Pokok Pembelian,5001,5,4,false,true,D,false,UNIT,false,5010110001,MAPPED,exact,14,COST_OF_SALES,client location variants
+6000,BIAYA / BEBAN USAHA,6,6,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+6001,PENDAPATAN LAIN-LAIN,6000,6,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+6002,Pendapatan lain-lain,6001,6,4,false,true,C,false,COMPANY,false,600104,MAPPED,exact,0,OTHER_INCOME,no client location-coded variants; head-office scope inferred
+6003,BEBAN PENJUALAN,6000,6,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+6004,Biaya Customer Supplies,6003,6,4,false,true,D,false,UNIT,false,6010110001,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6005,Biaya Credit Card,6003,6,4,false,true,D,false,UNIT,false,6010110002,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6006,Biaya Promosi,6003,6,4,false,true,D,false,UNIT,false,6010110003,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6007,Biaya Dekorasi,6003,6,4,false,true,D,false,UNIT,false,6010110004,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6008,Biaya Advertising / Iklan,6003,6,4,false,true,D,false,UNIT,false,6010110005,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6009,Biaya Bongkar Muat Barang,6003,6,4,false,true,D,false,UNIT,false,6010110006,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6010,Biaya Pengiriman Barang/kurir/Ekspedisi,6003,6,4,false,true,D,false,UNIT,false,6010110007,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6011,Biaya Kerusakan Persediaan Barang Dagangan,6003,6,4,false,true,D,false,UNIT,false,6010110008,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6012,Biaya Gaji Karyawan,6003,6,4,false,true,D,false,UNIT,false,6010111001,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6013,Biaya Lembur,6003,6,4,false,true,D,false,UNIT,false,6010111002,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6014,Uang Makan,6003,6,4,false,true,D,false,UNIT,false,6010111003,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6015,Uang Transport,6003,6,4,false,true,D,false,UNIT,false,6010111004,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6016,Biaya Kesehatan & Pengobatan,6003,6,4,false,true,D,false,UNIT,false,6010111005,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6017,Biaya Asuransi Pegawai / BPJS,6003,6,4,false,true,D,false,UNIT,false,6010111006,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6018,Tunjangan Hari Raya (THR),6003,6,4,false,true,D,false,UNIT,false,6010111007,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6019,Biaya Uniform / Seragam Kerja,6003,6,4,false,true,D,false,UNIT,false,6010111008,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6020,Biaya Sport & Recreation,6003,6,4,false,true,D,false,UNIT,false,6010111009,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6021,Funeral Contribution,6003,6,4,false,true,D,false,UNIT,false,6010111010,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6022,Biaya Manpower Development,6003,6,4,false,true,D,false,UNIT,false,6010111011,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6023,Biaya Pesangon,6003,6,4,false,true,D,false,UNIT,false,6010111012,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6024,Komisi / Bonus / Insentif,6003,6,4,false,true,D,false,UNIT,false,6010111013,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6025,BEBAN PEGAWAI,6000,6,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+6026,Biaya Gaji Pegawai,6025,6,4,false,true,D,false,UNIT,false,6010210001,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6027,Biaya Lembur,6025,6,4,false,true,D,false,UNIT,false,6010210002,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6028,Uang Makan,6025,6,4,false,true,D,false,UNIT,false,6010210003,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6029,Uang Transpot,6025,6,4,false,true,D,false,UNIT,false,6010210004,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6030,Biaya Kesehatan & Pengobatan,6025,6,4,false,true,D,false,UNIT,false,6010210005,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6031,Biaya Asuransi Pegawai / BPJS,6025,6,4,false,true,D,false,UNIT,false,6010210006,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6032,Tunjangan Hari Raya (THR),6025,6,4,false,true,D,false,UNIT,false,6010210007,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6033,Biaya Uniform / Seragam Kerja,6025,6,4,false,true,D,false,UNIT,false,6010210008,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6034,Biaya Sport & Recreation,6025,6,4,false,true,D,false,UNIT,false,6010210009,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6035,Funeral Contribution,6025,6,4,false,true,D,false,UNIT,false,6010210010,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6036,Biaya Manpower Development,6025,6,4,false,true,D,false,UNIT,false,6010210011,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6037,Biaya Pesangon,6025,6,4,false,true,D,false,UNIT,false,6010210012,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6038,Komisi / Bonus / Insentif,6025,6,4,false,true,D,false,UNIT,false,6010210013,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6039,BEBAN ADMINISTRASI DAN UMUM,6000,6,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+6040,Biaya Kebersihan (Cleaning),6039,6,4,false,true,D,false,UNIT,false,6010310001,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6041,Alat Tulis Kantor & Barang Cetakan,6039,6,4,false,true,D,false,UNIT,false,6010310002,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6042,Biaya Rumah Tangga,6039,6,4,false,true,D,false,UNIT,false,6010310003,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6043,Biaya Bank HO,6039,6,4,false,true,D,false,UNIT,false,6010310004,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6044,"Biaya Telephone,Facsimile, Modem",6039,6,4,false,true,D,false,UNIT,false,6010310005,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6045,Biaya Pemakaian Listrik,6039,6,4,false,true,D,false,UNIT,false,6010310006,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6046,Biaya Pemakaian Air Bersih (PDAM),6039,6,4,false,true,D,false,UNIT,false,6010310007,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6047,Biaya Perjalanan Dinas,6039,6,4,false,true,D,false,UNIT,false,6010310008,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6048,Biaya Lokal Transport,6039,6,4,false,true,D,false,UNIT,false,6010310009,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6049,Biaya Perijinan,6039,6,4,false,true,D,false,UNIT,false,6010310010,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6050,Computer Expenses,6039,6,4,false,true,D,false,UNIT,false,6010310011,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6051,Biaya Penyisihan Kerugian Piutang,6039,6,4,false,true,D,false,UNIT,false,6010310012,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6052,Biaya Perlengkapan Toko dan Kantor,6039,6,4,false,true,D,false,UNIT,false,6010310013,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6053,Biaya Stock Opname,6039,6,4,false,true,D,false,UNIT,false,6010310014,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6054,Biaya Peralatan Listrik,6039,6,4,false,true,D,false,UNIT,false,6010310015,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6055,Tire & Tubes Expences,6039,6,4,false,true,D,false,UNIT,false,6010310016,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6056,Fuel & Oil Expences,6039,6,4,false,true,D,false,UNIT,false,6010310017,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6057,Tools (Peralatan) Expences,6039,6,4,false,true,D,false,UNIT,false,6010310018,ALIAS,alias,14,OPERATING_EXPENSE,client location variants
+6058,"Biaya Lubrication & Grease, Bahan Bakar Genset",6039,6,4,false,true,D,false,UNIT,false,6010310019,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6059,Biaya Telephone Equipment,6039,6,4,false,true,D,false,UNIT,false,6010310020,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6060,"Biaya Donasi (CSR, Zakat)",6039,6,4,false,true,D,false,UNIT,false,6010310021,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6061,Biaya Konsultan,6039,6,4,false,true,D,false,UNIT,false,6010310022,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6062,"Biaya Lisensi Kendaraan (STNK, Uji Kir)",6039,6,4,false,true,D,false,UNIT,false,6010310023,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6063,Biaya Perlengkapan Mess atau Rumah Dinas,6039,6,4,false,true,D,false,UNIT,false,6010310024,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6064,Miscellaneous Expences,6039,6,4,false,true,D,false,UNIT,false,6010310099,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6065,BEBAN PERAWATAN DAN PEMELIHARAAN,6000,6,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+6066,BIAYA PERBAIKAN DAN PERAWATAN FFE,6065,6,4,false,true,D,false,UNIT,false,6010410001,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6067,SOFTWARE MAINTENANCE,6065,6,4,false,true,D,false,UNIT,false,6010410002,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6068,BIAYA PERBAIKAN DAN PERAWATAN KOMPUTER,6065,6,4,false,true,D,false,UNIT,false,6010410003,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6069,BIAYA PERBAIKAN DAN PERAWATAN BANGUNAN,6065,6,4,false,true,D,false,UNIT,false,6010410004,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6070,BIAYA PERBAIKAN DAN PERAWATAN STAFF HOUSE,6065,6,4,false,true,D,false,UNIT,false,6010410005,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6071,BIAYA PERBAIKAN DAN PERAWATAN KENDARAAN,6065,6,4,false,true,D,false,UNIT,false,6010410006,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6072,BIAYA PERBAIKAN DAN PERAWATAN AIRCONDITIONER & REFRIGERATOR,6065,6,4,false,true,D,false,UNIT,false,6010410007,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6073,BIAYA POWER PLANT,6065,6,4,false,true,D,false,UNIT,false,6010410008,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6074,PAINT (BIAYA PENGECATAN),6065,6,4,false,true,D,false,UNIT,false,6010410009,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+6075,BIAYA PERBAIKAN DAN PERAWATAN LIFT,6065,6,4,false,true,D,false,UNIT,false,6010410010,MAPPED,exact,14,OPERATING_EXPENSE,client location variants
+7000,BEBAN USAHA LAINNYA,7,7,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+7001,BIAYA SEWA,7000,7,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+7002,Biaya Sewa Tanah,7001,7,4,false,true,D,false,UNIT,false,7010110001,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7003,Biaya Land Right,7001,7,4,false,true,D,false,UNIT,false,7010110002,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7004,Biaya Sewa Bangunan Toko dan Gudang,7001,7,4,false,true,D,false,UNIT,false,7010110003,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7005,Biaya Sewa Rumah Dinas / Mess,7001,7,4,false,true,D,false,UNIT,false,7010110004,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7006,BIAYA DEPRESIASI DAN AMORTISASI,7000,7,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+7007,Biaya Depresiasi Bangunan Utama,7006,7,4,false,true,D,false,UNIT,false,7010210001,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7008,Biaya Depresiasi Bangunan Tambahan,7006,7,4,false,true,D,false,UNIT,false,7010210002,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7009,Biaya Depresiasi Bangunan Mess / Staff House,7006,7,4,false,true,D,false,UNIT,false,7010210003,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7010,"Biaya Depresiasi Instalasi Mekanikal, Elektrikal",7006,7,4,false,true,D,false,UNIT,false,7010211001,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7011,Biaya Depresiasi Mesin - Air Conditioning,7006,7,4,false,true,D,false,UNIT,false,7010212001,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7012,Biaya Depresiasi Mesin - Lift,7006,7,4,false,true,D,false,UNIT,false,7010212002,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7013,Biaya Depresiasi Mesin - Eskalator,7006,7,4,false,true,D,false,UNIT,false,7010212003,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7014,Biaya Depresiasi Mesin - Genset,7006,7,4,false,true,D,false,UNIT,false,7010212004,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7015,Biaya Depresiasi Kendaraan - Mobil,7006,7,4,false,true,D,false,UNIT,false,7010213001,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7016,Biaya Depresiasi Kendaraan - Sepeda Motor,7006,7,4,false,true,D,false,UNIT,false,7010213002,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7017,Biaya Depresiasi FFE Office,7006,7,4,false,true,D,false,UNIT,false,7010214001,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7018,Biaya Depresiasi FFE Toko Dan Gudang,7006,7,4,false,true,D,false,UNIT,false,7010214002,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7019,Biaya Depresiasi FFE Komputer,7006,7,4,false,true,D,false,UNIT,false,7010214003,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7020,Biaya Depresiasi FFE Musik,7006,7,4,false,true,D,false,UNIT,false,7010214004,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7021,Biaya Depresiasi FFE Staff House / Mess,7006,7,4,false,true,D,false,UNIT,false,7010214005,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7022,Biaya Depresiasi FFE Interior,7006,7,4,false,true,D,false,UNIT,false,7010214006,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7023,Biaya Depresiasi FFE Exterior,7006,7,4,false,true,D,false,UNIT,false,7010214007,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7024,BIAYA REPLACEMENT OPERATING EQUIPMENT,7006,7,4,false,true,D,false,UNIT,false,7010215,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7025,Biaya Amort SeventSoft Application,7006,7,4,false,true,D,false,UNIT,false,7010216001,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7026,Biaya Amortisasi Biaya Pre Opening,7006,7,4,false,true,D,false,UNIT,false,7010216002,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7027,Biaya Amortisasi Opti Tex System,7006,7,4,false,true,D,false,UNIT,false,7010216003,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7028,BIAYA USAHA LAINNYA,7000,7,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+7029,Property All Risk & Fire Insurance,7028,7,4,false,true,D,false,UNIT,false,7010310001,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7030,Biaya Pajak Bumi Dan Bangunan (PBB),7028,7,4,false,true,D,false,UNIT,false,7010310002,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7031,Biaya Pajak Reklame,7028,7,4,false,true,D,false,UNIT,false,7020310003,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7032,Biaya Management FEE,7028,7,4,false,true,D,false,UNIT,false,7020310004,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+7033,Biaya Asuransi Kendaraan,7028,7,4,false,true,D,false,UNIT,false,7020310005,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+8000,PENDAPATAN DAN (BIAYA) LAIN - LAIN,8,8,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+8001,PENDAPATAN DAN (BIAYA) LAIN - LAIN,8000,8,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+8002,Pendapatan Bunga Bank,8001,8,4,false,true,C,false,UNIT,false,8010110001,MAPPED,exact,14,OTHER_INCOME,client location variants
+8003,Selisih pembulatan,8001,8,4,false,true,REVIEW,false,UNIT,false,8010110002,MAPPED,exact,14,OTHER_NET,client location variants
+8004,Potongan Pembelian,8001,8,4,false,true,C,true,UNIT,false,8010110003,MAPPED,exact,14,COST_OF_SALES,client location variants
+8005,Pendapatan Sewa Gedung,8001,8,4,false,true,C,false,UNIT,false,8010110004,MAPPED,exact,14,OTHER_INCOME,client location variants
+8006,Pendapatan Sewa Peralatan,8001,8,4,false,true,C,false,UNIT,false,8010110005,MAPPED,exact,14,OTHER_INCOME,client location variants
+8007,Kehilangan Barang atau Selisih Stock Opname,8001,8,4,false,true,D,false,UNIT,false,8010110006,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+8008,Pendapatan (Biaya) Lain-Lain,8001,8,4,false,true,REVIEW,false,UNIT,false,8010110007,MAPPED,exact,14,OTHER_NET,client location variants
+8009,BIAYA BUNGA,8,8,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+8010,BIAYA BUNGA,8009,8,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+8011,Biaya Bunga Pinjaman Bank,8010,8,4,false,true,D,false,UNIT,false,8020111001,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+8012,Biaya Bunga Leasing,8010,8,4,false,true,D,false,UNIT,false,8020111002,MAPPED,exact,14,OTHER_EXPENSE,client location variants
+8013,PAJAK PENGHASILAN,8,8,2,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+8014,PAJAK PENGHASILAN,8013,8,3,true,false,,false,GROUP,false,,GROUP,GROUP,0,,group account
+8015,Current Tax Inc/Exp PPH Pasal 25,8014,8,4,false,true,D,false,UNIT,false,8030112001,MAPPED,exact,14,OTHER_EXPENSE,client location variants

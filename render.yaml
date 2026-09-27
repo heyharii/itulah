@@ -349,13 +349,15 @@ services:
         destination: /index.html
 
   # Two shops, two sites, one codebase. The second shop needs no front-end code
-  # of its own: `frontend-store` is the same till software either way, and the
-  # only thing that differs is which node it is served beside.
+  # of its own: `frontend-store-new` is the same till software either way, and
+  # the only thing that differs is which node it is served beside. The service
+  # names keep the old `frontend-store` spelling so Render keeps the same two
+  # services rather than creating new ones.
   - type: web
     runtime: static
     name: frontend-store
-    buildCommand: cd frontend-store && npm install --no-audit --no-fund && npm run build
-    staticPublishPath: ./frontend-store/dist
+    buildCommand: cd frontend-store-new && npm install --no-audit --no-fund && npm run build
+    staticPublishPath: ./frontend-store-new/dist
     routes:
       - type: rewrite
         source: /api/*
@@ -367,8 +369,8 @@ services:
   - type: web
     runtime: static
     name: frontend-store-2
-    buildCommand: cd frontend-store && npm install --no-audit --no-fund && npm run build
-    staticPublishPath: ./frontend-store/dist
+    buildCommand: cd frontend-store-new && npm install --no-audit --no-fund && npm run build
+    staticPublishPath: ./frontend-store-new/dist
     routes:
       - type: rewrite
         source: /api/*

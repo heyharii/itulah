@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import id.itulah.kasir.data.Config
 import id.itulah.kasir.data.Money
 import id.itulah.kasir.data.ReturnLine
@@ -75,8 +76,13 @@ fun ReturnScreen(
         state.receipt?.lines?.firstOrNull { it.skuCode == line.skuCode }?.lineTotalMinor ?: 0L
     }
 
-    Row(Modifier.fillMaxSize().background(Soft)) {
-        Column(Modifier.fillMaxHeight().weight(0.42f).padding(14.dp)) {
+    // The desk's two panes, so a return reads as the same counter.
+    Row(
+        Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Pane(Modifier.fillMaxHeight().weight(0.44f)) {
+        Column(Modifier.fillMaxSize().padding(18.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Retur", style = Type.hero)
                 GhostButton("Kembali", onBack, Modifier.width(130.dp))
@@ -113,11 +119,13 @@ fun ReturnScreen(
                 // Not assumed from the original sale: a card sale refunded in
                 // cash happens every day.
                 Tender.METHODS.take(4).forEach { method ->
-                    GhostButton(
-                        method,
-                        { onRefundMethod(method) },
-                        Modifier.weight(1f),
+                    ChoiceTile(
+                        when (method) {
+                            "CASH" -> "Tunai"; "CARD" -> "Kartu"; "VOUCHER" -> "Voucher"; else -> method
+                        },
                         selected = method == refundMethod,
+                        onClick = { onRefundMethod(method) },
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }
@@ -130,11 +138,10 @@ fun ReturnScreen(
                 tone = BadFg,
             )
         }
+        }
 
-        Box(Modifier.width(1.dp).fillMaxHeight().background(Hairline))
-
-        Column(Modifier.fillMaxHeight().weight(0.58f)) {
-            Column(Modifier.weight(1f).padding(14.dp)) {
+        Pane(Modifier.fillMaxHeight().weight(0.56f)) {
+            Column(Modifier.weight(1f).padding(18.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     SectionLabel("Barang kembali")
                     SectionLabel("${lines.size} unit")
@@ -183,9 +190,9 @@ fun ReturnScreen(
                 }
             }
 
-            Column(Modifier.fillMaxWidth().background(Canvas).padding(14.dp)) {
-                Divider(Modifier.padding(bottom = 10.dp))
-                KeyValue("Dikembalikan", Money.format(refund), strong = true)
+            Divider()
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp)) {
+                Grand("DIKEMBALIKAN", Money.format(refund), size = 24.sp)
                 Spacer(Modifier.height(10.dp))
                 PrimaryButton(
                     "Proses retur",

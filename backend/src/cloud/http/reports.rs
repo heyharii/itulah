@@ -88,7 +88,13 @@ pub async fn run(
     Json(request): Json<RunRequest>,
 ) -> Result<Json<Value>, AppError> {
     Ok(Json(
-        infrastructure::run_spec(&state.db, &request.spec, &request.filters).await?,
+        infrastructure::run_spec(
+            &state.db,
+            &request.spec,
+            &request.filters,
+            state.clock.now(),
+        )
+        .await?,
     ))
 }
 
@@ -275,6 +281,13 @@ pub async fn run_saved(
 ) -> Result<Json<Value>, AppError> {
     let Json(request) = request.unwrap_or_default();
     Ok(Json(
-        infrastructure::run_saved(&state.db, id, &principal.username, &request.filters).await?,
+        infrastructure::run_saved(
+            &state.db,
+            id,
+            &principal.username,
+            &request.filters,
+            state.clock.now(),
+        )
+        .await?,
     ))
 }

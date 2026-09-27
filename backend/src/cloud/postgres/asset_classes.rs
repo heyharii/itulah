@@ -74,11 +74,12 @@ pub struct AssetClass {
     /// capacity and a warranty. See migration 0356.
     pub build: String,
     /// The client's own ten-digit template this class came from —
-    /// `1021507001` for *OE - Rak 1*. Never NULL: every class here was a
-    /// family in their chart, and this is the number their register is
-    /// written in. It is the answer to "which one is this really", asked by
-    /// somebody holding a printout from the old system.
-    pub legacy_code: String,
+    /// `1021507001` for *OE - Rak 1* — or none for a class Finance added.
+    pub legacy_code: Option<String>,
+    /// The life and method an asset of the class is assessed with when the
+    /// assessment names none (0467).
+    pub default_useful_life_months: Option<i32>,
+    pub default_method: Option<String>,
     pub is_active: bool,
     /// How many registered assets are filed under it. Zero is worth seeing:
     /// a class nobody uses is a class somebody invented by mistake.
@@ -108,6 +109,7 @@ pub async fn asset_classes(pool: &PgPool, kind: Option<&str>) -> Result<AssetCla
         .map(str::to_ascii_uppercase);
     let rows = sqlx::query(
         "SELECT c.class_code, c.name, c.name_en, c.kind, c.build, c.legacy_code, c.is_active,
+                c.default_useful_life_months, c.default_method,
                 (SELECT count(*) FROM fixed_asset a
                   WHERE a.category_code = c.class_code)::bigint AS asset_count
            FROM asset_class c
@@ -127,6 +129,8 @@ pub async fn asset_classes(pool: &PgPool, kind: Option<&str>) -> Result<AssetCla
                 kind: row.try_get("kind")?,
                 build: row.try_get("build")?,
                 legacy_code: row.try_get("legacy_code")?,
+                default_useful_life_months: row.try_get("default_useful_life_months")?,
+                default_method: row.try_get("default_method")?,
                 is_active: row.try_get("is_active")?,
                 asset_count: row.try_get("asset_count")?,
             })
@@ -178,4 +182,61 @@ pub async fn assert_asset_class(
             Ok(row.try_get("kind")?)
         }
     }
+}
+
+/// Add an asset class or change one (0467). The code is the key and never
+/// changes; the accounts are account links narrowed by the code.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SaveAssetClassRequest {
+    pub class_code: String,
+    pub name: String,
+    /// `PPE`, `OE`, `INTANGIBLE` or `DEFERRED`.
+    pub kind: String,
+    /// Which form the class is filled in on (see [`AssetClass::build`]).
+    pub build: String,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "number | null"))]
+    pub default_useful_life_months: Option<i32>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub default_method: Option<String>,
+    #[serde(default = "active")]
+    pub is_active: bool,
+}
+
+fn active() -> bool {
+    true
+}
+
+pub async fn save_asset_class(
+    pool: &PgPool,
+    request: &SaveAssetClassRequest,
+    actor: &str,
+) -> Result<AssetClassList, AppError> {
+    let code = request.class_code.trim().to_ascii_uppercase();
+    if code.is_empty() || request.name.trim().is_empty() {
+        return Err(AppError::Validation("an asset class has a code and a name".into()));
+    }
+    sqlx::query(
+        "INSERT INTO asset_class
+            (class_code, name, kind, build, default_useful_life_months, default_method,
+             is_active, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (class_code) DO UPDATE
+            SET name = EXCLUDED.name, kind = EXCLUDED.kind, build = EXCLUDED.build,
+                default_useful_life_months = EXCLUDED.default_useful_life_months,
+                default_method = EXCLUDED.default_method, is_active = EXCLUDED.is_active",
+    )
+    .bind(&code)
+    .bind(request.name.trim())
+    .bind(request.kind.trim().to_ascii_uppercase())
+    .bind(request.build.trim().to_ascii_uppercase())
+    .bind(request.default_useful_life_months)
+    .bind(request.default_method.as_deref().map(|m| m.trim().to_ascii_uppercase()))
+    .bind(request.is_active)
+    .bind(actor)
+    .execute(pool)
+    .await?;
+    asset_classes(pool, None).await
 }

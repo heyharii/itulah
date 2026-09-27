@@ -43,4 +43,33 @@ asset_class_code: string | null,
  * for. It debits the replacement reserve for its class instead of the
  * account named on the line, and mints no asset.
  */
-draws_reserve: boolean, memo: string | null, };
+draws_reserve: boolean, 
+/**
+ * The asset this line helped buy or spend on (0160). The five GA
+ * references live on the LINE and not the header (brief §8.1), and this is
+ * one of them.
+ */
+asset_id: string | null, contract_id: string | null, repair_id: string | null, replacement_id: string | null, supply_request_id: string | null, 
+/**
+ * The period the cost covers, when the line has one. A prepaid schedule
+ * reads THIS and not the contract's window (§8.2).
+ */
+service_period_start: string | null, service_period_end: string | null, 
+/**
+ * True when a person chose the account instead of taking the suggestion.
+ * Finance reads it to tell the two apart.
+ */
+account_overridden: boolean, 
+/**
+ * Where the account came from, in words: "objek perbaikan · AC &
+ * refrigerator", "akun default vendor", ...
+ *
+ * Computed at READ time by `ga_accounts::suggest_account` and not stored.
+ * WHY: the source is a label for the object the line already names, and
+ * the refs beside it are the fact. A stored string would be a second copy
+ * of a sentence derivable from them, free to drift the day a class is
+ * renamed; computing it keeps the label and the object it describes in one
+ * place. The cost is a handful of small lookups on a detail read, which
+ * already fetches lines one query at a time and never runs for a list.
+ */
+source: string | null, memo: string | null, };

@@ -77,7 +77,7 @@ export function ReportCard({
         <span className="min-w-0 flex-1 truncate text-meta font-semibold text-ink">
           {data.name}
         </span>
-        <span className="shrink-0 rounded-full border border-hairline-2 bg-canvas px-1.5 py-px font-mono text-[0.625rem] text-body">
+        <span className="shrink-0 rounded-full border border-hairline-2 bg-canvas px-1.5 py-px font-mono text-[0.875rem] text-body">
           {data.spec.dataset}
         </span>
       </div>
@@ -172,7 +172,7 @@ export function ReportCard({
       )}
 
       <div className="flex items-center gap-2 border-t border-hairline px-3 py-2">
-        <span className="min-w-0 flex-1 truncate text-[0.6875rem] text-mute">
+        <span className="min-w-0 flex-1 truncate text-[0.875rem] text-mute">
           {count(data.row_count)} row{data.row_count === 1 ? "" : "s"}
           {data.period &&
             ` · ${day(data.period.from)} – ${day(data.period.to)}`}

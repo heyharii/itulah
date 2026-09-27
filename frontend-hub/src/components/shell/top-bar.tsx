@@ -1,128 +1,258 @@
 import { Link, useRouterState } from "@tanstack/react-router"
-import { Menu, Search, Settings2, Sparkles } from "lucide-react"
+import { ChevronDown, ChevronLeft, Menu, Sparkles } from "lucide-react"
+import { useState } from "react"
 
-import { domainForPath, domainHome, domains } from "@/lib/navigation"
-import { useNodeIdentity } from "@/lib/session"
+import {
+  allNavItems,
+  domainForPath,
+  domainHome,
+  moduleForPath,
+  modulesOfDomain,
+  topBarAsides,
+} from "@/lib/navigation"
+import { AppSheet } from "@/components/shell/app-sheet"
+import type { AppTile } from "@/lib/apps"
+import { ClockChip } from "@/components/shell/clock-chip"
 import { NotificationBell } from "@/components/shell/notification-bell"
 import { cn } from "@/lib/utils"
+import { useAssistant } from "@/components/assistant/state"
 
-/// The bar across the top: which part of the business, and nothing else.
+/// The bar over the page: where you are, and the tools that are not a place.
 ///
-/// ## Why there is horizontal chrome again
+/// ## Why the domains left it
 ///
-/// There was none. One column carried every question — which department, which
-/// screen — and it worked until the column had to hold fourteen departments
-/// AND the screens of the one you were in, at which point the screens somebody
-/// was working in were below the fold under a list of other people's work.
+/// It held them, as a row of chips, from 2026-09-13 — and ran out of width,
+/// because the list is the shape of the company and only ever grows. They are
+/// the dark rail at the window's edge now (`rail.tsx`), and this bar is left
+/// with the two things a bar is good at: a breadcrumb read left to right, and
+/// a short row of tools at the far end.
 ///
-/// Two questions, two places. This bar holds the domains: nine of them, a list
-/// that is the shape of the company rather than of the codebase, so it does not
-/// grow when screens do. The column under it holds one domain's screens.
-///
-/// The mark at its left is the company, and it is the only way to Home — Home
-/// belongs to no department, so it gets no chip.
+/// It spans the PAGE, not the window. The rail and the sidebar run the full
+/// height beside it, which is what makes them read as two columns rather than
+/// as a frame drawn around the content.
 export function TopBar({ onOpenNav }: { onOpenNav?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const here = domainForPath(pathname)
-  const where = useNodeIdentity()
+  const domain = domainForPath(pathname)
+  const module = moduleForPath(pathname)
+  const screen = screenForPath(pathname)
+  const assistant = useAssistant()
+  const parent = domain?.label ?? module.label
 
   return (
-    <div className="flex shrink-0 border-b border-hairline bg-soft-3">
-      {/* The brand cell is exactly as wide as the narrowed sidebar, so its
-          right edge and the sidebar's are the same line from the top of the
-          window down. While the sidebar is open the name appears beside the
-          mark — as an overlay, so the domains below never shuffle. */}
-      <div className="shell-brand relative z-[31] grid h-13 w-16 shrink-0 place-items-center border-r border-hairline bg-soft-3">
-        <Link
-          to="/"
-          aria-label={`${where.data?.node_id ?? "Central"} — home`}
-          className="grid size-[1.875rem] place-items-center rounded-inner bg-dark text-[0.6875rem] font-semibold tracking-[0.02em] text-on-dark"
+    <header className="flex h-13 shrink-0 items-center gap-3 border-b border-hairline bg-canvas px-5 max-md:px-3">
+      {onOpenNav && (
+        <button
+          type="button"
+          onClick={onOpenNav}
+          aria-label="Open navigation"
+          // The shell decides whether there is a drawer to open — it passes
+          // `onOpenNav` only when the columns are undocked — so this has no
+          // breakpoint class of its own to disagree with it.
+          className="-ml-1.5 grid size-tap shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-text"
         >
-          WM
-        </Link>
-        <span
-          aria-hidden
-          className="shell-brandname pointer-events-none absolute top-0 left-16 flex h-full w-44 items-center border-r border-hairline bg-soft-3 pr-4 text-[0.875rem] font-semibold tracking-[-0.01em] whitespace-nowrap text-ink"
-        >
-          Wira Makmur
-        </span>
-      </div>
+          <Menu className="size-[1.125rem] stroke-[1.7]" />
+        </button>
+      )}
 
-      <header className="flex h-13 min-w-0 flex-1 items-center gap-3 px-5">
-        {onOpenNav && (
-          <button
-            type="button"
-            onClick={onOpenNav}
-            aria-label="Open navigation"
-            // No `md:hidden`. The shell decides whether there is a drawer to
-            // open — it passes `onOpenNav` only when the sidebar is undocked —
-            // and this class was a second, older answer to the same question.
-            // They disagreed: `docked` breaks at `lg` (64rem) and the class hid
-            // the button from `md` (48rem), so between 768px and 1024px the
-            // shell had no docked sidebar AND no way to open the drawer. That
-            // band is an iPad in portrait — 768, 820 and 834 are all in it —
-            // where ⌘B, the only remaining way in, cannot be typed.
-            className="grid size-tap shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-text"
+      <PhoneTitle pathname={pathname} />
+      <nav
+        aria-label="Breadcrumb"
+        className="flex min-w-0 flex-1 items-center gap-2 text-[0.875rem] font-medium max-md:hidden"
+      >
+        {domain ? (
+          <Link
+            to={domainHome(domain)}
+            className="inline-flex shrink-0 items-center gap-[0.4375rem] text-body transition-colors hover:text-ink"
           >
-            <Menu className="size-[1.125rem] stroke-[1.7]" />
-          </button>
+            <domain.icon className="size-[0.9375rem] stroke-[1.7] text-line-ico" />
+            {parent}
+          </Link>
+        ) : (
+          <span className="shrink-0 text-body">{parent}</span>
         )}
+        {screen && screen.label !== parent && (
+          <>
+            <span aria-hidden className="text-faint">
+              /
+            </span>
+            <span
+              aria-current="page"
+              className="inline-flex min-w-0 items-center gap-[0.4375rem] font-semibold text-ink"
+            >
+              <screen.icon className="size-[0.9375rem] shrink-0 stroke-[1.7] text-line-ico" />
+              <span className="truncate">{screen.label}</span>
+            </span>
+          </>
+        )}
+      </nav>
 
-        <nav
-          aria-label="Domains"
-          className="-mx-0.5 -my-0.5 flex min-w-0 flex-1 [scrollbar-width:none] items-center gap-0.5 overflow-x-auto px-0.5 py-0.5 [&::-webkit-scrollbar]:hidden"
+      <div className="flex shrink-0 items-center gap-2">
+        <ClockChip />
+        {topBarAsides.map((aside) => (
+          <Link
+            key={aside.id}
+            to={aside.home}
+            title={aside.label}
+            aria-label={aside.label}
+            aria-current={module.id === aside.id ? "page" : undefined}
+            className={cn(
+              "grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-text pointer-coarse:size-tap",
+              // On a phone these are the bottom bar's Messages tab.
+              "max-md:hidden",
+              module.id === aside.id && "bg-soft-2 text-ink"
+            )}
+          >
+            <aside.icon className="size-[1.0625rem] stroke-[1.55]" />
+          </Link>
+        ))}
+        {/* On a phone the bell is the bottom bar's Notifications tab. */}
+        <span className="contents max-md:hidden">
+          <NotificationBell />
+        </span>
+        {/* The assistant, as a control with its word on it. It was a bare
+            sparkle glyph that did nothing when pressed; ⌘J was the only way
+            in. The bell that stood beside it is on the rail now — see
+            `notification-bell.tsx`. */}
+        <button
+          type="button"
+          onClick={() => assistant.setOpen(!assistant.open)}
+          aria-pressed={assistant.open}
+          title="Ask  ⌘J"
+          className="inline-flex h-8 items-center gap-1.5 rounded-inner px-2.5 text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink aria-pressed:bg-soft-2 aria-pressed:text-ink"
         >
-          {domains.map((domain) => {
-            const Icon = domain.icon
-            const current = here?.id === domain.id
+          <Sparkles className="size-[0.9375rem] stroke-[1.7] text-accent" />
+          <span className="max-md:hidden">Ask</span>
+        </button>
+      </div>
+    </header>
+  )
+}
+
+/// The screen a path is on: the nav item with the longest path that is the
+/// path or a prefix of it, so a record under `/finance/bills/42` still says
+/// "Bills".
+/// The page's name on a phone, where the breadcrumb does not fit and the
+/// department's other screens are not a sidebar away.
+///
+/// Inside a department it is a button: the screen's name with a chevron, and
+/// a tap opens the department's screens (`AppSheet`) — Purchase orders to
+/// Suppliers in two taps, without going back to the launcher. On Messages it
+/// is the switch between Chat and Discussions, which share the tab.
+function PhoneTitle({ pathname }: { pathname: string }) {
+  const [open, setOpen] = useState(false)
+  const domain = domainForPath(pathname)
+  const module = moduleForPath(pathname)
+  const screen = screenForPath(pathname)
+  const title = screen?.label ?? domain?.label ?? module.label
+
+  if (within(pathname, "/chat") || within(pathname, "/discussions")) {
+    return (
+      <nav aria-label="Messages" className="flex min-w-0 flex-1 md:hidden">
+        <span className="inline-flex rounded-inner bg-soft-2 p-0.5">
+          {[
+            { to: "/chat", label: "Chat" },
+            { to: "/discussions", label: "Discussions" },
+          ].map((one) => {
+            const on = within(pathname, one.to)
             return (
               <Link
-                key={domain.id}
-                to={domainHome(domain)}
-                aria-current={current ? "page" : undefined}
+                key={one.to}
+                to={one.to as string}
+                aria-current={on ? "page" : undefined}
                 className={cn(
-                  "inline-flex h-8 shrink-0 items-center gap-[0.4375rem] rounded-inner px-2.5 text-[0.8125rem] font-medium whitespace-nowrap transition-colors",
-                  // Hover is the soft tint, the domain you are in is a chip
-                  // lifted off the bar: two marks that cannot be mistaken for
-                  // one another.
-                  current
-                    ? "bg-canvas font-semibold text-ink shadow-[0_0_0_1px_var(--hairline-2),var(--shadow-soft)]"
-                    : "text-body hover:bg-soft-2 hover:text-ink",
-                  "pointer-coarse:h-[2.375rem]"
+                  "inline-flex h-9 items-center rounded-[calc(var(--r-inner)-2px)] px-3.5 text-[0.875rem] font-medium transition-colors",
+                  on ? "bg-canvas text-ink shadow-soft" : "text-body"
                 )}
               >
-                <Icon
-                  className={cn(
-                    "size-[0.9375rem] shrink-0 stroke-[1.7]",
-                    current ? "text-accent" : "text-line-ico"
-                  )}
-                />
-                {domain.label}
+                {one.label}
               </Link>
             )
           })}
-        </nav>
+        </span>
+      </nav>
+    )
+  }
 
-        <div className="flex shrink-0 items-center gap-2">
-          {/* ⌘K's visible half. It was taken out of the sidebar when the
-              sidebar stopped having room for it; a bar has room. */}
-          <span className="hidden items-center gap-2 text-[0.8125rem] text-mute lg:inline-flex">
-            <Search className="size-4 stroke-[1.7] text-line-ico" />
-            Find anything
-            <kbd className="rounded-[5px] border border-hairline-2 bg-canvas px-1.5 py-px font-mono text-[0.65625rem] text-body">
-              ⌘K
-            </kbd>
-          </span>
-          <NotificationBell />
-          <Settings2 className="size-[1.0625rem] stroke-[1.55] text-line-ico" />
-          <Sparkles className="size-[1.0625rem] stroke-[1.55] text-line-ico" />
-          <span
-            aria-hidden
-            title={where.data?.node_id ?? "cloud"}
-            className="size-7 shrink-0 rounded-full bg-gradient-to-br from-[var(--avatar-from,#e9d5ff)] to-[var(--avatar-to,#c7d2fe)]"
-          />
-        </div>
-      </header>
-    </div>
+  // The launcher's page opens with its own greeting, so the bar carries
+  // the company — the sidebar's mark — rather than saying "Apps" twice.
+  if (within(pathname, "/apps")) {
+    return (
+      <span className="flex min-w-0 flex-1 items-center gap-2.5 md:hidden">
+        <span className="grid size-7 shrink-0 place-items-center rounded-[0.4375rem] bg-dark text-[0.875rem] font-semibold tracking-[0.02em] text-on-dark">
+          C
+        </span>
+        <b className="truncate text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">
+          Central
+        </b>
+      </span>
+    )
+  }
+
+  if (domain === undefined) {
+    // A screen opened from another one inside Profile — Leave from the
+    // profile, a payslip from Pay — carries its way back, since the phone has
+    // no sidebar to be read from. The parent is the path one segment up when
+    // that is a screen, and the profile otherwise.
+    const parent =
+      within(pathname, "/me") && pathname !== "/me"
+        ? (screenForPath(pathname.slice(0, pathname.lastIndexOf("/")))?.path ??
+          "/me")
+        : null
+    return (
+      <span className="flex min-w-0 flex-1 items-center gap-1 md:hidden">
+        {parent !== null && (
+          <Link
+            to={parent as string}
+            aria-label="Back"
+            className="-ml-2 grid size-tap shrink-0 place-items-center rounded-full text-line-ico active:bg-soft-2"
+          >
+            <ChevronLeft className="size-5" />
+          </Link>
+        )}
+        <h1 className="min-w-0 flex-1 truncate text-[1rem] font-semibold text-ink">
+          {title}
+        </h1>
+      </span>
+    )
+  }
+
+  const tile: AppTile = {
+    id: domain.id,
+    label: domain.label,
+    icon: domain.icon,
+    modules: modulesOfDomain(domain),
+  }
+  return (
+    <>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+        className="flex min-h-11 min-w-0 flex-1 flex-col items-start justify-center text-left md:hidden"
+      >
+        <span className="text-[0.875rem] leading-none font-medium text-mute">
+          {domain.label}
+        </span>
+        <span className="flex max-w-full min-w-0 items-center gap-1 text-[1rem] leading-tight font-semibold text-ink">
+          <span className="truncate">{title}</span>
+          <ChevronDown className="size-4 shrink-0 text-line-ico" />
+        </span>
+      </button>
+      <AppSheet tile={tile} open={open} onOpenChange={setOpen} />
+    </>
   )
+}
+
+function within(path: string, base: string): boolean {
+  return path === base || path.startsWith(`${base}/`)
+}
+
+function screenForPath(pathname: string) {
+  let best: (typeof allNavItems)[number] | undefined
+  for (const item of allNavItems) {
+    const matches =
+      pathname === item.path || pathname.startsWith(item.path + "/")
+    if (matches && item.path.length > (best?.path.length ?? -1)) best = item
+  }
+  return best
 }

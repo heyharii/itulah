@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router"
 
-import { Async, Panel } from "@/components/bits"
-import { Separator } from "@/components/ui/separator"
+import { ChevronRight } from "lucide-react"
+
+import { Async, List, Panel } from "@/components/bits"
 import { money } from "@/lib/format"
 import { usePaySlips } from "@/lib/hr/queries"
 
@@ -24,36 +25,35 @@ export function Pay() {
     <Panel title="Your pay">
       <Async query={slips} empty="No payslip has been released to you yet.">
         {(list) => (
-          <div className="flex flex-col">
-            <p className="mb-3 text-xs text-muted-foreground">
+          <div className="flex flex-col gap-3">
+            <p className="text-meta text-body">
               Agreed pay and the days recorded against each month. Tax and BPJS
               are not calculated here.
             </p>
-            {list.map((slip, index) => (
-              <div key={slip.run_id}>
-                {index > 0 && <Separator className="my-3" />}
-                <Link
-                  to="/pay/$payId"
-                  params={{ payId: slip.run_id }}
-                  className="flex items-baseline gap-3"
-                >
-                  <div className="min-w-0">
-                    <p className="text-lg font-semibold tabular-nums">
-                      {money(slip.statutory_base_minor)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {/* The run id carries the month, which is the only place
+            <List className="-mx-2">
+              {list.map((slip) => (
+                <div key={slip.run_id}>
+                  <Link
+                    to="/pay/$payId"
+                    params={{ payId: slip.run_id }}
+                    className="flex items-center gap-3 rounded-inner px-2 py-1 transition-colors hover:bg-soft-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="num text-card-title font-semibold text-ink">
+                        {money(slip.statutory_base_minor)}
+                      </p>
+                      <p className="font-mono text-id text-mute">
+                        {/* The run id carries the month, which is the only place
                           a period appears on this row — the slip itself has no
                           date range of its own. */}
-                      {slip.run_id}
-                    </p>
-                  </div>
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                    View
-                  </span>
-                </Link>
-              </div>
-            ))}
+                        {slip.run_id}
+                      </p>
+                    </div>
+                    <ChevronRight className="ml-auto size-4 shrink-0 text-line-ico" />
+                  </Link>
+                </div>
+              ))}
+            </List>
           </div>
         )}
       </Async>

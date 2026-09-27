@@ -37,7 +37,7 @@ use crate::cloud::domain::{
     ClaimType, ClaimTypeCatalogue, ClaimTypeCode, EmployeeId, ExpenseClaim, ExpenseClaimWire,
     PlaceId,
 };
-use crate::cloud::postgres::{next_document_number, poster, PostingIntent, PostingLine};
+use crate::cloud::postgres::{next_document_number, poster, LineAccount, PostingIntent, PostingLine};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -110,24 +110,50 @@ pub async fn load_type_catalogue(pool: &PgPool) -> Result<ClaimTypeCatalogue, Ap
         .map_err(|error| corrupt("claim catalogue", error.to_string()))
 }
 
-/// Define a type. Refuses a code that already exists rather than replacing
-/// it: redefining a type changes what every claim already filed under it
-/// meant, and the code is a map qualifier — its rows are decisions.
+/// Define a type, filed under an expense category Finance keeps (0465).
+/// Refuses a code that already exists rather than replacing it: redefining a
+/// type changes what every claim already filed under it meant.
+///
+/// Where the type's postings land is the category's: its `expense` link for
+/// the cost, and its `employee_claim_payable` link (or the company's) for what
+/// is owed. Nothing is guessed from the code.
 pub async fn define_claim_type(
     pool: &PgPool,
     claim_type: &ClaimType,
+    expense_category: &str,
     actor: &str,
 ) -> Result<(), AppError> {
-    let mut tx = pool.begin().await?;
+    let _ = actor;
+    let category = expense_category.trim();
+    let usable: Option<bool> = sqlx::query_scalar(
+        "SELECT is_active AND for_claims FROM expense_category WHERE code = $1",
+    )
+    .bind(category)
+    .fetch_optional(pool)
+    .await?;
+    match usable {
+        None => {
+            return Err(AppError::Validation(format!(
+                "there is no expense category {category}; add it under Finance, Expense categories"
+            )))
+        }
+        Some(false) => {
+            return Err(AppError::Validation(format!(
+                "expense category {category} is retired or not open to employee claims"
+            )))
+        }
+        Some(true) => {}
+    }
     let inserted = sqlx::query(
-        "INSERT INTO expense_claim_type (code, name, created_at)
-         VALUES ($1, $2, $3)
+        "INSERT INTO expense_claim_type (code, name, created_at, expense_category_code)
+         VALUES ($1, $2, $3, $4)
          ON CONFLICT (code) DO NOTHING",
     )
     .bind(claim_type.code().as_str())
     .bind(claim_type.name())
     .bind(claim_type.created_at())
-    .execute(&mut *tx)
+    .bind(category)
+    .execute(pool)
     .await?
     .rows_affected();
     if inserted == 0 {
@@ -136,47 +162,6 @@ pub async fn define_claim_type(
             claim_type.code()
         )));
     }
-    // The type is also the `employee_expense` qualifier its postings carry,
-    // and the map resolves a qualifier EXACTLY — so the type's debit rows
-    // arrive with the type, at every site, in the transaction that defines
-    // it. An unmapped type would refuse by name at approval; a type whose
-    // rows were seeded separately from the catalogue would be two facts
-    // about one decision, and the weaker one would drift.
-    //
-    // The qualifier points at a leaf chosen by what the type's code names
-    // (0371 applies the same rule to types defined before it): medical to the
-    // store or head-office Biaya Kesehatan, travel to Perjalanan Dinas,
-    // transport to Lokal Transport, and a claim that names nothing else to
-    // `6064 Miscellaneous Expences` (owner: no new accounts; 0375 retires 0372's
-    // 6076). The category is NULL because 267
-    // leaves carry no family. Finance moves a type to another leaf by
-    // remapping its qualifier, without a rule change.
-    sqlx::query(
-        "INSERT INTO account_map (semantic_key, site_id, qualifier, account_code,
-                                  category_code, set_by)
-         SELECT DISTINCT 'employee_expense', s.id, $1,
-                CASE
-                    WHEN $1 ~* '(MEDIS|MEDIC|KESEHATAN|PENGOBATAN|OBAT|DOKTER)'
-                        THEN CASE WHEN s.kind = 'STORE' THEN '6016' ELSE '6030' END
-                    WHEN $1 ~* '(DINAS|PERJALANAN|TRAVEL|HOTEL|TIKET)' THEN '6047'
-                    WHEN $1 ~* '(TRANSPORT|BENSIN|BBM|TOL|PARKIR|OJEK)' THEN '6048'
-                    WHEN $1 ~* '(ATK|ALAT_TULIS|STATIONERY)' THEN '6041'
-                    WHEN $1 ~* '(PULSA|TELEPON|TELEPHONE|INTERNET)' THEN '6044'
-                    WHEN $1 ~* '(MAKAN|MEAL|KONSUMSI)'
-                        THEN CASE WHEN s.kind = 'STORE' THEN '6014' ELSE '6028' END
-                    ELSE '6064'
-                END,
-                NULL, $3
-           FROM org_place p
-           JOIN site s ON s.id = COALESCE(p.site_id, $2)
-         ON CONFLICT (semantic_key, site_id, qualifier) DO NOTHING",
-    )
-    .bind(claim_type.code().as_str())
-    .bind(HEAD_OFFICE_SITE)
-    .bind(actor)
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
     Ok(())
 }
 
@@ -302,6 +287,15 @@ async fn decode_claim(
         .map_err(|error| corrupt("claim decision", error.to_string()))
     }
 
+    let history: Vec<ClaimEvent> = row
+        .try_get::<serde_json::Value, _>("history")?
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(decode_event)
+        .collect::<Result<_, _>>()?;
+
     // The inverse of what is written, pairing the state with its evidence.
     // Anything else is a row whose state and its columns disagree, which the
     // schema's CHECKs also refuse — this re-statement catches the rows a
@@ -319,14 +313,20 @@ async fn decode_claim(
         "REJECTED" => ClaimState::Rejected {
             decided: authorization(decided_by, decided_at, decide_reason)?,
         },
+        // A withdrawal is not a decision: the schema keeps `decided_by` empty
+        // for it, so who withdrew, when and why live only in the trail.
         "WITHDRAWN" => ClaimState::Withdrawn {
             withdrawn: {
-                let actor = decided_by.unwrap_or_default();
+                let event = history
+                    .iter()
+                    .rev()
+                    .find(|event| event.action == "WITHDRAWN")
+                    .ok_or_else(|| corrupt("claim withdrawal", "no WITHDRAWN event".into()))?;
                 Authorization::try_new(
-                    &actor,
+                    &event.actor,
                     actions::CLAIM_REQUEST_OWN,
-                    decided_at.unwrap_or(DateTime::<Utc>::MIN_UTC),
-                    &decide_reason.unwrap_or_default(),
+                    event.at,
+                    event.reason.as_deref().unwrap_or_default(),
                 )
                 .map_err(|error| corrupt("claim withdrawal", error.to_string()))?
             },
@@ -350,15 +350,6 @@ async fn decode_claim(
             ))
         }
     };
-
-    let history: Vec<ClaimEvent> = row
-        .try_get::<serde_json::Value, _>("history")?
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(decode_event)
-        .collect::<Result<_, _>>()?;
 
     let lines = claim_lines(pool, id).await?;
 
@@ -541,30 +532,41 @@ pub async fn decide_claim(
     // a claim's sanction the claim does not.
     let posted = if let Some(posting) = &posting {
         let site = posting_site(&mut tx, claim.place()).await?;
-        let mut lines = Vec::with_capacity(posting.by_type.len() + 1);
+        let mut lines = Vec::with_capacity(posting.by_type.len() * 2);
         for (type_code, amount) in &posting.by_type {
+            let category: Option<String> = sqlx::query_scalar(
+                "SELECT expense_category_code FROM expense_claim_type WHERE code = $1",
+            )
+            .bind(type_code.as_str())
+            .fetch_one(&mut *tx)
+            .await?;
+            let category = category.ok_or_else(|| {
+                AppError::Validation(format!(
+                    "claim type {type_code} is filed under no expense category; set one before \
+                     approving"
+                ))
+            })?;
             lines.push(
-                PostingLine::debit("employee_expense", &site, *amount)
-                    .with_qualifier(type_code.as_str()),
+                PostingLine::debit("expense", &site, *amount)
+                    .from_source("EXPENSE_CATEGORY", &category),
             );
-        }
-        // Owner HR decision 5: a medical claim is owed on 2020 Biaya
-        // Pengobatan YMHD, every other claim on 2031 — the liability is split
-        // by the kind of claim, under the `MEDICAL` qualifier (0374).
-        let medical: i64 = posting
-            .by_type
-            .iter()
-            .filter(|(type_code, _)| is_medical_claim(type_code.as_str()))
-            .map(|(_, amount)| *amount)
-            .sum();
-        for (qualifier, amount) in [("MEDICAL", medical), ("", posting.total_minor - medical)] {
-            if amount > 0 {
-                lines.push(
-                    PostingLine::credit("employee_claim_payable", &site, amount)
-                        .with_qualifier(qualifier)
-                        .for_employee(claim.employee().as_str()),
-                );
-            }
+            // What is owed: the category's own payable when Finance linked one
+            // (a medical category owes on 2020), the company's otherwise.
+            let payable = PostingLine::credit("employee_claim_payable", &site, *amount)
+                .for_employee(claim.employee().as_str());
+            let own = super::ledger::resolve_linked(
+                &mut *tx,
+                "employee_claim_payable",
+                &site,
+                "EXPENSE_CATEGORY",
+                &category,
+            )
+            .await?;
+            lines.push(if own.is_some() {
+                payable.from_source("EXPENSE_CATEGORY", &category)
+            } else {
+                payable
+            });
         }
         Some(
             poster::post(
@@ -653,13 +655,12 @@ pub async fn decide_claim(
         }
     }
 
-    claim
-        .mark_approved(
-            approved_entry_id
-                .map(|id| id.to_string())
-                .unwrap_or_default(),
-        )
-        .map_err(claim_error)?;
+    // Only an approval has an entry to stamp; a rejection posted nothing.
+    if let Some(entry_id) = approved_entry_id {
+        claim
+            .mark_approved(entry_id.to_string())
+            .map_err(claim_error)?;
+    }
     tx.commit().await?;
     Ok(())
 }
@@ -693,37 +694,50 @@ pub async fn pay_claim(
     )
     .await?;
 
-    // Paid out of the same two liabilities the approval raised: the
-    // medical part is read back off the approval entry's credit to
-    // the MEDICAL account, so payment always mirrors approval.
-    let medical: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(l.credit_minor), 0)::bigint
+    // Paid out of exactly the liabilities the approval raised: every credit
+    // the approval entry put on this employee at this site is debited back,
+    // account for account, so payment always mirrors approval.
+    let owed = sqlx::query(
+        "SELECT l.account_code, SUM(l.credit_minor - l.debit_minor)::bigint AS owed
            FROM journal_line l
            JOIN journal_entry e ON e.entry_id = l.entry_id
           WHERE e.source_kind = 'EXPENSE_CLAIM' AND e.source_id = $1
-            AND l.site_id = $2
-            AND l.account_code = (SELECT account_code FROM account_map
-                                   WHERE semantic_key = 'employee_claim_payable'
-                                     AND site_id = $2 AND qualifier = 'MEDICAL')
-            AND l.account_code IS DISTINCT FROM (
-                SELECT account_code FROM account_map
-                 WHERE semantic_key = 'employee_claim_payable'
-                   AND site_id = $2 AND qualifier = '')",
+            AND l.site_id = $2 AND l.party_type = 'EMPLOYEE'
+          GROUP BY l.account_code
+         HAVING SUM(l.credit_minor - l.debit_minor) > 0
+          ORDER BY l.account_code",
     )
     .bind(claim_id.to_string())
     .bind(&site)
-    .fetch_one(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
-    let medical = medical.min(total);
-    let mut lines = Vec::with_capacity(3);
-    for (qualifier, amount) in [("MEDICAL", medical), ("", total - medical)] {
-        if amount > 0 {
-            lines.push(
-                PostingLine::debit("employee_claim_payable", &site, amount)
-                    .with_qualifier(qualifier)
-                    .for_employee(claim.employee().as_str()),
-            );
+    let mut lines = Vec::with_capacity(owed.len() + 1);
+    let mut left = total;
+    for row in &owed {
+        let amount = row.try_get::<i64, _>("owed")?.min(left);
+        if amount <= 0 {
+            continue;
         }
+        left -= amount;
+        lines.push(
+            PostingLine::debit(
+                LineAccount::Account {
+                    account_code: row.try_get("account_code")?,
+                    category_code: None,
+                },
+                &site,
+                amount,
+            )
+            .for_employee(claim.employee().as_str()),
+        );
+    }
+    if left != 0 {
+        return Err(AppError::Conflict(format!(
+            "the approval of {} owes {} less than the {} sanctioned; it cannot be paid as approved",
+            claim.claim_number(),
+            left,
+            total
+        )));
     }
     lines.push(PostingLine::credit("petty_cash", &site, total));
     let payout_lines = lines;
@@ -1129,9 +1143,9 @@ pub async fn advances_of_employee(
     let rows = sqlx::query(
         "SELECT a.advance_id, a.advance_number, a.site_id, a.purpose,
                 a.amount_minor, a.status, a.requested_at, a.paid_at,
-                COALESCE(SUM(s.amount_minor) FILTER (WHERE s.kind = 'EXPENSE'), 0) AS settled_minor,
-                COALESCE(SUM(s.amount_minor) FILTER (WHERE s.kind = 'REFUND'), 0)  AS refunded_minor,
-                COALESCE(SUM(s.amount_minor) FILTER (WHERE s.kind = 'PAYROLL'), 0) AS recovered_minor
+                COALESCE(SUM(s.amount_minor) FILTER (WHERE s.kind = 'EXPENSE'), 0)::bigint AS settled_minor,
+                COALESCE(SUM(s.amount_minor) FILTER (WHERE s.kind = 'REFUND'), 0)::bigint  AS refunded_minor,
+                COALESCE(SUM(s.amount_minor) FILTER (WHERE s.kind = 'PAYROLL'), 0)::bigint AS recovered_minor
            FROM advance a
            LEFT JOIN advance_settlement s ON s.advance_id = a.advance_id
           WHERE a.party_type = 'EMPLOYEE' AND a.employee_id = $1
@@ -1190,7 +1204,7 @@ pub async fn advance_for_recovery(
     let row = sqlx::query(
         "SELECT a.advance_id, a.advance_number, a.party_type, a.employee_id, a.status,
                 a.amount_minor,
-                a.amount_minor - COALESCE(SUM(s.amount_minor), 0) AS outstanding_minor
+                (a.amount_minor - COALESCE(SUM(s.amount_minor), 0))::bigint AS outstanding_minor
            FROM advance a
            LEFT JOIN advance_settlement s ON s.advance_id = a.advance_id
           WHERE a.advance_id = $1
@@ -1213,11 +1227,3 @@ pub async fn advance_for_recovery(
     }))
 }
 
-/// Whether a claim type's code names a medical claim (owner HR decision 5),
-/// by the same words `define_claim_type` and 0371 map to Biaya Kesehatan.
-fn is_medical_claim(code: &str) -> bool {
-    let code = code.to_ascii_uppercase();
-    ["MEDIS", "MEDIC", "KESEHATAN", "PENGOBATAN", "OBAT", "DOKTER"]
-        .iter()
-        .any(|word| code.contains(word))
-}

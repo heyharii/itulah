@@ -6,8 +6,19 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { money } from "@/lib/format"
-import { advanceControl, domainKeys, listAdvances } from "@/lib/queries/finance-domains"
-import { Code, Grid, Note, NumberCard, Td, Th } from "@/screens/finance-final/parts"
+import {
+  advanceControl,
+  domainKeys,
+  listAdvances,
+} from "@/lib/queries/finance-domains"
+import {
+  Code,
+  Grid,
+  Note,
+  NumberCard,
+  Td,
+  Th,
+} from "@/screens/finance-final/parts"
 
 /// Advances — money out with somebody, and how old it is.
 ///
@@ -26,7 +37,9 @@ export function Advances() {
 
   const rows = useMemo(() => advances.data ?? [], [advances.data])
   const outstanding = rows
-    .filter((row) => row.status === "PAID" || row.status === "PARTIALLY_SETTLED")
+    .filter(
+      (row) => row.status === "PAID" || row.status === "PARTIALLY_SETTLED"
+    )
     .reduce((total, row) => total + row.outstanding_minor, 0)
   const old = rows.filter(
     (row) =>
@@ -66,23 +79,28 @@ export function Advances() {
         saldo lewat jurnalnya sendiri.
       </Note>
 
-      <div className="flex gap-2">
-        {[undefined, "REQUESTED", "APPROVED", "PAID", "PARTIALLY_SETTLED", "SETTLED"].map(
-          (option) => (
-            <button
-              key={option ?? "ALL"}
-              type="button"
-              className={
-                status === option
-                  ? "rounded-control border border-accent px-2 py-1 text-sm text-accent"
-                  : "rounded-control border border-hairline px-2 py-1 text-sm"
-              }
-              onClick={() => setStatus(option)}
-            >
-              {option ?? "Semua"}
-            </button>
-          )
-        )}
+      <div className="flex flex-wrap gap-2">
+        {[
+          undefined,
+          "REQUESTED",
+          "APPROVED",
+          "PAID",
+          "PARTIALLY_SETTLED",
+          "SETTLED",
+        ].map((option) => (
+          <button
+            key={option ?? "ALL"}
+            type="button"
+            className={
+              status === option
+                ? "rounded-control border border-accent px-2 py-1 text-sm text-accent"
+                : "rounded-control border border-hairline px-2 py-1 text-sm"
+            }
+            onClick={() => setStatus(option)}
+          >
+            {option ?? "Semua"}
+          </button>
+        ))}
       </div>
 
       {advances.isPending ? (
@@ -113,7 +131,9 @@ export function Advances() {
                 </Td>
                 <Td>
                   {row.party_label}
-                  <div className="text-mute text-[0.6875rem]">{row.party_kind}</div>
+                  <div className="text-[0.875rem] text-mute">
+                    {row.party_type}
+                  </div>
                 </Td>
                 <Td>{row.purpose}</Td>
                 <Td>{row.site_id}</Td>

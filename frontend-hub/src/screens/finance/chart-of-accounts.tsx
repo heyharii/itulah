@@ -1,20 +1,24 @@
-import { useQuery } from "@tanstack/react-query"
-import { ChevronDown, ChevronRight } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ChevronDown, ChevronRight, Plus } from "lucide-react"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Checkbox, Input } from "@/components/ui/field"
+import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field"
 import { KeyValue } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, Problem } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
-import { count, money } from "@/lib/format"
+import { count, label, moment, money } from "@/lib/format"
 import {
   accountChildren,
   accountDetail,
+  changeChart,
+  chartChanges,
   financeKeys,
   searchAccounts,
 } from "@/lib/queries/finance"
@@ -22,20 +26,22 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
 import { ROOT_CLASSES } from "@/screens/finance/chart"
-import { SiteName } from "@/screens/finance/parts"
-import type { LedgerAccount } from "@itulah/contract"
+import { AccountPicker, SiteName } from "@/screens/finance/parts"
+import type {
+  ChartChange,
+  ChartChangeRequest,
+  LedgerAccount,
+} from "@itulah/contract"
 
-/// The client's chart, browsed the way it is numbered.
+/// The Finance chart, browsed through its parent-child relationships.
 ///
 /// # Why this one screen is not a `<DataTable>`
 ///
 /// Every other list in this app exists to compare rows, and the table grammar
 /// is built for that. A chart of accounts has nothing to compare: each row is
-/// an identifier and the client's own name for it, and the only structure that
-/// matters — which heading an account hangs under — is destroyed by sorting.
-/// The code *is* the tree (`101100100101` is ASSET / CURRENT ASSET / KAS &
-/// SETARA KAS / CASH ON HAND / Cash on Hand / store 01, on their own
-/// {1,3,5,7,10,12} digit ladder), so this is drawn as the ladder.
+/// an account number and name, and its parent relationship is the structure
+/// that matters. Sorting a flat list would hide which group each account hangs
+/// under, so this screen fetches and renders one branch at a time.
 ///
 /// # Why it is fetched a level at a time
 ///
@@ -43,9 +49,22 @@ import type { LedgerAccount } from "@itulah/contract"
 /// wants eight rows. Each branch owns its own query keyed on its parent, so
 /// opening a heading is independent of the one above it and closing one
 /// discards its answer without touching its siblings.
+///
+/// # Why a change applies at once
+///
+/// Finance adds, renames, moves, retypes, retires and revives accounts here,
+/// the way an Accounts Manager does in ERPNext — no migration and no approval,
+/// on the owner's decision. What keeps that safe is the database, which
+/// refuses a parent that is not a heading of the same root or a type that does
+/// not fit it, and the server, which refuses to retire an account a link or a
+/// balance still leans on. Its sentence is shown as it is written. Every
+/// change is kept with the account before and after, who, and why — the
+/// History tab.
 export function ChartOfAccounts() {
   const [needle, setNeedle] = useState("")
   const [inactive, setInactive] = useState(false)
+  const [tab, setTab] = useState("chart")
+  const [creating, setCreating] = useState(false)
   const account = useSheet("account")
 
   const trimmed = needle.trim()
@@ -70,80 +89,110 @@ export function ChartOfAccounts() {
         title="Chart of accounts"
         sub="The client's own chart, in their own words. Nothing here is translated."
         actions={
-          <Input
-            value={needle}
-            onChange={(event) => setNeedle(event.target.value)}
-            placeholder="Search code or name"
-            className="h-8 w-64"
-          />
+          <>
+            <Input
+              value={needle}
+              onChange={(event) => setNeedle(event.target.value)}
+              placeholder="Search code or name"
+              className="h-8 w-64"
+            />
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              <Plus />
+              New account
+            </Button>
+          </>
         }
       />
 
-      <Toolbar>
-        {/* Not a segmented control: "Active / Including inactive" spent two
+      <SubTabs
+        tabs={[
+          { value: "chart", label: "Chart" },
+          { value: "history", label: "History" },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
+
+      {tab === "history" ? (
+        <ChartHistory onOpen={(code) => account.open(code)} />
+      ) : (
+        <>
+          <Toolbar>
+            {/* Not a segmented control: "Active / Including inactive" spent two
             pills announcing that the default is the default, and the second
             label is the first plus something. A checkbox says "and also show
             me…" in the width of a checkbox. */}
-        <Checkbox
-          label="Show inactive"
-          checked={inactive}
-          onChange={(next) => setInactive(next)}
-        />
-        <Toolbar.Spacer />
-        {/* What is on screen, in words. It used to say how the search works,
+            <Checkbox
+              label="Show inactive"
+              checked={inactive}
+              onChange={(next) => setInactive(next)}
+            />
+            <Toolbar.Spacer />
+            {/* What is on screen, in words. It used to say how the search works,
             which is a help string and not an effective value — every other
             toolbar in this module answers "what am I looking at". */}
-        <span className="text-[0.71875rem] text-mute">
-          {searching
-            ? `Matching “${trimmed}” · codes from the start, names anywhere`
-            : "The eight root classes · open a heading to fetch what hangs under it"}
-          {inactive ? " · including inactive" : ""}
-        </span>
-      </Toolbar>
+            <span className="text-[0.875rem] text-mute">
+              {searching
+                ? `Matching “${trimmed}” · codes from the start, names anywhere`
+                : "The eight root classes · open a heading to fetch what hangs under it"}
+              {inactive ? " · including inactive" : ""}
+            </span>
+          </Toolbar>
 
-      <Card className="max-h-[calc(100vh-16rem)] overflow-auto">
-        {searching ? (
-          queryState(results, {
-            loading: "Searching the chart…",
-            render: (page) =>
-              page.rows.length === 0 ? (
-                <EmptyState>
-                  No account matches “{trimmed}”. Codes are matched from the
-                  start, so a fragment from the middle of one will not find it.
-                </EmptyState>
-              ) : (
-                <div>
-                  {page.rows.map((row) => (
-                    <AccountRow
-                      key={`${row.account_code}-${row.site_id ?? ""}`}
-                      account={row}
-                      level={0}
-                      selected={row.account_code === account.value}
-                      onOpen={() => account.open(row.account_code)}
-                    />
-                  ))}
-                  {page.total > page.rows.length && (
-                    <p className="border-t border-hairline px-4 py-3 text-[0.71875rem] text-mute">
-                      Showing the first {count(page.rows.length)} of{" "}
-                      {count(page.total)} matches. Narrow the search — a longer
-                      code prefix, or more of the name.
-                    </p>
-                  )}
-                </div>
-              ),
-          })
-        ) : (
-          <Branch
-            parent={null}
-            level={0}
-            inactive={inactive}
-            openCode={account.value}
-            onOpen={(code) => account.open(code)}
-          />
-        )}
-      </Card>
+          <Card className="max-h-[calc(100vh-16rem)] overflow-auto">
+            {searching ? (
+              queryState(results, {
+                loading: "Searching the chart…",
+                render: (page) =>
+                  page.rows.length === 0 ? (
+                    <EmptyState>
+                      No account matches “{trimmed}”. Codes are matched from the
+                      start, so a fragment from the middle of one will not find
+                      it.
+                    </EmptyState>
+                  ) : (
+                    <div>
+                      {page.rows.map((row) => (
+                        <AccountRow
+                          key={`${row.account_code}-${row.site_id ?? ""}`}
+                          account={row}
+                          level={0}
+                          selected={row.account_code === account.value}
+                          onOpen={() => account.open(row.account_code)}
+                        />
+                      ))}
+                      {page.total > page.rows.length && (
+                        <p className="border-t border-hairline px-4 py-3 text-[0.875rem] text-mute">
+                          Showing the first {count(page.rows.length)} of{" "}
+                          {count(page.total)} matches. Narrow the search — a
+                          longer code prefix, or more of the name.
+                        </p>
+                      )}
+                    </div>
+                  ),
+              })
+            ) : (
+              <Branch
+                parent={null}
+                level={0}
+                inactive={inactive}
+                openCode={account.value}
+                onOpen={(code) => account.open(code)}
+              />
+            )}
+          </Card>
+        </>
+      )}
 
       <AccountSheet code={account.value ?? null} onClose={account.close} />
+      <NewAccountSheet
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={(code) => {
+          setCreating(false)
+          account.open(code)
+        }}
+      />
     </PageContent>
   )
 }
@@ -183,7 +232,7 @@ function Branch({
     loading: "Loading the chart…",
     render: (accounts) =>
       accounts.length === 0 ? (
-        <p className="px-4 py-3 text-[0.71875rem] text-mute">
+        <p className="px-4 py-3 text-[0.875rem] text-mute">
           Nothing hangs under this heading.
         </p>
       ) : (
@@ -284,18 +333,18 @@ function AccountRow({
             `store-01` was here in mono, which is the one thing an account row
             has no room to explain. */}
         {account.counterparty_site_id && (
-          <span className="shrink-0 text-[0.65625rem] text-mute">
+          <span className="shrink-0 text-[0.875rem] text-mute">
             <SiteName id={account.counterparty_site_id} /> →{" "}
             <SiteName id={account.site_id} />
           </span>
         )}
         {!account.counterparty_site_id && account.site_id && (
-          <span className="shrink-0 text-[0.65625rem] text-mute">
+          <span className="shrink-0 text-[0.875rem] text-mute">
             <SiteName id={account.site_id} />
           </span>
         )}
         {account.child_count > 0 && (
-          <span className="w-10 shrink-0 text-right text-[0.65625rem] text-faint tabular-nums">
+          <span className="w-10 shrink-0 text-right text-[0.875rem] text-faint tabular-nums">
             {count(account.child_count)}
           </span>
         )}
@@ -317,22 +366,63 @@ function AccountSheet({
     queryFn: ({ signal }) => accountDetail(code!, {}, signal),
     enabled: code !== null,
   })
+  const [mode, setMode] = useState<"edit" | "state" | null>(null)
+  const active = detail.data?.account.is_active ?? true
 
   return (
     <Sheet
       open={code !== null}
       subject={code === null ? undefined : { kind: "account", id: code }}
-      onOpenChange={(open) => !open && onClose()}
+      onOpenChange={(open) => {
+        if (!open) {
+          setMode(null)
+          onClose()
+        }
+      }}
       id={code ?? undefined}
       title={detail.data?.account.name ?? "Account"}
+      actions={
+        detail.data && (
+          <>
+            <Button
+              size="sm"
+              variant={mode === "edit" ? "soft" : "ghost"}
+              onClick={() => setMode(mode === "edit" ? null : "edit")}
+            >
+              Edit
+            </Button>
+            <Button
+              size="sm"
+              variant={mode === "state" ? "soft" : "ghost"}
+              onClick={() => setMode(mode === "state" ? null : "state")}
+            >
+              {active ? "Deactivate" : "Reactivate"}
+            </Button>
+          </>
+        )
+      }
     >
       {queryState(detail, {
         loading: "Loading the account…",
         render: ({ account, path, balance }) => (
           <div className="flex flex-col gap-5">
+            {mode === "edit" && (
+              <EditAccount
+                key={account.account_code}
+                account={account}
+                onDone={() => setMode(null)}
+              />
+            )}
+            {mode === "state" && (
+              <RetireOrRevive
+                key={account.account_code}
+                account={account}
+                onDone={() => setMode(null)}
+              />
+            )}
             {/* The headings above it, outermost first. This is what makes a
                 twelve-digit code readable. */}
-            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[0.71875rem] text-body">
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[0.875rem] text-body">
               {path.map((step) => (
                 <span
                   key={step.account_code}
@@ -398,7 +488,7 @@ function AccountSheet({
             </div>
 
             {account.counterparty_site_id && (
-              <p className="text-[0.71875rem] text-body">
+              <p className="text-[0.875rem] text-body">
                 A goods-in-transit account: the code names a route rather than a
                 place, and the goods came from{" "}
                 <SiteName
@@ -408,9 +498,654 @@ function AccountSheet({
                 .
               </p>
             )}
+
+            <AccountChanges code={account.account_code} />
           </div>
         ),
       })}
     </Sheet>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Changing the chart
+// ---------------------------------------------------------------------------
+
+const ACCOUNT_TYPES_BY_ROOT: Readonly<Record<string, readonly string[]>> = {
+  ASSET: [
+    "CASH",
+    "BANK",
+    "RECEIVABLE",
+    "INVENTORY",
+    "PREPAID",
+    "TAX",
+    "AFFILIATE",
+    "FIXED_ASSET",
+    "ACCUMULATED_DEPRECIATION",
+    "OTHER_ASSET",
+  ],
+  LIABILITY: [
+    "PAYABLE",
+    "TAX",
+    "AFFILIATE",
+    "ACCRUED_LIABILITY",
+    "LOAN",
+    "OTHER_LIABILITY",
+  ],
+  EQUITY: ["EQUITY"],
+  INCOME: ["INCOME"],
+  EXPENSE: ["COST_OF_GOODS_SOLD", "EXPENSE", "DEPRECIATION"],
+}
+
+const ALL_ACCOUNT_TYPES = [
+  ...new Set(Object.values(ACCOUNT_TYPES_BY_ROOT).flat()),
+]
+
+const STATEMENT_SECTIONS = [
+  "ASSET",
+  "LIABILITY",
+  "EQUITY",
+  "REVENUE",
+  "COST_OF_SALES",
+  "OPERATING_EXPENSE",
+  "OTHER_OPERATING_EXPENSE",
+  "OTHER_INCOME",
+  "OTHER_EXPENSE",
+  "OTHER_NET",
+  "INCOME_TAX",
+] as const
+
+/// The root a section belongs to — the database's `ledger_root_type`, which
+/// is what decides which types an account may take. OTHER_NET follows the
+/// normal balance, and with none chosen it could be either.
+function rootOfSection(section: string, balance: string): string | null {
+  switch (section) {
+    case "ASSET":
+      return "ASSET"
+    case "LIABILITY":
+      return "LIABILITY"
+    case "EQUITY":
+      return "EQUITY"
+    case "REVENUE":
+    case "OTHER_INCOME":
+      return "INCOME"
+    case "OTHER_NET":
+      return balance === "C" ? "INCOME" : balance === "D" ? "EXPENSE" : null
+    default:
+      return "EXPENSE"
+  }
+}
+
+/// The root the client's class number implies. Only a hint for narrowing a
+/// select: class 8 holds both income and expense, so it answers nothing and
+/// every type is offered. The database is the authority either way.
+function rootOfClass(rootClass: string | undefined): string | null {
+  switch (rootClass) {
+    case "1":
+      return "ASSET"
+    case "2":
+      return "LIABILITY"
+    case "3":
+      return "EQUITY"
+    case "4":
+      return "INCOME"
+    case "5":
+    case "6":
+    case "7":
+      return "EXPENSE"
+    default:
+      return null
+  }
+}
+
+function typesFor(root: string | null): readonly string[] {
+  return root === null
+    ? ALL_ACCOUNT_TYPES
+    : (ACCOUNT_TYPES_BY_ROOT[root] ?? ALL_ACCOUNT_TYPES)
+}
+
+function blankToNull(value: string): string | null {
+  const trimmed = value.trim()
+  return trimmed === "" ? null : trimmed
+}
+
+/// Every change to the chart refreshes everything read about accounts: the
+/// tree, the searches, the open account and the history all sit under
+/// `["finance", "accounts"]`.
+function useChartChange(onDone: (change: ChartChange) => void) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (request: ChartChangeRequest) => changeChart(request),
+    onSuccess: (change) => {
+      void client.invalidateQueries({ queryKey: ["finance", "accounts"] })
+      onDone(change)
+    },
+  })
+}
+
+/// A heading, chosen from the chart. Leaves are shown and refused, like every
+/// other picker here: a heading nobody can find reads as a broken search.
+function HeadingPicker({
+  value,
+  onChange,
+}: {
+  value: { code: string; name: string } | null
+  onChange: (next: { code: string; name: string } | null) => void
+}) {
+  if (value !== null) {
+    return (
+      <div className="flex items-center gap-2 rounded-inner border border-hairline px-3 py-2 text-[0.875rem]">
+        <Tag>{value.code}</Tag>
+        <span className="min-w-0 flex-1 truncate text-ink">{value.name}</span>
+        <Button size="sm" variant="quiet" onClick={() => onChange(null)}>
+          Change
+        </Button>
+      </div>
+    )
+  }
+  return (
+    <AccountPicker
+      allowGroups
+      placeholder="Search for the heading it sits under"
+      accept={(account) => (account.is_group ? null : "not a heading")}
+      onPick={(account) =>
+        onChange({ code: account.account_code, name: account.name })
+      }
+    />
+  )
+}
+
+/// The class of a heading, read off its detail — the picker hands back a code
+/// and a name, and the class is what narrows the type select.
+function useRootClass(code: string | null): string | undefined {
+  const detail = useQuery({
+    queryKey: financeKeys.account(code ?? "", null),
+    queryFn: ({ signal }) => accountDetail(code!, {}, signal),
+    enabled: code !== null,
+    staleTime: 10 * 60 * 1000,
+  })
+  return detail.data?.account.root_class
+}
+
+function NewAccountSheet({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean
+  onClose: () => void
+  onCreated: (code: string) => void
+}) {
+  const [code, setCode] = useState("")
+  const [name, setName] = useState("")
+  const [parent, setParent] = useState<{ code: string; name: string } | null>(
+    null
+  )
+  const [isGroup, setIsGroup] = useState(false)
+  const [accountType, setAccountType] = useState("")
+  const [section, setSection] = useState("")
+  const [dimension, setDimension] = useState("unit")
+  const [balance, setBalance] = useState("")
+  const [reason, setReason] = useState("")
+
+  const reset = () => {
+    setCode("")
+    setName("")
+    setParent(null)
+    setIsGroup(false)
+    setAccountType("")
+    setSection("")
+    setDimension("unit")
+    setBalance("")
+    setReason("")
+  }
+
+  const rootClass = useRootClass(parent?.code ?? null)
+  const root =
+    section !== "" ? rootOfSection(section, balance) : rootOfClass(rootClass)
+  const types = typesFor(root)
+
+  const save = useChartChange((change) => {
+    reset()
+    onCreated(change.account_code)
+  })
+
+  const missing =
+    code.trim() === ""
+      ? "Give the account a code."
+      : name.trim() === ""
+        ? "Give the account a name."
+        : parent === null
+          ? "Choose the heading it sits under."
+          : null
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      title="New account"
+      caption="Applies at once and is kept in the chart's history."
+    >
+      <div className="flex flex-col gap-3">
+        <Problem error={save.error} />
+        <Field label="Code">
+          <Input
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            className="font-mono"
+          />
+        </Field>
+        <Field label="Name" aside="The client's own words">
+          <Input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </Field>
+        <Field label="Under heading">
+          <HeadingPicker value={parent} onChange={setParent} />
+        </Field>
+        <Checkbox
+          label="A heading — other accounts sit under it, nothing posts to it"
+          checked={isGroup}
+          onChange={(next) => setIsGroup(next)}
+        />
+        {!isGroup && (
+          <Field
+            label="Account type"
+            aside={root === null ? undefined : label(root)}
+          >
+            <Select value={accountType} onChange={setAccountType}>
+              <option value="">What most of its siblings are</option>
+              {types.map((type) => (
+                <option key={type} value={type}>
+                  {label(type)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        <Field label="Statement section">
+          <Select value={section} onChange={setSection}>
+            <option value="">Same as the heading</option>
+            {STATEMENT_SECTIONS.map((one) => (
+              <option key={one} value={one}>
+                {label(one)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {!isGroup && (
+          <Field label="Kept per">
+            <Select value={dimension} onChange={setDimension}>
+              <option value="unit">Unit — each site has its own balance</option>
+              <option value="company">Company — one balance for all</option>
+            </Select>
+          </Field>
+        )}
+        <Field label="Normal balance">
+          <Select value={balance} onChange={setBalance}>
+            <option value="">From the root</option>
+            <option value="D">Debit</option>
+            <option value="C">Credit</option>
+          </Select>
+        </Field>
+        <Field label="Reason">
+          <Textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            rows={2}
+          />
+        </Field>
+        <div className="flex items-center justify-end gap-2.5">
+          <span className="min-w-0 flex-1 text-[0.875rem] text-mute">
+            {missing ?? `${code.trim()} will sit under ${parent?.code}.`}
+          </span>
+          <Button
+            variant="primary"
+            disabled={missing !== null || save.isPending}
+            onClick={() =>
+              save.mutate({
+                kind: "CREATE",
+                account_code: code.trim(),
+                name: name.trim(),
+                parent_code: parent?.code ?? null,
+                is_group: isGroup,
+                account_type: isGroup ? null : blankToNull(accountType),
+                statement_section: blankToNull(section),
+                dimension: isGroup ? null : dimension,
+                normal_balance: blankToNull(balance),
+                reason: blankToNull(reason),
+              })
+            }
+          >
+            {save.isPending ? "Adding…" : "Add account"}
+          </Button>
+        </div>
+      </div>
+    </Sheet>
+  )
+}
+
+/// Rename, move, retype. Only what was changed is sent: a blank select is
+/// "leave it as it is", not "clear it".
+function EditAccount({
+  account,
+  onDone,
+}: {
+  account: LedgerAccount
+  onDone: () => void
+}) {
+  const [name, setName] = useState(account.name)
+  const [parent, setParent] = useState<{ code: string; name: string } | null>(
+    null
+  )
+  const [accountType, setAccountType] = useState("")
+  const [section, setSection] = useState("")
+  const [dimension, setDimension] = useState("")
+  // "" leaves the flag as it is; the account row does not carry either flag,
+  // so the form cannot show the current answer — only change it.
+  const [frozen, setFrozen] = useState("")
+  const [counterSite, setCounterSite] = useState("")
+  const [reason, setReason] = useState("")
+
+  const rootClass = useRootClass(parent?.code ?? null) ?? account.root_class
+  const root =
+    section !== "" ? rootOfSection(section, "") : rootOfClass(rootClass)
+  const save = useChartChange(onDone)
+
+  const nameChanged = name.trim() !== "" && name.trim() !== account.name
+  const anything =
+    nameChanged ||
+    parent !== null ||
+    accountType !== "" ||
+    section !== "" ||
+    dimension !== "" ||
+    frozen !== "" ||
+    counterSite !== ""
+
+  return (
+    <div className="flex flex-col gap-3 rounded-inner border border-hairline p-3">
+      <h4 className="text-card-title font-semibold text-ink">Edit account</h4>
+      <Problem error={save.error} />
+      <Field label="Name">
+        <Input value={name} onChange={(event) => setName(event.target.value)} />
+      </Field>
+      <Field
+        label="Move under"
+        aside={
+          parent === null ? `Now ${account.parent_code ?? "a root"}` : undefined
+        }
+      >
+        <HeadingPicker value={parent} onChange={setParent} />
+      </Field>
+      {!account.is_group && (
+        <Field label="Account type">
+          <Select value={accountType} onChange={setAccountType}>
+            <option value="">Leave as it is</option>
+            {typesFor(root).map((type) => (
+              <option key={type} value={type}>
+                {label(type)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      <Field label="Statement section">
+        <Select value={section} onChange={setSection}>
+          <option value="">Leave as it is</option>
+          {STATEMENT_SECTIONS.map((one) => (
+            <option key={one} value={one}>
+              {label(one)}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      {!account.is_group && (
+        <Field label="Kept per">
+          <Select value={dimension} onChange={setDimension}>
+            <option value="">Leave as it is</option>
+            <option value="unit">Unit</option>
+            <option value="company">Company</option>
+          </Select>
+        </Field>
+      )}
+      {!account.is_group && (
+        <Field
+          label="Frozen"
+          aside="Takes no new line"
+          hint="A frozen account keeps its history and balance; every new posting to it is refused."
+        >
+          <Select value={frozen} onChange={setFrozen}>
+            <option value="">Leave as it is</option>
+            <option value="yes">Freeze it</option>
+            <option value="no">Unfreeze it</option>
+          </Select>
+        </Field>
+      )}
+      {!account.is_group && (
+        <Field
+          label="Requires counter unit"
+          hint="Every line on this account must name the unit on the other side — an interunit account."
+        >
+          <Select value={counterSite} onChange={setCounterSite}>
+            <option value="">Leave as it is</option>
+            <option value="yes">Required</option>
+            <option value="no">Not required</option>
+          </Select>
+        </Field>
+      )}
+      <Field label="Reason">
+        <Textarea
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          rows={2}
+        />
+      </Field>
+      <div className="flex justify-end gap-2">
+        <Button variant="quiet" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          disabled={!anything || save.isPending}
+          onClick={() =>
+            save.mutate({
+              kind: "UPDATE",
+              account_code: account.account_code,
+              name: nameChanged ? name.trim() : null,
+              parent_code: parent?.code ?? null,
+              account_type: blankToNull(accountType),
+              statement_section: blankToNull(section),
+              dimension: blankToNull(dimension),
+              is_frozen: frozen === "" ? null : frozen === "yes",
+              requires_counter_site:
+                counterSite === "" ? null : counterSite === "yes",
+              reason: blankToNull(reason),
+            })
+          }
+        >
+          {save.isPending ? "Saving…" : "Save changes"}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/// Retire or revive. Retiring is refused while a link, a balance or a live
+/// child still leans on the account — the server names which.
+function RetireOrRevive({
+  account,
+  onDone,
+}: {
+  account: LedgerAccount
+  onDone: () => void
+}) {
+  const [reason, setReason] = useState("")
+  const save = useChartChange(onDone)
+  const retiring = account.is_active
+
+  return (
+    <div className="flex flex-col gap-3 rounded-inner border border-hairline p-3">
+      <h4 className="text-card-title font-semibold text-ink">
+        {retiring ? "Deactivate" : "Reactivate"} {account.account_code}
+      </h4>
+      <p className="text-[0.875rem] text-body">
+        {retiring
+          ? "Nothing new can be posted to an inactive account. Its history stays, and it can be reactivated."
+          : "The account takes postings again from now on."}
+      </p>
+      <Problem error={save.error} />
+      <Field label="Reason">
+        <Textarea
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          rows={2}
+        />
+      </Field>
+      <div className="flex justify-end gap-2">
+        <Button variant="quiet" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button
+          variant={retiring ? "danger" : "primary"}
+          disabled={save.isPending}
+          onClick={() =>
+            save.mutate({
+              kind: retiring ? "DEACTIVATE" : "REACTIVATE",
+              account_code: account.account_code,
+              reason: blankToNull(reason),
+            })
+          }
+        >
+          {save.isPending
+            ? "Saving…"
+            : retiring
+              ? "Deactivate account"
+              : "Reactivate account"}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// History
+// ---------------------------------------------------------------------------
+
+/// The fields a change moved, before → after. A creation has no before, so
+/// it shows what the account was made with.
+function changedFields(
+  change: ChartChange
+): { field: string; before: string; after: string }[] {
+  const show = (value: unknown) =>
+    value === null || value === undefined ? "—" : String(value)
+  const keys = new Set([
+    ...Object.keys(change.before ?? {}),
+    ...Object.keys(change.after),
+  ])
+  const out: { field: string; before: string; after: string }[] = []
+  for (const key of keys) {
+    const before = change.before?.[key]
+    const after = change.after[key]
+    if (change.before !== null && show(before) === show(after)) continue
+    if (change.before === null && (after === null || after === undefined))
+      continue
+    out.push({ field: key, before: show(before), after: show(after) })
+  }
+  return out
+}
+
+function ChangeLine({
+  change,
+  onOpen,
+}: {
+  change: ChartChange
+  onOpen?: (code: string) => void
+}) {
+  const fields = changedFields(change)
+  return (
+    <div className="flex flex-col gap-1 border-b border-hairline px-4 py-2.5 text-[0.875rem] last:border-b-0">
+      <div className="flex flex-wrap items-center gap-2">
+        {onOpen ? (
+          <button type="button" onClick={() => onOpen(change.account_code)}>
+            <Tag tone="accent">{change.account_code}</Tag>
+          </button>
+        ) : null}
+        <span className="font-medium text-ink">{label(change.action)}</span>
+        {change.reason && <span className="text-body">— {change.reason}</span>}
+        <span className="ml-auto text-faint">
+          {change.changed_by} · {moment(change.changed_at)}
+        </span>
+      </div>
+      {fields.length > 0 && (
+        <div className="flex flex-col gap-0.5">
+          {fields.map((one) => (
+            <div key={one.field} className="flex flex-wrap gap-x-2">
+              <span className="w-36 shrink-0 text-mute">
+                {label(one.field)}
+              </span>
+              {change.before !== null && (
+                <>
+                  <span className="text-body line-through decoration-faint">
+                    {one.before}
+                  </span>
+                  <span className="text-faint">→</span>
+                </>
+              )}
+              <span className="text-ink">{one.after}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ChartHistory({ onOpen }: { onOpen: (code: string) => void }) {
+  const history = useQuery({
+    queryKey: financeKeys.chartChanges(null),
+    queryFn: ({ signal }) => chartChanges(null, signal, 200),
+  })
+  return (
+    <Card className="max-h-[calc(100vh-16rem)] overflow-auto">
+      {queryState(history, {
+        loading: "Reading the chart's history…",
+        render: (changes) =>
+          changes.length === 0 ? (
+            <EmptyState>
+              Nobody has changed the chart from this screen yet.
+            </EmptyState>
+          ) : (
+            <div>
+              {changes.map((change) => (
+                <ChangeLine
+                  key={change.change_id}
+                  change={change}
+                  onOpen={onOpen}
+                />
+              ))}
+            </div>
+          ),
+      })}
+    </Card>
+  )
+}
+
+/// This account's own changes, at the foot of its sheet.
+function AccountChanges({ code }: { code: string }) {
+  const history = useQuery({
+    queryKey: financeKeys.chartChanges(code),
+    queryFn: ({ signal }) => chartChanges(code, signal, 20),
+  })
+  if (history.data === undefined || history.data.length === 0) return null
+  return (
+    <div>
+      <h4 className="mb-2 text-card-title font-semibold text-ink">Changes</h4>
+      <div className="rounded-inner border border-hairline">
+        {history.data.map((change) => (
+          <ChangeLine key={change.change_id} change={change} />
+        ))}
+      </div>
+    </div>
   )
 }

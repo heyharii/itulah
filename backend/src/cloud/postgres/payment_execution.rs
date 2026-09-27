@@ -96,7 +96,7 @@ pub(super) struct PayInstruction {
     pub counter_category_code: Option<String>,
     pub amount_minor: i64,
     /// `SUPPLIER`, `EMPLOYEE` or `OTHER`.
-    pub party_kind: String,
+    pub party_type: String,
     pub supplier_id: Option<String>,
     pub employee_id: Option<String>,
     pub party_name: String,
@@ -161,6 +161,7 @@ pub(super) async fn payment_execution_pay(
         (Some(key), None) => LineAccount::Meaning {
             semantic_key: key.to_string(),
             qualifier: instruction.counter_qualifier.clone(),
+            source_type: "COMPANY".into(),
         },
         (None, Some(code)) => LineAccount::Account {
             account_code: code.to_string(),
@@ -185,17 +186,17 @@ pub(super) async fn payment_execution_pay(
     let supplier_id = instruction
         .supplier_id
         .as_deref()
-        .filter(|_| instruction.party_kind == "SUPPLIER");
+        .filter(|_| instruction.party_type == "SUPPLIER");
     let employee_id = instruction
         .employee_id
         .as_deref()
-        .filter(|_| instruction.party_kind == "EMPLOYEE");
-    if instruction.party_kind == "SUPPLIER" && supplier_id.is_none() {
+        .filter(|_| instruction.party_type == "EMPLOYEE");
+    if instruction.party_type == "SUPPLIER" && supplier_id.is_none() {
         return Err(AppError::Validation(
             "a payment to a supplier has to say which supplier".into(),
         ));
     }
-    if instruction.party_kind == "EMPLOYEE" && employee_id.is_none() {
+    if instruction.party_type == "EMPLOYEE" && employee_id.is_none() {
         return Err(AppError::Validation(
             "a payment to an employee has to say which employee".into(),
         ));
@@ -216,7 +217,7 @@ pub(super) async fn payment_execution_pay(
            (document_id, kind, doc_date,
             from_key, from_qualifier, from_account_code, from_category_code, from_site,
             to_key, to_qualifier, to_account_code, to_category_code, to_site,
-            amount_minor, currency, party_kind, supplier_id, employee_id, party_name,
+            amount_minor, currency, party_type, supplier_id, employee_id, party_name,
             memo, created_by)
          VALUES ($1,'PAY',$2,$3,$4,NULL,NULL,$5,$6,$7,$8,$9,$5,$10,'IDR',
                  $11,$12,$13,$14,$15,$16)",
@@ -231,7 +232,7 @@ pub(super) async fn payment_execution_pay(
     .bind(instruction.counter_account_code.as_deref())
     .bind(instruction.counter_category_code.as_deref())
     .bind(instruction.amount_minor)
-    .bind(&instruction.party_kind)
+    .bind(&instruction.party_type)
     .bind(supplier_id)
     .bind(employee_id)
     .bind(&instruction.party_name)
@@ -287,26 +288,31 @@ pub(super) async fn payment_execution_pay(
         )),
         lines: vec![
             PostingLine {
+                dimensions: Vec::new(),
                 account: counter,
                 site_id: instruction.site_id.clone(),
                 counter_site_id: None,
                 debit_minor: instruction.amount_minor,
                 credit_minor: 0,
-                supplier_id: supplier_id.map(str::to_string),
+                party_type: Some("SUPPLIER".to_string()),
+                party_id: supplier_id.map(str::to_string),
                 asset_id: None,
                 bank_account_id: None,
                 memo: Some(instruction.memo.clone()),
             },
             PostingLine {
+                dimensions: Vec::new(),
                 account: LineAccount::Meaning {
                     semantic_key: instruction.from_key.clone(),
                     qualifier: instruction.from_qualifier.clone(),
+                    source_type: "COMPANY".into(),
                 },
                 site_id: instruction.site_id.clone(),
                 counter_site_id: None,
                 debit_minor: 0,
                 credit_minor: instruction.amount_minor,
-                supplier_id: None,
+                party_type: None,
+                party_id: None,
                 asset_id: None,
                 bank_account_id: None,
                 memo: Some(instruction.memo.clone()),

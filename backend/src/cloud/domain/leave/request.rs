@@ -401,12 +401,7 @@ impl LeaveRequest {
         balance: Option<BalanceContext<'_>>,
         decision: Authorization,
     ) -> Result<Option<LedgerEntry>, LeaveError> {
-        self.require_pending()?;
-        if !decision.authorizes_leave_decision() {
-            return Err(LeaveError::ActionForbidsDecision {
-                action_key: decision.action_key().to_owned(),
-            });
-        }
+        self.require_decidable_by(&decision)?;
         if !leave_type.draws_on_balance() {
             // Sick leave is approved and nothing is deducted, which is the
             // correct outcome and not an omission.
@@ -454,13 +449,29 @@ impl LeaveRequest {
 
     /// Refuse it. The request stays in the record as evidence.
     pub fn reject(&mut self, decision: Authorization) -> Result<(), LeaveError> {
+        self.require_decidable_by(&decision)?;
+        self.state = LeaveRequestState::Rejected { decision };
+        Ok(())
+    }
+
+    /// Pending, under the deciding key, and decided by somebody else.
+    ///
+    /// The third is the two-person rule every other HR decision already keeps
+    /// — corrections, swaps, claims. A supervisor who files their own leave
+    /// from the phone finds it in their own queue; approving it there would
+    /// mint a deduction under the same name that asked for it, and a control
+    /// one person completes alone is a record of a signature, not a control.
+    /// Refusing it is refused too: taking your own request back is `withdraw`.
+    fn require_decidable_by(&self, decision: &Authorization) -> Result<(), LeaveError> {
         self.require_pending()?;
         if !decision.authorizes_leave_decision() {
             return Err(LeaveError::ActionForbidsDecision {
                 action_key: decision.action_key().to_owned(),
             });
         }
-        self.state = LeaveRequestState::Rejected { decision };
+        if decision.actor() == self.requested.actor() {
+            return Err(LeaveError::DecisionByRequester);
+        }
         Ok(())
     }
 

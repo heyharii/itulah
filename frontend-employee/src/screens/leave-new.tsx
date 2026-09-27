@@ -4,20 +4,13 @@ import { useState } from "react"
 
 import { Failure, Panel } from "@/components/bits"
 import { Button } from "@/components/ui/button"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { isoDate } from "@/lib/hr/demo"
+import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import {
   useApplyForLeave,
   useLeaveEntitlements,
   type Entitlement,
 } from "@/lib/hr/queries"
+import { isoDate } from "@/lib/format"
 import { readDays } from "@/lib/hr/days"
 
 /// Calendar days, and labelled as such. The server counts working days
@@ -124,25 +117,25 @@ export function LeaveNew() {
       className="flex flex-col gap-4"
     >
       <Panel>
-        <FieldGroup>
+        <div className="flex flex-col gap-3.5">
           <form.Field name="leaveTypeId">
             {(field) => {
               const chosen = types.data.find(
                 (type) => type.code === field.state.value
               )
               return (
-                <Field>
-                  <FieldLabel htmlFor={field.name}>Kind of leave</FieldLabel>
-                  <select
-                    id={field.name}
+                <Field
+                  label="Kind of leave"
+                  hint={
+                    chosen?.requiresEvidence === true &&
+                    "Bring the doctor's note to your manager — this app does not take attachments yet."
+                  }
+                >
+                  <Select
                     name={field.name}
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(event) => field.handleChange(event.target.value)}
-                    // `h-11` and `text-base`: a control under 44px is hard to
-                    // hit with a thumb, and a font under 16px makes iOS Safari
-                    // zoom the page the moment it is focused.
-                    className="h-11 w-full rounded-xl border border-input bg-input/30 px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm"
                     required
                   >
                     <option value="" disabled>
@@ -155,13 +148,7 @@ export function LeaveNew() {
                           ` — ${readDays(type.remainingCentidays ?? 0)} left`}
                       </option>
                     ))}
-                  </select>
-                  {chosen?.requiresEvidence === true && (
-                    <FieldDescription>
-                      Bring the doctor's note to your manager — this app does
-                      not take attachments yet.
-                    </FieldDescription>
-                  )}
+                  </Select>
                 </Field>
               )
             }}
@@ -173,13 +160,10 @@ export function LeaveNew() {
           <div className="grid grid-cols-2 gap-3">
             <form.Field name="from">
               {(field) => (
-                <Field>
-                  <FieldLabel htmlFor={field.name}>First day</FieldLabel>
+                <Field label="First day">
                   <Input
-                    id={field.name}
                     name={field.name}
                     type="date"
-                    className="h-11 text-base md:text-sm"
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(event) => {
@@ -198,13 +182,10 @@ export function LeaveNew() {
             </form.Field>
             <form.Field name="to">
               {(field) => (
-                <Field>
-                  <FieldLabel htmlFor={field.name}>Last day</FieldLabel>
+                <Field label="Last day">
                   <Input
-                    id={field.name}
                     name={field.name}
                     type="date"
-                    className="h-11 text-base md:text-sm"
                     min={values.from}
                     value={field.state.value}
                     onBlur={field.handleBlur}
@@ -218,10 +199,8 @@ export function LeaveNew() {
 
           <form.Field name="reason">
             {(field) => (
-              <Field>
-                <FieldLabel htmlFor={field.name}>Why</FieldLabel>
+              <Field label="Why">
                 <Textarea
-                  id={field.name}
                   name={field.name}
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -234,7 +213,7 @@ export function LeaveNew() {
             )}
           </form.Field>
 
-          <p className="text-[13px] text-muted-foreground">
+          <p className="text-meta text-body">
             {span > 0 &&
               `${span === 1 ? "1 calendar day" : `${span} calendar days`}. Your manager's decision counts working days against the holiday calendar.`}
           </p>
@@ -244,31 +223,29 @@ export function LeaveNew() {
           <div className="flex flex-col-reverse gap-2 md:flex-row md:justify-end">
             <Button
               type="button"
-              variant="ghost"
-              size="lg"
-              className="h-11"
+              variant="quiet"
+              size="tap"
+              className="md:h-control"
               onClick={() => void navigate({ to: "/leave" })}
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              size="lg"
-              className="h-11"
+              variant="primary"
+              size="tap"
+              className="md:h-control"
               disabled={apply.isPending}
             >
               {apply.isPending ? "Sending…" : "Send request"}
             </Button>
           </div>
           {tried && problem !== null && (
-            <FieldDescription
-              role="alert"
-              className="text-center text-destructive"
-            >
+            <p role="alert" className="text-center text-meta text-bad">
               {problem}
-            </FieldDescription>
+            </p>
           )}
-        </FieldGroup>
+        </div>
       </Panel>
     </form>
   )

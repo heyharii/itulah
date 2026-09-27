@@ -2,9 +2,11 @@ use super::{begin_idempotent, complete_idempotent, inventory_dc_owner_tx, issue_
 use crate::cloud::{
     application::AppError,
     domain::{
-        normalize_supplier_code, normalize_tag_codes, optional_supplier_text, parse_purchase_order,
+        normalize_legal_form, normalize_supplier_code, normalize_tag_codes, optional_supplier_text,
+        parse_purchase_order,
         required_supplier_text, validate_supplier_item_price, PurchaseOrderLinePayload, Supplier,
         SupplierItem, SupplierItemColour, SupplierStatus, COMMAND_PURCHASE_ORDER_ACTIVATE,
+        COMMAND_PURCHASE_ORDER_REVISE,
     },
 };
 use chrono::{DateTime, NaiveDate, Utc};
@@ -17,7 +19,12 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CreateSupplierRequest {
-    pub supplier_code: String,
+    /// Ours for this supplier. Blank or absent and the server numbers it: the
+    /// next free four-digit number (`0001`, `0002` …), given inside the same
+    /// transaction that writes the row — see [`next_supplier_number`].
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub supplier_code: Option<String>,
     pub name: String,
     #[serde(default)]
     pub contact_name: Option<String>,
@@ -43,6 +50,26 @@ pub struct CreateSupplierRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
     pub expense_account_code: Option<String>,
+    /// The tax identity, and the standing arrangement. All three optional on
+    /// the wire for the reason `category` is: a supplier is regularly
+    /// registered from a delivery note that carries none of them, and they
+    /// arrive on the day Finance asks.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub npwp: Option<String>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "boolean | null"))]
+    pub is_pkp: Option<bool>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub default_payment_terms_code: Option<String>,
+    /// `PT`, `CV` or `UD`. See migration 0392.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub legal_form: Option<String>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub notes: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -116,6 +143,29 @@ pub struct UpdateSupplierRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
     pub expense_account_code: NullablePatch<String>,
+    /// The tax number; `null` clears it, for the supplier whose NPWP was
+    /// typed off the wrong line of a faktur.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub npwp: NullablePatch<String>,
+    /// Whether they are PKP. Not nullable — it is a yes or a no, and the
+    /// column's default says which one an unanswered supplier is.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "boolean | null"))]
+    pub is_pkp: Option<bool>,
+    /// The standing terms; `null` clears them, which is what a supplier who
+    /// has gone back to paying on delivery needs.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub default_payment_terms_code: NullablePatch<String>,
+    /// `PT`, `CV` or `UD`; `null` clears it.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub legal_form: NullablePatch<String>,
+    /// The buyer's note on the record; `null` clears it.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub notes: NullablePatch<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -148,6 +198,9 @@ pub struct CreateSupplierItemRequest {
     pub colour_codes: Vec<String>,
     #[serde(default)]
     pub size_codes: Vec<String>,
+    /// The item's own pack sizes — see `SupplierItem::units`.
+    #[serde(default)]
+    pub units: Vec<crate::cloud::domain::SupplierItemUnit>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -186,6 +239,9 @@ pub struct UpdateSupplierItemRequest {
     pub colour_codes: Option<Vec<String>>,
     #[serde(default)]
     pub size_codes: Option<Vec<String>>,
+    /// Present replaces the item's pack sizes; an empty list removes them.
+    #[serde(default)]
+    pub units: Option<Vec<crate::cloud::domain::SupplierItemUnit>>,
 }
 
 fn default_currency() -> String {
@@ -226,6 +282,11 @@ fn supplier_from_row(row: PgRow) -> Result<Supplier, AppError> {
         status: SupplierStatus::from_str(&status).map_err(validation)?,
         category: row.try_get("category")?,
         expense_account_code: row.try_get("expense_account_code")?,
+        npwp: row.try_get("npwp")?,
+        is_pkp: row.try_get("is_pkp")?,
+        default_payment_terms_code: row.try_get("default_payment_terms_code")?,
+        legal_form: row.try_get("legal_form")?,
+        notes: row.try_get("notes")?,
         version: row.try_get("version")?,
         created_by: row.try_get("created_by")?,
         created_at: row.try_get("created_at")?,
@@ -271,7 +332,15 @@ const CLASSIFICATION_COLUMNS: &str = "
            JOIN size_code z ON z.code = ss.size_code
           WHERE ss.supplier_item_id = i.supplier_item_id),
         ARRAY[]::text[]
-    ) AS size_codes";
+    ) AS size_codes,
+    COALESCE(
+        (SELECT jsonb_agg(jsonb_build_object(
+                    'unit_code', su.unit_code, 'factor', su.factor::text)
+                ORDER BY su.unit_code)
+           FROM supplier_item_unit su
+          WHERE su.supplier_item_id = i.supplier_item_id),
+        '[]'::jsonb
+    ) AS units";
 
 fn supplier_item_from_row(row: PgRow) -> Result<SupplierItem, AppError> {
     let status: String = row.try_get("status")?;
@@ -308,6 +377,13 @@ fn supplier_item_from_row(row: PgRow) -> Result<SupplierItem, AppError> {
         size_codes: row
             .try_get::<Option<Vec<String>>, _>("size_codes")
             .unwrap_or_default()
+            .unwrap_or_default(),
+        units: row
+            .try_get::<Option<serde_json::Value>, _>("units")
+            .ok()
+            .flatten()
+            .map(serde_json::from_value)
+            .transpose()?
             .unwrap_or_default(),
         status: SupplierStatus::from_str(&status).map_err(validation)?,
         version: row.try_get("version")?,
@@ -440,10 +516,11 @@ pub struct SupplierScope {
     /// from a URL somebody may have kept from an older build, and a 400 for a
     /// stale bookmark is a worse answer than the rows in the house order.
     ///
-    /// There is deliberately no sort by status. Sorting two state names
-    /// alphabetically groups nothing anybody asked for — "show me the ones we
-    /// still buy from" is a filter, and the facet counts are how it is asked.
-    /// The house order already puts the active ones first.
+    /// Also `status` (the house order: active first, then by name), and the
+    /// order-book tallies — `active`, `completed`, `cancelled` and
+    /// `last_purchased` — which are computed per supplier inside the row query
+    /// so the keyset can seek on them. The owner asked for every column of the
+    /// list to be sortable from its header (2026-09-26).
     pub sort: Option<String>,
     pub desc: bool,
     pub cursor: Option<String>,
@@ -486,7 +563,97 @@ pub struct SupplierList {
     /// about the page size rather than about the company's book.
     pub total: i64,
     pub facets: SupplierFacets,
+    /// What we have ordered from each supplier on this page, one entry per
+    /// supplier that has ever had an order raised against it. A supplier we
+    /// never bought from is absent rather than zero-filled.
+    pub orders: Vec<SupplierOrderTally>,
+    /// The open side of the order book across every supplier in the book
+    /// asked for — not just this page. What the list's KPI tiles print.
+    pub book: SupplierBookSummary,
 }
+
+/// The purchase orders still open, across the whole book.
+///
+/// Open means active or partially received: an order somebody is still
+/// waiting on. Counted over every supplier the category names, ignoring the
+/// search and the status filter, because "how much is on order" is a fact about
+/// the company rather than about what is on screen.
+#[derive(Clone, Debug, Default, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SupplierBookSummary {
+    /// How many purchase orders are open.
+    pub open_orders: i64,
+    /// How many pieces those orders still expect — ordered less cancelled.
+    pub open_units: i64,
+    /// What those orders are worth, net of their discounts.
+    pub open_value_minor: i64,
+}
+
+/// Every purchase order raised against one supplier, counted and summed.
+///
+/// Cancelled orders are left out of both figures: an order that was called off
+/// is not something we bought, and a total that included it would overstate
+/// the relationship. The amount is each order's lines net of its discount —
+/// the same figure the order book shows as the order's value.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SupplierOrderTally {
+    pub supplier_id: Uuid,
+    pub order_count: i64,
+    pub ordered_minor: i64,
+    /// Orders still being waited on: active or partially received.
+    pub active_count: i64,
+    /// Orders that are finished: fully received, or closed short.
+    pub completed_count: i64,
+    pub cancelled_count: i64,
+    /// When the latest order that was not cancelled was issued.
+    pub last_ordered_at: Option<DateTime<Utc>>,
+}
+
+/// Where each purchase order stands, and whose it is — one row per order.
+///
+/// The same reading the order book gives (see `ORDER_BOOK_ROWS` in
+/// `sync.rs`), restated here because the supplier list counts by it:
+///
+///   CANCELLED            the order was called off
+///   FULLY_RECEIVED       every piece still expected has been matched
+///   SHORT_RECEIVED       every line stopped waiting with pieces missing
+///   PARTIALLY_RECEIVED   something has arrived and more is expected
+///   ACTIVE               nothing has arrived yet
+///
+/// `supplier_key` is the supplier's record id. Orders raised before
+/// `supplier_ref_id` existed carry only the supplier's code, so those are
+/// matched on the code instead.
+pub(crate) const PURCHASE_ORDER_STANDING: &str = "
+    SELECT o.purchase_order_id, o.issued_at,
+           COALESCE(o.supplier_ref_id,
+                    (SELECT x.supplier_id FROM supplier x
+                      WHERE x.supplier_code = o.supplier_id)) AS supplier_key,
+           t.expected_units, t.net_minor,
+           CASE
+               WHEN o.order_status = 'CANCELLED' THEN 'CANCELLED'
+               WHEN t.expected_units > 0 AND t.received_units >= t.expected_units
+                    THEN 'FULLY_RECEIVED'
+               WHEN t.all_lines_settled OR o.order_status = 'CLOSED' THEN 'SHORT_RECEIVED'
+               WHEN t.received_units > 0 THEN 'PARTIALLY_RECEIVED'
+               ELSE 'ACTIVE'
+           END AS lifecycle
+      FROM purchase_order o
+      CROSS JOIN LATERAL (
+          SELECT COALESCE(sum(l.ordered_quantity - l.cancelled_quantity), 0)::bigint
+                     AS expected_units,
+                 COALESCE(sum((SELECT COALESCE(sum(r.matched_quantity), 0)
+                                 FROM goods_receipt_line r
+                                WHERE r.po_line_id = l.po_line_id)), 0)::bigint
+                     AS received_units,
+                 GREATEST(COALESCE(sum(l.line_amount_minor), 0) - o.discount_minor, 0)::bigint
+                     AS net_minor,
+                 (count(l.po_line_id) > 0 AND bool_and(l.line_status <> 'OPEN'))
+                     AS all_lines_settled
+            FROM purchase_order_line l
+           WHERE l.purchase_order_id = o.purchase_order_id
+      ) t
+";
 
 /// Where the previous page stopped — as a ROW, not as a position.
 ///
@@ -528,18 +695,48 @@ struct SupplierCursor {
 /// case-folded inside it for the same reason `purchase_destinations` folds
 /// case: these are names people typed, and a plain byte comparison files
 /// "PT Sinar" before "Pt Abadi".
-const SUPPLIER_ROWS: &str = "
-    SELECT s.*,
-           (CASE WHEN s.status = 'ACTIVE' THEN '0' ELSE '1' END)
-             || ' ' || lower(COALESCE(s.name, '')) AS house_key,
-           s.supplier_code AS code_key,
-           lower(COALESCE(s.name, '')) AS name_key
-      FROM supplier s
-     WHERE ($1::text IS NULL
-            OR s.supplier_code ILIKE $1
-            OR s.name ILIKE $1
-            OR s.contact_name ILIKE $1)
-";
+///
+/// The order tallies ride on the row (`t_*`) for the same reason: a list that
+/// can be sorted by how many open orders a supplier has has to be able to
+/// seek on that number.
+fn supplier_rows() -> String {
+    format!(
+        "WITH standing AS ({PURCHASE_ORDER_STANDING}),
+              tally AS (
+             SELECT supplier_key AS supplier_id,
+                    count(*) FILTER (WHERE lifecycle <> 'CANCELLED')::bigint AS order_count,
+                    COALESCE(sum(net_minor) FILTER (WHERE lifecycle <> 'CANCELLED'), 0)::bigint
+                        AS ordered_minor,
+                    count(*) FILTER (WHERE lifecycle IN ('ACTIVE', 'PARTIALLY_RECEIVED'))::bigint
+                        AS active_count,
+                    count(*) FILTER (WHERE lifecycle IN ('FULLY_RECEIVED', 'SHORT_RECEIVED'))::bigint
+                        AS completed_count,
+                    count(*) FILTER (WHERE lifecycle = 'CANCELLED')::bigint AS cancelled_count,
+                    max(issued_at) FILTER (WHERE lifecycle <> 'CANCELLED') AS last_ordered_at
+               FROM standing
+              WHERE supplier_key IS NOT NULL
+              GROUP BY supplier_key
+         )
+         SELECT s.*,
+                (CASE WHEN s.status = 'ACTIVE' THEN '0' ELSE '1' END)
+                  || ' ' || lower(COALESCE(s.name, '')) AS house_key,
+                s.supplier_code AS code_key,
+                lower(COALESCE(s.name, '')) AS name_key,
+                COALESCE(t.order_count, 0) AS t_order_count,
+                COALESCE(t.ordered_minor, 0) AS t_ordered_minor,
+                COALESCE(t.active_count, 0) AS active_key,
+                COALESCE(t.completed_count, 0) AS completed_key,
+                COALESCE(t.cancelled_count, 0) AS cancelled_key,
+                t.last_ordered_at AS t_last_ordered_at,
+                COALESCE(t.last_ordered_at, TIMESTAMPTZ '-infinity') AS last_key
+           FROM supplier s
+           LEFT JOIN tally t ON t.supplier_id = s.supplier_id
+          WHERE ($1::text IS NULL
+                 OR s.supplier_code ILIKE $1
+                 OR s.name ILIKE $1
+                 OR s.contact_name ILIKE $1)"
+    )
+}
 
 /// The supplier book, one page at a time, beside how big the whole answer is.
 pub async fn list_suppliers(pool: &PgPool, scope: SupplierScope) -> Result<SupplierList, AppError> {
@@ -559,6 +756,10 @@ pub async fn list_suppliers(pool: &PgPool, scope: SupplierScope) -> Result<Suppl
         Some("code") => "code_key",
         Some("name") => "name_key",
         Some("created") => "created_at",
+        Some("active") => "active_key",
+        Some("completed") => "completed_key",
+        Some("cancelled") => "cancelled_key",
+        Some("last_purchased") => "last_key",
         _ => "house_key",
     };
     let (cols, order) = super::order_by(lead, "supplier_id", scope.desc);
@@ -584,8 +785,9 @@ pub async fn list_suppliers(pool: &PgPool, scope: SupplierScope) -> Result<Suppl
     // pushed through. Materialised, this reads the whole table and sorts it
     // to hand back one page; inlined, it seeks the index. See
     // `postgres::audit::list_audit`, where the difference was measured.
+    let supplier_rows = supplier_rows();
     let sql = format!(
-        "WITH searched AS NOT MATERIALIZED ({SUPPLIER_ROWS}),
+        "WITH searched AS NOT MATERIALIZED ({supplier_rows}),
               kept AS NOT MATERIALIZED (
              SELECT * FROM searched
               WHERE ($2::text IS NULL OR status = $2)
@@ -616,22 +818,69 @@ pub async fn list_suppliers(pool: &PgPool, scope: SupplierScope) -> Result<Suppl
         _ => None,
     };
 
+    let mut orders = Vec::new();
+    for row in &rows {
+        let order_count: i64 = row.try_get("t_order_count")?;
+        let cancelled_count: i64 = row.try_get("cancelled_key")?;
+        // A supplier we never bought from is absent rather than zero-filled,
+        // as the list has always said.
+        if order_count == 0 && cancelled_count == 0 {
+            continue;
+        }
+        orders.push(SupplierOrderTally {
+            supplier_id: row.try_get("supplier_id")?,
+            order_count,
+            ordered_minor: row.try_get("t_ordered_minor")?,
+            active_count: row.try_get("active_key")?,
+            completed_count: row.try_get("completed_key")?,
+            cancelled_count,
+            last_ordered_at: row.try_get("t_last_ordered_at")?,
+        });
+    }
     let suppliers = rows
         .into_iter()
         .map(supplier_from_row)
         .collect::<Result<Vec<_>, _>>()?;
     let (total, facets) = supplier_facets(pool, &scope, needle.as_deref()).await?;
+    let book = supplier_book_summary(pool, scope.category.as_deref()).await?;
     Ok(SupplierList {
         rows: suppliers,
         next_cursor,
         total,
         facets,
+        orders,
+        book,
+    })
+}
+
+/// The open side of the order book, over every supplier in the category.
+async fn supplier_book_summary(
+    pool: &PgPool,
+    category: Option<&str>,
+) -> Result<SupplierBookSummary, AppError> {
+    let row = sqlx::query(&format!(
+        "WITH standing AS ({PURCHASE_ORDER_STANDING})
+         SELECT count(*)::bigint AS open_orders,
+                COALESCE(sum(p.expected_units), 0)::bigint AS open_units,
+                COALESCE(sum(p.net_minor), 0)::bigint AS open_value_minor
+           FROM standing p
+           JOIN supplier s ON s.supplier_id = p.supplier_key
+          WHERE p.lifecycle IN ('ACTIVE', 'PARTIALLY_RECEIVED')
+            AND ($1::text IS NULL OR s.category = $1)"
+    ))
+    .bind(category)
+    .fetch_one(pool)
+    .await?;
+    Ok(SupplierBookSummary {
+        open_orders: row.try_get("open_orders")?,
+        open_units: row.try_get("open_units")?,
+        open_value_minor: row.try_get("open_value_minor")?,
     })
 }
 
 /// How many suppliers there are, and how they split.
 ///
-/// Counted from the SAME [`SUPPLIER_ROWS`] the page is drawn from, so a change
+/// Counted from the SAME [`supplier_rows`] the page is drawn from, so a change
 /// to what a listable supplier is moves both together. The two scopes are
 /// deliberate:
 ///
@@ -644,18 +893,25 @@ async fn supplier_facets(
     scope: &SupplierScope,
     needle: Option<&str>,
 ) -> Result<(i64, SupplierFacets), AppError> {
+    // The category bounds both scopes: it names which book this is, not a
+    // filter somebody ticked, so the counts beside Active are counts of that
+    // book.
+    let supplier_rows = supplier_rows();
     let sql = format!(
-        "WITH searched AS ({SUPPLIER_ROWS}), kept AS (
-             SELECT * FROM searched WHERE ($2::text IS NULL OR status = $2)
+        "WITH searched AS ({supplier_rows}), booked AS (
+             SELECT * FROM searched WHERE ($3::text IS NULL OR category = $3)
+         ), kept AS (
+             SELECT * FROM booked WHERE ($2::text IS NULL OR status = $2)
          )
          SELECT 'status' AS kind, status AS value, count(*)::bigint AS n
-           FROM searched GROUP BY status
+           FROM booked GROUP BY status
           UNION ALL
          SELECT 'all', '', count(*)::bigint FROM kept"
     );
     let rows = sqlx::query(&sql)
         .bind(needle)
         .bind(&scope.status)
+        .bind(&scope.category)
         .fetch_all(pool)
         .await?;
 
@@ -699,17 +955,22 @@ pub async fn create_supplier(
     digest: &str,
 ) -> Result<Supplier, AppError> {
     let actor = required_supplier_text("actor", actor).map_err(validation)?;
-    let supplier_code =
-        required_supplier_text("supplier_code", request.supplier_code).map_err(validation)?;
-    let supplier_code_normalized =
-        normalize_supplier_code("supplier_code", &supplier_code).map_err(validation)?;
+    let typed_code = optional_supplier_text(request.supplier_code);
     let name = required_supplier_text("name", request.name).map_err(validation)?;
+    let legal_form = normalize_legal_form(request.legal_form).map_err(validation)?;
+    let notes = optional_supplier_text(request.notes);
     let contact_name = optional_supplier_text(request.contact_name);
     let phone = optional_supplier_text(request.phone);
     let email = optional_supplier_text(request.email);
     let address = optional_supplier_text(request.address);
     let category = optional_supplier_text(request.category);
     let expense_account_code = optional_supplier_text(request.expense_account_code);
+    let npwp = optional_supplier_text(request.npwp);
+    let default_payment_terms_code = optional_supplier_text(request.default_payment_terms_code);
+    // An unanswered supplier is not PKP. The column says the same thing; this
+    // says it before the row exists, so the value sent back to the browser is
+    // the value that was stored.
+    let is_pkp = request.is_pkp.unwrap_or(false);
 
     let mut transaction = pool.begin().await?;
     if let Some(response) =
@@ -717,14 +978,23 @@ pub async fn create_supplier(
     {
         return Ok(serde_json::from_value(response)?);
     }
+    // After the replay check, so a retried Create is answered with the number
+    // it was given the first time instead of taking the next one.
+    let supplier_code = match typed_code {
+        Some(code) => code,
+        None => next_supplier_number(&mut transaction).await?,
+    };
+    let supplier_code_normalized =
+        normalize_supplier_code("supplier_code", &supplier_code).map_err(validation)?;
 
     let row = sqlx::query(
         "INSERT INTO supplier
              (supplier_id, supplier_code, supplier_code_normalized, name,
               contact_name, phone, email, address, status,
-              created_by, updated_by, category, expense_account_code)
+              created_by, updated_by, category, expense_account_code,
+              npwp, is_pkp, default_payment_terms_code, legal_form, notes)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,
-                 COALESCE($11,'MERCHANDISE'),$12)
+                 COALESCE($11,'MERCHANDISE'),$12,$13,$14,$15,$16,$17)
          RETURNING *",
     )
     .bind(Uuid::new_v4())
@@ -739,6 +1009,11 @@ pub async fn create_supplier(
     .bind(actor)
     .bind(category)
     .bind(expense_account_code)
+    .bind(npwp)
+    .bind(is_pkp)
+    .bind(default_payment_terms_code)
+    .bind(legal_form)
+    .bind(notes)
     .fetch_one(&mut *transaction)
     .await
     .map_err(map_catalog_write_error)?;
@@ -746,6 +1021,35 @@ pub async fn create_supplier(
     complete_supplier_mutation(&mut transaction, idempotency_key, &supplier).await?;
     transaction.commit().await?;
     Ok(supplier)
+}
+
+/// The next free supplier number: four digits, `0001` upward.
+///
+/// Serialised on a transaction-scoped advisory lock rather than a sequence,
+/// so two buyers registering at the same moment get consecutive numbers and a
+/// Create that rolls back gives its number back — the book has no holes a
+/// supplier would ask about. It starts past the highest four-digit code
+/// already filed, so a number somebody typed by hand is never collided with.
+/// The older lettered codes (`SINA01`) are not numbers and are skipped.
+async fn next_supplier_number(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<String, AppError> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('supplier.number'))")
+        .execute(&mut **transaction)
+        .await?;
+    let next: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(max(supplier_code::integer), 0) + 1
+           FROM supplier
+          WHERE supplier_code ~ '^[0-9]{4}$'",
+    )
+    .fetch_one(&mut **transaction)
+    .await?;
+    if next > 9999 {
+        return Err(AppError::Conflict(
+            "every four-digit supplier number is taken; type a code for this supplier".into(),
+        ));
+    }
+    Ok(format!("{next:04}"))
 }
 
 pub async fn update_supplier(
@@ -770,6 +1074,11 @@ pub async fn update_supplier(
     let changes_address = request.address.is_present();
     let changes_category = request.category.is_some();
     let changes_account = request.expense_account_code.is_present();
+    let changes_npwp = request.npwp.is_present();
+    let changes_pkp = request.is_pkp.is_some();
+    let changes_terms = request.default_payment_terms_code.is_present();
+    let changes_legal_form = request.legal_form.is_present();
+    let changes_notes = request.notes.is_present();
     if !(changes_code
         || changes_name
         || changes_contact
@@ -777,7 +1086,12 @@ pub async fn update_supplier(
         || changes_email
         || changes_address
         || changes_category
-        || changes_account)
+        || changes_account
+        || changes_npwp
+        || changes_pkp
+        || changes_terms
+        || changes_legal_form
+        || changes_notes)
     {
         return Err(AppError::Validation(
             "Supplier update must contain at least one field".into(),
@@ -805,6 +1119,15 @@ pub async fn update_supplier(
     let address = optional_supplier_text(request.address.into_option());
     let category = optional_supplier_text(request.category);
     let expense_account_code = optional_supplier_text(request.expense_account_code.into_option());
+    let npwp = optional_supplier_text(request.npwp.into_option());
+    let default_payment_terms_code =
+        optional_supplier_text(request.default_payment_terms_code.into_option());
+    let legal_form = normalize_legal_form(request.legal_form.into_option()).map_err(validation)?;
+    let notes = optional_supplier_text(request.notes.into_option());
+    // `false` rather than `None` when the flag is absent: the CASE below only
+    // reads it when `changes_pkp` is true, and a NOT NULL column cannot take a
+    // null even on the branch that is never chosen.
+    let is_pkp = request.is_pkp.unwrap_or(false);
 
     let mut transaction = pool.begin().await?;
     if let Some(response) =
@@ -823,6 +1146,12 @@ pub async fn update_supplier(
              address = CASE WHEN $14 THEN $15 ELSE address END,
              category = CASE WHEN $17 THEN $18 ELSE category END,
              expense_account_code = CASE WHEN $19 THEN $20 ELSE expense_account_code END,
+             npwp = CASE WHEN $21 THEN $22 ELSE npwp END,
+             is_pkp = CASE WHEN $23 THEN $24 ELSE is_pkp END,
+             default_payment_terms_code =
+                 CASE WHEN $25 THEN $26 ELSE default_payment_terms_code END,
+             legal_form = CASE WHEN $27 THEN $28 ELSE legal_form END,
+             notes = CASE WHEN $29 THEN $30 ELSE notes END,
              version = version + 1, updated_by = $16, updated_at = now()
          WHERE supplier_id = $1 AND version = $2
          RETURNING *",
@@ -847,6 +1176,16 @@ pub async fn update_supplier(
     .bind(category)
     .bind(changes_account)
     .bind(expense_account_code)
+    .bind(changes_npwp)
+    .bind(npwp)
+    .bind(changes_pkp)
+    .bind(is_pkp)
+    .bind(changes_terms)
+    .bind(default_payment_terms_code)
+    .bind(changes_legal_form)
+    .bind(legal_form)
+    .bind(changes_notes)
+    .bind(notes)
     .fetch_optional(&mut *transaction)
     .await
     .map_err(map_catalog_write_error)?;
@@ -1243,6 +1582,9 @@ pub async fn search_supplier_items(
                 s.supplier_code_normalized AS s_supplier_code_normalized, s.name AS s_name,
                 s.category AS s_category,
                 s.expense_account_code AS s_expense_account_code,
+                s.npwp AS s_npwp,
+                s.is_pkp AS s_is_pkp,
+                s.default_payment_terms_code AS s_default_payment_terms_code,
                 s.contact_name AS s_contact_name, s.phone AS s_phone, s.email AS s_email,
                 s.address AS s_address, s.status AS s_status, s.version AS s_version,
                 s.created_by AS s_created_by, s.created_at AS s_created_at,
@@ -1503,6 +1845,16 @@ pub(crate) fn sourced_item_from_row(row: PgRow) -> Result<SourcedItem, AppError>
             .map_err(validation)?,
         category: row.try_get("s_category")?,
         expense_account_code: row.try_get("s_expense_account_code")?,
+        npwp: row.try_get("s_npwp")?,
+        is_pkp: row.try_get("s_is_pkp")?,
+        default_payment_terms_code: row.try_get("s_default_payment_terms_code")?,
+        // Read when the joining query selects them and blank otherwise: the
+        // sourcing rows name a supplier, and its legal form is not what they
+        // are about.
+        legal_form: row
+            .try_get::<Option<String>, _>("s_legal_form")
+            .unwrap_or_default(),
+        notes: row.try_get::<Option<String>, _>("s_notes").unwrap_or_default(),
         version: row.try_get("s_version")?,
         created_by: row.try_get("s_created_by")?,
         created_at: row.try_get("s_created_at")?,
@@ -1643,6 +1995,7 @@ pub async fn create_supplier_item(
     // all three land on a table keyed `(supplier_item_id, code)`.
     let colour_codes = normalize_tag_codes(request.colour_codes).map_err(validation)?;
     let size_codes = normalize_tag_codes(request.size_codes).map_err(validation)?;
+    let units = request.units.clone();
 
     let mut transaction = pool.begin().await?;
     if let Some(response) = replay_or_begin(
@@ -1695,6 +2048,8 @@ pub async fn create_supplier_item(
             .await?;
     item.size_codes =
         replace_supplier_item_sizes(&mut transaction, item.supplier_item_id, &size_codes).await?;
+    item.units =
+        replace_supplier_item_units(&mut transaction, item.supplier_item_id, &units).await?;
     complete_item_mutation(&mut transaction, idempotency_key, &item).await?;
     transaction.commit().await?;
     Ok(item)
@@ -1725,6 +2080,8 @@ pub async fn update_supplier_item(
     let changes_tags = request.tags.is_some();
     let changes_colours = request.colour_codes.is_some();
     let changes_sizes = request.size_codes.is_some();
+    let changes_units = request.units.is_some();
+    let units = request.units.clone();
     if !(changes_code
         || changes_name
         || changes_description
@@ -1735,7 +2092,8 @@ pub async fn update_supplier_item(
         || changes_division
         || changes_tags
         || changes_colours
-        || changes_sizes)
+        || changes_sizes
+        || changes_units)
     {
         return Err(AppError::Validation(
             "Supplier Item update must contain at least one field".into(),
@@ -1852,6 +2210,21 @@ pub async fn update_supplier_item(
         item.size_codes =
             replace_supplier_item_sizes(&mut transaction, supplier_item_id, &size_codes).await?;
     }
+    if let Some(units) = units {
+        item.units =
+            replace_supplier_item_units(&mut transaction, supplier_item_id, &units).await?;
+    } else {
+        item.units = sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                        'unit_code', unit_code, 'factor', factor::text) ORDER BY unit_code),
+                    '[]'::jsonb)
+               FROM supplier_item_unit WHERE supplier_item_id = $1",
+        )
+        .bind(supplier_item_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map(serde_json::from_value)??;
+    }
     complete_item_mutation(&mut transaction, idempotency_key, &item).await?;
     transaction.commit().await?;
     Ok(item)
@@ -1935,12 +2308,61 @@ pub struct CatalogPurchaseLineRequest {
     /// legitimately say about a line.
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+    /// What the goods will sell for — the base price the articles are set up
+    /// at — and the markup over the purchase price it came from. The screen
+    /// keeps the two in step; both are stored as the buyer left them. See
+    /// migration 0398.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "number | null"))]
+    pub base_price_minor: Option<i64>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "number | null"))]
+    pub markup_bps: Option<i32>,
+    /// How many of each colour and size, and a SKU's own price where it is not
+    /// the base price. When present the quantities must add up to `quantity`.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub variants: Option<Vec<CatalogPurchaseLineVariant>>,
+    /// The unit the buyer ordered in — `KODI`, `LUSIN` — and how many of it,
+    /// as a decimal string ("10", "9.5"). Absent means pieces. The server
+    /// works out the pieces from the item's own pack size or the global
+    /// conversion, and refuses a line whose `quantity` does not agree — or
+    /// whose unit quantity is not a whole number of pieces.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub unit_code: Option<String>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub unit_quantity: Option<String>,
+}
+
+/// One SKU's worth of a line: a colour, a size, how many, and — when it
+/// differs from the line's base price — what it sells for.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CatalogPurchaseLineVariant {
+    #[serde(default)]
+    pub colour_code: Option<String>,
+    #[serde(default)]
+    pub size_code: Option<String>,
+    pub quantity: i64,
+    #[serde(default)]
+    pub base_price_minor: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CatalogPurchaseOrderRequest {
-    pub po_number: String,
+    /// The number the order is filed under. Absent — the ordinary case — and
+    /// the server gives it one inside the same transaction that writes the
+    /// order: `DDMMYY-NNN`, the day in Jakarta, the serial counted per day
+    /// (see migration 0385 and `next_po_number`). A screen used to guess
+    /// the next number from the order book and send it, and two buyers who
+    /// opened New PO in the same minute were shown the same number and one of
+    /// them was refused. Present — an import carrying a supplier's own
+    /// reference — and it is used as given, and still refused if taken.
+    #[serde(default)]
+    pub po_number: Option<String>,
     pub supplier_id: Uuid,
     /// Where the goods land. Absent takes the node's configured default, which
     /// is the ordinary case while the company runs one DC — asking a buyer to
@@ -1997,6 +2419,59 @@ struct CatalogItemSnapshot {
     /// no division and no tags even though the catalogue knew both.
     division_code: Option<String>,
     tags: Vec<String>,
+    base_price_minor: Option<i64>,
+    markup_bps: Option<i32>,
+    variants: Vec<CatalogPurchaseLineVariant>,
+    /// The unit it was ordered in, how many, and the factor that applied.
+    order_unit: Option<(String, rust_decimal::Decimal, rust_decimal::Decimal)>,
+}
+
+/// The next free purchase order number for today, in Jakarta: `DDMMYY-NNN`.
+///
+/// The day, then a three-digit serial that restarts every day — `260926-001`
+/// is the first order of 26 September 2026. The owner's format (2026-09-26);
+/// it replaced `PO-YYYYMMDD-NNNN`. A day-first stamp does not sort by date as
+/// text, which is why the order book sorts by the issue instant and never by
+/// the number.
+///
+/// One row per day in `purchase_order_number_day`, bumped by an upsert inside
+/// the caller's transaction: two orders raised at the same moment queue on
+/// that row and leave with consecutive serials, and an order that rolls back
+/// takes its serial back with it. The first order of a day starts past the
+/// highest number already filed under that day — orders numbered by hand or
+/// by an import before this existed are never collided with — and every
+/// later one takes whichever is higher, the counter or the book, for the same
+/// reason. A thousandth order in one day widens the serial rather than
+/// failing: `260926-1000` is still unique, and still that day's.
+async fn next_po_number(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<String, AppError> {
+    let row = sqlx::query(
+        "WITH today AS (
+             SELECT (now() AT TIME ZONE 'Asia/Jakarta')::date AS day
+         ),
+         filed AS (
+             SELECT today.day,
+                    COALESCE(max(substring(po.po_number FROM '-([0-9]+)$')::integer), 0) AS highest
+               FROM today
+               LEFT JOIN purchase_order po
+                 ON po.po_number ~ ('^' || to_char(today.day, 'DDMMYY') || '-[0-9]+$')
+              GROUP BY today.day
+         )
+         INSERT INTO purchase_order_number_day (day, last_serial)
+         SELECT day, highest + 1 FROM filed
+         ON CONFLICT (day) DO UPDATE
+            SET last_serial = GREATEST(
+                    purchase_order_number_day.last_serial + 1,
+                    EXCLUDED.last_serial
+                )
+         RETURNING to_char(day, 'DDMMYY') AS stamp, last_serial",
+    )
+    .fetch_one(&mut **transaction)
+    .await?;
+    let stamp: String = row.try_get("stamp")?;
+    let serial: i32 = row.try_get("last_serial")?;
+    Ok(format!("{stamp}-{serial:03}"))
 }
 
 fn map_catalog_purchase_error(error: sqlx::Error, po_number: &str) -> AppError {
@@ -2025,38 +2500,17 @@ pub async fn create_catalog_purchase_order(
     digest: &str,
 ) -> Result<CatalogPurchaseOrderReceipt, AppError> {
     let actor = required_supplier_text("actor", actor).map_err(validation)?;
-    let po_number = required_supplier_text("po_number", request.po_number).map_err(validation)?;
+    let requested_po_number = request
+        .po_number
+        .map(|number| number.trim().to_owned())
+        .filter(|number| !number.is_empty());
     let destination_site_id = required_supplier_text(
         "destination_site_id",
         request.destination_site_id.unwrap_or_default(),
     )
     .map_err(validation)?;
     let notes = optional_supplier_text(request.notes);
-    if request.lines.is_empty() {
-        return Err(AppError::Validation(
-            "a catalog purchase order needs at least one line".into(),
-        ));
-    }
-    if request.lines.len() > i32::MAX as usize {
-        return Err(AppError::Validation(
-            "purchase order has too many lines".into(),
-        ));
-    }
-    let mut seen_items = std::collections::HashSet::with_capacity(request.lines.len());
-    for (index, line) in request.lines.iter().enumerate() {
-        if line.quantity <= 0 {
-            return Err(AppError::Validation(format!(
-                "line {} quantity must be positive",
-                index + 1
-            )));
-        }
-        if !seen_items.insert(line.supplier_item_id) {
-            return Err(AppError::Validation(format!(
-                "Supplier Item {} appears more than once",
-                line.supplier_item_id
-            )));
-        }
-    }
+    validate_catalog_lines(&request.lines)?;
 
     let mut transaction = pool.begin().await?;
     if let Some(response) = replay_or_begin(
@@ -2069,6 +2523,12 @@ pub async fn create_catalog_purchase_order(
     {
         return Ok(serde_json::from_value(response)?);
     }
+    // After the replay check, so a retried request gets the order (and the
+    // number) it already made rather than consuming another serial.
+    let po_number = match requested_po_number {
+        Some(number) => number,
+        None => next_po_number(&mut transaction).await?,
+    };
 
     let target = inventory_dc_owner_tx(&mut transaction, &destination_site_id)
         .await?
@@ -2095,106 +2555,15 @@ pub async fn create_catalog_purchase_order(
     let supplier_code: String = supplier_row.try_get("supplier_code")?;
     let supplier_name: String = supplier_row.try_get("name")?;
 
-    let mut snapshots = Vec::with_capacity(request.lines.len());
-    for line in request.lines {
-        let row = sqlx::query(
-            "SELECT i.supplier_id, i.supplier_item_code, i.name, i.image_url,
-                    i.unit_price_minor, i.currency, i.status, i.version,
-                    i.division_code,
-                    COALESCE(
-                        (SELECT array_agg(t.tag_code ORDER BY t.tag_code)
-                           FROM supplier_item_tag t
-                          WHERE t.supplier_item_id = i.supplier_item_id),
-                        ARRAY[]::text[]
-                    ) AS tags
-             FROM supplier_item i WHERE i.supplier_item_id = $1 FOR SHARE",
-        )
-        .bind(line.supplier_item_id)
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Supplier Item {}", line.supplier_item_id)))?;
-        let owner_id: Uuid = row.try_get("supplier_id")?;
-        if owner_id != request.supplier_id {
-            return Err(AppError::Conflict(format!(
-                "Supplier Item {} does not belong to Supplier {}",
-                line.supplier_item_id, request.supplier_id
-            )));
-        }
-        let status: String = row.try_get("status")?;
-        if status != SupplierStatus::Active.as_str() {
-            return Err(AppError::Conflict(format!(
-                "Supplier Item {} is inactive",
-                line.supplier_item_id
-            )));
-        }
-        let currency = row.try_get::<String, _>("currency")?.trim().to_owned();
-        if currency != "IDR" {
-            return Err(AppError::Conflict(format!(
-                "Supplier Item {} uses unsupported currency {currency}",
-                line.supplier_item_id
-            )));
-        }
-        // What the catalogue says, read once: it is both the fallback for an
-        // order that accepts it and the snapshot for one that does not.
-        let catalogue_name: String = row.try_get("name")?;
-        let catalogue_image: Option<String> = row.try_get("image_url")?;
-        let catalogue_price: i64 = row.try_get("unit_price_minor")?;
-        snapshots.push(CatalogItemSnapshot {
-            supplier_item_id: line.supplier_item_id,
-            supplier_item_code: row.try_get("supplier_item_code")?,
-            name: catalogue_name.clone(),
-            image_url: catalogue_image.clone(),
-            unit_price_minor: catalogue_price,
-            currency,
-            version: row.try_get("version")?,
-            quantity: line.quantity,
-            promised_date: line.promised_date,
-            division_code: match optional_supplier_text(line.division_code) {
-                Some(code) => Some(code),
-                None => row.try_get("division_code")?,
-            },
-            tags: match line.tags {
-                Some(tags) => normalize_tag_codes(tags).map_err(validation)?,
-                None => row.try_get("tags")?,
-            },
-            ordered_price_minor: match line.unit_price_minor {
-                Some(price) if price < 0 => {
-                    return Err(AppError::Validation(
-                        "agreed unit price cannot be negative".into(),
-                    ));
-                }
-                Some(price) => price,
-                None => catalogue_price,
-            },
-            ordered_name: optional_supplier_text(line.article_name).unwrap_or(catalogue_name),
-            ordered_image_url: optional_supplier_text(line.image_url).or(catalogue_image),
-        });
-    }
+    let snapshots = snapshot_catalog_lines(
+        &mut transaction,
+        request.supplier_id,
+        request.lines,
+        &std::collections::HashSet::new(),
+    )
+    .await?;
 
-    // What the order is worth before the discount. Computed from the agreed
-    // prices, not the catalogue's, because a discount is taken off what is
-    // actually being paid.
-    let mut gross_minor: i64 = 0;
-    for item in &snapshots {
-        let line = item
-            .ordered_price_minor
-            .checked_mul(item.quantity)
-            .ok_or_else(|| AppError::Validation("order value overflows".into()))?;
-        gross_minor = gross_minor
-            .checked_add(line)
-            .ok_or_else(|| AppError::Validation("order value overflows".into()))?;
-    }
-    let discount_minor = request.discount_minor.unwrap_or(0);
-    if discount_minor < 0 {
-        return Err(AppError::Validation("discount cannot be negative".into()));
-    }
-    // A discount larger than the order is not a discount, it is a credit, and
-    // this is not the instrument for one.
-    if discount_minor > gross_minor {
-        return Err(AppError::Validation(format!(
-            "discount {discount_minor} is more than the order is worth ({gross_minor})"
-        )));
-    }
+    let (gross_minor, discount_minor) = order_value(&snapshots, request.discount_minor)?;
 
     let purchase_order_id = Uuid::new_v4();
     sqlx::query(
@@ -2222,78 +2591,17 @@ pub async fn create_catalog_purchase_order(
     for (index, item) in snapshots.into_iter().enumerate() {
         let line_number = i32::try_from(index + 1)
             .map_err(|_| AppError::Validation("purchase order has too many lines".into()))?;
-        let line_amount_minor = item
-            .ordered_price_minor
-            .checked_mul(item.quantity)
-            .ok_or_else(|| AppError::Validation(format!("line {line_number} amount overflows")))?;
-        let po_line_id = Uuid::new_v4();
-        sqlx::query(
-            "INSERT INTO purchase_order_line
-                 (po_line_id, purchase_order_id, line_number,
-                  article_code, article_name, image_url, division_code,
-                  ordered_quantity,
-                  unit_price_minor, line_amount_minor, promised_date,
-                  supplier_item_id, supplier_item_code_snapshot,
-                  supplier_item_name_snapshot, supplier_item_image_snapshot,
-                  supplier_item_version, currency, supplier_item_price_snapshot)
-             VALUES ($1,$2,$3,$4,$15,$16,$14,$7,$8,$9,$10,$11,$4,$5,$6,$12,$13,$17)",
-        )
-        .bind(po_line_id)
-        .bind(purchase_order_id)
-        .bind(line_number)
-        .bind(&item.supplier_item_code)
-        .bind(&item.name)
-        .bind(&item.image_url)
-        .bind(item.quantity)
-        // The agreed price, not the catalogue's — `line_amount_minor` is
-        // computed from it, and a row where unit price times quantity does not
-        // equal the line amount is a row nobody can reconcile.
-        .bind(item.ordered_price_minor)
-        .bind(line_amount_minor)
-        .bind(item.promised_date)
-        .bind(item.supplier_item_id)
-        .bind(item.version)
-        .bind(&item.currency)
-        .bind(&item.division_code)
-        .bind(&item.ordered_name)
-        .bind(&item.ordered_image_url)
-        // What the catalogue was asking. Equal to the bound price above when
-        // the buyer accepted it; different when they did not, and that
-        // difference is the only record of the negotiation.
-        .bind(item.unit_price_minor)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|error| map_catalog_purchase_error(error, &po_number))?;
-        // The tags the catalogue already holds, carried onto the line. They
-        // are known-good — a supplier item cannot hold a tag that is not in
-        // the vocabulary — so unlike the legacy path there is nothing to
-        // validate here, only to copy.
-        for tag in &item.tags {
-            sqlx::query(
-                "INSERT INTO purchase_order_line_tag (po_line_id, tag_code)
-                 VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        wire_lines.push(
+            insert_catalog_line(
+                &mut transaction,
+                Uuid::new_v4(),
+                purchase_order_id,
+                line_number,
+                item,
+                &po_number,
             )
-            .bind(po_line_id)
-            .bind(tag)
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| map_catalog_purchase_error(error, &po_number))?;
-        }
-        wire_lines.push(PurchaseOrderLinePayload {
-            po_line_id,
-            line_number,
-            article_code: item.supplier_item_code,
-            article_name: item.ordered_name,
-            image_url: item.ordered_image_url,
-            // The edge receives what was ordered, classification included.
-            // It was `None` and empty here, which meant the DC's copy of the
-            // order disagreed with head office's about what the goods are.
-            division_code: item.division_code,
-            tags: item.tags,
-            ordered_quantity: item.quantity,
-            unit_price_minor: item.ordered_price_minor,
-            promised_date: item.promised_date.map(|date| date.to_string()),
-        });
+            .await?,
+        );
     }
 
     let payload = json!({
@@ -2302,6 +2610,7 @@ pub async fn create_catalog_purchase_order(
         "supplier_id": supplier_code,
         "supplier_name": supplier_name,
         "destination_site_id": destination_site_id,
+        "created_by": actor,
         "lines": wire_lines,
     });
     parse_purchase_order(&payload).map_err(AppError::Validation)?;
@@ -2343,6 +2652,1157 @@ pub async fn create_catalog_purchase_order(
     .await?;
     transaction.commit().await?;
     Ok(receipt)
+}
+
+/// What every catalog order's lines must be before anything is read: at least
+/// one, each for a positive quantity, and no supplier item twice.
+fn validate_catalog_lines(lines: &[CatalogPurchaseLineRequest]) -> Result<(), AppError> {
+    if lines.is_empty() {
+        return Err(AppError::Validation(
+            "a catalog purchase order needs at least one line".into(),
+        ));
+    }
+    if lines.len() > i32::MAX as usize {
+        return Err(AppError::Validation(
+            "purchase order has too many lines".into(),
+        ));
+    }
+    let mut seen_items = std::collections::HashSet::with_capacity(lines.len());
+    for (index, line) in lines.iter().enumerate() {
+        if line.quantity <= 0 {
+            return Err(AppError::Validation(format!(
+                "line {} quantity must be positive",
+                index + 1
+            )));
+        }
+        // Every line carries the delivery date. The owner made it required
+        // (2026-09-26): an order nobody promised a date for is an order
+        // nobody can chase, and the list flags a late one by it.
+        if line.promised_date.is_none() {
+            return Err(AppError::Validation(format!(
+                "line {} needs a delivery date",
+                index + 1
+            )));
+        }
+        if let Some(base) = line.base_price_minor {
+            if base < 0 {
+                return Err(AppError::Validation(format!(
+                    "line {} base price cannot be negative",
+                    index + 1
+                )));
+            }
+        }
+        if let Some(variants) = line.variants.as_ref().filter(|all| !all.is_empty()) {
+            let mut total: i64 = 0;
+            let mut seen = std::collections::HashSet::with_capacity(variants.len());
+            for variant in variants {
+                if variant.quantity <= 0 {
+                    return Err(AppError::Validation(format!(
+                        "line {}: every variant needs a positive quantity",
+                        index + 1
+                    )));
+                }
+                if variant.colour_code.is_none() && variant.size_code.is_none() {
+                    return Err(AppError::Validation(format!(
+                        "line {}: a variant names a colour, a size or both",
+                        index + 1
+                    )));
+                }
+                if variant.base_price_minor.is_some_and(|price| price < 0) {
+                    return Err(AppError::Validation(format!(
+                        "line {}: a variant price cannot be negative",
+                        index + 1
+                    )));
+                }
+                if !seen.insert((variant.colour_code.clone(), variant.size_code.clone())) {
+                    return Err(AppError::Validation(format!(
+                        "line {}: the same colour and size appears twice",
+                        index + 1
+                    )));
+                }
+                total = total.saturating_add(variant.quantity);
+            }
+            if total != line.quantity {
+                return Err(AppError::Validation(format!(
+                    "line {}: the variants add up to {total}, not the {} ordered",
+                    index + 1,
+                    line.quantity
+                )));
+            }
+        }
+        if !seen_items.insert(line.supplier_item_id) {
+            return Err(AppError::Validation(format!(
+                "Supplier Item {} appears more than once",
+                line.supplier_item_id
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Read each line's supplier item and fix what this order pays and calls it.
+///
+/// `already_ordered` names the items the order held before a revision; they
+/// may be carried even if the catalogue has since retired them.
+async fn snapshot_catalog_lines(
+    transaction: &mut Transaction<'_, Postgres>,
+    supplier_id: Uuid,
+    lines: Vec<CatalogPurchaseLineRequest>,
+    already_ordered: &std::collections::HashSet<Uuid>,
+) -> Result<Vec<CatalogItemSnapshot>, AppError> {
+    let mut snapshots = Vec::with_capacity(lines.len());
+    for line in lines {
+        let row = sqlx::query(
+            "SELECT i.supplier_id, i.supplier_item_code, i.name, i.image_url,
+                    i.unit_price_minor, i.currency, i.status, i.version,
+                    i.division_code,
+                    COALESCE(
+                        (SELECT array_agg(t.tag_code ORDER BY t.tag_code)
+                           FROM supplier_item_tag t
+                          WHERE t.supplier_item_id = i.supplier_item_id),
+                        ARRAY[]::text[]
+                    ) AS tags
+             FROM supplier_item i WHERE i.supplier_item_id = $1 FOR SHARE",
+        )
+        .bind(line.supplier_item_id)
+        .fetch_optional(&mut **transaction)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Supplier Item {}", line.supplier_item_id)))?;
+        let owner_id: Uuid = row.try_get("supplier_id")?;
+        if owner_id != supplier_id {
+            return Err(AppError::Conflict(format!(
+                "Supplier Item {} does not belong to Supplier {}",
+                line.supplier_item_id, supplier_id
+            )));
+        }
+        let status: String = row.try_get("status")?;
+        // An item already on the order it is being revised on stays orderable
+        // there: the supplier retiring it from the catalogue does not undo
+        // what was agreed, and refusing would make the order uneditable.
+        if status != SupplierStatus::Active.as_str()
+            && !already_ordered.contains(&line.supplier_item_id)
+        {
+            return Err(AppError::Conflict(format!(
+                "Supplier Item {} is inactive",
+                line.supplier_item_id
+            )));
+        }
+        let currency = row.try_get::<String, _>("currency")?.trim().to_owned();
+        if currency != "IDR" {
+            return Err(AppError::Conflict(format!(
+                "Supplier Item {} uses unsupported currency {currency}",
+                line.supplier_item_id
+            )));
+        }
+        // What the catalogue says, read once: it is both the fallback for an
+        // order that accepts it and the snapshot for one that does not.
+        let catalogue_name: String = row.try_get("name")?;
+        let catalogue_image: Option<String> = row.try_get("image_url")?;
+        let catalogue_price: i64 = row.try_get("unit_price_minor")?;
+        let order_unit = resolve_order_unit(
+            transaction,
+            line.supplier_item_id,
+            line.unit_code.as_deref(),
+            line.unit_quantity.as_deref(),
+            line.quantity,
+        )
+        .await?;
+        snapshots.push(CatalogItemSnapshot {
+            supplier_item_id: line.supplier_item_id,
+            supplier_item_code: row.try_get("supplier_item_code")?,
+            name: catalogue_name.clone(),
+            image_url: catalogue_image.clone(),
+            unit_price_minor: catalogue_price,
+            currency,
+            version: row.try_get("version")?,
+            quantity: line.quantity,
+            promised_date: line.promised_date,
+            division_code: match optional_supplier_text(line.division_code) {
+                Some(code) => Some(code),
+                None => row.try_get("division_code")?,
+            },
+            tags: match line.tags {
+                Some(tags) => normalize_tag_codes(tags).map_err(validation)?,
+                None => row.try_get("tags")?,
+            },
+            ordered_price_minor: match line.unit_price_minor {
+                Some(price) if price < 0 => {
+                    return Err(AppError::Validation(
+                        "agreed unit price cannot be negative".into(),
+                    ));
+                }
+                Some(price) => price,
+                None => catalogue_price,
+            },
+            ordered_name: optional_supplier_text(line.article_name).unwrap_or(catalogue_name),
+            ordered_image_url: optional_supplier_text(line.image_url).or(catalogue_image),
+            base_price_minor: line.base_price_minor,
+            markup_bps: line.markup_bps,
+            variants: line.variants.unwrap_or_default(),
+            order_unit,
+        });
+    }
+    Ok(snapshots)
+}
+
+/// The order's gross value at the agreed prices, and the discount checked
+/// against it.
+fn order_value(
+    snapshots: &[CatalogItemSnapshot],
+    discount_minor: Option<i64>,
+) -> Result<(i64, i64), AppError> {
+    // What the order is worth before the discount. Computed from the agreed
+    // prices, not the catalogue's, because a discount is taken off what is
+    // actually being paid.
+    let mut gross_minor: i64 = 0;
+    for item in snapshots {
+        let line = item
+            .ordered_price_minor
+            .checked_mul(item.quantity)
+            .ok_or_else(|| AppError::Validation("order value overflows".into()))?;
+        gross_minor = gross_minor
+            .checked_add(line)
+            .ok_or_else(|| AppError::Validation("order value overflows".into()))?;
+    }
+    let discount_minor = discount_minor.unwrap_or(0);
+    if discount_minor < 0 {
+        return Err(AppError::Validation("discount cannot be negative".into()));
+    }
+    // A discount larger than the order is not a discount, it is a credit, and
+    // this is not the instrument for one.
+    if discount_minor > gross_minor {
+        return Err(AppError::Validation(format!(
+            "discount {discount_minor} is more than the order is worth ({gross_minor})"
+        )));
+    }
+    Ok((gross_minor, discount_minor))
+}
+
+/// Write one catalog line and its tags, and return what the DC is told of it.
+async fn insert_catalog_line(
+    transaction: &mut Transaction<'_, Postgres>,
+    po_line_id: Uuid,
+    purchase_order_id: Uuid,
+    line_number: i32,
+    item: CatalogItemSnapshot,
+    po_number: &str,
+) -> Result<PurchaseOrderLinePayload, AppError> {
+    let line_amount_minor = item
+        .ordered_price_minor
+        .checked_mul(item.quantity)
+        .ok_or_else(|| AppError::Validation(format!("line {line_number} amount overflows")))?;
+    sqlx::query(
+        "INSERT INTO purchase_order_line
+             (po_line_id, purchase_order_id, line_number,
+              article_code, article_name, image_url, division_code,
+              ordered_quantity,
+              unit_price_minor, line_amount_minor, promised_date,
+              supplier_item_id, supplier_item_code_snapshot,
+              supplier_item_name_snapshot, supplier_item_image_snapshot,
+              supplier_item_version, currency, supplier_item_price_snapshot,
+              base_price_minor, markup_bps,
+              order_unit_code, order_unit_quantity, unit_factor)
+         VALUES ($1,$2,$3,$4,$15,$16,$14,$7,$8,$9,$10,$11,$4,$5,$6,$12,$13,$17,$18,$19,
+                 $20,$21,$22)",
+    )
+    .bind(po_line_id)
+    .bind(purchase_order_id)
+    .bind(line_number)
+    .bind(&item.supplier_item_code)
+    .bind(&item.name)
+    .bind(&item.image_url)
+    .bind(item.quantity)
+    // The agreed price, not the catalogue's — `line_amount_minor` is
+    // computed from it, and a row where unit price times quantity does not
+    // equal the line amount is a row nobody can reconcile.
+    .bind(item.ordered_price_minor)
+    .bind(line_amount_minor)
+    .bind(item.promised_date)
+    .bind(item.supplier_item_id)
+    .bind(item.version)
+    .bind(&item.currency)
+    .bind(&item.division_code)
+    .bind(&item.ordered_name)
+    .bind(&item.ordered_image_url)
+    // What the catalogue was asking. Equal to the bound price above when
+    // the buyer accepted it; different when they did not, and that
+    // difference is the only record of the negotiation.
+    .bind(item.unit_price_minor)
+    .bind(item.base_price_minor)
+    .bind(item.markup_bps)
+    .bind(item.order_unit.as_ref().map(|(code, _, _)| code.clone()))
+    .bind(item.order_unit.as_ref().map(|(_, quantity, _)| *quantity))
+    .bind(item.order_unit.as_ref().map(|(_, _, factor)| *factor))
+    .execute(&mut **transaction)
+    .await
+    .map_err(|error| map_catalog_purchase_error(error, po_number))?;
+    write_line_variants(transaction, po_line_id, &item.variants, po_number).await?;
+    let units = line_units(transaction, item.supplier_item_id, &item.order_unit).await?;
+    // The tags the catalogue already holds, carried onto the line. They
+    // are known-good — a supplier item cannot hold a tag that is not in
+    // the vocabulary — so unlike the legacy path there is nothing to
+    // validate here, only to copy.
+    for tag in &item.tags {
+        sqlx::query(
+            "INSERT INTO purchase_order_line_tag (po_line_id, tag_code)
+             VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        )
+        .bind(po_line_id)
+        .bind(tag)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| map_catalog_purchase_error(error, po_number))?;
+    }
+Ok(PurchaseOrderLinePayload {
+        po_line_id,
+        line_number,
+        article_code: item.supplier_item_code,
+        article_name: item.ordered_name,
+        image_url: item.ordered_image_url,
+        // The edge receives what was ordered, classification included.
+        // It was `None` and empty here, which meant the DC's copy of the
+        // order disagreed with head office's about what the goods are.
+        division_code: item.division_code,
+        tags: item.tags,
+        ordered_quantity: item.quantity,
+        unit_price_minor: item.ordered_price_minor,
+        promised_date: item.promised_date.map(|date| date.to_string()),
+        units: Some(units),
+    })
+}
+
+/// A catalog order rewritten before anything has happened against it.
+///
+/// The supplier and the destination are not here: changing who supplies the
+/// goods or where they land is a different order, not this one edited.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CatalogPurchaseOrderRevision {
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub discount_minor: Option<i64>,
+    /// The whole order as it should now read. A line for an item the order
+    /// already held keeps that line's identity; an item missing from here is
+    /// taken off; a new one is added.
+    pub lines: Vec<CatalogPurchaseLineRequest>,
+}
+
+/// Why this order can no longer be edited, or `None` while it still can.
+///
+/// An order may be edited until it is finished (the owner's rule, 2026-09-26):
+/// fully received, every line closed, or cancelled. What happened against a
+/// line before then does not freeze the order — it freezes THAT line's
+/// evidence, and [`revise_catalog_purchase_order`] enforces it line by line:
+/// a line with goods, a bill or a price query on it stays on the order, keeps
+/// its price, and cannot drop below what has already arrived.
+pub async fn purchase_order_edit_blocker<'e, E>(
+    executor: E,
+    purchase_order_id: Uuid,
+) -> Result<Option<String>, AppError>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(
+        "SELECT o.order_status,
+                o.supplier_ref_id IS NOT NULL AS from_catalogue,
+                t.expected_units, t.received_units, t.all_lines_settled
+           FROM purchase_order o
+          CROSS JOIN LATERAL (
+              SELECT COALESCE(sum(l.ordered_quantity - l.cancelled_quantity), 0)::bigint
+                         AS expected_units,
+                     COALESCE(sum((SELECT COALESCE(sum(r.matched_quantity), 0)
+                                     FROM goods_receipt_line r
+                                    WHERE r.po_line_id = l.po_line_id)), 0)::bigint
+                         AS received_units,
+                     (count(l.po_line_id) > 0 AND bool_and(l.line_status <> 'OPEN'))
+                         AS all_lines_settled
+                FROM purchase_order_line l
+               WHERE l.purchase_order_id = o.purchase_order_id
+          ) t
+          WHERE o.purchase_order_id = $1",
+    )
+    .bind(purchase_order_id)
+    .fetch_optional(executor)
+    .await?
+    .ok_or_else(|| AppError::NotFound("purchase order".into()))?;
+    let status: String = row.try_get("order_status")?;
+    let expected: i64 = row.try_get("expected_units")?;
+    let received: i64 = row.try_get("received_units")?;
+    let reason = if status == "CANCELLED" {
+        Some("a cancelled order cannot be edited".to_owned())
+    } else if !row.try_get::<bool, _>("from_catalogue")? {
+        Some("only an order raised from a supplier catalogue can be edited".to_owned())
+    } else if expected > 0 && received >= expected {
+        Some("this order has been fully received".to_owned())
+    } else if status == "CLOSED" || row.try_get::<bool, _>("all_lines_settled")? {
+        Some("every line on this order has been closed".to_owned())
+    } else {
+        None
+    };
+    Ok(reason)
+}
+
+/// Why this order can no longer be cancelled, or `None` while it still can.
+///
+/// An order is cancelled only while it is still just a promise: nothing
+/// received against it, no bill matched to it and no money advanced on it.
+/// Once goods have arrived the order is closed short instead — the goods that
+/// came are real, and cancelling would make them an order nobody placed.
+pub async fn purchase_order_cancel_blocker<'e, E>(
+    executor: E,
+    purchase_order_id: Uuid,
+) -> Result<Option<String>, AppError>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(
+        "SELECT o.order_status,
+                EXISTS (SELECT 1 FROM goods_receipt_line r
+                          JOIN purchase_order_line l ON l.po_line_id = r.po_line_id
+                         WHERE l.purchase_order_id = o.purchase_order_id) AS received,
+                EXISTS (SELECT 1 FROM supplier_invoice_line b
+                          JOIN purchase_order_line l ON l.po_line_id = b.po_line_id
+                         WHERE l.purchase_order_id = o.purchase_order_id) AS billed,
+                EXISTS (SELECT 1 FROM supplier_advance a
+                         WHERE a.purchase_order_id = o.purchase_order_id) AS advanced
+           FROM purchase_order o
+          WHERE o.purchase_order_id = $1",
+    )
+    .bind(purchase_order_id)
+    .fetch_optional(executor)
+    .await?
+    .ok_or_else(|| AppError::NotFound("purchase order".into()))?;
+    let status: String = row.try_get("order_status")?;
+    Ok(if status == "CANCELLED" {
+        Some("this order is already cancelled".to_owned())
+    } else if status == "CLOSED" {
+        Some("this order has been closed".to_owned())
+    } else if row.try_get::<bool, _>("received")? {
+        Some("goods have already been received against this order; close it short instead".to_owned())
+    } else if row.try_get::<bool, _>("billed")? {
+        Some("a supplier bill has already been matched to this order".to_owned())
+    } else if row.try_get::<bool, _>("advanced")? {
+        Some("money has been advanced against this order".to_owned())
+    } else {
+        None
+    })
+}
+
+/// Why an order is being called off. Optional: the log records who and when
+/// either way.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CancelPurchaseOrderRequest {
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub reason: Option<String>,
+}
+
+/// What a cancellation answers with.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseOrderCancelled {
+    pub purchase_order_id: Uuid,
+    pub po_number: String,
+    /// The command that tells the DC, which takes the order off its
+    /// receiving worklist.
+    pub cancel_command_id: Uuid,
+}
+
+/// Cancel an order nothing has happened against, tell the DC, and log it.
+///
+/// Every line is marked cancelled and the order with them; the lines stay, so
+/// the order still reads as what was agreed and then called off. The log
+/// entry is the same history an edit writes (`purchase_order_revision`).
+pub async fn cancel_purchase_order(
+    pool: &PgPool,
+    purchase_order_id: Uuid,
+    request: CancelPurchaseOrderRequest,
+    actor: &str,
+    idempotency_key: &str,
+    digest: &str,
+) -> Result<PurchaseOrderCancelled, AppError> {
+    let actor = required_supplier_text("actor", actor).map_err(validation)?;
+    let reason = optional_supplier_text(request.reason);
+
+    let mut transaction = pool.begin().await?;
+    if let Some(response) = replay_or_begin(
+        &mut transaction,
+        idempotency_key,
+        "purchase-order.cancel",
+        digest,
+    )
+    .await?
+    {
+        return Ok(serde_json::from_value(response)?);
+    }
+    let header = sqlx::query(
+        "SELECT po_number, destination_site_id FROM purchase_order
+          WHERE purchase_order_id = $1 FOR UPDATE",
+    )
+    .bind(purchase_order_id)
+    .fetch_optional(&mut *transaction)
+    .await?
+    .ok_or_else(|| AppError::NotFound("purchase order".into()))?;
+    if let Some(reason) =
+        purchase_order_cancel_blocker(&mut *transaction, purchase_order_id).await?
+    {
+        return Err(AppError::Conflict(reason));
+    }
+    let po_number: String = header.try_get("po_number")?;
+    let destination_site_id: String = header.try_get("destination_site_id")?;
+    let target = inventory_dc_owner_tx(&mut transaction, &destination_site_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::Validation(format!(
+                "no registered DC owns site '{destination_site_id}'"
+            ))
+        })?;
+
+    sqlx::query("UPDATE purchase_order SET order_status = 'CANCELLED' WHERE purchase_order_id = $1")
+        .bind(purchase_order_id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query(
+        "UPDATE purchase_order_line SET line_status = 'CANCELLED'
+          WHERE purchase_order_id = $1 AND line_status = 'OPEN'",
+    )
+    .bind(purchase_order_id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "INSERT INTO purchase_order_revision
+             (revision_id, purchase_order_id, revised_by, changes)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(purchase_order_id)
+    .bind(&actor)
+    .bind(json!([{ "kind": "cancelled", "to": reason }]))
+    .execute(&mut *transaction)
+    .await?;
+
+    let payload = json!({
+        "purchase_order_id": purchase_order_id,
+        "po_number": po_number,
+        "reason": reason,
+    });
+    let cancel_command_id = issue_command_tx(
+        &mut transaction,
+        crate::cloud::domain::COMMAND_PURCHASE_ORDER_CANCEL,
+        &payload,
+        &actor,
+        None,
+        std::slice::from_ref(&target),
+    )
+    .await?;
+
+    let answer = PurchaseOrderCancelled {
+        purchase_order_id,
+        po_number,
+        cancel_command_id,
+    };
+    complete_idempotent(
+        &mut transaction,
+        idempotency_key,
+        &serde_json::to_value(&answer)?,
+    )
+    .await?;
+    transaction.commit().await?;
+    Ok(answer)
+}
+
+/// One line as it stood before an edit, and what already points at it.
+struct HeldLine {
+    po_line_id: Uuid,
+    name: String,
+    quantity: i64,
+    unit_price_minor: i64,
+    promised_date: Option<NaiveDate>,
+    /// Matched pieces already received against it.
+    received: i64,
+    /// Goods, a bill, a price query or a close stand against it: it is
+    /// evidence now, so it stays and keeps its price.
+    locked: bool,
+    /// Closed short or cancelled in part: its quantity is settled too.
+    settled: bool,
+}
+
+/// Rewrite a catalog order that is not finished yet, tell the DC holding it,
+/// and keep a record of what changed.
+///
+/// Lines nothing points at are replaced; a line with goods, a bill or a price
+/// query against it is updated in place, keeping its `po_line_id`, and may not
+/// be removed, repriced, or cut below what has already arrived. The DC gets
+/// the whole order again as a `purchase.order.revise` command — the same shape
+/// it was activated with — and it keeps any line it has already counted.
+pub async fn revise_catalog_purchase_order(
+    pool: &PgPool,
+    purchase_order_id: Uuid,
+    request: CatalogPurchaseOrderRevision,
+    actor: &str,
+    idempotency_key: &str,
+    digest: &str,
+) -> Result<CatalogPurchaseOrderReceipt, AppError> {
+    let actor = required_supplier_text("actor", actor).map_err(validation)?;
+    let notes = optional_supplier_text(request.notes);
+    validate_catalog_lines(&request.lines)?;
+
+    let mut transaction = pool.begin().await?;
+    if let Some(response) = replay_or_begin(
+        &mut transaction,
+        idempotency_key,
+        "purchase-order.catalog.revise",
+        digest,
+    )
+    .await?
+    {
+        return Ok(serde_json::from_value(response)?);
+    }
+
+    // Held for the rest of the transaction, so a receipt or a bill cannot land
+    // on the lines between the checks below and the rewrite.
+    let header = sqlx::query(
+        "SELECT po_number, supplier_id, supplier_name, supplier_ref_id, destination_site_id,
+                notes, discount_minor, created_by
+           FROM purchase_order WHERE purchase_order_id = $1 FOR UPDATE",
+    )
+    .bind(purchase_order_id)
+    .fetch_optional(&mut *transaction)
+    .await?
+    .ok_or_else(|| AppError::NotFound("purchase order".into()))?;
+    if let Some(reason) = purchase_order_edit_blocker(&mut *transaction, purchase_order_id).await? {
+        return Err(AppError::Conflict(reason));
+    }
+    let po_number: String = header.try_get("po_number")?;
+    let supplier_code: String = header.try_get("supplier_id")?;
+    let supplier_name: Option<String> = header.try_get("supplier_name")?;
+    let supplier_ref_id: Uuid = header
+        .try_get::<Option<Uuid>, _>("supplier_ref_id")?
+        .ok_or_else(|| {
+            AppError::Conflict("only an order raised from a supplier catalogue can be edited".into())
+        })?;
+    let destination_site_id: String = header.try_get("destination_site_id")?;
+    let notes_before: Option<String> = header.try_get("notes")?;
+    let discount_before: i64 = header.try_get("discount_minor")?;
+    // The order's raiser, not the editor: the DC lets the raiser verify.
+    let raised_by: String = header.try_get("created_by")?;
+
+    let target = inventory_dc_owner_tx(&mut transaction, &destination_site_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::Validation(format!(
+                "no registered DC owns site '{destination_site_id}'; register it before ordering to it"
+            ))
+        })?;
+
+    let mut held: std::collections::HashMap<Uuid, HeldLine> = std::collections::HashMap::new();
+    for row in sqlx::query(
+        "SELECT l.supplier_item_id, l.po_line_id, l.article_name, l.ordered_quantity,
+                l.unit_price_minor, l.promised_date,
+                COALESCE((SELECT sum(r.matched_quantity) FROM goods_receipt_line r
+                           WHERE r.po_line_id = l.po_line_id), 0)::bigint AS received,
+                (EXISTS (SELECT 1 FROM goods_receipt_line r WHERE r.po_line_id = l.po_line_id)
+                 OR EXISTS (SELECT 1 FROM supplier_invoice_line b WHERE b.po_line_id = l.po_line_id)
+                 OR EXISTS (SELECT 1 FROM purchase_price_amendment a
+                             WHERE a.po_line_id = l.po_line_id)
+                 OR l.line_status <> 'OPEN' OR l.cancelled_quantity > 0) AS locked,
+                (l.line_status <> 'OPEN' OR l.cancelled_quantity > 0) AS settled
+           FROM purchase_order_line l
+          WHERE l.purchase_order_id = $1 AND l.supplier_item_id IS NOT NULL",
+    )
+    .bind(purchase_order_id)
+    .fetch_all(&mut *transaction)
+    .await?
+    {
+        held.insert(
+            row.try_get("supplier_item_id")?,
+            HeldLine {
+                po_line_id: row.try_get("po_line_id")?,
+                name: row.try_get("article_name")?,
+                quantity: row.try_get("ordered_quantity")?,
+                unit_price_minor: row.try_get("unit_price_minor")?,
+                promised_date: row.try_get("promised_date")?,
+                received: row.try_get("received")?,
+                locked: row.try_get("locked")?,
+                settled: row.try_get("settled")?,
+            },
+        );
+    }
+    let already_ordered = held.keys().copied().collect();
+
+    let snapshots =
+        snapshot_catalog_lines(&mut transaction, supplier_ref_id, request.lines, &already_ordered)
+            .await?;
+
+    // What an edit may not do to a line that is already evidence.
+    let kept: std::collections::HashSet<Uuid> =
+        snapshots.iter().map(|item| item.supplier_item_id).collect();
+    for (item, line) in &held {
+        if line.locked && !kept.contains(item) {
+            return Err(AppError::Conflict(format!(
+                "{} cannot be taken off the order: goods or a bill already stand against it",
+                line.name
+            )));
+        }
+    }
+    for item in &snapshots {
+        let Some(line) = held.get(&item.supplier_item_id) else {
+            continue;
+        };
+        if !line.locked {
+            continue;
+        }
+        if item.ordered_price_minor != line.unit_price_minor {
+            return Err(AppError::Conflict(format!(
+                "the price of {} cannot change once goods or a bill stand against it",
+                line.name
+            )));
+        }
+        if line.settled && item.quantity != line.quantity {
+            return Err(AppError::Conflict(format!(
+                "{} has been closed; its quantity cannot change",
+                line.name
+            )));
+        }
+        if item.quantity < line.received {
+            return Err(AppError::Conflict(format!(
+                "{} cannot be cut to {} — {} have already been received",
+                line.name, item.quantity, line.received
+            )));
+        }
+    }
+
+    let (gross_minor, discount_minor) = order_value(&snapshots, request.discount_minor)?;
+    let net_minor = gross_minor - discount_minor;
+
+    // Money already paid ahead against this order cannot be left worth more
+    // than the order it was paid against.
+    let advanced: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(amount_minor), 0)::bigint FROM supplier_advance
+          WHERE purchase_order_id = $1",
+    )
+    .bind(purchase_order_id)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if net_minor < advanced {
+        return Err(AppError::Validation(format!(
+            "the order would be worth {net_minor}, less than the {advanced} already advanced against it"
+        )));
+    }
+
+    // What changed, worked out before anything is written.
+    let mut changes: Vec<Value> = Vec::new();
+    if optional_supplier_text(notes_before.clone()) != notes {
+        changes.push(json!({
+            "kind": "header", "field": "notes", "from": notes_before, "to": notes,
+        }));
+    }
+    if discount_before != discount_minor {
+        changes.push(json!({
+            "kind": "header", "field": "discount", "from": discount_before, "to": discount_minor,
+        }));
+    }
+    for item in &snapshots {
+        match held.get(&item.supplier_item_id) {
+            None => changes.push(json!({
+                "kind": "added", "item": item.ordered_name,
+                "to": { "quantity": item.quantity, "unit_price_minor": item.ordered_price_minor },
+            })),
+            Some(line) => {
+                if line.quantity != item.quantity {
+                    changes.push(json!({
+                        "kind": "changed", "item": item.ordered_name, "field": "quantity",
+                        "from": line.quantity, "to": item.quantity,
+                    }));
+                }
+                if line.unit_price_minor != item.ordered_price_minor {
+                    changes.push(json!({
+                        "kind": "changed", "item": item.ordered_name, "field": "unit_price",
+                        "from": line.unit_price_minor, "to": item.ordered_price_minor,
+                    }));
+                }
+                if line.promised_date != item.promised_date {
+                    changes.push(json!({
+                        "kind": "changed", "item": item.ordered_name, "field": "delivery_date",
+                        "from": line.promised_date, "to": item.promised_date,
+                    }));
+                }
+                if line.name != item.ordered_name {
+                    changes.push(json!({
+                        "kind": "changed", "item": item.ordered_name, "field": "name",
+                        "from": line.name, "to": item.ordered_name,
+                    }));
+                }
+            }
+        }
+    }
+    for (item, line) in &held {
+        if !kept.contains(item) {
+            changes.push(json!({
+                "kind": "removed", "item": line.name,
+                "from": { "quantity": line.quantity, "unit_price_minor": line.unit_price_minor },
+            }));
+        }
+    }
+
+    // Lines nothing points at are replaced; the rest are kept and renumbered
+    // out of the way first, because `(purchase_order_id, line_number)` is
+    // unique and the edit may hand a number to a line that held another.
+    sqlx::query(
+        "DELETE FROM purchase_order_line
+          WHERE purchase_order_id = $1 AND NOT (po_line_id = ANY($2))",
+    )
+    .bind(purchase_order_id)
+    .bind(
+        held.values()
+            .filter(|line| line.locked)
+            .map(|line| line.po_line_id)
+            .collect::<Vec<_>>(),
+    )
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "UPDATE purchase_order_line SET line_number = -line_number
+          WHERE purchase_order_id = $1 AND line_number > 0",
+    )
+    .bind(purchase_order_id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "UPDATE purchase_order SET notes = $2, discount_minor = $3
+          WHERE purchase_order_id = $1",
+    )
+    .bind(purchase_order_id)
+    .bind(&notes)
+    .bind(discount_minor)
+    .execute(&mut *transaction)
+    .await?;
+
+    let mut wire_lines = Vec::with_capacity(snapshots.len());
+    for (index, item) in snapshots.into_iter().enumerate() {
+        let line_number = i32::try_from(index + 1)
+            .map_err(|_| AppError::Validation("purchase order has too many lines".into()))?;
+        let wire = match held.get(&item.supplier_item_id) {
+            Some(line) if line.locked => {
+                update_catalog_line(&mut transaction, line.po_line_id, line_number, item, &po_number)
+                    .await?
+            }
+            Some(line) => {
+                insert_catalog_line(
+                    &mut transaction,
+                    line.po_line_id,
+                    purchase_order_id,
+                    line_number,
+                    item,
+                    &po_number,
+                )
+                .await?
+            }
+            None => {
+                insert_catalog_line(
+                    &mut transaction,
+                    Uuid::new_v4(),
+                    purchase_order_id,
+                    line_number,
+                    item,
+                    &po_number,
+                )
+                .await?
+            }
+        };
+        wire_lines.push(wire);
+    }
+
+    let payload = json!({
+        "purchase_order_id": purchase_order_id,
+        "po_number": po_number,
+        "supplier_id": supplier_code,
+        "supplier_name": supplier_name,
+        "destination_site_id": destination_site_id,
+        "created_by": raised_by,
+        "lines": wire_lines,
+    });
+    parse_purchase_order(&payload).map_err(AppError::Validation)?;
+    let command_id = issue_command_tx(
+        &mut transaction,
+        COMMAND_PURCHASE_ORDER_REVISE,
+        &payload,
+        &actor,
+        None,
+        std::slice::from_ref(&target),
+    )
+    .await?;
+
+    // The log. Written even when the lines came back the same — somebody
+    // pressed Save, and "nothing changed" is itself what happened.
+    sqlx::query(
+        "INSERT INTO purchase_order_revision
+             (revision_id, purchase_order_id, revised_by, changes)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(purchase_order_id)
+    .bind(&actor)
+    .bind(Value::Array(changes))
+    .execute(&mut *transaction)
+    .await?;
+
+    let receipt = CatalogPurchaseOrderReceipt {
+        purchase_order_id,
+        po_number,
+        supplier_id: supplier_ref_id,
+        supplier_code,
+        destination_site_id,
+        activation_command_id: command_id,
+        sent_to_origin: target,
+        gross_minor,
+        discount_minor,
+        net_minor,
+    };
+    complete_idempotent(
+        &mut transaction,
+        idempotency_key,
+        &serde_json::to_value(&receipt)?,
+    )
+    .await?;
+    transaction.commit().await?;
+    Ok(receipt)
+}
+
+/// Replace a line's colour-and-size breakdown with the one given.
+async fn write_line_variants(
+    transaction: &mut Transaction<'_, Postgres>,
+    po_line_id: Uuid,
+    variants: &[CatalogPurchaseLineVariant],
+    po_number: &str,
+) -> Result<(), AppError> {
+    sqlx::query("DELETE FROM purchase_order_line_variant WHERE po_line_id = $1")
+        .bind(po_line_id)
+        .execute(&mut **transaction)
+        .await?;
+    for variant in variants {
+        sqlx::query(
+            "INSERT INTO purchase_order_line_variant
+                 (variant_id, po_line_id, colour_code, size_code, quantity, base_price_minor)
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(po_line_id)
+        .bind(optional_supplier_text(variant.colour_code.clone()).map(|code| code.to_uppercase()))
+        .bind(optional_supplier_text(variant.size_code.clone()).map(|code| code.to_uppercase()))
+        .bind(variant.quantity)
+        .bind(variant.base_price_minor)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| map_catalog_purchase_error(error, po_number))?;
+    }
+    Ok(())
+}
+
+/// Rewrite a line that other documents already point at, in place.
+///
+/// Its identity, its price and anything received against it stay; what the
+/// buyer may still change — how many, by when, what it is called and filed
+/// under, and where it sits on the order — is written over it.
+async fn update_catalog_line(
+    transaction: &mut Transaction<'_, Postgres>,
+    po_line_id: Uuid,
+    line_number: i32,
+    item: CatalogItemSnapshot,
+    po_number: &str,
+) -> Result<PurchaseOrderLinePayload, AppError> {
+    let line_amount_minor = item
+        .ordered_price_minor
+        .checked_mul(item.quantity)
+        .ok_or_else(|| AppError::Validation(format!("line {line_number} amount overflows")))?;
+    sqlx::query(
+        "UPDATE purchase_order_line SET
+             line_number = $2, article_name = $3, image_url = $4, division_code = $5,
+             ordered_quantity = $6, line_amount_minor = $7, promised_date = $8,
+             base_price_minor = $9, markup_bps = $10,
+             order_unit_code = $11, order_unit_quantity = $12, unit_factor = $13
+         WHERE po_line_id = $1",
+    )
+    .bind(po_line_id)
+    .bind(line_number)
+    .bind(&item.ordered_name)
+    .bind(&item.ordered_image_url)
+    .bind(&item.division_code)
+    .bind(item.quantity)
+    .bind(line_amount_minor)
+    .bind(item.promised_date)
+    .bind(item.base_price_minor)
+    .bind(item.markup_bps)
+    .bind(item.order_unit.as_ref().map(|(code, _, _)| code.clone()))
+    .bind(item.order_unit.as_ref().map(|(_, quantity, _)| *quantity))
+    .bind(item.order_unit.as_ref().map(|(_, _, factor)| *factor))
+    .execute(&mut **transaction)
+    .await
+    .map_err(|error| map_catalog_purchase_error(error, po_number))?;
+    write_line_variants(transaction, po_line_id, &item.variants, po_number).await?;
+    let units = line_units(transaction, item.supplier_item_id, &item.order_unit).await?;
+    sqlx::query("DELETE FROM purchase_order_line_tag WHERE po_line_id = $1")
+        .bind(po_line_id)
+        .execute(&mut **transaction)
+        .await?;
+    for tag in &item.tags {
+        sqlx::query(
+            "INSERT INTO purchase_order_line_tag (po_line_id, tag_code)
+             VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        )
+        .bind(po_line_id)
+        .bind(tag)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| map_catalog_purchase_error(error, po_number))?;
+    }
+    Ok(PurchaseOrderLinePayload {
+        po_line_id,
+        line_number,
+        article_code: item.supplier_item_code,
+        article_name: item.ordered_name,
+        image_url: item.ordered_image_url,
+        division_code: item.division_code,
+        tags: item.tags,
+        ordered_quantity: item.quantity,
+        unit_price_minor: item.ordered_price_minor,
+        promised_date: item.promised_date.map(|date| date.to_string()),
+        units: Some(units),
+    })
+}
+
+/// The unit a line was ordered in, checked and turned into pieces.
+///
+/// `None` for a line ordered in pieces. Otherwise the factor is the item's
+/// own pack size or the global conversion (`unit_pieces_per`, migration
+/// 0399), the unit quantity times it must be a whole number of pieces, and
+/// that number must be the `quantity` the line was sent with — the screen
+/// converts too, and two answers that differ are a bug worth a sentence.
+async fn resolve_order_unit(
+    transaction: &mut Transaction<'_, Postgres>,
+    supplier_item_id: Uuid,
+    unit_code: Option<&str>,
+    unit_quantity: Option<&str>,
+    pieces: i64,
+) -> Result<Option<(String, rust_decimal::Decimal, rust_decimal::Decimal)>, AppError> {
+    let Some(code) = unit_code.map(str::trim).filter(|code| !code.is_empty()) else {
+        return Ok(None);
+    };
+    let code = code.to_uppercase();
+    let factor: Option<rust_decimal::Decimal> =
+        sqlx::query_scalar("SELECT unit_pieces_per($1, $2)")
+            .bind(supplier_item_id)
+            .bind(&code)
+            .fetch_one(&mut **transaction)
+            .await?;
+    let Some(factor) = factor else {
+        return Err(AppError::Validation(format!(
+            "{code} has no conversion to pieces for this item; add it to the units master or to the item"
+        )));
+    };
+    if factor == rust_decimal::Decimal::ONE {
+        // The base unit: a line in pieces, said the long way.
+        return Ok(None);
+    }
+    let typed = unit_quantity
+        .map(|text| text.trim().replace(',', "."))
+        .unwrap_or_default();
+    let quantity: rust_decimal::Decimal = typed.parse().map_err(|_| {
+        AppError::Validation(format!("{typed:?} is not a quantity of {code}"))
+    })?;
+    if quantity <= rust_decimal::Decimal::ZERO {
+        return Err(AppError::Validation(format!(
+            "a quantity of {code} must be more than nothing"
+        )));
+    }
+    let exact = quantity * factor;
+    if exact.fract() != rust_decimal::Decimal::ZERO {
+        return Err(AppError::Validation(format!(
+            "{quantity} {code} is {exact} pieces, which is not a whole number"
+        )));
+    }
+    let whole = rust_decimal::prelude::ToPrimitive::to_i64(&exact)
+        .ok_or_else(|| AppError::Validation("that quantity is too large".into()))?;
+    if whole != pieces {
+        return Err(AppError::Validation(format!(
+            "{quantity} {code} is {whole} pieces, not the {pieces} sent"
+        )));
+    }
+    Ok(Some((code, quantity.normalize(), factor.normalize())))
+}
+
+/// What the DC is told about a line's units: what it was ordered in, and
+/// every unit it may be counted in with its factor to pieces.
+async fn line_units(
+    transaction: &mut Transaction<'_, Postgres>,
+    supplier_item_id: Uuid,
+    order_unit: &Option<(String, rust_decimal::Decimal, rust_decimal::Decimal)>,
+) -> Result<crate::cloud::domain::PurchaseLineUnits, AppError> {
+    let rows = sqlx::query(
+        "SELECT u.code, u.label, unit_pieces_per($1, u.code) AS factor
+           FROM unit_of_measure u
+          WHERE u.active AND unit_pieces_per($1, u.code) IS NOT NULL
+          ORDER BY u.is_base DESC, u.code",
+    )
+    .bind(supplier_item_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    let mut count_units = Vec::with_capacity(rows.len());
+    for row in rows {
+        let factor: rust_decimal::Decimal = row.try_get("factor")?;
+        count_units.push(crate::cloud::domain::CountUnit {
+            code: row.try_get("code")?,
+            label: row.try_get("label")?,
+            factor: factor.normalize().to_string(),
+        });
+    }
+    Ok(crate::cloud::domain::PurchaseLineUnits {
+        order_unit_code: order_unit.as_ref().map(|(code, _, _)| code.clone()),
+        order_unit_quantity: order_unit.as_ref().map(|(_, quantity, _)| quantity.to_string()),
+        unit_factor: order_unit.as_ref().map(|(_, _, factor)| factor.to_string()),
+        count_units,
+    })
+}
+
+/// Every saved edit of one order, newest first — what the order sheet shows
+/// as its history.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseOrderRevisionEntry {
+    pub revision_id: Uuid,
+    pub revised_by: String,
+    pub revised_at: DateTime<Utc>,
+    /// `{kind, item?, field?, from?, to?}` — `kind` is `header`, `added`,
+    /// `removed` or `changed`; `field` is `notes`, `discount`, `quantity`,
+    /// `unit_price`, `delivery_date` or `name`.
+    #[cfg_attr(feature = "ts", ts(type = "Array<Record<string, unknown>>"))]
+    pub changes: Value,
+}
+
+pub async fn purchase_order_revisions(
+    pool: &PgPool,
+    purchase_order_id: Uuid,
+) -> Result<Vec<PurchaseOrderRevisionEntry>, AppError> {
+    sqlx::query(
+        "SELECT revision_id, revised_by, revised_at, changes
+           FROM purchase_order_revision
+          WHERE purchase_order_id = $1
+          ORDER BY revised_at DESC",
+    )
+    .bind(purchase_order_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(PurchaseOrderRevisionEntry {
+            revision_id: row.try_get("revision_id")?,
+            revised_by: row.try_get("revised_by")?,
+            revised_at: row.try_get("revised_at")?,
+            changes: row.try_get("changes")?,
+        })
+    })
+    .collect()
 }
 
 /// A site a purchase order can actually be delivered to.
@@ -2553,6 +4013,69 @@ async fn replace_supplier_item_colours(
 
 /// The sizes an item comes in, replaced wholesale. Returned in size order,
 /// which is what lets a screen print the ends of the range without sorting.
+/// Replace an item's own pack sizes with the ones given.
+///
+/// The base unit is refused — a piece is one piece of everything — and so is
+/// a factor that is not a positive number.
+async fn replace_supplier_item_units(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    supplier_item_id: Uuid,
+    units: &[crate::cloud::domain::SupplierItemUnit],
+) -> Result<Vec<crate::cloud::domain::SupplierItemUnit>, AppError> {
+    sqlx::query("DELETE FROM supplier_item_unit WHERE supplier_item_id = $1")
+        .bind(supplier_item_id)
+        .execute(&mut **transaction)
+        .await?;
+    let mut stored = Vec::with_capacity(units.len());
+    for unit in units {
+        let code = unit.unit_code.trim().to_uppercase();
+        let factor: rust_decimal::Decimal = unit
+            .factor
+            .trim()
+            .replace(',', ".")
+            .parse()
+            .map_err(|_| AppError::Validation(format!("{:?} is not a number of pieces", unit.factor)))?;
+        if factor <= rust_decimal::Decimal::ZERO {
+            return Err(AppError::Validation(format!(
+                "one {code} must hold more than nothing"
+            )));
+        }
+        let base: Option<bool> =
+            sqlx::query_scalar("SELECT is_base FROM unit_of_measure WHERE code = $1")
+                .bind(&code)
+                .fetch_optional(&mut **transaction)
+                .await?;
+        match base {
+            None => {
+                return Err(AppError::Validation(format!(
+                    "{code} is not in the units master"
+                )))
+            }
+            Some(true) => {
+                return Err(AppError::Validation(format!(
+                    "{code} is the base unit; it is always one piece"
+                )))
+            }
+            Some(false) => {}
+        }
+        sqlx::query(
+            "INSERT INTO supplier_item_unit (supplier_item_id, unit_code, factor)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (supplier_item_id, unit_code) DO UPDATE SET factor = EXCLUDED.factor",
+        )
+        .bind(supplier_item_id)
+        .bind(&code)
+        .bind(factor)
+        .execute(&mut **transaction)
+        .await?;
+        stored.push(crate::cloud::domain::SupplierItemUnit {
+            unit_code: code,
+            factor: factor.normalize().to_string(),
+        });
+    }
+    Ok(stored)
+}
+
 async fn replace_supplier_item_sizes(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     supplier_item_id: Uuid,

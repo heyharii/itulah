@@ -6,6 +6,7 @@ import { Composer } from "@/components/assistant/composer"
 import { useAssistant } from "@/components/assistant/state"
 import { AppLink } from "@/components/ui/app-link"
 import { useAssistantCapabilities } from "@/lib/queries/assistant"
+import { cn } from "@/lib/utils"
 
 /// The assistant, as a panel over whatever is on screen.
 ///
@@ -27,13 +28,23 @@ export function AssistantPanel() {
   return (
     <Dialog.Root open={open} onOpenChange={setOpen} modal={false}>
       <Dialog.Portal>
-        <Dialog.Popup className="fixed top-4 right-4 bottom-4 z-40 flex w-[30rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-shell border border-hairline bg-canvas shadow-float">
+        <Dialog.Popup
+          className={cn(
+            "fixed top-4 right-4 bottom-4 z-40 flex w-[30rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-shell border border-hairline bg-canvas shadow-float",
+            // In from the edge it lives on, a short way — a panel asked for
+            // several times a day earns a quick slide, not a journey — and
+            // out faster than it came. Reduced motion keeps only the fade.
+            "transition-[translate,opacity] duration-(--t-panel) ease-(--ease-out) data-[ending-style]:duration-(--t-exit)",
+            "data-[ending-style]:translate-x-6 data-[ending-style]:opacity-0 data-[starting-style]:translate-x-6 data-[starting-style]:opacity-0",
+            "motion-reduce:data-[ending-style]:translate-none motion-reduce:data-[starting-style]:translate-none"
+          )}
+        >
           <div className="flex shrink-0 items-center gap-2.5 border-b border-hairline px-5 py-[0.875rem]">
             <div className="min-w-0 flex-1">
               <Dialog.Title className="truncate text-card-title font-semibold text-ink">
                 Assistant
               </Dialog.Title>
-              <div className="mt-0.5 truncate text-[0.6875rem] text-mute">
+              <div className="mt-0.5 truncate text-[0.875rem] text-mute">
                 Reads this node. Never writes.
               </div>
             </div>
@@ -86,7 +97,7 @@ export function AssistantPanel() {
 
           <div className="shrink-0 border-t border-hairline px-4 py-3">
             <Composer autoFocus />
-            <p className="mt-2 px-1 text-[0.6875rem] text-mute">
+            <p className="mt-2 px-1 text-[0.875rem] text-mute">
               {busy
                 ? "Working…"
                 : "⌘J opens this anywhere · Enter sends · ⇧Enter for a new line"}
@@ -114,7 +125,7 @@ function Opening() {
         {data?.tools.map((tool) => (
           <span
             key={tool.name}
-            className="rounded-full border border-hairline bg-soft px-2 py-0.5 text-[0.6875rem] text-body"
+            className="rounded-full border border-hairline bg-soft px-2 py-0.5 text-[0.875rem] text-body"
           >
             {tool.title}
           </span>

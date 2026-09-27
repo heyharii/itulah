@@ -1,8 +1,9 @@
 import { node } from "@/lib/api"
 import type {
   AccountDetail,
-  AccountMapPage,
-  AccountMapping,
+  AccountLink,
+  AccountLinkChange,
+  AccountLinkPage,
   AccountPage,
   AcquisitionGap,
   AssetDepreciationStatus,
@@ -15,8 +16,11 @@ import type {
   BankStatementLineRow,
   BankStatementPage,
   BillPage,
+  BillWarning,
   BookBankLineRequest,
   BankInstitution,
+  ChartChange,
+  ChartChangeRequest,
   CashCountRow,
   CompanyBankAccount,
   DescribeBankAccountRequest,
@@ -39,6 +43,7 @@ import type {
   PayablesAging,
   PaymentPage,
   PeriodPage,
+  PostingReadiness,
   DecideInstructionRequest,
   DepositPage,
   InstructionPage,
@@ -51,20 +56,49 @@ import type {
   RegisterAssetRequest,
   SettleInstructionRequest,
   StoreDeposit,
-  SetAccountMappingRequest,
+  SetAccountLinkRequest,
   Statement,
   SupplierBill,
   SupplierPayment,
   TransferAssetRequest,
   TrialBalance,
   UnbilledReceipt,
+  AccountingDimension,
+  AccountSourceRule,
+  DimensionResult,
+  DimensionValue,
+  ExpenseCategory,
+  FinanceSetting,
+  HeadOfficeAccount,
+  PayComponentPosting,
+  PaymentMethodSetting,
+  PeriodClosingRequest,
+  PeriodClosingVoucher,
+  PostingSwitch,
+  PostingSwitches,
+  RolePermission,
+  SaveAssetClassRequest,
+  SaveDimensionRequest,
+  SaveExpenseCategoryRequest,
+  SavePaymentMethodRequest,
+  SetAutomaticPostingRequest,
+  SetFinanceSettingRequest,
+  SetPayComponentPostingRequest,
+  TaxTemplate,
+  TaxType,
+  TaxTypeSetting,
+  JournalRepeat,
+  JournalRepeatSweep,
+  JournalTemplate,
+  SaveJournalRepeatRequest,
+  SaveJournalTemplateRequest,
 } from "@itulah/contract"
 
 /// The finance wire, and the keys its answers are held under.
 ///
 /// Almost every type here is generated from the Rust struct the server
 /// serialises, so there is nothing to keep in step by hand. The exceptions
-/// are marked where they appear: `/account-map`, `/periods/close`,
+/// are marked where they appear: `/periods/close`,
 /// the period checklist, `/journal` (POST) and `/journal/{id}/reverse` answer
 /// with JSON values rather than generated DTOs, so their shapes are
 /// transcribed here. If one of them starts reading `undefined`, this file is
@@ -169,8 +203,22 @@ export const financeKeys = {
   /// identity is the asset it names, and the class is read off the register.
   assetClasses: () => ["finance", "asset-classes"] as const,
 
-  accountMap: (site: string | null) =>
-    ["finance", "account-map", site] as const,
+  /// Everything read off the account links lives under one prefix, so a
+  /// link saved or removed invalidates the list, the readiness matrix, the
+  /// history and every site's resolved accounts with one call:
+  /// `invalidateQueries({ queryKey: financeKeys.accountLinksAll })`.
+  accountLinksAll: ["finance", "account-links"] as const,
+  accountLinks: (q: string | null, role: string | null) =>
+    ["finance", "account-links", "page", q, role] as const,
+  accountLinkHistory: (role: string | null) =>
+    ["finance", "account-links", "history", role] as const,
+  postingReadiness: () => ["finance", "account-links", "readiness"] as const,
+  siteAccounts: (site: string | null) =>
+    ["finance", "account-links", "site", site] as const,
+  /// The chart's own change log. Under `accounts` so the same invalidation
+  /// that refreshes the tree after a change refreshes the history too.
+  chartChanges: (account: string | null) =>
+    ["finance", "accounts", "changes", account] as const,
   periods: () => ["finance", "periods"] as const,
   /// Keyed by the month it was asked about, because the answer is about that
   /// month and a tab left open across midnight on the first should not keep
@@ -190,14 +238,26 @@ export const financeKeys = {
   /// `payments` already keys on one: `GET /finance/bills` has always taken it
   /// and narrows on the server, so a unit-filtered list is a different answer
   /// and not a slice of a wider one held here.
-  bills: (status: string | null, site: string | null = null) =>
-    ["finance", "bills", status, site] as const,
+  ///
+  /// `draftFrom` is the GA inbox's own filter: `?draft_from=GA` answers the
+  /// drafts Operations filed and Finance is to inspect, which are a different
+  /// population from the rest of the DRAFT bills and so a different answer
+  /// under a different key.
+  bills: (
+    status: string | null,
+    site: string | null = null,
+    draftFrom: string | null = null
+  ) => ["finance", "bills", status, site, draftFrom] as const,
   /// One bill with what it was for. Its own key and not a slice of the list:
   /// the list deliberately sends `lines: null` — one query per row to draw a
   /// table is how a list gets slow without anybody being able to point at the
   /// reason — so "the bill" and "the bill and its lines" are two answers and
   /// must not overwrite each other.
   bill: (id: string) => ["finance", "bills", "detail", id] as const,
+  /// What the server warns about before a bill is posted. Its own key because
+  /// it is asked for on demand, one bill at a time, and never appears in any
+  /// list read.
+  billWarnings: (id: string) => ["finance", "bills", "warnings", id] as const,
   unbilled: () => ["finance", "unbilled"] as const,
 
   /// What is owed, to whom, and how late — the server's own ageing rather than
@@ -266,6 +326,32 @@ export const financeKeys = {
   deposits: (status: string | null, site: string | null) =>
     ["finance", "deposits", status, site] as const,
   deposit: (id: string) => ["finance", "deposits", "detail", id] as const,
+
+  /// Finance's master data — the settings a person changes from a screen
+  /// rather than a migration. Each list is one answer, fetched whole.
+  expenseCategories: () => ["finance", "expense-categories"] as const,
+  payComponents: () => ["finance", "pay-components"] as const,
+  paymentMethods: () => ["finance", "payment-methods"] as const,
+  taxTemplates: () => ["finance", "tax-templates"] as const,
+  taxTypes: () => ["finance", "tax", "types"] as const,
+  dimensions: () => ["finance", "dimensions"] as const,
+  dimensionResults: (
+    dimension: string,
+    from: string,
+    to: string,
+    site: string | null
+  ) => ["finance", "dimension-results", dimension, from, to, site] as const,
+  sourceRules: () => ["finance", "policies", "source-rules"] as const,
+  headOfficeAccounts: () =>
+    ["finance", "policies", "head-office-accounts"] as const,
+  postingSwitches: () => ["finance", "policies", "posting"] as const,
+  permissions: () => ["finance", "permissions"] as const,
+  periodClosings: () => ["finance", "period-closing-vouchers"] as const,
+  /// The same key `sales-setup.tsx` reads the settings under, so a value
+  /// changed on the settings screen is the value shown there too.
+  settings: () => ["finance", "settings"] as const,
+  journalTemplates: () => ["finance", "journal-templates"] as const,
+  journalRepeats: () => ["finance", "journal-repeats"] as const,
 }
 
 /// Query string from whatever is actually set. An absent option and an empty
@@ -393,19 +479,12 @@ export interface LineCategoryPage {
 /// It points here instead, and the asset accounts — 1601, 1609, 7101 and the
 /// rest — take no category at all: their identity is the asset the line names.
 ///
-/// Transcribed for the same reason as `LineCategory` above.
-export interface AssetClass {
-  readonly class_code: string
-  readonly name: string
-  readonly name_en?: string | null
-  /// `PPE`, `OE`, `INTANGIBLE` or `DEFERRED`.
-  readonly kind: string
-  readonly is_active: boolean
-}
+/// Generated, where it used to be transcribed: the class now carries its
+/// `build` (0356), and a hand-written mirror of that list would have kept the
+/// register guessing which form a class is filled in on.
+import type { AssetClassList } from "@itulah/contract"
 
-export interface AssetClassPage {
-  readonly classes: readonly AssetClass[]
-}
+export type { AssetClass, AssetClassList } from "@itulah/contract"
 
 /// Every category, or one family's.
 ///
@@ -425,8 +504,8 @@ export function listLineCategories(
 
 export function listAssetClasses(
   signal?: AbortSignal
-): Promise<AssetClassPage> {
-  return node.get<AssetClassPage>("/api/v1/finance/asset-classes", { signal })
+): Promise<AssetClassList> {
+  return node.get<AssetClassList>("/api/v1/finance/asset-classes", { signal })
 }
 
 // ---------------------------------------------------------------------------
@@ -499,57 +578,465 @@ export function trialBalance(
 }
 
 // ---------------------------------------------------------------------------
-// The account map
+// Account links
 // ---------------------------------------------------------------------------
 
-/// What `GET /account-map` answers with.
+/// Every link, whole, with the roles the posting rules name and the sites the
+/// books are kept for.
 ///
-/// Generated now — `AccountMapPage` — where it used to be transcribed by hand
-/// because the handler built a `json!` of three separately generated pieces.
-/// It carries the same three parts (`mappings` is `rows`), plus the envelope
-/// every other finance list answers in and `unmapped_pairs`, which the server
-/// counts over the whole map rather than over the page.
-export type AccountMapView = AccountMapPage
-
-/// The whole map by default, and deliberately.
-///
-/// The endpoint pages at 200; this asks for the server's ceiling instead,
-/// because the Account Map screen's only real question — which (meaning,
-/// location) pairs are still unset — is asked by walking every mapping against
-/// every location, and cannot be answered from a page. 695 mappings at this
-/// client against a ceiling of 1,000.
-///
-/// `total` is what makes that safe rather than hopeful: if the map ever
-/// outgrows the ceiling, `rows.length < total` says so, and the server's own
-/// `unmapped_pairs` — counted over everything, never over the page — is still
-/// right either way.
-export function accountMap(
-  site?: string,
-  signal?: AbortSignal,
-  options: { q?: string; cursor?: string; limit?: number } = {}
-): Promise<AccountMapPage> {
-  return node.get<AccountMapPage>(
-    `/api/v1/finance/account-map${search({
-      site,
-      q: options.q,
-      cursor: options.cursor,
-      limit: options.limit ?? 1000,
-    })}`,
+/// Not paged, on the server's word: a few hundred links a person reads top to
+/// bottom to find the exception. `gaps` is counted over everything and never
+/// narrowed by `q` — a search that hid the gaps would be the screen reporting
+/// them fixed.
+export function accountLinks(
+  params: { q?: string; role?: string } = {},
+  signal?: AbortSignal
+): Promise<AccountLinkPage> {
+  return node.get<AccountLinkPage>(
+    `/api/v1/finance/account-links${search(params)}`,
     { signal }
   )
 }
 
-/// Point a meaning at one of the client's accounts, for one location.
-///
-/// `qualifier` is part of the key, not a note: `bank_savings` legitimately has
-/// one mapping per bank at the same site. Unqualified meanings send `""`.
-export function setAccountMapping(
-  request: SetAccountMappingRequest,
+/// Point a role at an account for a scope, or move it. An upsert: the scope
+/// is part of the key, so saving a link that already exists moves it.
+export function setAccountLink(
+  request: SetAccountLinkRequest,
   signal?: AbortSignal
-): Promise<AccountMapping> {
-  return node.post<AccountMapping>("/api/v1/finance/account-map", request, {
+): Promise<AccountLink> {
+  return node.post<AccountLink>("/api/v1/finance/account-links", request, {
     signal,
   })
+}
+
+/// Remove a link. Answers 409 naming the sites that would be left with no
+/// account; `force` removes it anyway.
+export function removeAccountLink(
+  linkId: number,
+  force = false
+): Promise<void> {
+  return node.delete<void>(
+    `/api/v1/finance/account-links/${linkId}${search({ force: force || undefined })}`
+  )
+}
+
+export function accountLinkHistory(
+  role?: string | null,
+  signal?: AbortSignal,
+  limit = 50
+): Promise<AccountLinkChange[]> {
+  return node.get<AccountLinkChange[]>(
+    `/api/v1/finance/account-link-history${search({ role, limit })}`,
+    { signal }
+  )
+}
+
+/// "If this happened now at this site, would it post?" — every role and
+/// source, against every site.
+export function postingReadiness(
+  signal?: AbortSignal
+): Promise<PostingReadiness> {
+  return node.get<PostingReadiness>("/api/v1/finance/posting-readiness", {
+    signal,
+  })
+}
+
+/// What one role, from one source, lands on at a site — the answer the old
+/// per-site map used to hold as rows.
+export interface SiteAccount {
+  readonly role: string
+  /// `COMPANY`, or the master the decision belongs to.
+  readonly source_type: string
+  readonly source_id: string
+  readonly account_code: string
+  readonly account_name: string
+  /// Which scope decided it: `ALL`, `SITE_KIND` or `SITE`.
+  readonly scope_type: string | null
+}
+
+/// Every (role, source) that resolves at `site`, or — with no site — the first
+/// site each one resolves at.
+///
+/// Composed from the readiness matrix (which account wins where) and the link
+/// list (what that account is called), because the server resolves and the
+/// browser must not: the most-specific-wins rule lives in
+/// `account_resolution`, and a copy of it here would be a second opinion.
+export async function siteAccounts(
+  site: string | null,
+  signal?: AbortSignal
+): Promise<SiteAccount[]> {
+  const [readiness, links] = await Promise.all([
+    postingReadiness(signal),
+    accountLinks({}, signal),
+  ])
+  const names = new Map<string, string>()
+  for (const link of links.rows) names.set(link.account_code, link.account_name)
+  const out: SiteAccount[] = []
+  for (const row of readiness.rows) {
+    const cell = row.cells.find(
+      (one) =>
+        one.account_code !== null && (site === null || one.site_id === site)
+    )
+    if (cell === undefined || cell.account_code === null) continue
+    out.push({
+      role: row.role,
+      source_type: row.source_type,
+      source_id: row.source_id,
+      account_code: cell.account_code,
+      account_name: names.get(cell.account_code) ?? "",
+      scope_type: cell.scope_type,
+    })
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Changing the chart
+// ---------------------------------------------------------------------------
+
+/// What changed in the chart, newest first; one account's when given.
+export function chartChanges(
+  account?: string | null,
+  signal?: AbortSignal,
+  limit = 100
+): Promise<ChartChange[]> {
+  return node.get<ChartChange[]>(
+    `/api/v1/finance/chart-changes${search({ account, limit })}`,
+    { signal }
+  )
+}
+
+/// Add, edit, retire or revive an account. Applies at once — no approval, the
+/// owner's decision — and is kept in the history with who and why.
+export function changeChart(
+  request: ChartChangeRequest,
+  signal?: AbortSignal
+): Promise<ChartChange> {
+  return node.post<ChartChange>("/api/v1/finance/chart-changes", request, {
+    signal,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Master data: the settings Finance changes without a developer
+// ---------------------------------------------------------------------------
+
+/// The kinds of cost a shop or an employee files under. A category's account
+/// is an account link (role `expense`, source `EXPENSE_CATEGORY`).
+export function listExpenseCategories(
+  signal?: AbortSignal
+): Promise<ExpenseCategory[]> {
+  return node.get<ExpenseCategory[]>("/api/v1/finance/expense-categories", {
+    signal,
+  })
+}
+
+/// Add a category or change one. `code` is the key and never changes.
+export function saveExpenseCategory(
+  request: SaveExpenseCategoryRequest
+): Promise<ExpenseCategory> {
+  return node.post<ExpenseCategory>(
+    "/api/v1/finance/expense-categories",
+    request
+  )
+}
+
+/// Every pay component, with how it posts and how many sites it reaches.
+export function listPayComponentPostings(
+  signal?: AbortSignal
+): Promise<PayComponentPosting[]> {
+  return node.get<PayComponentPosting[]>("/api/v1/finance/pay-components", {
+    signal,
+  })
+}
+
+export function setPayComponentPosting(
+  code: string,
+  request: SetPayComponentPostingRequest
+): Promise<PayComponentPosting> {
+  return node.put<PayComponentPosting>(
+    `/api/v1/finance/pay-components/${encodeURIComponent(code)}`,
+    request
+  )
+}
+
+/// The payment methods the company accepts (ERPNext Mode of Payment).
+export function listPaymentMethods(
+  signal?: AbortSignal
+): Promise<PaymentMethodSetting[]> {
+  return node.get<PaymentMethodSetting[]>("/api/v1/finance/payment-methods", {
+    signal,
+  })
+}
+
+export function savePaymentMethod(
+  request: SavePaymentMethodRequest
+): Promise<PaymentMethodSetting> {
+  return node.post<PaymentMethodSetting>(
+    "/api/v1/finance/payment-methods",
+    request
+  )
+}
+
+/// Add an asset class or change one. Answers with the whole list.
+export function saveAssetClass(
+  request: SaveAssetClassRequest
+): Promise<AssetClassList> {
+  return node.post<AssetClassList>("/api/v1/finance/asset-classes", request)
+}
+
+/// The withholding templates (ERPNext Tax Withholding Category).
+export function listTaxTemplates(signal?: AbortSignal): Promise<TaxTemplate[]> {
+  return node.get<TaxTemplate[]>("/api/v1/finance/tax-templates", { signal })
+}
+
+/// Add a template or change one. Answers with the whole list.
+export function saveTaxTemplate(template: TaxTemplate): Promise<TaxTemplate[]> {
+  return node.post<TaxTemplate[]>("/api/v1/finance/tax-templates", template)
+}
+
+/// The tax types, read as settings. The GET answers `TaxType` — the same
+/// fields, with `note` always present.
+export function listTaxTypeSettings(signal?: AbortSignal): Promise<TaxType[]> {
+  return node.get<TaxType[]>("/api/v1/finance/tax/types", { signal })
+}
+
+export function saveTaxType(tax: TaxTypeSetting): Promise<TaxTypeSetting> {
+  return node.post<TaxTypeSetting>("/api/v1/finance/tax/types", tax)
+}
+
+/// The accounting dimensions and their values (ERPNext Accounting Dimension).
+export function listDimensions(
+  signal?: AbortSignal
+): Promise<AccountingDimension[]> {
+  return node.get<AccountingDimension[]>("/api/v1/finance/dimensions", {
+    signal,
+  })
+}
+
+export function saveDimension(
+  request: SaveDimensionRequest
+): Promise<AccountingDimension[]> {
+  return node.post<AccountingDimension[]>("/api/v1/finance/dimensions", request)
+}
+
+export function saveDimensionValue(
+  dimension: string,
+  value: DimensionValue
+): Promise<AccountingDimension[]> {
+  return node.post<AccountingDimension[]>(
+    `/api/v1/finance/dimensions/${encodeURIComponent(dimension)}/values`,
+    value
+  )
+}
+
+/// The profit and loss cut by one dimension: a row per value, and one with no
+/// value for the lines that carry none, so the rows add up to the whole.
+export function dimensionResults(
+  params: { dimension: string; from: string; to: string; site?: string | null },
+  signal?: AbortSignal
+): Promise<DimensionResult[]> {
+  return node.get<DimensionResult[]>(
+    `/api/v1/finance/reports/dimension-results${search(params)}`,
+    { signal }
+  )
+}
+
+/// Which documents may reach which account.
+export function listSourceRules(
+  signal?: AbortSignal
+): Promise<AccountSourceRule[]> {
+  return node.get<AccountSourceRule[]>(
+    "/api/v1/finance/policies/source-rules",
+    { signal }
+  )
+}
+
+export function setSourceRule(
+  rule: AccountSourceRule
+): Promise<AccountSourceRule[]> {
+  return node.post<AccountSourceRule[]>(
+    "/api/v1/finance/policies/source-rules",
+    rule
+  )
+}
+
+export function removeSourceRule(rule: {
+  account_code: string
+  source_kind: string
+  category_code?: string | null
+}): Promise<AccountSourceRule[]> {
+  return node.delete<AccountSourceRule[]>(
+    `/api/v1/finance/policies/source-rules${search({
+      account: rule.account_code,
+      source_kind: rule.source_kind,
+      category: rule.category_code,
+    })}`
+  )
+}
+
+/// Accounts that belong to head office only.
+export function listHeadOfficeAccounts(
+  signal?: AbortSignal
+): Promise<HeadOfficeAccount[]> {
+  return node.get<HeadOfficeAccount[]>(
+    "/api/v1/finance/policies/head-office-accounts",
+    { signal }
+  )
+}
+
+export function setHeadOfficeAccount(
+  account: HeadOfficeAccount
+): Promise<HeadOfficeAccount[]> {
+  return node.post<HeadOfficeAccount[]>(
+    "/api/v1/finance/policies/head-office-accounts",
+    account
+  )
+}
+
+export function removeHeadOfficeAccount(
+  code: string
+): Promise<HeadOfficeAccount[]> {
+  return node.delete<HeadOfficeAccount[]>(
+    `/api/v1/finance/policies/head-office-accounts/${encodeURIComponent(code)}`
+  )
+}
+
+/// Whether automatic posting runs, globally and per document kind.
+export function postingSwitches(
+  signal?: AbortSignal
+): Promise<PostingSwitches> {
+  return node.get<PostingSwitches>("/api/v1/finance/policies/posting", {
+    signal,
+  })
+}
+
+export function setAutomaticPosting(
+  request: SetAutomaticPostingRequest
+): Promise<PostingSwitches> {
+  return node.put<PostingSwitches>("/api/v1/finance/policies/posting", request)
+}
+
+export function setPostingSwitch(
+  posting: PostingSwitch
+): Promise<PostingSwitches> {
+  return node.post<PostingSwitches>(
+    "/api/v1/finance/policies/posting/sources",
+    posting
+  )
+}
+
+/// Who may call what — the overrides on top of the built-in roles.
+export function listRolePermissions(
+  signal?: AbortSignal
+): Promise<RolePermission[]> {
+  return node.get<RolePermission[]>("/api/v1/finance/permissions", { signal })
+}
+
+export function setRolePermission(
+  permission: RolePermission
+): Promise<RolePermission[]> {
+  return node.post<RolePermission[]>("/api/v1/finance/permissions", permission)
+}
+
+export function removeRolePermission(key: {
+  method: string
+  path_prefix: string
+}): Promise<RolePermission[]> {
+  return node.delete<RolePermission[]>(
+    `/api/v1/finance/permissions${search(key)}`
+  )
+}
+
+/// The closing vouchers, newest period first.
+export function listPeriodClosings(
+  signal?: AbortSignal
+): Promise<PeriodClosingVoucher[]> {
+  return node.get<PeriodClosingVoucher[]>(
+    "/api/v1/finance/period-closing-vouchers",
+    { signal }
+  )
+}
+
+/// Close a date range into retained earnings.
+export function postPeriodClosing(
+  request: PeriodClosingRequest
+): Promise<PeriodClosingVoucher> {
+  return node.post<PeriodClosingVoucher>(
+    "/api/v1/finance/period-closing-vouchers",
+    request
+  )
+}
+
+/// Cancel the last closing voucher by reversing its entry.
+export function cancelPeriodClosing(
+  voucherId: string
+): Promise<PeriodClosingVoucher> {
+  return node.post<PeriodClosingVoucher>(
+    `/api/v1/finance/period-closing-vouchers/${encodeURIComponent(voucherId)}/cancel`,
+    {}
+  )
+}
+
+/// The tolerances, windows and switches kept as numbers.
+export function listFinanceSettings(
+  signal?: AbortSignal
+): Promise<FinanceSetting[]> {
+  return node.get<FinanceSetting[]>("/api/v1/finance/settings", { signal })
+}
+
+export function setFinanceSetting(
+  key: string,
+  request: SetFinanceSettingRequest
+): Promise<FinanceSetting> {
+  return node.put<FinanceSetting>(
+    `/api/v1/finance/settings/${encodeURIComponent(key)}`,
+    request
+  )
+}
+
+/// Journal Entry Templates: manual-journal lines saved once. `lines` are the
+/// same `PostingLine` objects the composer posts.
+export function listJournalTemplates(
+  signal?: AbortSignal
+): Promise<JournalTemplate[]> {
+  return node.get<JournalTemplate[]>("/api/v1/finance/journal-templates", {
+    signal,
+  })
+}
+
+/// Create a template (no `template_id`) or change one.
+export function saveJournalTemplate(
+  request: SaveJournalTemplateRequest
+): Promise<JournalTemplate> {
+  return node.post<JournalTemplate>(
+    "/api/v1/finance/journal-templates",
+    request
+  )
+}
+
+/// Repeating journals (ERPNext Auto Repeat): a template raised as a draft — or
+/// posted, with `auto_post` — on its date, and the date moved on.
+export function listJournalRepeats(
+  signal?: AbortSignal
+): Promise<JournalRepeat[]> {
+  return node.get<JournalRepeat[]>("/api/v1/finance/journal-repeats", {
+    signal,
+  })
+}
+
+export function saveJournalRepeat(
+  request: SaveJournalRepeatRequest
+): Promise<JournalRepeat> {
+  return node.post<JournalRepeat>("/api/v1/finance/journal-repeats", request)
+}
+
+/// Raise every repeat due today now, instead of waiting for the hourly sweep.
+export function runJournalRepeats(): Promise<JournalRepeatSweep> {
+  return node.post<JournalRepeatSweep>(
+    "/api/v1/finance/journal-repeats/run",
+    {}
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -907,17 +1394,28 @@ export function statement(
 /// so the old ceiling is kept here deliberately — moving it is a decision about
 /// a screen, not about a wrapper. `rows.length < total` is now how a screen
 /// can see that it was capped.
+///
+/// `draftFrom` becomes `draft_from` on the wire: the GA inbox asks for the
+/// drafts Operations filed (`draft_from=GA`), which the server filters rather
+/// than the browser, because "what did GA send us" is a population and not a
+/// narrowing of a page already in hand.
 export function listBills(
   options: {
     status?: string
     supplier?: string
     site?: string
+    draftFrom?: string
     limit?: number
   } = {},
   signal?: AbortSignal
 ): Promise<BillPage> {
+  const { draftFrom, ...rest } = options
   return node.get<BillPage>(
-    `/api/v1/finance/bills${search({ limit: 200, ...options })}`,
+    `/api/v1/finance/bills${search({
+      limit: 200,
+      ...rest,
+      draft_from: draftFrom,
+    })}`,
     { signal }
   )
 }
@@ -967,6 +1465,67 @@ export function postBill(
   return node.post<SupplierBill>(
     `/api/v1/finance/bills/${encodeURIComponent(invoiceId)}/post`,
     { posting_date: postingDate },
+    { signal }
+  )
+}
+
+/// The six things the server checks before a bill is posted, as warnings.
+///
+/// A warning is NOT a block: `post_bill` refuses only a held bill, and posting
+/// with a warning on the list is the point — the reader is told what is odd and
+/// decides. So nothing in the screen locks a button because one of these came
+/// back.
+export function billWarnings(
+  invoiceId: string,
+  signal?: AbortSignal
+): Promise<BillWarning[]> {
+  return node.get<BillWarning[]>(
+    `/api/v1/finance/bills/${encodeURIComponent(invoiceId)}/warnings`,
+    { signal }
+  )
+}
+
+/// Hold a bill so nothing pays it, with the reason it is held (required) and
+/// the day it is planned to be released (optional — unset means "until somebody
+/// decides"). Holding a posted bill is allowed; it still cannot be paid.
+export function holdBill(
+  invoiceId: string,
+  request: { readonly reason: string; readonly release_date?: string | null },
+  signal?: AbortSignal
+): Promise<SupplierBill> {
+  return node.post<SupplierBill>(
+    `/api/v1/finance/bills/${encodeURIComponent(invoiceId)}/hold`,
+    request,
+    { signal }
+  )
+}
+
+/// Release a held bill. Clears the reason and the planned date with it, so
+/// "released" and "held with a blank reason" cannot both be true.
+export function releaseBill(
+  invoiceId: string,
+  signal?: AbortSignal
+): Promise<SupplierBill> {
+  return node.post<SupplierBill>(
+    `/api/v1/finance/bills/${encodeURIComponent(invoiceId)}/release`,
+    {},
+    { signal }
+  )
+}
+
+/// Return a draft to GA with the reason it is coming back.
+///
+/// A return is not a delete: the bill keeps its id and its GA mark and stays a
+/// DRAFT, so Operations can fix it and file it again. `reason` is required
+/// because a returned draft with no reason is one GA cannot act on.
+export function returnBill(
+  invoiceId: string,
+  request: { readonly reason: string },
+  signal?: AbortSignal
+): Promise<SupplierBill> {
+  return node.post<SupplierBill>(
+    `/api/v1/finance/bills/${encodeURIComponent(invoiceId)}/return`,
+    request,
     { signal }
   )
 }

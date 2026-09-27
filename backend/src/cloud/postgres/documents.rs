@@ -112,6 +112,36 @@ pub struct FileDocumentRequest {
     pub language: Option<String>,
     #[serde(default)]
     pub doc_date: Option<NaiveDate>,
+    /// Kertas apa ini: "STNK", "BPKB", "Sertifikat laik operasi", "Garansi",
+    /// "SHGB". Kata client sendiri, bukan kode — yang membacanya adalah orang
+    /// yang memegang kertasnya.
+    ///
+    /// The brief's §6, written here so the next person does not put an
+    /// insurance policy in this column: a PARTY and MONEY together make a
+    /// CONTRACT, and paper alone makes a DOCUMENT. The STNK is the case that
+    /// shows why the line is drawn once — the paper is a document (filed,
+    /// found by name, photographed), while its renewal is a contract, because
+    /// Bapenda/Samsat is the counterparty, there is a fee, and it happens
+    /// again next year. A policy has a counterparty and a value, so it belongs
+    /// on a contract, where the reminder that has to fire before the cover
+    /// lapses already lives.
+    #[serde(default)]
+    pub doc_type: Option<String>,
+    /// The number printed on the paper: an engine number, a certificate
+    /// number, a policy number. What somebody reads back over the phone, and
+    /// the one thing that finds the row when the name is "IMG_20260924.jpg".
+    #[serde(default)]
+    pub doc_number: Option<String>,
+    /// Yang menerbitkan: Samsat, Disnaker, vendor, notaris.
+    #[serde(default)]
+    pub issuer: Option<String>,
+    #[serde(default)]
+    pub issued_on: Option<NaiveDate>,
+    /// Masa berlakunya. Absen berarti kertas yang memang tidak punya — BPKB,
+    /// akta, sertifikat tanah. Itu BUKAN kesalahan, dan layar tidak boleh
+    /// menampilkannya sebagai "belum diisi".
+    #[serde(default)]
+    pub expires_on: Option<NaiveDate>,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
@@ -131,6 +161,31 @@ pub struct Document {
     pub language: String,
     pub processing_status: String,
     pub doc_date: Option<NaiveDate>,
+    /// Kertas apa ini: "STNK", "BPKB", "Sertifikat laik operasi", "Garansi",
+    /// "SHGB". Kata client sendiri, bukan kode — yang membacanya adalah orang
+    /// yang memegang kertasnya.
+    ///
+    /// The brief's §6, written here so the next person does not put an
+    /// insurance policy in this column: a PARTY and MONEY together make a
+    /// CONTRACT, and paper alone makes a DOCUMENT. The STNK is the case that
+    /// shows why the line is drawn once — the paper is a document (filed,
+    /// found by name, photographed), while its renewal is a contract, because
+    /// Bapenda/Samsat is the counterparty, there is a fee, and it happens
+    /// again next year. A policy has a counterparty and a value, so it belongs
+    /// on a contract, where the reminder that has to fire before the cover
+    /// lapses already lives.
+    pub doc_type: Option<String>,
+    /// The number printed on the paper: an engine number, a certificate
+    /// number, a policy number. What somebody reads back over the phone, and
+    /// the one thing that finds the row when the name is "IMG_20260924.jpg".
+    pub doc_number: Option<String>,
+    /// Yang menerbitkan: Samsat, Disnaker, vendor, notaris.
+    pub issuer: Option<String>,
+    pub issued_on: Option<NaiveDate>,
+    /// Masa berlakunya. Absen berarti kertas yang memang tidak punya — BPKB,
+    /// akta, sertifikat tanah. Itu BUKAN kesalahan, dan layar tidak boleh
+    /// menampilkannya sebagai "belum diisi".
+    pub expires_on: Option<NaiveDate>,
     pub byte_size: i64,
     pub content_type: String,
     /// Whether the bytes can be fetched right now. Carried from `stored_file`
@@ -144,7 +199,9 @@ pub struct Document {
 }
 
 const DOCUMENT_COLUMNS: &str = "d.document_id, d.file_id, d.name, d.title, d.path_tokens,
-     d.summary, d.language, d.processing_status, d.doc_date, d.uploaded_by, d.created_at,
+     d.summary, d.language, d.processing_status, d.doc_date,
+     d.doc_type, d.doc_number, d.issuer, d.issued_on, d.expires_on,
+     d.uploaded_by, d.created_at,
      f.byte_size, f.content_type, f.available,
      COALESCE((SELECT array_agg(t.tag_code ORDER BY t.tag_code)
                  FROM document_tag t WHERE t.document_id = d.document_id), '{}') AS tags,
@@ -164,6 +221,11 @@ fn document_from_row(row: &sqlx::postgres::PgRow) -> Result<Document, AppError> 
         language: row.try_get("language")?,
         processing_status: row.try_get("processing_status")?,
         doc_date: row.try_get("doc_date")?,
+        doc_type: row.try_get("doc_type")?,
+        doc_number: row.try_get("doc_number")?,
+        issuer: row.try_get("issuer")?,
+        issued_on: row.try_get("issued_on")?,
+        expires_on: row.try_get("expires_on")?,
         byte_size: row.try_get("byte_size")?,
         content_type: row.try_get("content_type")?,
         available: row.try_get("available")?,
@@ -187,6 +249,38 @@ fn store(state: &AppState) -> Result<&crate::cloud::attachments::AttachmentStore
 
 fn object_key(upload_id: Uuid) -> String {
     format!("{DOCUMENT_PREFIX}/{upload_id}")
+}
+
+/// Text a person typed, where blank means they typed nothing.
+fn optional_text(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+/// Say which constraint refused, in the words of the person who tripped it.
+///
+/// The one rule the database owns on these columns is 0358's
+/// `document_expiry_is_after_issue`: a paper that expires before it was issued
+/// is a typing mistake, and a mistake that produced a permanent overdue warning
+/// nothing could clear. Refusing it in Rust as well would put the rule in two
+/// places, so it is refused once, there — and named here rather than flattened
+/// into the 500 a bare `?` would have produced.
+fn map_document_write_error(error: sqlx::Error) -> AppError {
+    if let sqlx::Error::Database(database) = &error {
+        return match database.code().as_deref() {
+            Some("23514") if database.constraint() == Some("document_expiry_is_after_issue") => {
+                AppError::Validation(
+                    "that paper expires before it was issued — check the two dates \
+                     (document_expiry_is_after_issue)"
+                        .to_owned(),
+                )
+            }
+            Some("23514") | Some("23502") => AppError::Validation(database.message().to_owned()),
+            _ => AppError::Database(error),
+        };
+    }
+    AppError::Database(error)
 }
 
 /// Hand back somewhere to put the bytes.
@@ -299,8 +393,9 @@ pub async fn file_document(
     let document_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO document
-             (document_id, file_id, name, title, path_tokens, language, doc_date, uploaded_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+             (document_id, file_id, name, title, path_tokens, language, doc_date,
+              doc_type, doc_number, issuer, issued_on, expires_on, uploaded_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(document_id)
     .bind(file_id)
@@ -315,9 +410,20 @@ pub async fn file_document(
     .bind(&request.path_tokens)
     .bind(&language)
     .bind(request.doc_date)
+    // Blank is absent, like `title` above: a form that sends "" for a field
+    // nobody filled in means the paper has no such fact, and reading back the
+    // empty string would put a value where the screen checks for None.
+    .bind(optional_text(request.doc_type.as_deref()))
+    .bind(optional_text(request.doc_number.as_deref()))
+    .bind(optional_text(request.issuer.as_deref()))
+    .bind(request.issued_on)
+    .bind(request.expires_on)
     .bind(actor)
     .execute(&mut *tx)
-    .await?;
+    .await
+    // 0358's one rule lives in the database, so the refusal comes from there —
+    // and is translated rather than flattened into a 500.
+    .map_err(map_document_write_error)?;
 
     for tag in &request.tags {
         sqlx::query("INSERT INTO document_tag (document_id, tag_code) VALUES ($1,$2) ON CONFLICT DO NOTHING")

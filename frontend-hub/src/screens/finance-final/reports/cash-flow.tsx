@@ -143,7 +143,7 @@ export function CashFlow() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Reports"
+        crumb="Finance · Reports"
         title="Cash Flow"
         sub="Where cash came from and where it went, over a window."
       />
@@ -160,7 +160,7 @@ export function CashFlow() {
         {/* The effective answer, in words, always. A date box left blank and a
             date box filled with today look identical to a reader; this
             sentence is what tells them which report they are looking at. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {range.chip}
           {site === "" ? (
             " · every unit"
@@ -261,7 +261,7 @@ export function CashFlow() {
 
           {near.some((section) => section.members.length > 0) && (
             <div className="flex flex-col gap-2">
-              <div className="text-[0.71875rem] text-mute">
+              <div className="text-[0.875rem] text-mute">
                 <b className="text-ink">Near cash, and deliberately not in the
                 total above.</b>{" "}
                 A giro written and not cleared is money the bank has not taken
@@ -319,25 +319,25 @@ export function CashFlow() {
             on working capital, and sorts each account into Operating (
             depreciation, receivables, payables, stock), Investing (fixed
             assets) or Financing (equity) by the{" "}
-            <code className="font-mono text-[0.6875rem]">account_type</code> on
+            <code className="font-mono text-[0.875rem]">account_type</code> on
             the Account itself, with a <i>Cash Flow Mapping</i> for anything
             that does not fit. Two things would have to exist here first.{" "}
             <b>One:</b> a classification of every account into operating,
             investing or financing —{" "}
-            <code className="font-mono text-[0.6875rem]">ledger_account</code>{" "}
+            <code className="font-mono text-[0.875rem]">ledger_account</code>{" "}
             carries a root class and an is-group flag, and neither says which
             activity an account belongs to. <b>Two:</b> an endpoint that reports{" "}
             <i>movement over a window</i> for classes 1, 2 and 3.{" "}
-            <code className="font-mono text-[0.6875rem]">
+            <code className="font-mono text-[0.875rem]">
               GET /finance/statement
             </code>{" "}
             windows the profit-and-loss classes only — a balance sheet is
             answered inception to date — and{" "}
-            <code className="font-mono text-[0.6875rem]">
+            <code className="font-mono text-[0.875rem]">
               GET /finance/balances
             </code>{" "}
             takes an as-at date and no{" "}
-            <code className="font-mono text-[0.6875rem]">from</code>.
+            <code className="font-mono text-[0.875rem]">from</code>.
             Subtracting two balances in the browser would put a figure on the
             page the server never computed and could not be asked to confirm,
             which is the one thing no number in this module is allowed to be.
@@ -349,7 +349,7 @@ export function CashFlow() {
             where; each (meaning, bank) group is then asked for once, at the
             narrowest code on the client's own {"{1,3,5,7,10,12}"} ladder that
             covers its accounts at all fourteen units.{" "}
-            <code className="font-mono text-[0.6875rem]">
+            <code className="font-mono text-[0.875rem]">
               GET /finance/accounts/{"{code}"}/ledger
             </code>{" "}
             answers with the opening balance, what moved each way inside the
@@ -422,7 +422,7 @@ function SectionRows({
     <>
       <tr>
         <Td className="font-medium text-ink">{section.group.label}</Td>
-        <Td className="text-[0.6875rem] text-mute">{section.group.note}</Td>
+        <Td className="text-[0.875rem] text-mute">{section.group.note}</Td>
         <Td />
         <Td />
         <Td />
@@ -441,7 +441,7 @@ function SectionRows({
             >
               <span className="min-w-0">{meaning(family.semanticKey)}</span>
               {family.qualifier !== "" && (
-                <span className="text-[0.6875rem] text-mute">
+                <span className="text-[0.875rem] text-mute">
                   {family.qualifier}
                 </span>
               )}
@@ -449,7 +449,7 @@ function SectionRows({
           </Td>
           <Td>
             {family.code === null ? (
-              <span className="text-[0.6875rem] text-mute">
+              <span className="text-[0.875rem] text-mute">
                 no single account covers it
               </span>
             ) : (

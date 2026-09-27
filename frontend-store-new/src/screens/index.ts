@@ -1,28 +1,39 @@
-import { Assets } from "@/screens/assets"
+import { Assets } from "@/screens/ga/assets"
+import { Contracts } from "@/screens/ga/contracts"
+import { GaOverview } from "@/screens/ga/overview"
+import { Repairs } from "@/screens/ga/repairs"
+import { Servicing } from "@/screens/ga/servicing"
+import { Supplies } from "@/screens/ga/supplies"
 import { Catalogue } from "@/screens/catalogue"
-import { Expenses } from "@/screens/expenses"
+import { Expenses } from "@/screens/money/expenses"
+import { HrAttendance } from "@/screens/hr/attendance"
+import { HrBenefits } from "@/screens/hr/benefits"
+import { HrChanges } from "@/screens/hr/changes"
+import { HrExpenses } from "@/screens/hr/expenses"
+import { HrInterviews } from "@/screens/hr/interviews"
+import { HrTraining } from "@/screens/hr/training"
+import { HrOvertime } from "@/screens/hr/overtime"
 import { HrPeriod } from "@/screens/hr/period"
-import { HrRequests } from "@/screens/hr/requests"
+import { HrPerformance } from "@/screens/hr/performance"
+import { HrTasks } from "@/screens/hr/tasks"
+import { HrLeave } from "@/screens/hr/requests"
 import { HrRoster } from "@/screens/hr/roster"
 import { HrTeam } from "@/screens/hr/team"
 import { HrToday } from "@/screens/hr/today"
 import { Movements } from "@/screens/movements"
 import { News } from "@/screens/news"
-import { Offers } from "@/screens/offers"
+import { Campaigns } from "@/screens/promotions/campaigns"
+import { PriceDrops } from "@/screens/promotions/price-drops"
+import { Promotions } from "@/screens/promotions/promotions"
+import { Vouchers } from "@/screens/promotions/vouchers"
 import { Password } from "@/screens/password"
 import { Product } from "@/screens/product"
-import { Queue } from "@/screens/queue"
-import { Reconciliation } from "@/screens/reconciliation"
-import { ReceiptScreen } from "@/screens/receipt"
+import { Reconciliation } from "@/screens/money/reconciliation"
 import { Receive } from "@/screens/receive"
-import { ReturnsScreen } from "@/screens/returns"
-import { Reports } from "@/screens/reports"
-import { Sales } from "@/screens/sales"
-import { Sell } from "@/screens/sell"
-import { ShiftScreen } from "@/screens/shift"
+import { Reports } from "@/screens/money/reports"
+import { Sales } from "@/screens/money/sales"
 import { Stock } from "@/screens/stock"
 import { SyncScreen } from "@/screens/sync"
-import { Tender } from "@/screens/tender"
 import type { ScreenMap } from "@/screens/registry"
 
 /// Path → screen. `routes.tsx` builds the router from `lib/navigation.ts` and
@@ -31,17 +42,21 @@ import type { ScreenMap } from "@/screens/registry"
 /// placeholders: a tab that opens on "not built yet" in front of a customer is
 /// worse than no tab at all.
 export const screens: ScreenMap = {
-  "/shop/assets": Assets,
-  "/shop/news": News,
-  "/sell": Sell,
-  "/sell/tender": Tender,
-  "/sell/receipt": ReceiptScreen,
-  "/sell/queue": Queue,
-  "/sell/returns": ReturnsScreen,
-  "/till/shift": ShiftScreen,
+  // General affairs: head office's too, through the same gate as HR, and
+  // always about this node's own site.
+  "/ga": GaOverview,
+  "/ga/assets": Assets,
+  "/ga/contracts": Contracts,
+  "/ga/servicing": Servicing,
+  "/ga/repairs": Repairs,
+  "/ga/supplies": Supplies,
+  "/news": News,
   "/catalogue": Catalogue,
   "/catalogue/product": Product,
-  "/catalogue/offers": Offers,
+  "/promotions": Promotions,
+  "/promotions/campaigns": Campaigns,
+  "/promotions/price-drops": PriceDrops,
+  "/promotions/vouchers": Vouchers,
   "/receive": Receive,
   "/stock": Stock,
   "/stock/movements": Movements,
@@ -51,13 +66,22 @@ export const screens: ScreenMap = {
   "/money/expenses": Expenses,
   // The only screens in this app answered by head office rather than by the
   // node behind the counter. They live in their own folder because they share
-  // a gate — a second session, and a scope locked to this node's own site —
+  // a gate — relayed through this node, and locked to this node's own site —
   // and because "which server answers this" is the sharpest line in the app.
-  "/hr/today": HrToday,
+  "/hr/overview": HrToday,
   "/hr/roster": HrRoster,
-  "/hr/requests": HrRequests,
-  "/hr/team": HrTeam,
-  "/hr/period": HrPeriod,
+  "/hr/leave": HrLeave,
+  "/hr/directory": HrTeam,
+  "/hr/overtime": HrOvertime,
+  "/hr/recruitment": HrInterviews,
+  "/hr/lifecycle": HrTasks,
+  "/hr/performance": HrPerformance,
+  "/hr/payroll": HrPeriod,
+  "/hr/attendance": HrAttendance,
+  "/hr/expenses": HrExpenses,
+  "/hr/benefits": HrBenefits,
+  "/hr/changes": HrChanges,
+  "/hr/training": HrTraining,
   "/node/sync": SyncScreen,
   "/node/password": Password,
 }

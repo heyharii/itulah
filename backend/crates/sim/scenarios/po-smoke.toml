@@ -1,0 +1,21 @@
+# The purchase-order smoke lane (SIMULATION-SCENARIOS-PO.md §8.1):
+# one week, one supplier, one DC, one store.
+#
+# Monday the buyer opens a catalog PO; Wednesday the DC opens the delivery,
+# counts every line accepted, verifies, and invoices; Friday finance records
+# the bill, posts it, and pays it. The run passes only if the system's own
+# read-models agree with the world model at the end.
+
+name = "po-smoke"
+seed = 42
+
+[clock]
+# A Monday. The virtual calendar runs 7 business days.
+start = "2026-01-05T00:00:00+07:00"
+days = 7
+
+[topology]
+supplier = "TOKO_A"
+supplier_items = ["BRM-001", "BRM-002", "BRM-003"]
+order_qty = [40, 25, 60]
+destination = "dc"

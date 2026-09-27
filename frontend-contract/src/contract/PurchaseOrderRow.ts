@@ -51,4 +51,22 @@ invoiced_stock_units: number,
  * Quantity that arrived beyond the order and is waiting for a buyer to
  * say whether the company is keeping it.
  */
-excess_stock_units: number, fully_received: boolean, };
+excess_stock_units: number, fully_received: boolean, 
+/**
+ * What the pieces received so far are worth, at the prices that applied
+ * when each was accepted and net of the discount allocated to them —
+ * the figure the Receiving (%) column divides by the net value. PPN is
+ * not split out: the company does not claim it, so the net value is the
+ * amount paid, tax and all (owner, 2026-09-26).
+ */
+received_value_minor: number, 
+/**
+ * When the order was finished — the last receipt, or the last line
+ * closed short. Absent while it is still open.
+ */
+fulfilled_at: string | null, 
+/**
+ * The delivery date has passed and pieces are still owed. The list pins
+ * these to the top and marks them red.
+ */
+overdue: boolean, };

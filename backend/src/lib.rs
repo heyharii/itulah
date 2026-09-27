@@ -25,6 +25,9 @@ pub fn bind_addr(default_port: u16) -> Result<std::net::SocketAddr, String> {
 /// written". Pure: no clock, no database, no terminal. See the module note for
 /// why FINALIZING is committed BEFORE the first tender is attempted.
 pub mod checkout;
+/// The virtual business clock: one handle, three sources (system wall clock,
+/// controlled, scaled). See `VIRTUAL-TIME-PLAN.md` and the module note.
+pub mod clock;
 pub mod cloud;
 pub mod contract;
 pub mod edge;

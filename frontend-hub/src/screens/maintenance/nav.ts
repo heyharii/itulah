@@ -22,26 +22,23 @@ import type { AppModule } from "@/lib/navigation"
 /// make fewer of the first kind; and when the answer is that the thing
 /// should not be repaired at all, that is a replacement — a happening on one
 /// asset, not a kind of asset. The register all three read is the same table.
-///
-/// # Why this row is `soon`
-///
-/// Declared now, inert, so the GA domain reads whole before the screen
-/// lands; a menu row that opened onto nothing would be the one thing worse
-/// than a missing one.
 export const maintenanceNav: AppModule = {
   id: "maintenance",
-  label: "Maintenance",
+  label: "Pemeliharaan",
   icon: Wrench,
   home: "/maintenance",
-  soon: true,
   sections: [
     {
       items: [
         { path: "/maintenance", label: "Perbaikan", icon: Hammer },
-        { path: "/maintenance/schedule", label: "Jadwal", icon: CalendarClock },
+        {
+          path: "/maintenance/schedule",
+          label: "Jadwal servis",
+          icon: CalendarClock,
+        },
         {
           path: "/maintenance/replacements",
-          label: "Replacement",
+          label: "Penggantian",
           icon: Repeat,
         },
       ],

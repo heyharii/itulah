@@ -24,4 +24,70 @@ generated_on: string,
  * Assets the register holds as DRAFT: the bill came first, the thing has
  * arrived, and nobody has said where it is or who holds it.
  */
-draft_assets: Array<GaAttention>, };
+draft_assets: Array<GaAttention>, 
+/**
+ * Dokumen yang masa berlakunya habis dalam 90 hari, atau sudah lewat.
+ *
+ * # Why ninety days
+ *
+ * Because renewing the papers that carry a date here — an STNK at
+ * Bapenda/Samsat, an SLO for a lift, a business permit — is not a
+ * transaction somebody performs, it is a QUEUE somebody joins, and the
+ * queue can be a month long on its own. Ninety days is one quarter: it is
+ * the point at which the department can still choose when to go, rather
+ * than the point at which it is already late. A thirty-day threshold would
+ * put every reminder in the window where the only remaining action is an
+ * apology.
+ *
+ * Papers already past their date stay on the list. An expired permit is
+ * not less urgent than one expiring; it is the reason the list exists,
+ * and dropping it would make the overview quietest about the worst case.
+ */
+expiring_documents: Array<GaAttention>, 
+/**
+ * Kontrak yang habis dalam `reminder_days`-nya sendiri, atau sudah habis.
+ *
+ * # Why per contract, and why here
+ *
+ * "Soon" is not one number for the whole register: a permit whose
+ * renewal queue is months long carries a 90-day reminder, and a
+ * subscription renewed by phone needs a week. The threshold is each
+ * contract's own `reminder_days`, so the comparison is arithmetic the
+ * server does per row — a screen that decided it would either flatten
+ * every deal to one window or trust the client's clock.
+ *
+ * Terminated deals are not on this list: DIHENTIKAN means somebody
+ * ended the deal, which is a decision already taken, not a date
+ * approaching. Archived ones stay quiet for the same reason — the
+ * overview is a nudge about what is alive.
+ */
+expiring_contracts: Array<GaAttention>, 
+/**
+ * Servis yang jatuh tempo dalam 7 hari ke depan, atau sudah lewat.
+ *
+ * # Why seven days
+ *
+ * Servis berkala dijadwalkan per minggu di toko — the crew goes out once a
+ * week and does the round — so seven days is the unit the schedule is
+ * already kept in. A longer window (a fortnight, a month) makes the list
+ * permanently full, and a list that is always full is a list people stop
+ * reading; a shorter one (a single day) is not enough warning to fit the
+ * visit into the week's route. Past-due rows stay on it: a service that
+ * was missed is more urgent than one that is due, not less.
+ */
+due_maintenance: Array<GaAttention>, 
+/**
+ * Perbaikan yang belum selesai: OPEN, APPROVED or IN_PROGRESS. A repair
+ * that was completed, closed or cancelled has already had its decision.
+ */
+open_repairs: Array<GaAttention>, 
+/**
+ * Replacement yang sedang berjalan: everything before CLOSED.
+ */
+replacements: Array<GaAttention>, 
+/**
+ * Permintaan barang yang baru diajukan dan belum diputuskan — REQUESTED
+ * only. Once somebody has approved one it is on the Supplies screen, and
+ * the overview is for what has nobody's name against it yet.
+ */
+supply_requests: Array<GaAttention>, };

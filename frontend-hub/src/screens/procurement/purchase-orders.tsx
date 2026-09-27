@@ -1,31 +1,36 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, Row, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Search } from "lucide-react"
+import { Pencil, Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { ConfirmButton } from "@/components/ui/dialog"
 import { DataTable } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Switch } from "@/components/ui/form"
 import {
   ColumnsMenu,
   DockedFilters,
   SortMenu,
   ViewPicker,
+  ListOptionsSheet,
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Section, TotalsLadder } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { useFilterState, type FilterField } from "@/lib/filters"
-import { count, day, label, money, toneFor } from "@/lib/format"
+import { count, day, label, money } from "@/lib/format"
 import {
+  cancelPurchaseOrder,
   listSuppliers,
   orderScopeFromFilters,
   procurementKeys,
@@ -40,12 +45,20 @@ import {
   type PurchaseOrderScope,
 } from "@/lib/queries/procurement"
 import { OrderComposer } from "@/screens/procurement/composer"
-import { GRID_CELL, GRID_HEAD } from "@/screens/procurement/shared"
+import { PoImportSheet } from "@/screens/procurement/import"
+import {
+  GRID_CELL,
+  GRID_HEAD,
+  PO_STATUS,
+  poStatus,
+  useIdempotencyKey,
+} from "@/screens/procurement/shared"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { toast } from "@/lib/toast"
 import { useDebounced } from "@/lib/use-debounced"
+import { usePanelDock } from "@/lib/layout"
 
 /// Purchase orders — the reference screen for this app.
 ///
@@ -96,12 +109,7 @@ import { useDebounced } from "@/lib/use-debounced"
 /// by. Not the stored `order_status`: that column only ever reads ISSUED or
 /// CLOSED, so an order that had arrived in full still showed as issued, and it
 /// offered DRAFT and CANCELLED — two states nothing in the system can produce.
-const STATUSES = [
-  "ACTIVE",
-  "PARTIALLY_RECEIVED",
-  "FULLY_RECEIVED",
-  "CLOSED",
-] as const
+const STATUSES = Object.keys(PO_STATUS)
 
 function safeUnits(value: unknown): number {
   if (typeof value === "number")
@@ -114,9 +122,17 @@ function safeUnits(value: unknown): number {
 type ReceiptView = "all" | "received"
 type InvoiceView = "all" | "invoiced"
 
+/// Nothing chosen: the rows stay in the order the server sends them, which is
+/// the house order — late orders first, the longest-late at the top, then the
+/// newest issued.
 function defaultOrderSorting(): SortingState {
-  return [{ id: "received", desc: false }]
+  return []
 }
+
+/// Late orders stand above everything else whatever the list is sorted by —
+/// the owner's rule (2026-09-26). A hidden first key in front of whatever the
+/// header asked for.
+const OVERDUE_FIRST = { id: "overdue", desc: false } as const
 
 function dateRank(value: string | null): number {
   if (value === null) return Number.NaN
@@ -170,70 +186,98 @@ function compareSupplier(
   left: PurchaseOrderRow,
   right: PurchaseOrderRow
 ): number {
-  const supplierOrder = supplierOf(left).localeCompare(supplierOf(right), undefined, {
-    numeric: true,
-    sensitivity: "base",
-  })
+  const supplierOrder = supplierOf(left).localeCompare(
+    supplierOf(right),
+    undefined,
+    {
+      numeric: true,
+      sensitivity: "base",
+    }
+  )
   return supplierOrder === 0
     ? compareReceivingPriority(left, right)
     : supplierOrder
 }
 
+/// A share, 0-100, of one figure against another.
+function share(part: number, whole: number): number {
+  return whole > 0 ? Math.min(100, Math.max(0, (part / whole) * 100)) : 0
+}
+
 const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
+  {
+    // The sort key that keeps late orders on top. Never shown.
+    id: "overdue",
+    accessorFn: (row) => (row.overdue ? 0 : 1),
+    header: "",
+    enableHiding: false,
+    meta: { card: "hide" },
+  },
   {
     id: "order",
     accessorFn: (row) => row.po_number,
     header: "Order",
-    size: 240,
+    size: 220,
     // Who the order is with names the row: the PO number identifies it, the
     // supplier is what somebody is looking for.
     meta: { card: "title" },
     cell: ({ row }) => (
-      <span className="flex min-w-0 flex-col gap-1 leading-snug">
-        <span className="font-mono text-id text-body">
+      <span className="flex min-w-0 flex-col gap-0.5 leading-snug">
+        <span className="font-mono text-[0.875rem] text-body">
           {row.original.po_number}
         </span>
-        <span className="truncate text-[0.75rem] text-ink">
-          {row.original.supplier_name ?? row.original.supplier_id}
+        <span className="truncate text-[0.875rem] text-ink">
+          {row.original.supplier_name ?? "—"}
         </span>
       </span>
     ),
   },
   {
-    accessorKey: "expected_arrival",
-    header: "Expected delivery",
-    size: 150,
-    // The date the whole of Outstanding is measured against, and until now the
-    // only screen that showed it was the one you had to open an order to
-    // reach. A buyer chasing a supplier is reading this column.
+    id: "created",
+    accessorFn: (row) => row.issued_at,
+    header: "Date created",
+    size: 130,
+    sortFn: "datetime",
     meta: { card: "meta", priority: 2 },
     cell: ({ row }) => (
-      <span className="tabular-nums">{day(row.original.expected_arrival)}</span>
+      <span className="tabular-nums">{day(row.original.issued_at)}</span>
+    ),
+  },
+  {
+    accessorKey: "expected_arrival",
+    header: "Delivery date",
+    size: 150,
+    // Red when it has passed and pieces are still owed — and those rows stand
+    // at the top of the list.
+    meta: { card: "meta" },
+    cell: ({ row }) => (
+      <span
+        className={
+          row.original.overdue
+            ? "flex items-center gap-1.5 font-medium text-bad-fg tabular-nums"
+            : "tabular-nums"
+        }
+        title={row.original.overdue ? "Past its delivery date" : undefined}
+      >
+        {row.original.overdue && (
+          <span aria-hidden className="size-2 shrink-0 rounded-full bg-bad" />
+        )}
+        {day(row.original.expected_arrival)}
+      </span>
     ),
   },
   {
     accessorKey: "expected_stock_units",
-    header: "Ordered",
-    size: 108,
-    // Pieces, which is what the receiving bar beside it is a share OF. The
-    // line count moved to the record, where the document's own size belongs.
-    // Priority 1: it is the denominator of the bar beside it, and a share with
-    // no total under it is a percentage of nothing anybody can check. It was
-    // the line count that used to sit here at priority 3, and that one could
-    // go — how many lines a document has is a fact for the document.
+    header: "Qty order",
+    size: 110,
     meta: { align: "right", card: "metric" },
-    // Pieces over lines: the bar beside it is a share of the pieces, and how
-    // many DIFFERENT things were ordered is the other half of what "how big is
-    // this order" means. Two facts, one column, because they are never read
-    // apart — 240 pcs on one line is a very different order from 240 across
-    // forty.
     cell: ({ row }) => (
       <span
-        className="flex flex-col items-end leading-tight"
-        title={`${count(row.original.expected_stock_units)} pieces across ${count(row.original.line_count)} lines`}
+        className="flex flex-col items-end leading-tight tabular-nums"
+        title={`${count(row.original.expected_stock_units)} pieces across ${count(row.original.line_count)} items`}
       >
         {count(row.original.expected_stock_units)}
-        <span className="text-[0.6875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {count(row.original.line_count)}
           {row.original.line_count === 1 ? " item" : " items"}
         </span>
@@ -242,54 +286,60 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
   },
   {
     accessorKey: "net_minor",
-    header: "Net value",
-    size: 140,
-    // What the supplier will invoice — the lines less the order's discount,
-    // subtracted on the server so this figure and the order's own agree.
-    meta: { align: "right", card: "metric", priority: 1 },
+    header: "Order value",
+    size: 150,
+    // Net of the order's discount, PPN included — the company does not
+    // claim it back, so this is what is paid.
+    meta: { align: "right", card: "metric" },
     cell: ({ row }) => (
-      <span className="font-medium text-ink">
+      <span className="font-medium text-ink tabular-nums">
         {money(row.original.net_minor)}
       </span>
     ),
   },
   {
+    accessorKey: "received_stock_units",
+    header: "Receiving qty",
+    size: 120,
+    meta: { align: "right", card: "hide", priority: 2 },
+    cell: ({ row }) => (
+      <span className="tabular-nums">
+        {count(row.original.received_stock_units)}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "received_value_minor",
+    header: "Receiving value",
+    size: 150,
+    meta: { align: "right", card: "hide", priority: 2 },
+    cell: ({ row }) => (
+      <span className="tabular-nums">
+        {money(row.original.received_value_minor)}
+      </span>
+    ),
+  },
+  {
     id: "received",
-    // Sorted by what is STILL OWED, not by what has landed: clicking this
-    // column means "who is behind", and ranking by received units puts the
-    // biggest order on top whether or not anybody is waiting for it.
-    accessorFn: (row) => row.outstanding_stock_units,
+    // By VALUE: what has arrived, as a share of what the order is worth.
+    accessorFn: (row) => share(row.received_value_minor, row.net_minor),
     header: "Receiving",
-    size: 128,
-    // Three columns became one, and then the one became a bar. Expected,
-    // Received and Outstanding were the same fact stated three times; "20/20"
-    // said it once; a bar says it in a shape the eye reads down forty rows
-    // without doing arithmetic on any of them. The exact pair is still there,
-    // on the title, for the reader who wants the numbers.
-    meta: { card: "metric", priority: 1 },
-    sortFn: (left, right) =>
-      compareReceivingPriority(
-        left.original as unknown as PurchaseOrderRow,
-        right.original as unknown as PurchaseOrderRow
-      ),
+    size: 130,
+    meta: { card: "metric" },
     cell: ({ row }) => {
-      const got = row.original.received_stock_units
-      const due = row.original.expected_stock_units
-      const pct = due > 0 ? Math.min(100, (got / due) * 100) : 0
+      const pct = share(row.original.received_value_minor, row.original.net_minor)
       return (
         <span
           className="flex items-center gap-2"
-          title={`${count(got)} of ${count(due)} received`}
+          title={`${money(row.original.received_value_minor)} of ${money(row.original.net_minor)} received`}
         >
-          {/* `min-w-14` so the bar survives the card layout, where the cell
-              is laid out by its own content rather than by a column width. */}
           <span className="h-2 min-w-14 flex-1 overflow-hidden rounded-full bg-soft-2">
             <span
               className="block h-full rounded-full bg-[color-mix(in_srgb,var(--accent)_62%,white)]"
               style={{ width: `${pct}%` }}
             />
           </span>
-          <span className="w-8 shrink-0 text-right text-[0.6875rem] text-mute tabular-nums">
+          <span className="w-10 shrink-0 text-right text-[0.875rem] text-mute tabular-nums">
             {Math.round(pct)}%
           </span>
         </span>
@@ -300,27 +350,23 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     id: "invoicing",
     accessorFn: (row) => safeUnits(row.invoiced_stock_units),
     header: "Invoicing",
-    size: 128,
-    meta: { card: "metric", priority: 1 },
+    size: 130,
+    // Off by default; Columns brings it back.
+    meta: { card: "hide", priority: 3 },
     cell: ({ row }) => {
-      const invoiced = safeUnits(row.original.invoiced_stock_units)
-      const ordered = safeUnits(row.original.expected_stock_units)
-      const pct =
-        ordered > 0
-          ? Math.min(100, Math.max(0, (invoiced / ordered) * 100))
-          : 0
+      const pct = share(
+        safeUnits(row.original.invoiced_stock_units),
+        safeUnits(row.original.expected_stock_units)
+      )
       return (
-        <span
-          className="flex items-center gap-2"
-          title={`${count(invoiced)} of ${count(ordered)} invoiced`}
-        >
+        <span className="flex items-center gap-2">
           <span className="h-2 min-w-14 flex-1 overflow-hidden rounded-full bg-soft-2">
             <span
               className="block h-full rounded-full bg-[color-mix(in_srgb,var(--info)_62%,white)]"
               style={{ width: `${pct}%` }}
             />
           </span>
-          <span className="w-8 shrink-0 text-right text-[0.6875rem] text-mute tabular-nums">
+          <span className="w-10 shrink-0 text-right text-[0.875rem] text-mute tabular-nums">
             {Math.round(pct)}%
           </span>
         </span>
@@ -330,19 +376,12 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
   {
     accessorKey: "lifecycle",
     header: "Status",
-    size: 130,
-    // Last, at the trailing edge: it is what an order IS, read after what it
-    // holds and what it cost, and a row is scanned left to right.
-    //
-    // `swap`: and what it is waiting for, which is the same question answered
-    // forward. The pill stands while the list is read; the row under the
-    // pointer offers the verb in its place. See `DataTable.rowAction`.
-    meta: { card: "status", swap: true },
-    cell: ({ row }) => (
-      <Pill tone={toneFor(row.original.lifecycle)}>
-        {label(row.original.lifecycle)}
-      </Pill>
-    ),
+    size: 150,
+    meta: { card: "status" },
+    cell: ({ row }) => {
+      const status = poStatus(row.original.lifecycle)
+      return <Pill tone={status.tone}>{status.label}</Pill>
+    },
   },
 ]
 
@@ -355,6 +394,12 @@ export function PurchaseOrders() {
   /// A blank order being written. In the URL like every other sheet, so a
   /// half-typed order survives a reload.
   const composer = useSheet("new-order")
+  /// The import, over this book rather than on a screen of its own. In the
+  /// URL like the composer beside it: a buyer halfway through twenty
+  /// documents should survive the reload their browser gets every morning.
+  const importing = useSheet("import")
+  /// An issued order being rewritten, by id — the composer again, seeded.
+  const editing = useSheet("edit-order")
   /// What was typed into the omnibox, also in the URL: a narrowed list is a
   /// thing people send each other.
   const search = useSheet("q")
@@ -363,6 +408,10 @@ export function PurchaseOrders() {
   // column's comparator puts open orders first, then oldest promises, and
   // keeps completed orders newest-first below them.
   const [sorting, setSorting] = useState<SortingState>(defaultOrderSorting)
+  const [visibility, setVisibility] = useState<Record<string, boolean>>({
+    overdue: false,
+    invoicing: false,
+  })
   const [groupBySupplier, setGroupBySupplier] = useState(false)
   const [receiptView, setReceiptView] = useState<ReceiptView>("all")
   const [invoiceView, setInvoiceView] = useState<InvoiceView>("all")
@@ -422,9 +471,9 @@ export function PurchaseOrders() {
           // cancelled orders is looking for "Cancelled", not `CANCELLED`.
           options: STATUSES.map((code) => ({
             value: code,
-            label: label(code),
+            label: poStatus(code).label,
           })),
-          format: label,
+          format: (code) => poStatus(code).label,
         },
       },
       {
@@ -480,13 +529,12 @@ export function PurchaseOrders() {
     () =>
       rows.filter((row) => {
         const received =
-          row.lifecycle === "FULLY_RECEIVED" || row.lifecycle === "CLOSED"
+          row.lifecycle === "FULLY_RECEIVED" ||
+          row.lifecycle === "SHORT_RECEIVED"
         const invoiced = safeUnits(row.invoiced_stock_units) > 0
         return (
-          (receiptView === "all" ||
-            (receiptView === "received" && received)) &&
-          (invoiceView === "all" ||
-            (invoiceView === "invoiced" && invoiced))
+          (receiptView === "all" || (receiptView === "received" && received)) &&
+          (invoiceView === "all" || (invoiceView === "invoiced" && invoiced))
         )
       }),
     [invoiceView, receiptView, rows]
@@ -545,15 +593,26 @@ export function PurchaseOrders() {
         data: viewRows,
         columns: tableColumns,
         getRowId: (row: PurchaseOrderRow) => row.purchase_order_id,
-        state: { sorting },
+        // The hidden late-first key leads whatever was chosen, and is taken
+        // back out of anything the table hands back.
+        state: {
+          sorting: [OVERDUE_FIRST, ...sorting],
+          columnVisibility: visibility,
+        },
+        onColumnVisibilityChange: setVisibility,
         onSortingChange: (
           next: SortingState | ((prev: SortingState) => SortingState)
         ) => {
           setGroupBySupplier(false)
-          setSorting(next)
+          setSorting((was) =>
+            (typeof next === "function"
+              ? next([OVERDUE_FIRST, ...was])
+              : next
+            ).filter((one) => one.id !== OVERDUE_FIRST.id)
+          )
         },
       }),
-      [sorting, tableColumns, viewRows]
+      [sorting, tableColumns, viewRows, visibility]
     )
   )
 
@@ -567,11 +626,18 @@ export function PurchaseOrders() {
     setSorting(on ? [{ id: "order", desc: false }] : defaultOrderSorting())
   }
 
+  const docked = usePanelDock()
+
   return (
     <PageContent>
       <PageHeader
         title="Purchase orders"
         sub="What has been ordered, what has arrived, and what is still owed."
+      />
+
+      <PoImportSheet
+        open={importing.value === true}
+        onClose={importing.close}
       />
 
       <OrderComposer
@@ -613,7 +679,7 @@ export function PurchaseOrders() {
 
           Both go to the SERVER. The book is the whole company's purchasing;
           narrowing it after it arrives has already paid for all of it. */}
-      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
           {/* The count, and which columns the table is carrying. The prototype puts
           both on the line above the rows, where what they act on is visible. */}
@@ -623,8 +689,14 @@ export function PurchaseOrders() {
           middle, and what creates a new one at the right. The page header
           above keeps the title and nothing else — its actions used to stand
           over the filter panel, which is not what they act on. */}
+          {/* On a phone the line is two: the search and the one thing
+          somebody at a supplier's counter came to do, then the tools that
+          reshape the list, small. Columns is not offered there at all — below
+          48rem the rows are cards, and a card has no columns to hide. On a
+          wider screen the inner row dissolves (`md:contents`) and it is one
+          line again, in the order it always had. */}
           <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            <span className="relative mr-auto">
+            <span className="relative min-w-0 flex-1 md:mr-auto md:flex-none">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
               <input
                 value={search.value ?? ""}
@@ -635,20 +707,58 @@ export function PurchaseOrders() {
                 }
                 placeholder="Search orders"
                 aria-label="Search orders"
-                className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+                className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent md:w-56 pointer-coarse:h-11"
               />
             </span>
-            <SortMenu
+            {/* The phone: one button for filter, sort and views, opening one
+                sheet — see `ListOptionsSheet` — and New order as a floating
+                button below. From 48rem up this line is what it always was. */}
+            <ListOptionsSheet
+              model={filters}
+              filterModel={{ ...filters, fields: counted }}
               table={table}
               sorting={sorting}
               onSort={chooseSort}
+              className="md:hidden"
             />
-            <ColumnsMenu table={table} />
-            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
-            <ViewPicker model={filters} />
-            <Button variant="primary" onClick={() => composer.open(true)}>
+            <Button
+              variant="primary"
+              onClick={() => composer.open(true)}
+              className="max-md:hidden md:order-last"
+            >
               New order
             </Button>
+            <div className="hidden md:contents">
+              {/* Below the width where the panel docks, this is where the
+                  filters are — the panel returns nothing there, and until
+                  this button stood here a phone or a laptop had no way to
+                  narrow the book at all. */}
+              {!docked && (
+                <FilterPanel
+                  model={{ ...filters, fields: counted }}
+                  className="shrink-0 flex-nowrap max-md:order-first"
+                />
+              )}
+              <SortMenu
+                table={table}
+                sorting={sorting}
+                onSort={chooseSort}
+                compact
+                className="shrink-0 pointer-coarse:h-11"
+              />
+              <ColumnsMenu table={table} className="max-md:hidden" />
+              <span
+                aria-hidden
+                className="mx-1 h-5 w-px bg-hairline max-md:hidden"
+              />
+              <ViewPicker
+                model={filters}
+                className="shrink-0 pointer-coarse:h-11"
+              />
+              {/* Import is hidden on the owner's instruction (2026-09-25)
+                  until the import flow is ready for buyers; the sheet and its
+                  `?import=` link still work. */}
+            </div>
           </div>
 
           {/* The panel docks where there is room for it — the table measures
@@ -656,6 +766,11 @@ export function PurchaseOrders() {
           that holds both without the list giving up a column. Narrower than
           that it is the Filter button in the omnibox above, which is the same
           model drawn as a sheet. */}
+          {/* New order on a phone: a floating button at the thumb's corner,
+              above the home bar, clear of every row. Raising an order is the
+              one thing somebody at a supplier's counter opens this screen to
+              do; on the toolbar it cost a third of the line the search needs. */}
+          <Fab label="New order" onClick={() => composer.open(true)} />
           <Card className="overflow-hidden">
             {queryState(orders, {
               loading: "Loading the orders…",
@@ -671,28 +786,42 @@ export function PurchaseOrders() {
                 ) : (
                   <DataTable<PurchaseOrderRow>
                     table={table}
+                    cardSort={false}
                     onRowClick={(row) => order.open(row.purchase_order_id)}
                     isSelected={(row) => row.purchase_order_id === order.value}
-                    // The verb an open order is waiting for. It opens the record
-                    // rather than receiving in place: receiving is counting goods
-                    // against lines, which is a screen, not a button. What this
-                    // saves is the guess about WHICH order is waiting — the row
-                    // says so itself.
-                    rowAction={(row) =>
-                      row.lifecycle === "ACTIVE" ||
-                      row.lifecycle === "PARTIALLY_RECEIVED" ? (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            order.open(row.purchase_order_id)
-                          }}
-                          className="inline-flex h-7 items-center rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.75rem] font-medium text-ink shadow-soft transition-colors hover:bg-soft-2"
-                        >
-                          Receive
-                        </button>
-                      ) : null
-                    }
+                    // The owner's floating totals: how many orders, and what
+                    // they add up to, under the columns they sum.
+                    summary={{
+                      order: (
+                        <span>
+                          {count(viewRows.length)}{" "}
+                          <span className="font-normal text-body">
+                            {viewRows.length === 1 ? "order" : "orders"}
+                          </span>
+                        </span>
+                      ),
+                      expected_stock_units: count(
+                        viewRows.reduce(
+                          (sum, row) => sum + row.expected_stock_units,
+                          0
+                        )
+                      ),
+                      net_minor: money(
+                        viewRows.reduce((sum, row) => sum + row.net_minor, 0)
+                      ),
+                      received_stock_units: count(
+                        viewRows.reduce(
+                          (sum, row) => sum + row.received_stock_units,
+                          0
+                        )
+                      ),
+                      received_value_minor: money(
+                        viewRows.reduce(
+                          (sum, row) => sum + row.received_value_minor,
+                          0
+                        )
+                      ),
+                    }}
                     className="max-h-[calc(100vh-14rem)]"
                   />
                 ),
@@ -703,7 +832,7 @@ export function PurchaseOrders() {
         <DockedFilters
           model={{ ...filters, fields: counted }}
           kpis={bookKpis(orders.data)}
-          className="hidden min-[1440px]:flex"
+          className="hidden dock:flex"
         >
           <OrderViewControls
             groupBySupplier={groupBySupplier}
@@ -716,7 +845,12 @@ export function PurchaseOrders() {
         </DockedFilters>
       </div>
 
-      <OrderSheet id={order.value ?? null} onClose={order.close} />
+      <OrderSheet
+        id={order.value ?? null}
+        onClose={order.close}
+        onEdit={(id) => editing.open(id)}
+      />
+      <OrderEditor id={editing.value ?? null} onClose={editing.close} />
       {/* Mounted here rather than behind the trigger, because two of its three
           sheets are opened by URL from elsewhere: `?setup=<id>` is the link an
           article's detail follows back to the delivery that minted it. A sheet
@@ -744,7 +878,7 @@ function OrderViewControls({
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[0.75rem] font-medium text-body">
+        <span className="text-[0.875rem] font-medium text-body">
           Group by supplier
         </span>
         <Switch
@@ -755,7 +889,7 @@ function OrderViewControls({
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[0.75rem] font-medium text-body">
+        <span className="text-[0.875rem] font-medium text-body">
           Received only
         </span>
         <Switch
@@ -768,7 +902,7 @@ function OrderViewControls({
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[0.75rem] font-medium text-body">
+        <span className="text-[0.875rem] font-medium text-body">
           Invoiced only
         </span>
         <Switch
@@ -820,16 +954,10 @@ function bookKpis(page: PurchaseOrderPage | undefined) {
       row.lifecycle === "ACTIVE" || row.lifecycle === "PARTIALLY_RECEIVED"
   )
   const value = open.reduce((sum, row) => sum + row.net_minor, 0)
-  const today = new Date().toISOString().slice(0, 10)
-  const late = rows.filter(
-    (row) =>
-      row.expected_arrival !== null &&
-      row.expected_arrival < today &&
-      row.outstanding_stock_units > 0
-  ).length
+  const late = rows.filter((row) => row.overdue).length
   // An order with no promised date cannot be late, and saying "0 overdue"
-  // while twenty-one of twenty-three carry no date at all is a true number
-  // that reads as an all-clear. The tile says how many it could not judge.
+  // while most carry no date at all is a true number that reads as an
+  // all-clear. The tile says how many it could not judge.
   const undated = rows.filter(
     (row) => row.expected_arrival === null && row.outstanding_stock_units > 0
   ).length
@@ -861,14 +989,29 @@ function bookKpis(page: PurchaseOrderPage | undefined) {
 function OrderSheet({
   id,
   onClose,
+  onEdit,
 }: {
   id: string | null
   onClose: () => void
+  onEdit: (id: string) => void
 }) {
   const detail = useQuery({
     queryKey: procurementKeys.order(id ?? ""),
     queryFn: ({ signal }) => purchaseOrderDetail(id!, signal),
     enabled: id !== null,
+  })
+  const client = useQueryClient()
+  const idempotency = useIdempotencyKey()
+  const cancel = useMutation({
+    mutationFn: (orderId: string) =>
+      cancelPurchaseOrder(orderId, null, idempotency.key),
+    onSuccess: (done) => {
+      idempotency.rotate()
+      void client.invalidateQueries({ queryKey: procurementKeys.orders() })
+      void client.invalidateQueries({ queryKey: procurementKeys.suppliers() })
+      toast.success(`${done.po_number} cancelled`)
+    },
+    onError: (problem: Error) => toast.error(problem.message),
   })
 
   return (
@@ -888,14 +1031,42 @@ function OrderSheet({
       }
       badge={
         detail.data && (
-          <Pill tone={toneFor(detail.data.lifecycle)}>
-            {label(detail.data.lifecycle)}
+          <Pill tone={poStatus(detail.data.lifecycle).tone}>
+            {poStatus(detail.data.lifecycle).label}
           </Pill>
         )
       }
       actions={
         detail.data ? (
           <>
+            {/* Offered only while the server would take the save: once goods,
+                a bill or a price query stand against a line, the order is
+                evidence and the button says why it is gone. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!detail.data.editable}
+              title={detail.data.edit_blocked_reason ?? undefined}
+              onClick={() => onEdit(detail.data.purchase_order_id)}
+            >
+              <Pencil />
+              Edit
+            </Button>
+            {/* Only while nothing has been received, billed or advanced;
+                after that an order is closed short instead. */}
+            {detail.data.cancellable && (
+              <ConfirmButton
+                label="Cancel order"
+                title={`Cancel ${detail.data.po_number}?`}
+                description="The warehouse will stop receiving against this order. It stays on record as cancelled."
+                confirmLabel="Cancel the order"
+                tone="danger"
+                variant="ghost"
+                pending={cancel.isPending}
+                className="h-8 px-2.5 text-[0.875rem]"
+                onConfirm={() => cancel.mutate(detail.data.purchase_order_id)}
+              />
+            )}
             <AppLink
               to="/operations/intake"
               sheet={{ key: "delivery", value: detail.data.po_number }}
@@ -904,7 +1075,7 @@ function OrderSheet({
             >
               Receiving
             </AppLink>
-            <AppLink to="/finance/bills" variant="ghost" size="sm">
+            <AppLink to="/finance/payables/bills" variant="ghost" size="sm">
               Invoicing
             </AppLink>
           </>
@@ -929,6 +1100,51 @@ function OrderSheet({
   )
 }
 
+/// The composer over an issued order, seeded from what the server holds.
+///
+/// Fetches the same detail the order sheet reads — cached, so opening Edit
+/// from the sheet costs nothing — and mounts the composer only once it has it:
+/// a composer seeded from nothing and then from the order would flash an
+/// empty form first.
+function OrderEditor({
+  id,
+  onClose,
+}: {
+  id: string | null
+  onClose: () => void
+}) {
+  const navigate = useNavigate()
+  const detail = useQuery({
+    queryKey: procurementKeys.order(id ?? ""),
+    queryFn: ({ signal }) => purchaseOrderDetail(id!, signal),
+    enabled: id !== null,
+  })
+  const order = id !== null && detail.data?.editable ? detail.data : undefined
+  return (
+    <OrderComposer
+      open={order !== undefined}
+      editing={order}
+      onClose={onClose}
+      onRaised={(saved) => {
+        toast.success(`${saved.po_number} updated`, {
+          description: money(saved.net_minor),
+        })
+        // Back to the order, in one navigation — see the composer's own
+        // `onRaised` above for why two would fight.
+        void navigate({
+          to: ".",
+          search: (prev: Record<string, unknown>) => ({
+            ...prev,
+            "edit-order": undefined,
+            order: saved.purchase_order_id,
+          }),
+          viewTransition: false,
+        })
+      }}
+    />
+  )
+}
+
 /// The order as the review draws it, because it is the same document.
 ///
 /// The composer shows this shape before the order exists; this shows it
@@ -942,39 +1158,50 @@ function OrderSheet({
 /// not store them, so there is no section to draw — an empty "Not agreed / no
 /// schedule" block would be this screen inventing a fact.
 function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
+  const pieces = order.lines.reduce(
+    (sum, line) => sum + line.ordered_quantity,
+    0
+  )
+  const received = order.lines.reduce(
+    (sum, line) => sum + line.received_quantity,
+    0
+  )
+  const pct =
+    order.net_minor > 0
+      ? Math.min(100, (order.expected_value_minor / order.net_minor) * 100)
+      : 0
+  const open =
+    order.lifecycle === "ACTIVE" || order.lifecycle === "PARTIALLY_RECEIVED"
+  const late =
+    open &&
+    order.expected_arrival !== null &&
+    order.expected_arrival < new Date().toISOString().slice(0, 10)
   return (
     <div className="flex flex-col gap-5">
-      {/* Payable is not here. It is what the DELIVERIES have earned —
-          received times price — so an order that has not been received yet
-          reads "Rp 0" beside lines that plainly come to millions, and every
-          reader takes it for a broken figure rather than an answer to a
-          question they did not ask. What the order is worth is stated once,
-          at the bottom, where an invoice states it. */}
       <Facts>
-        <Fact term="Supplier">{order.supplier_name ?? order.supplier_id}</Fact>
-        <Fact term="Expected arrival">
-          {order.expected_arrival === null
-            ? "Not promised"
-            : day(order.expected_arrival)}
+        <Fact term="Supplier">{order.supplier_name ?? "—"}</Fact>
+        <Fact term="Date created">{day(order.issued_at ?? order.created_at)}</Fact>
+        <Fact term="Delivery date">
+          <span className={late ? "font-medium text-bad-fg" : undefined}>
+            {order.expected_arrival === null
+              ? "—"
+              : day(order.expected_arrival)}
+            {late && " · late"}
+          </span>
+        </Fact>
+        <Fact term="Receiving">
+          {`${Math.round(pct)}% · ${money(order.expected_value_minor)}`}
         </Fact>
       </Facts>
 
       <Section title={`Lines (${order.lines.length})`} rule={false}>
-        {/* The review's grid, from the review's two classes — see
-            `shared.ts`. A line shows what the composer showed when it was
-            written: the photograph, the name, and what it is filed under.
-            Those are how anybody recognises a garment, and this sheet used to
-            show a name and an eleven-digit article code — a number that
-            identifies the row to the database and to nobody else.
-
-            No Received column yet, on the owner's instruction: what has
-            arrived is its own question and gets its own answer later. */}
         <div className="overflow-hidden rounded-inner border border-hairline">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[34rem] table-fixed border-collapse text-[0.875rem]">
+            <table className="w-full min-w-[40rem] table-fixed border-collapse text-[0.875rem]">
               <colgroup>
                 <col />
                 <col className="w-[5.5rem]" />
+                <col className="w-[6.5rem]" />
                 <col className="w-[9rem]" />
                 <col className="w-[9.5rem]" />
               </colgroup>
@@ -982,6 +1209,7 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
                 <tr>
                   <th className={GRID_HEAD}>Item</th>
                   <th className={`${GRID_HEAD} text-right`}>Qty</th>
+                  <th className={`${GRID_HEAD} text-right`}>Received</th>
                   <th className={`${GRID_HEAD} text-right`}>Price</th>
                   <th className={`${GRID_HEAD} text-right`}>Amount</th>
                 </tr>
@@ -1000,7 +1228,7 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
                           <div className="truncate text-ink">
                             {line.article_name}
                           </div>
-                          <div className="truncate text-[0.75rem] text-body">
+                          <div className="truncate text-[0.875rem] text-body">
                             {[
                               line.division_code === null
                                 ? "Unclassified"
@@ -1008,13 +1236,45 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
                               ...line.tags.map((tag) => label(tag)),
                             ].join(" \u00b7 ")}
                           </div>
+                          {/* What it sells for, and the SKUs it was ordered
+                              in, when the buyer said. */}
+                          {(line.base_price_minor != null ||
+                            (line.variants ?? []).length > 0) && (
+                            <div className="truncate text-[0.875rem] text-body">
+                              {[
+                                line.base_price_minor == null
+                                  ? null
+                                  : `Base ${money(line.base_price_minor)}${line.markup_bps == null ? "" : ` (+${line.markup_bps / 100}%)`}`,
+                                ...(line.variants ?? []).map(
+                                  (one) =>
+                                    `${[one.colour_code, one.size_code].filter(Boolean).join("/")} \u00d7${one.quantity}${one.base_price_minor == null ? "" : ` @ ${money(one.base_price_minor)}`}`
+                                ),
+                              ]
+                                .filter(Boolean)
+                                .join(" \u00b7 ")}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
                     <td
                       className={`${GRID_CELL} text-right whitespace-nowrap tabular-nums`}
                     >
-                      {count(line.ordered_quantity)}
+                      {line.order_unit_code && line.order_unit_quantity ? (
+                        <span className="flex flex-col items-end leading-tight">
+                          {`${line.order_unit_quantity.replace(".", ",")} ${line.order_unit_code}`}
+                          <span className="text-mute">
+                            {count(line.ordered_quantity)} pcs
+                          </span>
+                        </span>
+                      ) : (
+                        count(line.ordered_quantity)
+                      )}
+                    </td>
+                    <td
+                      className={`${GRID_CELL} text-right whitespace-nowrap tabular-nums`}
+                    >
+                      {count(line.received_quantity)}
                     </td>
                     <td
                       className={`${GRID_CELL} text-right whitespace-nowrap tabular-nums`}
@@ -1029,16 +1289,25 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="border-t border-hairline bg-soft">
+                  <td className="px-3 py-2.5 font-medium text-body">Total</td>
+                  <td className="px-3 py-2.5 text-right font-medium text-ink tabular-nums">
+                    {count(pieces)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-medium text-ink tabular-nums">
+                    {count(received)}
+                  </td>
+                  <td />
+                  <td className="px-3 py-2.5 text-right font-medium text-ink tabular-nums">
+                    {money(order.gross_minor)}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
 
-        {/* The review's three rows and no more. The piece counts that used to
-            open this ladder — ordered, still owed — are a different question
-            from what the supplier will invoice, and stacking five rows under
-            a four-column table made the one figure that closes the document
-            the fifth thing read. What is still owed has a column on the list
-            and a screen of its own. */}
         <TotalsLadder
           className="ml-auto w-full max-w-[26rem]"
           rows={[
@@ -1052,50 +1321,104 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
             },
           ]}
           total={{
-            label: "The supplier will invoice",
+            label: "Net value",
             value: money(order.net_minor),
           }}
         />
       </Section>
 
-      {/* `?.` rather than a null check: the detail's `notes` is absent, not
-          null, when there are none — and a screen that assumed the shape it
-          wished for took the whole sheet down with it. */}
-      {/* Payment terms, in the review's place and the review's shape, with
-          nothing in it.
+      {/* No payment terms: payment is Finance's to arrange (the owner,
+          2026-09-26). */}
 
-          `purchase_order` has fourteen columns and not one of them is a
-          payment term — no migration in the repo mentions one — so what the
-          composer collects is read on the review and then dropped by Create.
-          The section is drawn now, ahead of the storage, on the owner's
-          instruction: the layout is agreed here and the backend is planned
-          next, and a slot that already exists is a smaller change to fill
-          than one that has to be designed twice.
+      {order.notes !== null && order.notes !== undefined && order.notes.trim() !== "" && (
+        <Section title="Notes">
+          <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+            {order.notes.trim()}
+          </p>
+        </Section>
+      )}
 
-          What it does NOT say is "Not agreed". That is a claim about what the
-          buyer and the supplier settled, and this screen has no standing to
-          make it — the terms may well have been agreed on the phone and
-          thrown away by us. It says the order does not carry them, which is
-          the only thing known here. */}
-      <Section title="Payment terms">
-        {/* No Method or Pay-into facts. A method belongs to an instalment, not
-            to the order — the composer's schedule table carries one per row —
-            and the account paid into is a fact of the payment. Two facts
-            reading "—" on every order would be stating the absence of things
-            that were never the order's to hold. */}
-        <p className="text-meta text-mute">
-          This order does not carry payment terms: they are agreed when it is
-          raised but not yet stored against it.
-        </p>
-      </Section>
-
-      {/* No Notes section. `purchase_order.notes` is a real column and Create
-          writes it, but `purchase_order_detail` answers `Json<Value>` built by
-          `purchase_order_status`, and that shape has no `notes` in it — which
-          is why the guard here was reading `undefined` rather than a string.
-          Drawing an empty section for a field the read never returns would be
-          this screen pretending the order has nothing written on it. Restore
-          it the day the endpoint carries the field. */}
+      <OrderHistory order={order} />
     </div>
   )
+}
+
+/// Every saved edit of the order, newest first — the log the owner asked for
+/// when edits were allowed until an order is finished.
+function OrderHistory({ order }: { order: PurchaseOrderDetail }) {
+  const revisions = order.revisions ?? []
+  return (
+    <Section title="History">
+      <ol className="flex flex-col gap-3">
+        {revisions.map((revision) => (
+          <li
+            key={revision.revision_id}
+            className="rounded-inner border border-hairline px-3.5 py-3"
+          >
+            <div className="text-[0.875rem] text-body">
+              Edited by <span className="text-ink">{revision.revised_by}</span>{" "}
+              · {day(revision.revised_at)}{" "}
+              {new Date(revision.revised_at).toLocaleTimeString("id-ID", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </div>
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {revision.changes.length === 0 ? (
+                <li className="text-[0.875rem] text-mute">Saved without changes.</li>
+              ) : (
+                revision.changes.map((change, index) => (
+                  <li key={index} className="text-[0.875rem] text-ink">
+                    {describeChange(change)}
+                  </li>
+                ))
+              )}
+            </ul>
+          </li>
+        ))}
+        <li className="px-3.5 text-[0.875rem] text-body">
+          Created by <span className="text-ink">{order.created_by}</span> ·{" "}
+          {day(order.issued_at ?? order.created_at)}
+        </li>
+      </ol>
+    </Section>
+  )
+}
+
+/// One logged change as a sentence.
+function describeChange(change: Record<string, unknown>): string {
+  const item = typeof change.item === "string" ? change.item : ""
+  const field = String(change.field ?? "")
+  const said = (value: unknown): string => {
+    if (value === null || value === undefined || value === "") return "—"
+    if (field === "unit_price" || field === "discount")
+      return money(Number(value))
+    if (field === "delivery_date") return day(String(value))
+    if (typeof value === "number") return count(value)
+    return String(value)
+  }
+  const names: Record<string, string> = {
+    quantity: "qty",
+    unit_price: "price",
+    delivery_date: "delivery date",
+    name: "name",
+    notes: "notes",
+    discount: "discount",
+  }
+  switch (change.kind) {
+    case "added": {
+      const to = (change.to ?? {}) as Record<string, unknown>
+      return `Added ${item} — ${count(Number(to.quantity ?? 0))} × ${money(Number(to.unit_price_minor ?? 0))}`
+    }
+    case "removed":
+      return `Removed ${item}`
+    case "cancelled":
+      return typeof change.to === "string" && change.to !== ""
+        ? `Cancelled the order: ${change.to}`
+        : "Cancelled the order"
+    case "header":
+      return `Changed ${names[field] ?? field}: ${said(change.from)} → ${said(change.to)}`
+    default:
+      return `${item}: ${names[field] ?? field} ${said(change.from)} → ${said(change.to)}`
+  }
 }

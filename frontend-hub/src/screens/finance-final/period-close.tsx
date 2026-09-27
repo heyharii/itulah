@@ -16,10 +16,13 @@ import {
   financeKeys,
   listPeriods,
   openPeriod,
+  periodChecklist,
 } from "@/lib/queries/finance"
+import type { PeriodChecklist } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { Grid, Note, Td, Th } from "@/screens/finance-final/parts"
+import { usePostingReadiness } from "@/screens/finance/badges"
 import { monthLabel } from "@/screens/finance/chart"
 
 /// What each month is still waiting for, and the door that shuts it.
@@ -62,15 +65,12 @@ import { monthLabel } from "@/screens/finance/chart"
 /// every report here can be read per unit without the book ever having been
 /// split into fourteen books.
 ///
-/// # Why the checklist is the server's and not this screen's
+/// # Summary rows and the close verdict
 ///
-/// `GET /finance/attention` is the node's own answer to "what is finance
-/// waiting for", and it is the same answer the sidebar badge draws. A second
-/// checklist assembled in the browser would be a second opinion, and the day
-/// the two disagreed the person closing the month would have no way to tell
-/// which was right. So the list below is that endpoint, row for row, with the
-/// two counts it does *not* scope to the month labelled as the standing figures
-/// they are.
+/// `GET /finance/attention` supplies two standing summary rows and the
+/// sidebar badge. It is not the close verdict. The blocking result comes from
+/// `GET /finance/periods/{id}/checklist`, the same check the close endpoint
+/// runs, so the screen cannot enable a close the cloud would refuse.
 export function PeriodClose() {
   const client = useQueryClient()
   // The month is in the URL — "seal 2026-08" is a thing people send each other
@@ -113,6 +113,15 @@ export function PeriodClose() {
     queryKey: financeKeys.attention(year, month),
     queryFn: ({ signal }) => financeAttention(year, month, signal),
   })
+  // The gaps the Posting readiness screen shows, and not the attention
+  // endpoint's older pair count — the line below links there, and the two
+  // must agree.
+  const postingGaps = usePostingReadiness()
+  const closeChecks = useQuery({
+    queryKey: financeKeys.closeChecklist(period ? periodId(year, month) : null),
+    queryFn: ({ signal }) => periodChecklist(periodId(year, month), signal),
+    enabled: period !== undefined,
+  })
 
   const open = useMutation({
     mutationFn: () => openPeriod(year, month),
@@ -123,6 +132,9 @@ export function PeriodClose() {
       // with an object under everybody else's feet.
       client.setQueryData(financeKeys.periods(), page.rows)
       client.invalidateQueries({ queryKey: financeKeys.attention(year, month) })
+      client.invalidateQueries({
+        queryKey: financeKeys.closeChecklist(periodId(year, month)),
+      })
       setReceipt(`${monthLabel(year, month)} is open for posting.`)
     },
   })
@@ -140,12 +152,15 @@ export function PeriodClose() {
       // calendar and the badge are the only stale reads.
       client.invalidateQueries({ queryKey: financeKeys.periods() })
       client.invalidateQueries({ queryKey: financeKeys.attention(year, month) })
+      client.invalidateQueries({
+        queryKey: financeKeys.closeChecklist(periodId(year, month)),
+      })
     },
   })
 
-  // The gate. `attention` is the server's own sum of its three counts, so this
-  // is not a rule kept here — it is the node's answer read as a yes or a no.
-  const clear = attention.data !== undefined && attention.data.attention === 0
+  // Use the same verdict the close endpoint enforces. Attention is a sidebar
+  // summary and does not include every condition a period close checks.
+  const clear = closeChecks.data?.may_close === true
   const mayClose = isOpen && clear && !seal.isPending
 
   const now = new Date()
@@ -195,8 +210,10 @@ export function PeriodClose() {
           </Select>
         </span>
         <Toolbar.Spacer />
-        <span className="text-[0.71875rem] text-mute">
-          {count(rows.filter((row) => row.status.toUpperCase() === "OPEN").length)}{" "}
+        <span className="text-[0.875rem] text-mute">
+          {count(
+            rows.filter((row) => row.status.toUpperCase() === "OPEN").length
+          )}{" "}
           months open · {count(rows.length)} on the calendar
         </span>
       </Toolbar>
@@ -236,13 +253,13 @@ export function PeriodClose() {
               <Pill tone={toneFor(period.status)}>{label(period.status)}</Pill>
             )}
             {period !== undefined && (
-              <span className="text-[0.71875rem] text-mute">
+              <span className="text-[0.875rem] text-mute">
                 {count(period.entry_count)}{" "}
                 {period.entry_count === 1 ? "entry" : "entries"} posted
               </span>
             )}
             {period?.closed_at != null && (
-              <span className="text-[0.71875rem] text-mute">
+              <span className="text-[0.875rem] text-mute">
                 sealed by {period.closed_by ?? "—"} · {moment(period.closed_at)}
               </span>
             )}
@@ -250,7 +267,7 @@ export function PeriodClose() {
 
           {period === undefined ? (
             <div className="px-3.5 py-4">
-              <p className="mb-3 text-[0.78125rem] text-body">
+              <p className="mb-3 text-[0.875rem] text-body">
                 No accounting period exists for {monthLabel(year, month)}, so
                 nothing can be posted into it at all — the database refuses the
                 entry and names the month. That refusal is the same trigger the
@@ -272,22 +289,32 @@ export function PeriodClose() {
               <Checklist
                 answer={attention.data}
                 pending={attention.isPending}
+                gaps={postingGaps.data?.gaps ?? null}
+                readiness={closeChecks.data}
                 year={year}
                 month={month}
                 isOpen={isOpen}
               />
 
+              {closeChecks.data !== undefined &&
+                !closeChecks.data.may_close && (
+                  <Banner tone="warn" className="mx-3.5 mt-2">
+                    Sealing is blocked by:{" "}
+                    {closeChecks.data.blocked_by.join(", ")}.
+                  </Banner>
+                )}
+
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-hairline px-3.5 py-3">
                 {!isOpen ? (
-                  <p className="text-[0.71875rem] text-body">
+                  <p className="text-[0.875rem] text-body">
                     This month is sealed. There is no reopen and there is no
-                    endpoint for one — a correction is posted into an open month,
-                    the way a wrong entry is answered by its mirror rather than
-                    edited away.
+                    endpoint for one — a correction is posted into an open
+                    month, the way a wrong entry is answered by its mirror
+                    rather than edited away.
                   </p>
                 ) : confirming ? (
                   <>
-                    <p className="min-w-0 flex-1 text-[0.71875rem] text-body">
+                    <p className="min-w-0 flex-1 text-[0.875rem] text-body">
                       Seal {count(period.entry_count)}{" "}
                       {period.entry_count === 1 ? "entry" : "entries"} in{" "}
                       {monthLabel(year, month)}? Nothing can be posted into this
@@ -314,10 +341,10 @@ export function PeriodClose() {
                   </>
                 ) : (
                   <>
-                    <p className="min-w-0 flex-1 text-[0.71875rem] text-body">
+                    <p className="min-w-0 flex-1 text-[0.875rem] text-body">
                       {clear
                         ? "The server has nothing outstanding. Sealing is irreversible."
-                        : "The door stays shut while the list above is not clear. This refusal is this screen's, not the database's — the node would accept the close — because an irreversible act taken over a list of known problems is one nobody can undo afterwards."}
+                        : "The cloud's close checklist still has an unresolved or unassessed item. Resolve it before sealing the month."}
                     </p>
                     <Button
                       variant="danger"
@@ -449,7 +476,7 @@ export function PeriodClose() {
 ///
 /// Because `GET /finance/attention` takes a year and a month and uses them for
 /// exactly one of its three counts. `month_not_open` is about the month asked
-/// for; `overdue_bills` and `unmapped_pairs` are counted over the whole ledger
+/// for; `overdue_bills` and the posting gaps are counted over the whole ledger
 /// as it stands today. That is right for the sidebar badge it was built for and
 /// it is a trap here, where every other figure on the screen is about one
 /// month. So the two say so on their face. They still gate the close, because
@@ -458,6 +485,8 @@ export function PeriodClose() {
 function Checklist({
   answer,
   pending,
+  gaps,
+  readiness,
   year,
   month,
   isOpen,
@@ -471,13 +500,40 @@ function Checklist({
       }
     | undefined
   pending: boolean
+  /// (role, source, site) combinations that resolve to no account.
+  gaps: number | null
+  readiness: PeriodChecklist | undefined
   year: number
   month: number
   isOpen: boolean
 }) {
+  const depreciation = readiness?.checks.find(
+    (check) => check.key === "assets.depreciation"
+  )
+  const depreciationState =
+    depreciation === undefined
+      ? "pending"
+      : depreciation.outcome.state === "PASS"
+        ? "ok"
+        : depreciation.outcome.state === "PENDING" ||
+            depreciation.outcome.state === "BLOCKED"
+          ? "pending"
+          : "todo"
+  const depreciationNote =
+    depreciation === undefined
+      ? "Reading the cloud's asset close check…"
+      : depreciation.outcome.state === "PASS"
+        ? "Every asset due this month has a posted depreciation entry."
+        : depreciation.outcome.state === "FAIL"
+          ? `${count(depreciation.outcome.count)} assets still need a charge: ${depreciation.outcome.where
+              .slice(0, 3)
+              .map((pointer) => pointer.label)
+              .join(", ")}${depreciation.outcome.where.length > 3 ? "…" : ""}.`
+          : depreciation.outcome.reason
+
   return (
     <div>
-      <div className="border-b border-hairline px-3.5 py-2 text-[0.71875rem] font-medium text-mute">
+      <div className="border-b border-hairline px-3.5 py-2 text-[0.875rem] font-medium text-mute">
         Before sealing {monthLabel(year, month)}
       </div>
 
@@ -505,24 +561,22 @@ function Checklist({
 
       <Line
         title="Every posting rule has an account"
-        state={
-          pending || answer === undefined
-            ? "pending"
-            : answer.unmapped_pairs === 0
-              ? "ok"
-              : "todo"
-        }
+        state={gaps === null ? "pending" : gaps === 0 ? "ok" : "todo"}
         note={
-          pending || answer === undefined
-            ? "Counting the map…"
-            : answer.unmapped_pairs === 0
-              ? "Every meaning the posting rules ask for has an account, at every unit."
-              : `${count(answer.unmapped_pairs)} meaning-and-unit pairs have no account behind them. Every posting that needs one is refused outright, so a month closed over this is a month with entries missing rather than entries wrong.`
+          gaps === null
+            ? "Reading the account links…"
+            : gaps === 0
+              ? "Every role the posting rules ask for resolves to an account, at every unit."
+              : `${count(gaps)} role-and-unit combinations have no account behind them. Every posting that needs one is refused outright, so a month closed over this is a month with entries missing rather than entries wrong.`
         }
         scope="standing, not this month"
         action={
-          <AppLink to="/finance/account-map" variant="quiet" size="sm">
-            Account map
+          <AppLink
+            to="/finance/setup/posting-readiness"
+            variant="quiet"
+            size="sm"
+          >
+            Posting readiness
           </AppLink>
         }
       />
@@ -551,35 +605,22 @@ function Checklist({
         }
       />
 
-      <div className="border-t border-hairline bg-soft px-3.5 py-2.5 text-[0.71875rem] leading-relaxed text-body">
-        <b className="font-medium text-ink">
-          Three of ERPNext&rsquo;s prerequisites have no answer on this node, and
-          none of them is ticked here on a guess.
-        </b>{" "}
-        <b>Bank agreed</b> — every unmatched statement line is countable, but no
-        endpoint scopes that count to a month, and a bank&rsquo;s statement
-        period rarely lines up with one;{" "}
-        <AppLink
-          to="/finance-lab-2/bank-reconciliation"
-          className="font-medium text-accent hover:underline"
-        >
-          Bank reconciliation
-        </AppLink>{" "}
-        is where it is cleared. <b>Drawers counted</b> — the node lists counts,
-        not drawers, so &ldquo;which till went uncounted&rdquo; is a question it
-        cannot be asked;{" "}
-        <AppLink
-          to="/finance-lab-2/cash-counts"
-          className="font-medium text-accent hover:underline"
-        >
-          Cash counts
-        </AppLink>{" "}
-        is where one is recorded. <b>Depreciation charged</b> — nothing records
-        whether a month has been charged: the asset row carries an accumulated
-        total but not the periods it was built from, and a run is only ever the
-        answer to a POST. Running it twice is safe, because a unique index on
-        (asset, period) refuses the second charge per asset rather than doubling
-        the month.
+      <Line
+        title="Asset depreciation charged"
+        state={depreciationState}
+        note={depreciationNote}
+        scope="this month"
+        action={
+          <AppLink to="/finance/assets" variant="quiet" size="sm">
+            Assets
+          </AppLink>
+        }
+      />
+
+      <div className="border-t border-hairline bg-soft px-3.5 py-2.5 text-[0.875rem] leading-relaxed text-body">
+        The close button uses the cloud&rsquo;s full checklist, including asset
+        depreciation. A check the node cannot evaluate remains pending and
+        prevents the month from being sealed.
       </div>
     </div>
   )
@@ -617,11 +658,11 @@ function Line({
     <div className="flex items-start gap-2.5 border-b border-hairline px-3.5 py-2.5 last:border-b-0">
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-2">
-          <span className="text-[0.8125rem] font-medium text-ink">{title}</span>
+          <span className="text-[0.875rem] font-medium text-ink">{title}</span>
           <Pill tone={pill.tone}>{pill.text}</Pill>
-          <span className="text-[0.65625rem] text-mute">{scope}</span>
+          <span className="text-[0.875rem] text-mute">{scope}</span>
         </span>
-        <span className="mt-0.5 block text-[0.71875rem] leading-relaxed text-body">
+        <span className="mt-0.5 block text-[0.875rem] leading-relaxed text-body">
           {note}
         </span>
       </span>

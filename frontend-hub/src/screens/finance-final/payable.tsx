@@ -8,7 +8,6 @@ import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState, Truncated } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
 import {
-  accountLedger,
   financeKeys,
   listBills,
   payablesAging,
@@ -79,54 +78,35 @@ export function AccountsPayable() {
       payablesAging({ as_of: asOf.value, site: site || undefined }, signal),
   })
 
-  // The books' own answer to the same question, for the reconciliation card.
+  // The books' own answer to the same question, for the reconciliation card,
+  // comes back IN the ageing (`books_minor`): the server resolves the payable
+  // accounts through the account map. This screen used to ask the ledger for
+  // a client account code (`2012001`) the chart in use does not have, got a
+  // ledger of nothing, and printed "Ageing less −Rp 0" beside the whole
+  // ageing as its "difference".
   //
-  // ERPNext calls this `gl_balance` and puts `diff` beside it, and it is the
-  // one column of theirs worth copying wholesale: their ageing reads the
-  // payment sub-ledger and the general ledger is a second, independent
-  // opinion. Ours differ for a narrower reason — the ageing counts a bill from
-  // its INVOICE date and the ledger from its POSTING date, and `POST /bills/
-  // {id}/post` lets those be different days — so a non-zero difference here is
-  // a real statement about bills posted into a month they were not invoiced
-  // in, not a rounding artefact.
-  //
-  // A one-day window: `closing_minor` is a property of the window's end, so
-  // asking for a single day is the cheapest way to say "the balance at
-  // `as_of`", and `limit: 1` keeps the movements nobody is reading off the
-  // wire.
-  const ledger = useQuery({
-    queryKey: financeKeys.ledger(
-      TRADE_PAYABLE_FAMILY,
-      site || null,
-      asOf.value,
-      asOf.value
-    ),
-    queryFn: ({ signal }) =>
-      accountLedger(
-        TRADE_PAYABLE_FAMILY,
-        { site: site || undefined, from: asOf.value, to: asOf.value, limit: 1 },
-        signal
-      ),
-  })
+  // ERPNext calls this `gl_balance` and puts `diff` beside it. Ours differ for
+  // a narrow reason — the ageing counts a bill from its INVOICE date and the
+  // ledger from its POSTING date — so a non-zero difference here is a real
+  // statement about bills posted into a month they were not invoiced in, not
+  // a rounding artefact.
 
   const total = aging.data?.total ?? null
   const suppliers = aging.data?.suppliers ?? []
   /// What has already fallen due — the figure somebody acts on today. The
   /// not-due bucket is a forecast, not a problem.
   const due = total === null ? null : total.total_minor - total.not_due_minor
-  const bills = suppliers.reduce((sum, row) => sum + row.bill_count, 0)
-  /// The ledger keeps a payable as a credit, so it comes back negative and is
-  /// turned the right way up to be compared with an ageing, which is written
-  /// as a positive debt. Nothing else on this page flips a sign.
-  const perBooks =
-    ledger.data === undefined ? null : -ledger.data.closing_minor
+  const openDocuments = suppliers.reduce((sum, row) => sum + row.open_document_count, 0)
+  /// Already a positive debt: the server turns the credit balance the right
+  /// way up, so nothing on this page flips a sign.
+  const perBooks = aging.data?.books_minor ?? null
   const difference =
     total === null || perBooks === null ? null : total.total_minor - perBooks
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Accounting"
+        crumb="Finance · Payables"
         title="Accounts payable"
         sub="What is owed to suppliers, how late it is, and what arrived before its invoice did."
       />
@@ -144,7 +124,7 @@ export function AccountsPayable() {
         {/* The effective answer, in words. A date box filled with today and a
             date box the server defaulted look identical to a reader, and an
             ageing means nothing until you know the day it was struck. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {asOf.chip}
           {site === "" ? (
             " · every location"
@@ -165,7 +145,7 @@ export function AccountsPayable() {
               <NumberCard
                 label="Outstanding"
                 value={total?.total_minor ?? null}
-                note={`${count(suppliers.length)} suppliers · ${count(bills)} bills`}
+                note={`${count(suppliers.length)} suppliers · ${count(openDocuments)} open items`}
               />
               <NumberCard
                 label="Already due"
@@ -221,17 +201,6 @@ export function AccountsPayable() {
   )
 }
 
-/// The supplier payable family in the client's chart: `2012001 HUTANG
-/// SUPPLIER`, which holds both `…001 Hutang Suppliers Barang Dagangan` and
-/// `…003 Hutang Supplier Non Barang Dagang`.
-///
-/// The whole family and not the merchandise leaf, because the ageing counts
-/// both kinds of bill and a comparison against half the account would show a
-/// difference that is only the other half. Matching is by code prefix, so one
-/// code reaches every location's leaf and the unit filter still does the
-/// narrowing.
-const TRADE_PAYABLE_FAMILY = "2012001"
-
 type View = "supplier" | "bill" | "unbilled"
 
 const VIEWS: readonly { readonly value: View; readonly label: string }[] = [
@@ -284,7 +253,7 @@ function SupplierTable({
   rows: readonly PayablesAgingRow[]
   total: AgingBuckets
 }) {
-  const bills = rows.reduce((sum, row) => sum + row.bill_count, 0)
+  const openDocuments = rows.reduce((sum, row) => sum + row.open_document_count, 0)
   return (
     <>
       <Grid>
@@ -292,7 +261,7 @@ function SupplierTable({
           <tr>
             <Th>Supplier</Th>
             <Th align="right" width="4.5rem">
-              Bills
+              Open items
             </Th>
             <Th align="right" width="6.5rem">
               <span title="Age of the oldest instalment still outstanding">
@@ -327,7 +296,7 @@ function SupplierTable({
                   className="font-medium text-ink"
                 />
               </Td>
-              <Td align="right">{count(row.bill_count)}</Td>
+              <Td align="right">{count(row.open_document_count)}</Td>
               <Td align="right">
                 <OldestAge days={row.oldest_days} />
               </Td>
@@ -348,7 +317,7 @@ function SupplierTable({
           ))}
           <TotalRow>
             <Td>Total payable</Td>
-            <Td align="right">{count(bills)}</Td>
+            <Td align="right">{count(openDocuments)}</Td>
             <Td />
             {BUCKETS.map((bucket) => (
               <Td key={bucket.key} align="right">
@@ -519,7 +488,7 @@ function BillRow({ bill }: { bill: SupplierBill }) {
       <Td>
         <Code>{bill.invoice_number}</Code>
         {bill.entry_number !== null && (
-          <span className="mt-0.5 block text-[0.65625rem] text-mute">
+          <span className="mt-0.5 block text-[0.875rem] text-mute">
             {bill.entry_number}
           </span>
         )}
@@ -552,7 +521,7 @@ function BillRow({ bill }: { bill: SupplierBill }) {
             allocation because a draft already holds it. ERPNext has no
             equivalent column — its drafts reserve nothing. */}
         {bill.allocated_minor > bill.paid_minor && (
-          <span className="mt-0.5 block text-[0.65625rem] text-mute">
+          <span className="mt-0.5 block text-[0.875rem] text-mute">
             {money(bill.allocated_minor - bill.paid_minor)} spoken for
           </span>
         )}
@@ -689,7 +658,7 @@ function ReceiptRow({ receipt }: { receipt: UnbilledReceipt }) {
       <Td>
         <Code>{receipt.receipt_number}</Code>
         {receipt.invoice_number !== null && (
-          <span className="mt-0.5 block text-[0.65625rem] text-mute">
+          <span className="mt-0.5 block text-[0.875rem] text-mute">
             their {receipt.invoice_number}
           </span>
         )}

@@ -26,6 +26,18 @@ export function TagKerjaan() {
   const jobs = useQuery(reads.taggingJobs())
 
   const job = (jobs.data ?? []).find((row) => row.job_id === id) ?? null
+  // Whether the labels have actually come out of the printer. Printing
+  // happens at the bench (the hub), so this phone would otherwise let somebody
+  // confirm a job whose tags were never printed — and confirming is what makes
+  // the pieces exist. Said, not enforced: labels printed some other way are
+  // still labels.
+  const run = useQuery({ ...reads.jobRun(id ?? ""), enabled: id !== null })
+  const unprinted =
+    job === null || run.data === undefined
+      ? 0
+      : run.data === null
+        ? job.total_quantity
+        : run.data.pending_count + run.data.failed_count
 
   return (
     <>
@@ -49,10 +61,19 @@ export function TagKerjaan() {
                   </p>
                 </div>
 
+                {unprinted > 0 && (
+                  <Banner tone="warn" className="mb-4">
+                    {run.data === null
+                      ? "Label kerjaan ini belum dicetak sama sekali."
+                      : `${count(unprinted)} dari ${count(job.total_quantity)} label belum tercetak.`}{" "}
+                    Cetak dulu di meja cetak, baru konfirmasi.
+                  </Banner>
+                )}
+
                 <Banner tone="info" className="mb-4">
-                  Konfirmasi berarti label sudah menempel di barangnya.
-                  Setelah itu {count(job.total_quantity)} potong tercatat ada di
-                  gudang ini.
+                  Konfirmasi berarti label sudah menempel di barangnya. Setelah
+                  itu {count(job.total_quantity)} potong tercatat ada di gudang
+                  ini.
                 </Banner>
 
                 <div className="overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft">

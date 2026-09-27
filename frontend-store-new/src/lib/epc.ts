@@ -8,7 +8,7 @@
 ///
 /// It can be, exactly, because the EPC is not opaque: it carries the SKU. This
 /// is a **mirror of `backend/src/cloud/domain/identity.rs`** — 96 bits, the
-/// retail-private header `0xA0`, the 11 SKU digits as BCD, then a 44-bit
+/// retail-private header `0xA1`, the 11 SKU digits as BCD, then a 44-bit
 /// per-SKU serial. That file is the authority and this is the second
 /// implementation of it; the golden vectors it tests against are the contract
 /// between them.
@@ -25,7 +25,7 @@ const SKU_LEN = 11
 const EPC_HEX_LEN = 24
 /// Marks a tag as ours rather than a GS1 SGTIN (`0x30`), a GIAI (`0x34`) or a
 /// factory TID.
-const RETAIL_PRIVATE_HEADER = 0xa0
+const RETAIL_PRIVATE_HEADER = 0xa1
 
 export interface DecodedEpc {
   /// The 11-digit SKU this tag was written for.

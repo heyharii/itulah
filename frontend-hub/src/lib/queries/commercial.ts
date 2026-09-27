@@ -752,6 +752,10 @@ export const commercialKeys = {
   /// complete.
   products: (query: string, limit: number) =>
     ["commercial", "products", query, limit] as const,
+  /// The products of exactly these styles. Sorted, because the set is the
+  /// question and the order the grid happened to list them in is not.
+  productsByArticles: (codes: readonly string[], limit: number) =>
+    ["commercial", "products", "articles", [...codes].sort(), limit] as const,
 }
 
 // ── reads ──────────────────────────────────────────────────────────────────
@@ -1236,6 +1240,67 @@ export function publishUsageToFleet(
   )
 }
 
+// ── the hard cap ──────────────────────────────────────────────────────────
+
+/// One shop's allowance under a split limit, beside what it has used.
+///
+/// `own_*` is what the centre has counted; the shop's own figure is ahead of
+/// it by whatever it has not uploaded yet, which is why a grant is never
+/// taken back.
+export interface ShopAllowance {
+  readonly origin_id: string
+  readonly label: string | null
+  readonly site_id: string | null
+  readonly budget_granted: number | null
+  readonly uses_granted: number | null
+  readonly own_uses: number
+  readonly own_spent_minor: number
+}
+
+/// A promotion's or campaign's limit, split between the shops — or not.
+export interface CapAllocation {
+  readonly kind: "RULE" | "CAMPAIGN"
+  readonly key: string
+  readonly enabled: boolean
+  readonly budget_minor: number | null
+  readonly max_uses: number | null
+  /// What has never been granted to any shop, per measure.
+  readonly budget_pool: number | null
+  readonly uses_pool: number | null
+  readonly shops: readonly ShopAllowance[]
+  readonly updated_by: string | null
+  readonly updated_at: string | null
+}
+
+export const allocationKeys = {
+  one: (kind: CapAllocation["kind"], key: string) =>
+    ["commercial", "allocation", kind, key] as const,
+}
+
+export function capAllocation(
+  kind: CapAllocation["kind"],
+  key: string,
+  signal?: AbortSignal
+): Promise<CapAllocation> {
+  return node.get<CapAllocation>(
+    `/api/v1/commercial/allocations/${kind}/${encodeURIComponent(key)}`,
+    { signal }
+  )
+}
+
+/// Switch the split on or off. The shops are sent their allowances (or told
+/// to drop them) in the same call.
+export function setCapAllocation(
+  kind: CapAllocation["kind"],
+  key: string,
+  enabled: boolean
+): Promise<CapAllocation> {
+  return node.put<CapAllocation>(
+    `/api/v1/commercial/allocations/${kind}/${encodeURIComponent(key)}`,
+    { enabled }
+  )
+}
+
 /// Price a basket without selling it.
 ///
 /// A POST that writes nothing: no sale, no usage count, no reservation. It is
@@ -1568,6 +1633,24 @@ export function commercialProducts(
   return node
     .get<{ items: CommercialProduct[] }>(
       `/api/v1/commercial/products?${params.toString()}`,
+      { signal }
+    )
+    .then((body) => body.items)
+}
+
+/// Every product of exactly these styles, in one read. `q` is one ILIKE
+/// substring, so a list of styles through it was a request per style and a
+/// prefix dragging its neighbours in; `article_codes` matches whole codes.
+/// Each code is encoded on its own so the commas between them stay commas.
+export function commercialProductsByArticles(
+  codes: readonly string[],
+  limit = 500,
+  signal?: AbortSignal
+): Promise<readonly CommercialProduct[]> {
+  const joined = codes.map((code) => encodeURIComponent(code)).join(",")
+  return node
+    .get<{ items: CommercialProduct[] }>(
+      `/api/v1/commercial/products?article_codes=${joined}&limit=${limit}`,
       { signal }
     )
     .then((body) => body.items)

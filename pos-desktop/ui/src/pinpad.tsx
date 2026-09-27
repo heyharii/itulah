@@ -71,16 +71,13 @@ export function PinPad({
           text, so a reader says "3 of 8" instead of spelling the marks out, and
           so the marks themselves are never read aloud at a counter. */}
       <div
-        className="pill"
+        className="pin-dots"
         role="img"
         aria-label={`${digits.length} dari ${MAX} angka PIN sudah ditekan`}
-        style={{ marginTop: 8, fontSize: 16, letterSpacing: 3 }}
       >
-        {"●".repeat(digits.length)}
-        {"○".repeat(MAX - digits.length)}
-        <span className="muted" style={{ fontSize: 11, letterSpacing: 0 }}>
-          PIN tidak pernah ditampilkan — maksimal {MAX} angka
-        </span>
+        {Array.from({ length: MAX }, (_, at) => (
+          <i key={at} className={at < digits.length ? "on" : undefined} />
+        ))}
       </div>
 
       {/* Every key is `type="button"`. This pad is drawn inside the sign-in

@@ -133,6 +133,8 @@ fn cash(minor: i64) -> SaleTender {
         amount_minor: minor,
         reference: None,
         voucher_authorization_id: None,
+        acquirer: None,
+        card_kind: None,
     }
 }
 
@@ -142,6 +144,8 @@ fn card(minor: i64) -> SaleTender {
         amount_minor: minor,
         reference: Some("AUTH-7781".into()),
         voucher_authorization_id: None,
+        acquirer: None,
+        card_kind: None,
     }
 }
 
@@ -153,6 +157,8 @@ fn voucher(minor: i64) -> SaleTender {
         amount_minor: minor,
         reference: Some("VCH-0001".into()),
         voucher_authorization_id: Some("AUTHZ-1".into()),
+        acquirer: None,
+        card_kind: None,
     }
 }
 
@@ -194,6 +200,8 @@ fn pay_001(_fixtures: &Fixtures) -> Outcome {
     // centre does not settle anything, however well-formed it looks.
     let unauthorised = SaleTender {
         voucher_authorization_id: None,
+        acquirer: None,
+        card_kind: None,
         ..voucher(100_000)
     };
     expect.eq(

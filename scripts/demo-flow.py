@@ -30,7 +30,7 @@ def one_pass(index, env, sink_before):
         "supplier_name": "Anugerah Garmen Sejahtera", "destination_site_id": "dc-01",
         "origin_kind": "SOURCING", "currency": "IDR", "created_by": "admin",
         "lines": [{"article_code": item["supplier_item_code"], "article_name": item["name"],
-                   "division_code": "MENSWEAR", "tags": [], "ordered_quantity": QTY,
+                   "division_code": "PRIA", "tags": [], "ordered_quantity": QTY,
                    "unit_price_minor": 55000}]})
     assert c == 201, f"PO ditolak: {c}"
     mark("sourcing + PO di cloud")
@@ -72,7 +72,7 @@ def one_pass(index, env, sink_before):
 
     c, s = cloud.call("POST", "/api/v1/article-setups", {
         "receipt_line_id": row["receipt_line_id"], "article_code": None,
-        "article_name": f"Tights 200 Den {tag}", "division_code": "MENSWEAR",
+        "article_name": f"Tights 200 Den {tag}", "division_code": "PRIA",
         "tags": [], "image_url": None, "currency": "IDR",
         "colours": [{"colour_digit": "1", "colour_code": "BLACK"}],
         "variants": [{"colour_digit": "1", "size_code": code, "quantity": 2,

@@ -3,6 +3,7 @@
          band above the app bar, so the status bar carries the canvas and the
          content simply runs up to it. -->
     <style name="Theme.Itulah" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
         <item name="android:statusBarColor">#FFFFFF</item>
         <item name="android:navigationBarColor">#FFFFFF</item>
         <item name="android:windowLightStatusBar">true</item>

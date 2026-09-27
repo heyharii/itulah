@@ -12,6 +12,7 @@ import { count } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { Delta } from "@/screens/sales/delta"
 import { showSales, type SalesMatrix } from "@/screens/sales/matrix"
+import { useStackLabels } from "@/lib/stack-table"
 
 /// The trading day, and which shops made it.
 ///
@@ -75,6 +76,7 @@ export function SalesTable({
   // somebody wants is almost always the most recent one, and scrolling four
   // hundred rows to reach it is the failure the old left-to-right axis had.
   const order = [...matrix.buckets].reverse()
+  const stack = useStackLabels()
 
   // The bucket today falls in is still being written by tills that are still
   // open, so every figure on that row is a part-day. It is drawn rather than
@@ -82,7 +84,8 @@ export function SalesTable({
   // labelled, because an unlabelled part-day beside thirteen whole ones reads
   // as a collapse.
   const today = isoDate(new Date())
-  const isLive = (start: string) => start <= today && bucketEnd(start, bucket) >= today
+  const isLive = (start: string) =>
+    start <= today && bucketEnd(start, bucket) >= today
 
   // A single shop is not a fleet: the roll-up row would repeat the shop rows
   // under it, and there would be nothing to expand into.
@@ -95,7 +98,12 @@ export function SalesTable({
 
   return (
     <div className="max-h-[calc(100vh-25rem)] min-h-0 overflow-auto rounded-card">
-      <table className="w-full border-separate border-spacing-0 text-cell">
+      {/* Stacks on a phone rather than scrolling a 750px matrix sideways
+          inside a 320px card (`useStackLabels`). */}
+      <table
+        ref={stack}
+        className="mini-stack w-full border-separate border-spacing-0 text-cell"
+      >
         <thead>
           <tr>
             <th
@@ -172,7 +180,10 @@ export function SalesTable({
             // Only the shops that actually traded. A day showing thirteen rows
             // of dashes is a day nobody can read.
             const traded = matrix.rows
-              .filter((site) => matrix.siteValue(site.site_id, start, "sales_count") > 0)
+              .filter(
+                (site) =>
+                  matrix.siteValue(site.site_id, start, "sales_count") > 0
+              )
               .sort(
                 (left, right) =>
                   matrix.siteValue(right.site_id, start, "gross_minor") -
@@ -231,16 +242,21 @@ export function SalesTable({
                 />
               </td>
             )}
-            {(["sales_count", "average_minor", "units_sold", "items_per_sale"] as const).map(
-              (kind) => (
-                <td
-                  key={kind}
-                  className="sticky bottom-0 z-20 border-t border-hairline bg-soft-2 px-3 py-2 text-right font-medium text-ink tabular-nums"
-                >
-                  {showSales(kind, matrix.grandTotal(kind))}
-                </td>
-              )
-            )}
+            {(
+              [
+                "sales_count",
+                "average_minor",
+                "units_sold",
+                "items_per_sale",
+              ] as const
+            ).map((kind) => (
+              <td
+                key={kind}
+                className="sticky bottom-0 z-20 border-t border-hairline bg-soft-2 px-3 py-2 text-right font-medium text-ink tabular-nums"
+              >
+                {showSales(kind, matrix.grandTotal(kind))}
+              </td>
+            ))}
             {!alone && (
               <td className="sticky bottom-0 z-20 border-t border-hairline bg-soft-2 px-3 py-2 text-right font-medium text-ink tabular-nums">
                 {count(
@@ -341,11 +357,21 @@ function BucketRows({
                 )}
               />
             )}
-            <span className={cn("truncate", alone && "pl-1", quiet ? "text-mute" : "text-ink")}>
+            <span
+              className={cn(
+                "truncate",
+                alone && "pl-1",
+                quiet ? "text-mute" : "text-ink"
+              )}
+            >
               {bucketTitle(start, bucket)}
             </span>
             {live && (
-              <Pill tone="accent" withDot className="ml-auto h-[1.25rem] px-1.5">
+              <Pill
+                tone="accent"
+                withDot
+                className="ml-auto h-[1.25rem] px-1.5"
+              >
                 Live
               </Pill>
             )}
@@ -377,26 +403,33 @@ function BucketRows({
           </td>
         )}
 
-        {(["sales_count", "average_minor", "units_sold", "items_per_sale"] as const).map(
-          (kind) => {
-            const value = matrix.bucketTotal(start, kind)
-            return (
-              <td
-                key={kind}
-                className={`${cellClass} bg-canvas text-text transition-colors group-hover:bg-soft`}
-              >
-                {value === 0 ? (
-                  <span className="text-faint">–</span>
-                ) : (
-                  showSales(kind, value)
-                )}
-              </td>
-            )
-          }
-        )}
+        {(
+          [
+            "sales_count",
+            "average_minor",
+            "units_sold",
+            "items_per_sale",
+          ] as const
+        ).map((kind) => {
+          const value = matrix.bucketTotal(start, kind)
+          return (
+            <td
+              key={kind}
+              className={`${cellClass} bg-canvas text-text transition-colors group-hover:bg-soft`}
+            >
+              {value === 0 ? (
+                <span className="text-faint">–</span>
+              ) : (
+                showSales(kind, value)
+              )}
+            </td>
+          )
+        })}
 
         {!alone && (
-          <td className={`${cellClass} bg-canvas text-body transition-colors group-hover:bg-soft`}>
+          <td
+            className={`${cellClass} bg-canvas text-body transition-colors group-hover:bg-soft`}
+          >
             {traded.length === 0 ? (
               <span className="text-faint">–</span>
             ) : (
@@ -460,7 +493,12 @@ function BucketRows({
             )}
 
             {(
-              ["sales_count", "average_minor", "units_sold", "items_per_sale"] as const
+              [
+                "sales_count",
+                "average_minor",
+                "units_sold",
+                "items_per_sale",
+              ] as const
             ).map((kind) => (
               <td
                 key={kind}

@@ -602,19 +602,18 @@ def seed_account_map(api: Api, chart: Chart, report: dict) -> None:
         if wrong is not None:
             refused.append(f"{key}/{qualifier or '-'}: {wrong}")
             return
-        for site in SITES:
-            ok = api.post(
-                "/api/v1/finance/account-map",
-                {
-                    "semantic_key": key,
-                    "site_id": site,
-                    "qualifier": qualifier,
-                    "account_code": account,
-                    "category_code": category,
-                    "note": "seed",
-                },
-            )
-            written += ok is not None
+        ok = api.post(
+            "/api/v1/finance/account-links",
+            {
+                "role": key,
+                "source_id": qualifier,
+                "scope_type": "ALL",
+                "account_code": account,
+                "category_code": category,
+                "note": "seed",
+            },
+        )
+        written += ok is not None
 
     for key, (account, category) in PLAIN.items():
         write(key, "", account, category)

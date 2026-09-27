@@ -1,0 +1,116 @@
+import { useQuery } from "@tanstack/react-query"
+
+import {
+  fetchInbound,
+  fetchInboundDelivery,
+  inboundDeliveryKey,
+  inboundListKey,
+} from "@/lib/queries"
+// TEMPORARY: from `@itulah/contract` once the backend generates them.
+import type {
+  StoreInboundDelivery,
+  StoreInboundLine,
+} from "@/screens/stock/inbound-types"
+
+/// The facts the Receive screen and its sheet share — the reads and the words
+/// for a delivery. Nothing here draws; the sheet is `delivery-sheet.tsx`.
+
+// ── The reads ───────────────────────────────────────────────────────────────
+
+/// How often the screen asks again. The handheld submits from the stockroom
+/// and nobody at the desk presses anything, so the result has to arrive on its
+/// own — and a quarter of a minute is about how long it takes to walk from the
+/// stockroom to the back office.
+export const INBOUND_POLL_MS = 15_000
+
+/// Every delivery the node knows of, in transit and received, in one read.
+///
+/// One read rather than one per filter: the stat strip needs both halves at
+/// once, and two reads polled on two timers could disagree about the same
+/// delivery for fifteen seconds. The filter is applied in the browser.
+export function useInbound() {
+  return useQuery({
+    queryKey: inboundListKey("ALL"),
+    queryFn: ({ signal }) => fetchInbound("ALL", signal),
+    refetchInterval: INBOUND_POLL_MS,
+    // The app's five-minute default is for a price book. A delivery flips to
+    // received while somebody is looking, so coming back to this screen asks
+    // again rather than drawing a list from before the sweep.
+    staleTime: INBOUND_POLL_MS,
+  })
+}
+
+/// One delivery's lines. Only asked for once the delivery is received: in
+/// transit the node sends no lines, and there is nothing to poll for — the
+/// list's own poll is what notices the delivery arriving.
+export function useInboundDelivery(deliveryId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: inboundDeliveryKey(deliveryId),
+    queryFn: ({ signal }) => fetchInboundDelivery(deliveryId, signal),
+    enabled,
+    staleTime: INBOUND_POLL_MS,
+  })
+}
+
+// ── The words ───────────────────────────────────────────────────────────────
+
+/// What a delivery is called: the surat jalan number the driver hands over,
+/// and where it came from when the DC gave none.
+export function deliveryName(delivery: StoreInboundDelivery): string {
+  return delivery.shipment_reference ?? `From ${delivery.source_site_id}`
+}
+
+export type Verdict = {
+  readonly tone: "info" | "ok" | "warn" | "bad"
+  readonly label: string
+}
+
+/// The delivery's state in one pill. Short outranks over when a count is both:
+/// a missing garment is one somebody has to go and look for, an extra one is
+/// only a question for the sender.
+export function verdictOf(delivery: StoreInboundDelivery): Verdict {
+  if (delivery.status === "IN_TRANSIT") {
+    return { tone: "info", label: "In transit" }
+  }
+  const result = delivery.result
+  if (result === null) return { tone: "ok", label: "Received" }
+  if (result.missing_units > 0)
+    return { tone: "bad", label: "Received · short" }
+  if (result.extra_units > 0) return { tone: "warn", label: "Received · over" }
+  return { tone: "ok", label: "Received · complete" }
+}
+
+/// The result, but ONLY for a received delivery.
+///
+/// The count is blind: whoever sweeps an in-transit delivery must not know
+/// how many to expect, or the count finds that number. The node already sends
+/// no result in transit; reading it through this means a result that ever did
+/// arrive early is still never drawn.
+export function resultOf(delivery: StoreInboundDelivery) {
+  return delivery.status === "RECEIVED" ? delivery.result : null
+}
+
+/// In transit first, then received — newest first within each, by the moment
+/// that matters for it: when it left, when it was counted.
+export function byArrival(
+  left: StoreInboundDelivery,
+  right: StoreInboundDelivery,
+): number {
+  if (left.status !== right.status) return left.status === "IN_TRANSIT" ? -1 : 1
+  const when = (one: StoreInboundDelivery) =>
+    Date.parse(one.received_at ?? one.departed_at) || 0
+  return when(right) - when(left)
+}
+
+/// Problems first — the most missing, then the most extra — and the lines that
+/// came in exactly as packed after them, by SKU.
+export function byTrouble(
+  left: StoreInboundLine,
+  right: StoreInboundLine,
+): number {
+  return (
+    right.missing - left.missing ||
+    right.extra - left.extra ||
+    left.sku_code.localeCompare(right.sku_code)
+  )
+}

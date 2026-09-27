@@ -33,17 +33,22 @@
 //!
 //! # Two decisions, both the owner's
 //!
-//! **The account is head-office-centric.** Head office books the receivable,
-//! the shop books the payable, always, in both directions. A shop that has
-//! overpaid carries a negative payable rather than a receivable of its own,
-//! because the client's chart has one account per pair per column and a rule
-//! that chose between two would need a second rule to say when it had chosen
-//! wrongly.
+//! **Which side books which account: the account map decides.** The owner's
+//! convention of 25 Sep, following the client's books: the unit side of every
+//! family is its hutang account (2028 / 2029 / 2030) and head office's side
+//! its piutang account (1057 / 1058 / 1059), whichever way value moved; a
+//! balance may go negative. This module picks the MEANING by direction
+//! (`affiliate_payable` where the unit owes more, `affiliate_receivable` where
+//! it owes less) and migration 0380 makes both meanings resolve to the hutang
+//! account at every unit and the piutang account at head office. So a store
+//! remittance is store Dr 2028 / HO Cr 1057, and head office funding a store is
+//! HO Dr 1057 / store Cr 2028.
 //!
-//! **Two columns, by kind.** `BARANG` is goods — what a shop owes for stock it
-//! received, settled by its deposits. `PEMBIAYAAN` is financing — head office
-//! paying a shop's costs, replenishing its petty cash, advancing it money. The
-//! client keeps these as separate account families and reconciles them
+//! **Three columns, by kind.** `BARANG` is goods — what a shop owes for stock
+//! it received, settled by its deposits. `PEMBIAYAAN` is financing — head
+//! office paying a shop's costs, replenishing its petty cash, advancing it
+//! money. `LAIN` is everything else, principal (owner) transactions included.
+//! The client keeps these as separate account families and reconciles them
 //! separately, so a rule that merged them would produce one balance neither
 //! side could agree.
 //!
@@ -71,9 +76,11 @@ pub enum AffiliateKind {
     /// paying its costs, topping up its float, advancing it money.
     Financing,
     /// Neither money nor goods: a fixed asset moved between sites, a cost
-    /// allocation or management fee charged by head office, a correction.
-    /// The client keeps only `1059 Piutang Affiliasi Lain-lain` for it, used
-    /// two-way on both sides (owner decision 25 Sep).
+    /// allocation or management fee charged by head office, a correction, a
+    /// principal (owner) transaction. `1059 Piutang Affiliasi Lain-lain` at
+    /// head office and `2030 Hutang Lain-lain Principal` at the unit (owner
+    /// decision 25 Sep, migration 0380); the account map makes both meanings
+    /// resolve that way at each site.
     Other,
 }
 
@@ -111,7 +118,8 @@ pub const AFFILIATE_PAYABLE: &str = "affiliate_payable";
 const GOODS_SOURCES: &[&str] = &["TRANSFER", "GOODS_RECEIPT", "CREDIT_NOTE", "LANDED_COST"];
 
 /// Neither money nor goods (owner decision 25 Sep): assets moved between
-/// sites, cost allocations and corrections cross on Lain-lain (1059).
+/// sites, cost allocations, corrections and principal (owner) transactions
+/// cross on Lain-lain (1059 at head office, 2030 at the unit).
 const OTHER_SOURCES: &[&str] = &[
     "ASSET_TRANSFER",
     "RECLASS",
@@ -124,6 +132,10 @@ const OTHER_SOURCES: &[&str] = &[
     // Head office charging a unit (owner decision, 25 Sep): neither money moved
     // nor goods — a cost allocation across the two books, so Lain-lain 1059.
     "MANAGEMENT_FEE",
+    // Owner decision 25 Sep: 2030 Hutang Lain-lain Principal is the unit side
+    // of Lain-lain, so money the owner puts into or takes out of a unit
+    // crosses there, not on Pembiayaan.
+    "EQUITY_MOVEMENT",
 ];
 
 /// Which column an entry's balance belongs in, from the kind of document
@@ -169,9 +181,11 @@ impl SiteMovement {
 pub struct AffiliateLeg {
     /// [`AFFILIATE_RECEIVABLE`] at head office, [`AFFILIATE_PAYABLE`] at a shop.
     pub semantic_key: &'static str,
-    /// `<KIND>:<counterparty site>`, e.g. `BARANG:store-01`. The client's own
-    /// codes name the counterparty and carry the owner in the two-digit suffix,
-    /// so this is exactly the pair `account_map` needs to pick a leaf.
+    /// The family alone, e.g. `BARANG`. Since 0380 the counterparty decides
+    /// nothing about the leaf — a unit is on the family's hutang account and
+    /// head office on its piutang account whoever is on the other side — so
+    /// the family and the site are all `account_resolution` needs (0460). The
+    /// counterparty travels as `counter_site_id`.
     pub qualifier: String,
     /// Whose books this leg lands in.
     pub site_id: String,
@@ -238,11 +252,11 @@ pub fn balancing_legs(
         // stock — so the shop owes head office more, and a payable grows by a
         // credit. A credit excess is the mirror: the shop gave up value on head
         // office's behalf, so head office owes it.
-        // Client accountant, 25 Sep: the side that GAVE value is owed and
-        // books the Piutang; the side that received it owes and books the
-        // Hutang. Head office funding a unit: HO Dr Piutang / unit Cr Hutang.
-        // A unit's takings or card settlement landing in a head-office bank:
-        // unit Dr Piutang / HO Cr Hutang.
+        // The meaning follows the direction; the ACCOUNT follows the site
+        // (0380): at a unit both meanings resolve to the family's hutang
+        // account and at head office to its piutang account. Head office
+        // funding a unit: HO Dr 1057 / unit Cr 2028. A unit's takings landing
+        // in a head-office bank: unit Dr 2028 / HO Cr 1057.
         let (store_key, ho_key) = if net > 0 {
             (AFFILIATE_PAYABLE, AFFILIATE_RECEIVABLE)
         } else {
@@ -251,7 +265,7 @@ pub fn balancing_legs(
         let (store_debit, store_credit) = if net > 0 { (0, net) } else { (-net, 0) };
         legs.push(AffiliateLeg {
             semantic_key: store_key,
-            qualifier: format!("{}:{ho_site_id}", kind.as_str()),
+            qualifier: kind.as_str().to_string(),
             site_id: site.clone(),
             counter_site_id: ho_site_id.to_string(),
             debit_minor: store_debit,
@@ -259,7 +273,7 @@ pub fn balancing_legs(
         });
         legs.push(AffiliateLeg {
             semantic_key: ho_key,
-            qualifier: format!("{}:{site}", kind.as_str()),
+            qualifier: kind.as_str().to_string(),
             site_id: ho_site_id.to_string(),
             counter_site_id: site,
             debit_minor: store_credit,
@@ -290,7 +304,7 @@ mod tests {
         assert_eq!(added[0].semantic_key, AFFILIATE_PAYABLE);
         assert_eq!(added[0].site_id, "store-03");
         assert_eq!(added[0].counter_site_id, "dc");
-        assert_eq!(added[0].qualifier, "PEMBIAYAAN:dc");
+        assert_eq!(added[0].qualifier, "PEMBIAYAAN");
         // The shop owes more, so its payable is credited.
         assert_eq!(
             (added[0].debit_minor, added[0].credit_minor),
@@ -300,7 +314,7 @@ mod tests {
         assert_eq!(added[1].semantic_key, AFFILIATE_RECEIVABLE);
         assert_eq!(added[1].site_id, "dc");
         assert_eq!(added[1].counter_site_id, "store-03");
-        assert_eq!(added[1].qualifier, "PEMBIAYAAN:store-03");
+        assert_eq!(added[1].qualifier, "PEMBIAYAAN");
         assert_eq!(
             (added[1].debit_minor, added[1].credit_minor),
             (1_000_000, 0)
@@ -315,7 +329,7 @@ mod tests {
             SiteMovement::new("store-01", 0, 5_000_000),
         ];
         let added = balancing_legs(&lines, kind_for_source("STORE_DEPOSIT"), "dc");
-        assert_eq!(added[0].qualifier, "PEMBIAYAAN:dc");
+        assert_eq!(added[0].qualifier, "PEMBIAYAAN");
         // The shop gave the money, so the shop is owed: Dr its Piutang, and
         // head office owes it back: Cr its Hutang (client accountant, 25 Sep).
         assert_eq!(added[0].semantic_key, AFFILIATE_RECEIVABLE);
@@ -389,6 +403,7 @@ mod tests {
             AffiliateKind::Financing
         );
         assert_eq!(kind_for_source("ASSET_TRANSFER"), AffiliateKind::Other);
+        assert_eq!(kind_for_source("EQUITY_MOVEMENT"), AffiliateKind::Other);
         assert_eq!(kind_for_source("anything at all"), AffiliateKind::Financing);
     }
 

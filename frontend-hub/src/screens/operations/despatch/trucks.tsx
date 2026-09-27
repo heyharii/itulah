@@ -191,15 +191,14 @@ export function Trucks() {
         />
       </KpiStrip>
 
-      {progress !== null && (
+      {progress !== null && progress.failed.length > 0 && (
         <Banner
-          tone={progress.failed.length === 0 ? "ok" : "bad"}
+          tone="bad"
           className="mb-[1.125rem]"
           onDismiss={() => setProgress(null)}
         >
           {progress.message}
-          {progress.failed.length > 0 &&
-            " Those cartons are still where they were. The safe retry is the step they failed at."}
+          {" Those cartons are still where they were. The safe retry is the step they failed at."}
         </Banner>
       )}
 
@@ -257,7 +256,7 @@ export function Trucks() {
         title="New dispatch"
         footer={
           <div className="flex flex-wrap items-center gap-2.5">
-            <span className="text-[0.75rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               {chosen.size === 0
                 ? "Tick the consignments going on it"
                 : `${count(chosen.size)} of ${count(rows.length)} consignments`}
@@ -273,7 +272,7 @@ export function Trucks() {
           </div>
         }
       >
-        <p className="text-[0.78125rem] text-body">
+        <p className="text-[0.875rem] text-body">
           Loading files the run and moves every carton on it onto the truck. The
           goods are still here until the gate opens — departing is a separate
           act, on the run itself, and it is the one step that cannot be walked
@@ -322,12 +321,12 @@ export function Trucks() {
                         <span className="block truncate font-mono text-id text-ink">
                           {row.shipment_number}
                         </span>
-                        <span className="block truncate text-[0.6875rem] text-mute">
+                        <span className="block truncate text-[0.875rem] text-mute">
                           {row.destination_store_id} · {count(row.koli_count)}{" "}
                           cartons
                         </span>
                       </span>
-                      <span className="shrink-0 text-[0.78125rem] text-body tabular-nums">
+                      <span className="shrink-0 text-[0.875rem] text-body tabular-nums">
                         {count(row.unit_count)}
                       </span>
                     </button>
@@ -457,7 +456,7 @@ function RunCard({
             onConfirm={onDepart}
           />
         ) : (
-          <span className="text-[0.71875rem] text-mute">
+          <span className="text-[0.875rem] text-mute">
             Departed {clock(run.departed_at)}.
           </span>
         )}
@@ -529,7 +528,7 @@ function RunSheet({ id, onClose }: { id: string | null; onClose: () => void }) {
                       <span className="block truncate font-mono text-id text-ink">
                         {shipment.shipment_number}
                       </span>
-                      <span className="block truncate text-[0.6875rem] text-mute">
+                      <span className="block truncate text-[0.875rem] text-mute">
                         {shipment.destination_store_id} ·{" "}
                         {count(shipment.koli_count)} cartons
                       </span>

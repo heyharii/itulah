@@ -44,39 +44,31 @@ export function useActor(): string {
 /// regenerated on every render or every click. Rotating after a success is what
 /// makes the next, genuinely different write a new one rather than a replay of
 /// the last.
-/// The next number in the series, from the orders already raised.
+/// The next number in today's series, from the orders already raised.
 ///
-/// `PO-20260904-2217` is the shape the book is written in: the day it was
-/// raised, then a counter that does not restart. So the counter is the largest
-/// tail anybody has used plus one — read from the order list rather than
-/// invented, because a number that collides is refused by a UNIQUE constraint
-/// and the buyer is the one who has to guess again.
+/// `DDMMYY-NNN` — `260926-001` is the first order of 26 September 2026 — the
+/// shape the server gives an order it numbers itself (see `next_po_number`
+/// in the backend). Only today's numbers count towards the serial, because it
+/// restarts every day.
 ///
-/// It is a suggestion, not an allocation. Nothing reserves it, two people
-/// composing at once are offered the same one, and the second to press Create
-/// PO is told the number is taken. That is the honest failure for a book with
-/// no server-side counter behind it — and the reason a refused order refetches
-/// the book: the next press is offered a number that is free, without asking
-/// a buyer to invent one.
-///
-/// Shared between the composer and the import screen: two places offering
-/// numbers from one book must not drift into two shapes.
+/// It is a suggestion, not an allocation: the import sends it, and the
+/// server's UNIQUE constraint is the final word if another buyer wins a race.
 export function nextPoNumber(
   existing: readonly { po_number: string }[]
 ): string {
-  const highest = existing.reduce((top, order) => {
-    const tail = /-(\d+)$/.exec(order.po_number)
-    if (tail === null) return top
-    const seen = Number.parseInt(tail[1], 10)
-    return Number.isFinite(seen) && seen > top ? seen : top
-  }, 0)
   const today = new Date()
   const stamp = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
     String(today.getDate()).padStart(2, "0"),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getFullYear() % 100).padStart(2, "0"),
   ].join("")
-  return `PO-${stamp}-${String(highest + 1).padStart(4, "0")}`
+  const highest = existing.reduce((top, order) => {
+    const match = new RegExp(`^${stamp}-(\\d+)$`).exec(order.po_number)
+    if (match === null) return top
+    const seen = Number.parseInt(match[1], 10)
+    return Number.isFinite(seen) && seen > top ? seen : top
+  }, 0)
+  return `${stamp}-${String(highest + 1).padStart(3, "0")}`
 }
 
 /// Advance a number already suggested by `nextPoNumber`. Importing several
@@ -151,4 +143,53 @@ export function toggle(
   return values.includes(value)
     ? values.filter((each) => each !== value)
     : [...values, value]
+}
+
+/// An item typed into the order composer that does not exist yet.
+///
+/// "New item" on an order used to write the item into the supplier's
+/// catalogue the moment its sheet was saved — so an order abandoned halfway
+/// left its new items behind in the catalogue, and a line that had not been
+/// ordered was already a record. Now the item rides on the draft line as the
+/// request it WILL be, and is created when the order is: both land together
+/// or neither does. `key` is the create's idempotency key, fixed when the item
+/// is drafted, so a raise that fails after the item was made and is pressed
+/// again finds the same item rather than minting a second.
+export interface PendingItem {
+  readonly request: import("@itulah/contract").CreateSupplierItemRequest
+  readonly photo: Blob | null
+  readonly key: string
+  /// How many pieces the order wants, typed on the item form beside the price.
+  readonly quantity?: number
+  /// The unit it was typed in and how many of it, when not pieces.
+  readonly unitCode?: string
+  readonly unitQuantity?: string
+  /// What the goods will sell for, and the markup that came from.
+  readonly basePrice?: string
+  readonly markup?: string
+  /// How many of each colour and size, and a SKU's own price.
+  readonly variants?: readonly import("@/screens/procurement/line-pricing-model").VariantDraft[]
+}
+
+/// Where a purchase order stands, as the owner reads it (2026-09-26): active
+/// green, partially received blue, short received amber, fully received a
+/// settled dark grey, cancelled grey.
+export const PO_STATUS: Readonly<
+  Record<
+    string,
+    {
+      readonly label: string
+      readonly tone: "ok" | "info" | "warn" | "done" | "neutral"
+    }
+  >
+> = {
+  ACTIVE: { label: "Active", tone: "ok" },
+  PARTIALLY_RECEIVED: { label: "Partially received", tone: "info" },
+  SHORT_RECEIVED: { label: "Short received", tone: "warn" },
+  FULLY_RECEIVED: { label: "Fully received", tone: "done" },
+  CANCELLED: { label: "Cancelled", tone: "neutral" },
+}
+
+export function poStatus(lifecycle: string) {
+  return PO_STATUS[lifecycle] ?? { label: lifecycle, tone: "neutral" as const }
 }

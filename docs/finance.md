@@ -191,13 +191,21 @@ membuka psql.
 
 ## 3. Aturan menyebut ARTI, tidak pernah kode akun
 
-Pemanggil menyebut `inventory` dan `trade_payable`; `account_map` mengubah arti
-itu **plus sebuah lokasi** menjadi kode klien.
+Pemanggil menyebut `inventory` dan `trade_payable` (sebuah **peran**);
+`account_link` (0460) memutuskan akun mana yang menjawab peran itu, untuk
+sebuah **cakupan**: semua site, satu jenis site (HO/STORE), atau satu site.
+Kait paling spesifik menang, dan view `account_resolution` menjabarkannya per
+site. Tabel `account_map` lama (satu baris per site) sudah dihapus.
 
 ```
-semantic_key  ×  site_id  ×  qualifier   →   account_code
-"bank_giro"      "C006"      "BCA"            1011002001 06
+role       ×  source_id  ×  cakupan         →   account_code
+"bank_giro"   "BCA"         ALL                 1005
+"cash"        ""            SITE_KIND STORE     1002
 ```
+
+Kait diubah Finance dari layar Account Links; akun tambahan diajukan lewat
+editor COA dan diterapkan orang kedua (0461). Lihat "Desain Fondasi Finance
+Dinamis".
 
 Dua jenis pemanggil, dan keduanya dimodelkan sebagai pilihan, bukan sebagai
 kode opsional di sebelah kunci opsional — supaya tidak bisa dibuat baris yang
@@ -445,7 +453,7 @@ kecil. C menjawabnya di `Cash & Banking → Transfers & Deposits`.
 | **G8** | Giro dianggap cair seketika | `payments.rs:562` — `GIRO` satu dari lima `METHODS` | register giro dengan siklus hidup |
 | **G9** | Settlement acquirer tidak ada | — | satu baris per acquirer per hari, kotor − MDR = neto |
 | **G10** | Dua dari tiga keluarga afiliasi tidak punya arti | `required_semantic_keys` hanya `affiliate_*` pembiayaan | tambah arti atas barang dan lain-lain |
-| **G11** | Binding tidak punya masa berlaku dan versi | `account_map` satu baris per kombinasi | `valid_from`/`valid_to`/`version`; koreksi adalah baris baru |
+| **G11** | Binding tidak punya masa berlaku dan versi | `account_link` satu baris per kait (riwayat di `account_link_history`, 0460) | `valid_from`/`valid_to`/`version`; koreksi adalah baris baru |
 | **G12** | Tidak ada kebijakan "akun ini dilarang di unit ini" | bagan klien tidak membawanya | policy kita sendiri, terpisah dari flag bagan |
 | **G13** | Dua pintu Finance terdaftar bersamaan | `navigation.ts:209` mendaftarkan `finance` dan `finance-lab` berdampingan | satu pintu; lab diberi label Simulasi sampai dipensiunkan |
 | **G14** | Delapan keadaan layar dirancang di prototipe, tidak ada di modul hidup | §9; `finance.html` `KEADAAN_UJI` | tiap daftar wajib punya `kosong` ≠ `takAdaHasil`, rangka isi saat memuat, dan `takBerizin` yang bukan nol |

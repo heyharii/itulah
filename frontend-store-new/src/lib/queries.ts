@@ -1,4 +1,9 @@
 import { node } from "@/lib/api"
+// TEMPORARY: from `@itulah/contract` once the backend generates them.
+import type {
+  StoreInboundDetail,
+  StoreInboundList,
+} from "@/screens/stock/inbound-types"
 import type { CatalogRow, MovementView, StoreOffers } from "@itulah/contract"
 
 /// Every read this till makes, and the key it is cached under.
@@ -184,6 +189,47 @@ export async function fetchMovements(
     { signal },
   )
   return answer.items
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Deliveries on their way here, and what arrived
+//
+// Read only. Receiving is the RFID handheld's job and nothing in this app
+// writes a delivery — so there is no write to invalidate these, and the screen
+// polls instead: the handheld finishes a sweep in the stockroom and the result
+// has to reach the back office without anybody pressing anything.
+
+/// Its own `inbound` namespace rather than under `inventory`: every move and
+/// sale invalidates that prefix, and none of them changes a delivery.
+export const inboundListKey = (status: InboundFilter) =>
+  ["inbound", "list", status] as const
+
+export const inboundDeliveryKey = (deliveryId: string) =>
+  ["inbound", "delivery", deliveryId] as const
+
+export type InboundFilter = "IN_TRANSIT" | "RECEIVED" | "ALL"
+
+/// `GET /api/v1/store/inbound`. While a delivery is in transit its `result` is
+/// null — the node keeps the packed quantities back until the count is in.
+export function fetchInbound(
+  status: InboundFilter,
+  signal?: AbortSignal,
+): Promise<StoreInboundList> {
+  return node.get<StoreInboundList>(`/api/v1/store/inbound?status=${status}`, {
+    signal,
+  })
+}
+
+/// `GET /api/v1/store/inbound/{delivery_id}` — the delivery, and per SKU what
+/// was packed against what the handheld counted. `lines` is empty in transit.
+export function fetchInboundDelivery(
+  deliveryId: string,
+  signal?: AbortSignal,
+): Promise<StoreInboundDetail> {
+  return node.get<StoreInboundDetail>(
+    `/api/v1/store/inbound/${encodeURIComponent(deliveryId)}`,
+    { signal },
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

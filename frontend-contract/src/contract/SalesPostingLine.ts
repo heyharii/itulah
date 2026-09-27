@@ -13,4 +13,12 @@ acquirer: string, card_kind: string | null,
  * True when the kind was inferred from the acquirer rather than captured
  * at the till — which is the line to check when a receivable looks wrong.
  */
-card_kind_inferred: boolean, gross_minor: number, returns_minor: number, discount_minor: number, vat_minor: number, tender_count: number, };
+card_kind_inferred: boolean, gross_minor: number, returns_minor: number, 
+/**
+ * Nought: a promotion is inside the price this line was credited with.
+ */
+discount_minor: number, 
+/**
+ * Nought while PPN is ignored (P11).
+ */
+vat_minor: number, tender_count: number, };

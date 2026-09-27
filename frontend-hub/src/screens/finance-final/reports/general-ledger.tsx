@@ -153,7 +153,7 @@ export function GeneralLedger() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Reports"
+        crumb="Finance · Accounting"
         title="General Ledger"
         sub="Every posting, filtered to the account, unit and window you name — with the balance it opened on and the one it closed at."
         actions={
@@ -186,7 +186,7 @@ export function GeneralLedger() {
             two disagree the boxes are wrong and this is the figure the totals
             below belong to. */}
         {ledger.data && (
-          <span className="text-[0.71875rem] text-mute">
+          <span className="text-[0.875rem] text-mute">
             {day(ledger.data.from)} – {day(ledger.data.to)} ·{" "}
             {ledger.data.site_id === null ? (
               "every unit"
@@ -199,7 +199,7 @@ export function GeneralLedger() {
 
       {(code === null || picking) && (
         <div className="mb-4 rounded-card border border-hairline p-3.5">
-          <p className="mb-2 text-[0.71875rem] text-body">
+          <p className="mb-2 text-[0.875rem] text-body">
             Any account in the client&rsquo;s own chart, by code or by name. A
             heading works as well as a leaf — <Code>10110</Code> reads the whole
             of KAS &amp; SETARA KAS, <Code>1011001</Code> reads cash at every
@@ -233,7 +233,7 @@ export function GeneralLedger() {
                 <h2 className="text-card-title font-semibold text-ink">
                   {data.account_name}
                 </h2>
-                <p className="mt-0.5 text-[0.71875rem] text-mute">
+                <p className="mt-0.5 text-[0.875rem] text-mute">
                   <Code>{data.account_code}</Code>
                   {detail.data && detail.data.path.length > 0 && (
                     <>
@@ -277,7 +277,7 @@ export function GeneralLedger() {
                   what the contract says it is for. */}
               {data.facets.sites.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="mr-0.5 text-[0.71875rem] text-mute">
+                  <span className="mr-0.5 text-[0.875rem] text-mute">
                     Moved at
                   </span>
                   {data.facets.sites.map((one) => (
@@ -389,12 +389,12 @@ export function GeneralLedger() {
                                     : [...was, row.entry_id]
                                 )
                               }
-                              className="font-mono text-[0.6875rem] text-accent hover:underline"
+                              className="font-mono text-[0.875rem] text-accent hover:underline"
                             >
                               {row.entry_number}
                             </button>
                             {row.memo !== null && row.memo !== "" && (
-                              <span className="block text-[0.65625rem] text-mute">
+                              <span className="block text-[0.875rem] text-mute">
                                 {row.memo}
                               </span>
                             )}
@@ -465,7 +465,7 @@ export function GeneralLedger() {
                                 onClick={() =>
                                   setOpened((was) => [...was, row.entry_id])
                                 }
-                                className="text-[0.71875rem] text-accent hover:underline"
+                                className="text-[0.875rem] text-accent hover:underline"
                               >
                                 Show
                               </button>
@@ -597,9 +597,11 @@ function AgainstAccounts({
   const opposite = voucher.lines.filter((line) =>
     debit > 0 ? line.credit_minor > 0 : line.debit_minor > 0
   )
-  const party = mine.find((line) => line.supplier_id !== null)?.supplier_id
+  const party = mine.find(
+    (line) => line.party_type === "SUPPLIER" && line.party_id !== null
+  )?.party_id ?? null
 
-  if (opposite.length === 0 && party === undefined) {
+  if (opposite.length === 0 && party === null) {
     return <span className="text-faint">—</span>
   }
 
@@ -613,8 +615,8 @@ function AgainstAccounts({
             .join(", ")}
         </span>
       )}
-      {party !== undefined && (
-        <SupplierName id={party} className="text-[0.65625rem] text-mute" />
+      {party !== null && (
+        <SupplierName id={party} className="text-[0.875rem] text-mute" />
       )}
     </span>
   )
@@ -629,7 +631,7 @@ function AgainstAccounts({
 function Voucher({ voucher }: { voucher: JournalEntryDetail }) {
   return (
     <div className="rounded-inner border border-hairline bg-soft p-2.5">
-      <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[0.71875rem]">
+      <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[0.875rem]">
         <span className="font-medium text-ink">
           {voucher.entry.entry_number}
         </span>
@@ -667,7 +669,7 @@ function Voucher({ voucher }: { voucher: JournalEntryDetail }) {
               <Td className="text-ink">
                 {line.account_name}
                 {line.memo !== null && line.memo !== "" && (
-                  <span className="block text-[0.65625rem] text-mute">
+                  <span className="block text-[0.875rem] text-mute">
                     {line.memo}
                   </span>
                 )}
@@ -676,7 +678,11 @@ function Voucher({ voucher }: { voucher: JournalEntryDetail }) {
                 <SiteName id={line.site_id} className="text-body" />
               </Td>
               <Td>
-                <SupplierName id={line.supplier_id} className="text-body" />
+                {line.party_type === "SUPPLIER" && line.party_id !== null ? (
+                  <SupplierName id={line.party_id} className="text-body" />
+                ) : (
+                  <span className="text-faint">—</span>
+                )}
               </Td>
               <DebitCredit
                 debit={line.debit_minor}

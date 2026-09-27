@@ -1,4 +1,11 @@
-import { FolderTree, Palette, Ruler, Shirt, Tag } from "lucide-react"
+import {
+  CalendarClock,
+  FolderTree,
+  Palette,
+  Ruler,
+  Shirt,
+  Tag,
+} from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
@@ -61,6 +68,20 @@ export const masterNav: AppModule = {
         { path: "/master/colours", label: "Colours", icon: Palette },
         { path: "/master/sizes", label: "Sizes", icon: Ruler },
         { path: "/master/tags", label: "Tags", icon: Tag },
+      ],
+    },
+    {
+      /// Payment templates, since the owner moved them here: terms are no
+      /// longer chosen on the supplier form or the order composer — Finance
+      /// handles payment — so the arrangements are kept as master data. Not an
+      /// article's vocabulary, which is why it is a section of its own under
+      /// its own rule rather than a fifth item in the list above.
+      items: [
+        {
+          path: "/master/payment-templates",
+          label: "Payment templates",
+          icon: CalendarClock,
+        },
       ],
     },
   ],

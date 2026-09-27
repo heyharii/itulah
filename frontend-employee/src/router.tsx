@@ -15,6 +15,10 @@ import { Notifications } from "@/screens/notifications"
 import { Overtime } from "@/screens/overtime"
 import { Pay } from "@/screens/pay"
 import { Payslip } from "@/screens/payslip"
+import { Claims } from "@/screens/claims"
+import { Swap } from "@/screens/swap"
+import { Team } from "@/screens/team"
+import { Voice } from "@/screens/voice"
 
 /// Where the employee is, in the URL rather than in a variable.
 ///
@@ -69,6 +73,36 @@ const overtimeRoute = createRoute({
   component: Overtime,
 })
 
+/// Swapping a day lives in the Hours family: the person arrives from a
+/// schedule they were reading.
+const swapRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/attendance/swap",
+  component: Swap,
+})
+
+/// The store head's desk. Reachable from Home, only useful to somebody with
+/// a queue; the screen says so when the queue is empty.
+const teamRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/team",
+  component: Team,
+})
+
+/// Claims: what you filed and the form for the next one. The Pay family.
+const claimsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/pay/claims",
+  component: Claims,
+})
+
+/// The confidential channel, reached from Me.
+const voiceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/me/voice",
+  component: Voice,
+})
+
 const payRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/pay",
@@ -100,6 +134,10 @@ const routeTree = rootRoute.addChildren([
   attendanceRoute,
   correctionRoute,
   overtimeRoute,
+  swapRoute,
+  teamRoute,
+  claimsRoute,
+  voiceRoute,
   payRoute,
   payslipRoute,
   notificationsRoute,

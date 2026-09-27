@@ -2,6 +2,8 @@ import { node } from "@/lib/api"
 import { ApiError } from "@itulah/contract/client"
 import type {
   AttendanceRangeView,
+  ContractView,
+  ContractsView,
   EmploymentProfileView,
   LeaveBalanceRow,
   LeaveRequestView,
@@ -10,151 +12,66 @@ import type {
   PayrollIdentityView,
   PayrollSlipRow,
   PunchRecorded,
+  LifecycleTaskView,
   Notification as ContractNotification,
   NotificationPage,
+  RosterSwapView,
+  ColleagueView,
+  CalendarView,
+  CalendarYearsView,
+  CorrectionRow,
 } from "@itulah/contract"
-import * as demo from "./demo"
 import type {
   AttendanceCorrection,
-  DeviceSession,
-  EmploymentContract,
   HolidayCalendar,
+  IsoDate,
   NewAttendanceCorrection,
   Notification,
 } from "./types"
 
-/// The employee's own record, asked of the server, with a stand-in for the
-/// routes it does not have yet.
+/// The employee's own record, asked of the server.
 ///
-/// The server has none of them today. Rather than build these screens against
-/// nothing, or build them against a mock that would have to be unpicked later,
-/// every call here is the real request — correct path, correct method, correct
-/// credentials — and only a 404 or a 501 falls back to `demo.ts`. So the day a
-/// route lands, that route stops using the stand-in with no edit here at all,
-/// and the ones that have not landed keep working.
-///
-/// Deliberately narrow: only "this route does not exist" falls back. A 401
-/// still means sign in, a 403 still means you may not, a 500 and a dead
-/// network still surface as failures. A fallback that swallowed those would
-/// show a person somebody else's plausible leave balance and call it theirs,
-/// which is worse than an error message.
+/// Every route this app calls exists on the cloud node now, so there is no
+/// stand-in behind any of them: a 404 means the route moved or the record is
+/// missing, and it surfaces as the failure it is. The fallback to example data
+/// that carried these screens while the backend was being built is gone —
+/// behind a live route it could only ever show somebody a plausible stranger's
+/// leave balance and call it theirs.
 
 /// `me` rather than an employee id in the path.
 ///
-/// The phone app calls `/v1/employees/{id}/…`, and `me` is that `{id}`: the
-/// caller's own record, resolved from the session by the server. It saves this
-/// app a round trip it would otherwise make on every screen just to learn its
-/// own id — and, more to the point, self-service is the only access this
-/// surface has. Someone else's id here is the server's to refuse.
+/// `me` is the caller's own record, resolved from the session by the server.
+/// It saves this app a round trip just to learn its own id — and, more to the
+/// point, self-service is the only access this surface has. Someone else's id
+/// here is the server's to refuse.
 const SELF = "me"
 
-export type Reach = "unknown" | "live" | "absent"
-
-let reach: Reach = "unknown"
-const listeners = new Set<() => void>()
-
-function settle(next: Reach) {
-  if (next === reach) {
-    return
-  }
-  reach = next
-  for (const listener of listeners) {
-    listener()
-  }
-}
-
-/// For `useSyncExternalStore` — the banner that tells the person on the screen
-/// they are looking at a stand-in subscribes to this rather than polling.
-export function subscribeToReach(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
-}
-
-export function reachSnapshot(): Reach {
-  return reach
-}
-
-/// 501 as well as 404 because a route that is registered but not yet
-/// implemented answers the second, and both mean the same thing to a caller:
-/// the server cannot do this yet.
-function routeMissing(error: unknown): boolean {
+/// The route exists and the session is valid, but no employment record is
+/// behind this login — HR's to fix, and said once by the shell rather than as
+/// a refusal on every card.
+export function isUnbound(error: unknown): boolean {
   return (
-    error instanceof ApiError && (error.status === 404 || error.status === 501)
+    error instanceof ApiError &&
+    error.status === 404 &&
+    error.message.includes("no employment record is bound")
   )
-}
-
-async function read<T>(
-  path: string,
-  standIn: () => T,
-  signal?: AbortSignal
-): Promise<T> {
-  try {
-    const answer = await node.get<T>(path, { signal })
-    settle("live")
-    return answer
-  } catch (error) {
-    if (!routeMissing(error)) {
-      throw error
-    }
-    settle("absent")
-    return standIn()
-  }
-}
-
-/// A write goes to the server unless a read has already established there is
-/// nothing there.
-///
-/// The check comes first rather than after a failed request, because a failed
-/// write cannot be read the way a failed read can. This node answers an
-/// unrouted path with 404 to a GET and 405 to a POST — its fallback only
-/// handles safe methods — and 405 is a genuinely ambiguous answer: on a server
-/// that HAS grown these routes it would mean "this one exists, but not for
-/// POST", which is a bug to show, not a reason to pretend the write landed.
-///
-/// So: if the reads have already come back 404, the routes are not there and
-/// there is nothing to send. Otherwise the write is real and every failure is
-/// reported. Every screen here loads before it submits, so by the time anybody
-/// presses a button this is settled.
-async function write<T>(
-  method: "POST" | "DELETE",
-  path: string,
-  body: unknown,
-  standIn: () => T
-): Promise<T> {
-  if (reach === "absent") {
-    return standIn()
-  }
-  try {
-    const answer = await node.request<T>(method, path, body)
-    settle("live")
-    return answer
-  } catch (error) {
-    if (!routeMissing(error)) {
-      throw error
-    }
-    settle("absent")
-    return standIn()
-  }
 }
 
 export function profile(signal?: AbortSignal): Promise<EmploymentProfileView> {
-  return read(
-    `/api/v1/employees/${SELF}/profile`,
-    () => demo.demoProfile,
-    signal
-  )
+  return node.get<EmploymentProfileView>(`/api/v1/employees/${SELF}/profile`, {
+    signal,
+  })
 }
 
-export function contracts(
+/// Newest first; the server answers oldest first inside an envelope.
+export async function contracts(
   signal?: AbortSignal
-): Promise<readonly EmploymentContract[]> {
-  return read(
+): Promise<readonly ContractView[]> {
+  const view = await node.get<ContractsView>(
     `/api/v1/employees/${SELF}/contracts`,
-    () => [demo.demoContract],
-    signal
+    { signal }
   )
+  return [...view.contracts].reverse()
 }
 
 // ── pay: live, and honest about what it does not know ─────────
@@ -334,26 +251,12 @@ export function answerOvertime(
     { agreed, reason }
   )
 }
-// ── attendance: live, and honest about what produced each day ─────
+// ── attendance ─────────────────────────────────────────────────────────────
 //
-// The route landed, and it is `/attendance` rather than the `/attendance/basis`
-// this app used to ask for. It answers `AttendanceRangeView` — days DERIVED on
-// the request from the plan, the punches, the policy version in force on that
-// date, the approvals and the effective correction. There is no stored outcome
-// anywhere, which is why re-reading a fortnight can legitimately change it.
-//
-// # There is no stand-in below, and removing the old one was the point
-//
-// `read`'s fallback fires on a 404 and hands back `demo.ts` instead. That is
-// right for a route the server has not grown; it is dangerous for one it has,
-// because a stand-in shaped like last month's guess renders happily behind a
-// live route and nobody finds out until a figure is wrong. This app has already
-// been bitten twice that way — `/notifications` returned a page where a list was
-// expected, and `/holiday-calendars` an index where a calendar was — and both
-// times the fallback was innocent and the hand-written shape was not.
-//
-// So these two call the node directly. A 404 here means the route moved, and
-// this app should say so rather than quietly show a fortnight nobody worked.
+// `AttendanceRangeView` is days DERIVED on the request from the plan, the
+// punches, the policy version in force on that date, the approvals and the
+// effective correction. There is no stored outcome anywhere, which is why
+// re-reading a fortnight can legitimately change it.
 
 /// This person's own derived fortnight.
 ///
@@ -388,188 +291,352 @@ export function punch(direction: "IN" | "OUT"): Promise<PunchRecorded> {
   })
 }
 
-export function corrections(
+function fromRow(row: CorrectionRow): AttendanceCorrection {
+  return {
+    correction_id: row.id,
+    date: row.business_date,
+    claimed_in: row.corrected_arrival,
+    claimed_out: row.corrected_departure,
+    reason: row.reason,
+    status: row.state as AttendanceCorrection["status"],
+    decided_by: row.decided_by,
+    decided_at: row.decided_at,
+  }
+}
+
+/// Your own pending fixes.
+///
+/// The server keeps one queue per place rather than one per person, and a
+/// caller sees the queue of wherever they are posted — so this narrows it to
+/// the rows filed against the caller's own record.
+export async function corrections(
   signal?: AbortSignal
 ): Promise<readonly AttendanceCorrection[]> {
-  return read(
-    `/api/v1/employees/${SELF}/attendance/corrections`,
-    () => demo.demoCorrections,
-    signal
-  )
+  const [me, rows] = await Promise.all([
+    node.get<EmploymentProfileView>(`/api/v1/employees/${SELF}/profile`, {
+      signal,
+    }),
+    node.get<CorrectionRow[]>("/api/v1/attendance-corrections?pending=true", {
+      signal,
+    }),
+  ])
+  return rows.filter((row) => row.employee_id === me.employee_id).map(fromRow)
 }
 
-export function requestCorrection(
+export async function requestCorrection(
   correction: NewAttendanceCorrection
 ): Promise<AttendanceCorrection> {
-  return write(
-    "POST",
-    `/api/v1/employees/${SELF}/attendance/corrections`,
-    correction,
-    () => {
-      const created: AttendanceCorrection = {
-        correction_id: demo.demoId("cor"),
-        date: correction.date,
-        claimed_in: correction.claimed_in,
-        claimed_out: correction.claimed_out,
-        reason: correction.reason,
-        status: "SUBMITTED",
-        decided_by: null,
-        decided_at: null,
-      }
-      demo.demoCorrections.unshift(created)
-      // The day itself is no longer this file's to patch: it comes from the
-      // live `/attendance` route above, which derives it. A stand-in that
-      // reached across and edited real data's neighbour is exactly the kind of
-      // half-real state that makes a screen impossible to reason about.
-      return created
+  const effect =
+    correction.claimed_in !== null && correction.claimed_out !== null
+      ? "ARRIVAL_AND_DEPARTURE"
+      : correction.claimed_in !== null
+        ? "ARRIVAL"
+        : "DEPARTURE"
+  const rows = await node.post<CorrectionRow[]>(
+    `/api/v1/employees/${SELF}/attendance-corrections`,
+    {
+      business_date: correction.date,
+      effect,
+      arrival: correction.claimed_in,
+      departure: correction.claimed_out,
+      reason: correction.reason,
     }
   )
+  const filed =
+    rows.find(
+      (row) => row.business_date === correction.date && row.state === "PENDING"
+    ) ?? rows[rows.length - 1]
+  return fromRow(filed)
 }
 
-/// The second route in this file the server has grown, and — like
-/// `/notifications` above — it does not answer what the stand-in does.
+/// The holiday calendar that applies to this person, for this year.
 ///
-/// `/api/v1/holiday-calendars` returns the **index of published years**,
-/// `{ years: [2026] }`, not a calendar. This function used to hand that
-/// straight back typed as a `HolidayCalendar`, so `calendar.days` was
-/// `undefined` and the "Days off" panel threw on `.length` — taking the whole
-/// **Me** screen down with it, because one panel's crash is the screen's crash.
+/// `/holiday-calendars` is the index of published years, not a calendar, so
+/// this asks which years exist, takes this year if it is one of them and
+/// otherwise the most recent, then reads that year. No year published is not
+/// an error — it is an empty calendar, and the screen says so.
 ///
-/// Because the route exists, `read`'s stand-in never fired to hide it. That is
-/// the fallback working correctly: a route that answers is a route we must read
-/// properly, and the shape mismatch was ours.
-///
-/// So: ask which years exist, take this year if it is one of them and otherwise
-/// the most recent, then fetch that year. No year published is not an error —
-/// it is an empty calendar, and it says so.
-export async function holidays(signal?: AbortSignal): Promise<HolidayCalendar> {
-  const index = await read<{ years: number[] }>(
-    "/api/v1/holiday-calendars",
-    () => ({ years: [demo.demoHolidays.year] }),
-    signal
-  )
-  const years = [...(index.years ?? [])].sort((a, b) => b - a)
-  if (years.length === 0) {
-    return { calendar_id: "", name: "", year: new Date().getFullYear(), days: [] }
-  }
+/// A regional day names the places it applies to, and a day off in another
+/// province is not a day off here: those are dropped against the caller's own
+/// posting rather than shown to every shop.
+export async function holidays(
+  placeId: string | null,
+  signal?: AbortSignal
+): Promise<HolidayCalendar> {
+  const index = await node.get<CalendarYearsView>("/api/v1/holiday-calendars", {
+    signal,
+  })
+  const years = [...index.years].sort((a, b) => b - a)
   const thisYear = new Date().getFullYear()
   const year = years.includes(thisYear) ? thisYear : years[0]
-
-  const calendar = await read<{
-    year: number
-    holidays: { date: string; name: string; kind: string }[]
-  }>(
+  if (year === undefined) {
+    return { year: thisYear, days: [] }
+  }
+  const calendar = await node.get<CalendarView>(
     `/api/v1/holiday-calendars/${year}`,
-    () => ({ year, holidays: [] }),
-    signal
+    { signal }
   )
-
   return {
-    calendar_id: String(year),
-    name: `Kalender ${year}`,
-    year: calendar.year ?? year,
-    // The server says `CUTI_BERSAMA`; these screens say `JOINT_LEAVE`, because
-    // that is the word the balance rule is written in. Translated here, once,
-    // rather than in each screen that renders a day.
-    days: (calendar.holidays ?? []).map((one) => ({
-      date: one.date,
-      name: one.name,
-      kind:
-        one.kind === "CUTI_BERSAMA"
-          ? ("JOINT_LEAVE" as const)
-          : one.kind === "REGIONAL"
-            ? ("COMPANY" as const)
-            : ("NATIONAL" as const),
-    })),
+    year: calendar.year,
+    days: calendar.holidays.filter(
+      (day) =>
+        day.places === null ||
+        (placeId !== null && day.places.includes(placeId))
+    ),
   }
 }
 
-/// The one route in this file the server has actually grown, and it does not
-/// answer what the stand-in does.
+/// This person's notifications, first page, and how many are unread.
 ///
-/// `/api/v1/notifications` returns a PAGE — `{ items, unread }` — of the
-/// contract's own `Notification`, whose sentence is `title` and whose target is
-/// a record `(subject_kind, subject_id)` rather than a route. The stand-in
-/// returns a bare array shaped the way these screens read it. Because the route
-/// exists, `read` does not fall back, so the page arrived where a list was
-/// expected and the shell crashed on `.filter`.
-///
-/// So this is the one call that adapts rather than passes through. The target
-/// resolves to `null` for every subject the server raises today: nothing it
-/// stores is an HR record yet, and inventing a route from a subject kind this
-/// app has never seen would send somebody to the wrong screen.
+/// `unread` is the server's count rather than a count of `items`: the page is
+/// capped, and a badge that stopped at the page size would be a badge nobody
+/// trusts.
 export async function notifications(
   signal?: AbortSignal
-): Promise<readonly Notification[]> {
-  const answer = await read<NotificationPage | readonly Notification[]>(
-    "/api/v1/notifications",
-    () => demo.demoNotifications,
-    signal
-  )
-  return Array.isArray(answer)
-    ? answer
-    : (answer as NotificationPage).items.map(adopt)
+): Promise<{ items: readonly Notification[]; unread: number }> {
+  const page = await node.get<NotificationPage>("/api/v1/notifications", {
+    signal,
+  })
+  return { items: page.items.map(adopt), unread: page.unread }
 }
 
-const KINDS = ["LEAVE", "OVERTIME", "PAY", "ATTENDANCE"] as const
+/// The server's kinds are dotted — `people.leave.decided`,
+/// `people.contract.expiring` — and this app groups them by the family it has
+/// an icon and a screen for. Anything else is GENERAL rather than a blank row.
+const FAMILIES: readonly [string, Notification["kind"]][] = [
+  ["people.leave", "LEAVE"],
+  ["people.overtime", "OVERTIME"],
+  ["people.pay", "PAY"],
+  ["people.payroll", "PAY"],
+  ["people.attendance", "ATTENDANCE"],
+  ["people.correction", "ATTENDANCE"],
+]
 
-/// The server's notification as these screens read one.
-///
-/// `kind` is free text in the schema, so anything this app has no icon for is
-/// GENERAL rather than a blank row.
+/// Where each family is read in this app. The target is chosen here, from a
+/// closed list, and never taken from the server as a string.
+const DESTINATIONS: Partial<Record<Notification["kind"], string>> = {
+  LEAVE: "/leave",
+  OVERTIME: "/overtime",
+  PAY: "/pay",
+  ATTENDANCE: "/attendance",
+}
+
 function adopt(item: ContractNotification): Notification {
-  const kind = KINDS.find(
-    (known) => known === item.kind.toUpperCase()
-  )
+  const kind =
+    FAMILIES.find(([prefix]) => item.kind.startsWith(prefix))?.[1] ?? "GENERAL"
   return {
     notification_id: item.notification_id,
-    kind: kind ?? "GENERAL",
+    kind,
     subject: item.title,
     body: item.body,
     created_at: item.created_at,
     read_at: item.read_at,
-    link: null,
+    link: DESTINATIONS[kind] ?? null,
   }
 }
 
 export function markNotificationRead(
   notificationId: string
-): Promise<Notification> {
-  return write(
-    "POST",
-    `/api/v1/notifications/${notificationId}/read`,
-    {},
-    () => {
-      const index = demo.demoNotifications.findIndex(
-        (candidate) => candidate.notification_id === notificationId
-      )
-      const read: Notification = {
-        ...demo.demoNotifications[index],
-        read_at: new Date().toISOString(),
-      }
-      demo.demoNotifications[index] = read
-      return read
-    }
+): Promise<{ unread: number }> {
+  return node.post<{ unread: number }>(
+    `/api/v1/notifications/${encodeURIComponent(notificationId)}/read`,
+    {}
   )
 }
 
-export function sessions(
-  signal?: AbortSignal
-): Promise<readonly DeviceSession[]> {
-  return read("/api/v1/me/sessions", () => demo.demoSessions, signal)
+export function markAllNotificationsRead(): Promise<{ unread: number }> {
+  return node.post<{ unread: number }>("/api/v1/notifications/read-all", {})
 }
 
-/// Ending a session on a device you no longer hold.
-///
-/// The current one is not offered here — that is what signing out is, and a
-/// list where one row silently logs you out reads as a mistake.
-export function endSession(sessionId: string): Promise<void> {
-  return write("DELETE", `/api/v1/me/sessions/${sessionId}`, undefined, () => {
-    const index = demo.demoSessions.findIndex(
-      (candidate) => candidate.session_id === sessionId
-    )
-    if (index >= 0) {
-      demo.demoSessions.splice(index, 1)
-    }
+// ── the next generation ────────────────────────────────────────────────────
+//
+// Swaps, the store head's queue, grievances, claims and the checklist. The
+// shapes come from `@itulah/contract`, generated from the server — the part
+// of `types.ts` this file once was is gone as each route lands, and nothing
+// here re-declares what the contract already says.
+
+export interface ClaimLineInput {
+  type_code: string
+  description: string
+  spent_on: IsoDate
+  claimed_minor: number
+}
+
+/// The claim, as the queue reads it. Structurally typed here, exactly as the
+/// buying surface types its claim rows: the server's row is a Postgres shape
+/// the contract has not claimed.
+export interface ClaimRow {
+  claim_id: string
+  claim_number: string
+  posted_on: string
+  state: string
+  claimed_minor: number
+  sanctioned_minor: number | null
+  decided_by: string | null
+  decide_reason: string | null
+}
+
+export interface ClaimTypeRow {
+  code: string
+  name: string
+  retired_at: string | null
+}
+
+export interface GrievanceTypeRow {
+  code: string
+  name: string
+  retired_at: string | null
+}
+
+export interface GrievanceRow {
+  grievance_id: string
+  subject: string
+  state: string
+  created_at: string
+}
+
+export function mySwaps(signal?: AbortSignal): Promise<RosterSwapView[]> {
+  return node.get<RosterSwapView[]>(`/api/v1/employees/${SELF}/roster-swaps`, {
+    signal,
   })
+}
+
+export function fileSwap(swap: {
+  with_employee_id: string
+  on_date: IsoDate
+  reason: string
+}): Promise<RosterSwapView> {
+  return node.post<RosterSwapView>("/api/v1/roster-swaps", swap)
+}
+
+export function withdrawSwap(id: string): Promise<RosterSwapView> {
+  return node.post<RosterSwapView>(
+    `/api/v1/roster-swaps/${encodeURIComponent(id)}/withdrawal`,
+    {}
+  )
+}
+
+export function colleagues(
+  from: IsoDate,
+  to: IsoDate,
+  signal?: AbortSignal
+): Promise<ColleagueView[]> {
+  return node.get<ColleagueView[]>(
+    `/api/v1/employees/${SELF}/colleagues?from=${from}&to=${to}`,
+    { signal }
+  )
+}
+
+export function pendingSwaps(signal?: AbortSignal): Promise<RosterSwapView[]> {
+  return node.get<RosterSwapView[]>("/api/v1/roster-swaps/pending", { signal })
+}
+
+export function decideSwap(
+  id: string,
+  approved: boolean,
+  reason: string
+): Promise<RosterSwapView> {
+  return node.post<RosterSwapView>(
+    `/api/v1/roster-swaps/${encodeURIComponent(id)}/decision`,
+    { approved, reason }
+  )
+}
+
+export function pendingLeaveQueue(
+  signal?: AbortSignal
+): Promise<LeaveRequestView[]> {
+  return node.get<LeaveRequestView[]>("/api/v1/leave-requests/pending", {
+    signal,
+  })
+}
+
+export function decideLeaveRequest(
+  employeeId: string,
+  requestId: string,
+  approve: boolean,
+  reason: string
+): Promise<LeaveRequestView> {
+  return node.post<LeaveRequestView>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/leave-requests/${encodeURIComponent(requestId)}/${approve ? "approve" : "reject"}`,
+    { reason }
+  )
+}
+
+export function pendingCorrections(
+  signal?: AbortSignal
+): Promise<CorrectionRow[]> {
+  return node.get<CorrectionRow[]>("/api/v1/attendance-corrections", { signal })
+}
+
+export function decideCorrection(
+  id: string,
+  approve: boolean,
+  reason: string
+): Promise<CorrectionRow[]> {
+  return node.post<CorrectionRow[]>(
+    `/api/v1/attendance-corrections/${encodeURIComponent(id)}/decision`,
+    { approve, reason }
+  )
+}
+
+export function grievanceTypes(
+  signal?: AbortSignal
+): Promise<GrievanceTypeRow[]> {
+  return node.get<GrievanceTypeRow[]>("/api/v1/grievance-types", { signal })
+}
+
+export function fileGrievance(body: {
+  type_code: string
+  subject: string
+  description: string
+}): Promise<GrievanceRow> {
+  return node.post<GrievanceRow>("/api/v1/grievances", body)
+}
+
+export function claimTypes(signal?: AbortSignal): Promise<ClaimTypeRow[]> {
+  return node.get<ClaimTypeRow[]>("/api/v1/expense-claim-types", {
+    signal,
+  })
+}
+
+export function myClaims(signal?: AbortSignal): Promise<ClaimRow[]> {
+  return node.get<ClaimRow[]>(`/api/v1/employees/${SELF}/expense-claims`, {
+    signal,
+  })
+}
+
+export function fileClaim(body: {
+  lines: ClaimLineInput[]
+  reason: string
+}): Promise<ClaimRow> {
+  return node.post<ClaimRow>("/api/v1/expense-claims", body)
+}
+
+export function submitClaim(
+  claimId: string,
+  reason: string
+): Promise<ClaimRow> {
+  return node.post<ClaimRow>(
+    `/api/v1/expense-claims/${encodeURIComponent(claimId)}/submission`,
+    { reason }
+  )
+}
+
+export function myLifecycleTasks(
+  signal?: AbortSignal
+): Promise<LifecycleTaskView[]> {
+  return node.get<LifecycleTaskView[]>(
+    `/api/v1/employees/${SELF}/lifecycle-tasks`,
+    { signal }
+  )
+}
+
+export function completeOwnTask(
+  templateId: string,
+  reason: string
+): Promise<LifecycleTaskView> {
+  return node.post<LifecycleTaskView>(
+    `/api/v1/employees/${SELF}/lifecycle-tasks/${encodeURIComponent(templateId)}/completion`,
+    { reason }
+  )
 }

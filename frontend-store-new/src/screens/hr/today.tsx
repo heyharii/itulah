@@ -1,276 +1,443 @@
 import { useQuery } from "@tanstack/react-query"
-import { CalendarOff, Clock4, Plane, Sunrise, UserCheck } from "lucide-react"
+import { Store } from "lucide-react"
 
-import { AppLink } from "@/components/ui/app-link"
-import { RecordCard } from "@/components/ui/card"
-import { Kpi, KpiGrid } from "@/components/ui/kpi"
+import { PeopleTable } from "@/components/ui/people-table"
 import { Pill } from "@/components/ui/pill"
-import { KeyValue } from "@/components/ui/rows"
-import { CardList, Section } from "@/components/ui/screen"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Stat, StatStrip } from "@/components/ui/stat-strip"
+import { useGo } from "@/lib/go"
 import {
-  awaitingOvertimeAt,
+  applicantsAt,
+  attendanceToday,
+  claimsAt,
+  correctionsAt,
   hrKeys,
   isoDay,
-  nameOf,
+  isoMonth,
   pendingLeaveAt,
+  pendingSwapsAt,
+  periodAt,
   planWord,
   readDate,
-  readMinutes,
+  readMonth,
   rosterAt,
-  teamAt,
+  storeTasks,
   type StoreScope,
 } from "@/lib/queries/hr"
 import { centreState } from "@/screens/hr/centre"
+import { Heading, Person } from "@/screens/hr/parts"
+import { dayStatus, useTeam, type Tone } from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
 
-/// Today, at this shop: who is rostered, and what is waiting on an answer.
+/// Today, at this shop — the prototype's store Overview (`pageOverview`, role
+/// `s`): who is on, who is in, what is waiting on the store head, and what
+/// needs somebody's attention.
 ///
-/// This is the screen the owner pointed at — `#/people/overview/today` in
-/// `prototypes/hr/` — and it is the module's front door for the same reason
-/// the prototype makes it one: a manager opening People has one question
-/// before any other, which is what today looks like.
+/// # What is waiting, and on whom
 ///
-/// # It does not say who is *in*, because nothing in this system knows
+/// The queue is the prototype's *Menunggu kepala toko*: the leave, the
+/// attendance fixes, the swaps and the claims a store head decides. Overtime
+/// is not in it — an order waits on the *worker's* answer, not the manager's,
+/// and PP 35/2021 keeps those two acts apart — so it is counted on the
+/// Overtime screen instead of here.
 ///
-/// There is no attendance punch source anywhere — not at the till, not at the
-/// centre. The centre says so itself rather than guessing: a period's
-/// readiness answers `open_corrections: null` and `punches_assessed: false`,
-/// and its own comment is that "`null` means **not assessed**, not zero … a
-/// zero would be a claim that somebody looked and found none".
+/// # "Not clocked in" is only said when something could have seen them
 ///
-/// So this screen shows the **plan**, and says that is what it is. A row of
-/// green ticks derived from a rota would be a claim nobody made, and the first
-/// time it was believed it would be believed about somebody's pay.
+/// Every presence figure below is read off the centre's derived day, and the
+/// centre says whether any punch source has ever reported for this shop. When
+/// none has, the figures read "not assessed" rather than zero, because a zero
+/// would be a claim that somebody looked.
 export function HrToday() {
-  return <HrWorkspace>{(scope) => <Today scope={scope} />}</HrWorkspace>
+  return (
+    <HrWorkspace sub="This shop today. Head office reads the same records without anything being sent twice.">
+      {(scope) => <Today scope={scope} />}
+    </HrWorkspace>
+  )
+}
+
+/// One row of the store head's queue.
+interface Waiting {
+  readonly key: string
+  readonly kind: string
+  readonly employeeId: string
+  readonly what: string
+  readonly to: string
+}
+
+/// One thing that needs somebody, and where it is dealt with.
+interface Exception {
+  readonly key: string
+  readonly kind: string
+  readonly employeeId: string | null
+  readonly text: string
+  readonly tone: Tone
+  readonly to: string
 }
 
 function Today({ scope }: { scope: StoreScope }) {
+  const go = useGo()
   const today = isoDay(new Date())
+  const now = new Date()
+  const lastMonth = isoMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1))
 
+  const team = useTeam(scope)
   const roster = useQuery({
     queryKey: hrKeys.roster(scope.id, today, today),
     queryFn: ({ signal }) => rosterAt(scope.id, today, today, signal),
   })
-  // The names. A rota keyed by `emp_8f3…` is unreadable, and the workforce
-  // list is the only route that carries a name — deliberately, because a name
-  // is the one thing from a profile that list is allowed to show.
-  const team = useQuery({
-    queryKey: hrKeys.team(scope.id),
-    queryFn: ({ signal }) => teamAt(scope.id, signal),
+  const attendance = useQuery({
+    queryKey: hrKeys.attendanceToday(scope.id, today),
+    queryFn: ({ signal }) => attendanceToday(scope.id, today, signal),
   })
   const leave = useQuery({
     queryKey: hrKeys.leave(scope.id),
     queryFn: ({ signal }) => pendingLeaveAt(scope.id, signal),
   })
-  const overtime = useQuery({
-    queryKey: hrKeys.overtime(scope.id),
-    queryFn: ({ signal }) => awaitingOvertimeAt(scope.id, signal),
+  const corrections = useQuery({
+    queryKey: hrKeys.corrections(scope.id, true),
+    queryFn: ({ signal }) => correctionsAt(scope.id, true, signal),
+  })
+  const swaps = useQuery({
+    queryKey: hrKeys.swaps(),
+    queryFn: ({ signal }) => pendingSwapsAt(scope.id, signal),
+  })
+  const claims = useQuery({
+    queryKey: hrKeys.claimsAt(scope.id),
+    queryFn: ({ signal }) => claimsAt(scope.id, signal),
+  })
+  const period = useQuery({
+    queryKey: hrKeys.period(scope.id, lastMonth),
+    queryFn: ({ signal }) => periodAt(scope.id, lastMonth, signal),
+  })
+  const applicants = useQuery({
+    queryKey: hrKeys.applicants(),
+    queryFn: ({ signal }) => applicantsAt(scope.id, signal),
+  })
+  const tasks = useQuery({
+    queryKey: hrKeys.tasks(),
+    queryFn: ({ signal }) => storeTasks(signal),
   })
 
-  // What touches today, as against what is merely waiting. A manager reading
-  // this screen is asking about the shift in front of them; the rest is the
-  // Leave & overtime queue's job, and the count below links to it.
-  const leaveToday =
-    leave.data?.rows.filter(
-      (request) => request.from_date <= today && today <= request.to_date,
-    ) ?? []
-  const overtimeToday =
-    overtime.data?.rows.filter((order) => order.on_date === today) ?? []
-  const waitingLater =
-    (leave.data?.rows.length ?? 0) -
-    leaveToday.length +
-    ((overtime.data?.rows.length ?? 0) - overtimeToday.length)
+  // ── the store head's queue ────────────────────────────────────────────────
+  const waiting: Waiting[] = [
+    ...(leave.data?.rows ?? []).map((request) => ({
+      key: `leave-${request.id}`,
+      kind: "Leave",
+      employeeId: request.employee_id,
+      what: `${request.leave_type_name} · ${readDate(request.from_date)}${request.to_date === request.from_date ? "" : ` – ${readDate(request.to_date)}`} · ${request.chargeable_days} day${request.chargeable_days === 1 ? "" : "s"}`,
+      to: "/hr/leave",
+    })),
+    ...(corrections.data ?? []).map((fix) => ({
+      key: `fix-${fix.id}`,
+      kind: "Attendance fix",
+      employeeId: fix.employee_id,
+      what: `${readDate(fix.business_date)} · ${fix.reason}`,
+      to: "/hr/attendance",
+    })),
+    ...(swaps.data?.rows ?? []).map((swap) => ({
+      key: `swap-${swap.id}`,
+      kind: "Shift swap",
+      employeeId: swap.employee_id,
+      what: `${readDate(swap.on_date)} · ${swap.reason}`,
+      to: "/hr/roster",
+    })),
+    ...(claims.data ?? [])
+      .filter((claim) => claim.state === "SUBMITTED")
+      .map((claim) => ({
+        key: `claim-${claim.claim_id}`,
+        kind: "Claim",
+        employeeId: claim.employee_id,
+        what: `${claim.claim_number} · ${claim.lines.map((line) => line.description).join(", ")}`,
+        to: "/hr/expenses",
+      })),
+  ]
+
+  // ── who is in ─────────────────────────────────────────────────────────────
+  const connected = attendance.data?.punch_source_connected ?? false
+  const scheduled = (roster.data ?? []).filter(
+    (day) => day.plan === "SCHEDULED",
+  )
+  const derived = attendance.data?.days ?? []
+  const present = derived.filter((day) => day.arrival !== null).length
+  const missing = scheduled.filter((day) => {
+    const seen = derived.find((one) => one.employee_id === day.employee_id)
+    return (
+      seen === undefined ||
+      (seen.arrival === null && !seen.outcomes.includes("APPROVED_LEAVE"))
+    )
+  }).length
+  const active = (team.data?.rows ?? []).filter(
+    (person) => person.status === "ACTIVE",
+  )
+
+  // ── what needs somebody ───────────────────────────────────────────────────
+  const exceptions: Exception[] = []
+  for (const person of active) {
+    if (person.contract_ends_on !== null) {
+      const left = Math.round(
+        (new Date(`${person.contract_ends_on}T00:00:00`).getTime() -
+          new Date(`${today}T00:00:00`).getTime()) /
+          86_400_000,
+      )
+      if (left <= 45) {
+        exceptions.push({
+          key: `contract-${person.employee_id}`,
+          kind: "Contract",
+          employeeId: person.employee_id,
+          text:
+            left < 0
+              ? `Contract ended ${readDate(person.contract_ends_on)}`
+              : `Contract ends ${readDate(person.contract_ends_on)} · ${left} days`,
+          tone: left <= 14 ? "bad" : "warn",
+          to: "/hr/changes",
+        })
+      }
+    }
+    if (person.username === null) {
+      exceptions.push({
+        key: `login-${person.employee_id}`,
+        kind: "Access",
+        employeeId: person.employee_id,
+        text: "No login issued — cannot open the till or the app",
+        tone: "warn",
+        to: "/hr/lifecycle",
+      })
+    }
+  }
+  for (const day of attendance.data?.underivable ?? []) {
+    exceptions.push({
+      key: `underivable-${day.employee_id}-${day.date}`,
+      kind: "Attendance",
+      employeeId: day.employee_id,
+      text: `Today could not be judged: ${day.reason}`,
+      tone: "warn",
+      to: "/hr/attendance",
+    })
+  }
+  const openTasks = (tasks.data ?? []).filter(
+    (task) => task.owner === "STORE" && task.state === "PENDING",
+  )
+  if (openTasks.length > 0) {
+    exceptions.push({
+      key: "tasks",
+      kind: "Checklist",
+      employeeId: null,
+      text: `${openTasks.length} onboarding or exit task${openTasks.length === 1 ? "" : "s"} owned by this shop still open`,
+      tone: "warn",
+      to: "/hr/lifecycle",
+    })
+  }
+  if (period.data?.status === "OPEN" && period.data.readiness !== null) {
+    exceptions.push({
+      key: "period",
+      kind: "Payroll",
+      employeeId: null,
+      text: `${readMonth(lastMonth)} attendance is still open — head office cannot build payroll from it`,
+      tone: "bad",
+      to: "/hr/payroll",
+    })
+  }
+
+  const interviews = (applicants.data?.rows ?? []).filter(
+    (row) => row.stage === "INTERVIEW",
+  ).length
+
+  const byEmployee = new Map(derived.map((day) => [day.employee_id, day]))
 
   return (
     <>
-      <Section title={readDate(today, true)}>
-        {centreState(roster, {
-          loading: "Reading the rota head office holds…",
-          render: (days) => {
-            const working = days.filter((day) => day.plan === "SCHEDULED")
-            const off = days.length - working.length
-            const minutes = working.reduce(
-              (total, day) => total + (day.planned_work_minutes ?? 0),
-              0,
-            )
+      <div className="mb-5 flex items-start gap-3 rounded-card border border-hairline bg-soft px-4 py-3">
+        <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-inner bg-accent text-on-dark [&_svg]:size-4">
+          <Store />
+        </span>
+        <p className="text-meta leading-relaxed text-body">
+          <b className="font-semibold text-ink">
+            The shop records what happened:
+          </b>{" "}
+          attendance, overtime, leave, claims and interviews. Paid days are
+          counted from attendance, so nobody here types a payroll figure. Rates,
+          formulas and money limits are head office's. Leave, overtime,
+          attendance fixes and day-to-day claims are decided by the store head.
+        </p>
+      </div>
 
-            return (
-              <>
-                <KpiGrid className="mb-4">
-                  <Kpi
-                    icon={<UserCheck />}
-                    tone="accent"
-                    label="On the rota"
-                    value={working.length}
-                    sub={off === 0 ? undefined : `${off} off`}
-                  />
-                  <Kpi
-                    icon={<Clock4 />}
-                    tone="sky"
-                    label="Planned hours"
-                    value={readMinutes(minutes)}
-                    sub="less unpaid breaks"
-                  />
-                  <Kpi
-                    icon={<Plane />}
-                    tone="orange"
-                    label="Leave today"
-                    value={leaveToday.length}
-                    sub="waiting on a decision"
-                  />
-                  <Kpi
-                    icon={<Sunrise />}
-                    tone="green"
-                    label="In the team"
-                    value={team.data?.total ?? "—"}
-                    sub={scope.id}
-                  />
-                </KpiGrid>
+      <StatStrip>
+        <Stat
+          label="Headcount"
+          value={team.data === undefined ? "—" : active.length}
+        />
+        <Stat
+          label="Present"
+          value={
+            attendance.data === undefined ? "—" : connected ? present : "—"
+          }
+          sub={
+            attendance.data !== undefined && !connected
+              ? "not assessed"
+              : undefined
+          }
+        />
+        <Stat
+          label="Not clocked in"
+          value={
+            attendance.data === undefined || roster.data === undefined
+              ? "—"
+              : connected
+                ? missing
+                : "—"
+          }
+          sub={
+            attendance.data !== undefined && !connected
+              ? "no punch source yet"
+              : undefined
+          }
+          tone={connected && missing > 0 ? "bad" : undefined}
+        />
+        <Stat
+          label="Waiting on the store head"
+          value={waiting.length}
+          tone={waiting.length > 0 ? "warn" : undefined}
+        />
+        <Stat
+          label={`Attendance · ${readMonth(lastMonth)}`}
+          value={
+            period.data === undefined
+              ? "—"
+              : period.data.status === "CLOSED"
+                ? "Closed"
+                : "Open"
+          }
+          tone={
+            period.data === undefined
+              ? undefined
+              : period.data.status === "CLOSED"
+                ? "ok"
+                : "warn"
+          }
+        />
+        <Stat
+          label="Interviews"
+          value={applicants.data === undefined ? "—" : interviews}
+          sub="candidates at interview"
+        />
+      </StatStrip>
 
-                <Banner tone="info" className="mb-4">
-                  This is the rota, not the register. Nothing in this system
-                  records anybody arriving — there is no punch source, and head
-                  office reports the count of unrostered punch days as{" "}
-                  <i>not assessed</i> rather than as zero. Who was actually here
-                  is still something a person has to know.
-                </Banner>
-
-                {days.length === 0 ? (
-                  <EmptyState>
-                    Head office has no rota for {scope.id} today. That is a rota
-                    nobody has built yet, not a shop with nobody in it.
-                  </EmptyState>
-                ) : (
-                  <CardList>
-                    {days.map((day) => {
-                      const who = nameOf(team.data, day.employee_id)
-                      const onLeave = leaveToday.some(
-                        (request) => request.employee_id === day.employee_id,
-                      )
-                      return (
-                        <RecordCard
-                          key={day.employee_id}
-                          icon={
-                            day.plan === "SCHEDULED" ? (
-                              <UserCheck />
-                            ) : (
-                              <CalendarOff />
-                            )
-                          }
-                          id={who.name}
-                          status={
-                            onLeave ? (
-                              <Pill tone="warn">Leave asked</Pill>
-                            ) : (
-                              <Pill
-                                tone={
-                                  day.plan === "SCHEDULED"
-                                    ? "accent"
-                                    : "neutral"
-                                }
-                              >
-                                {planWord(day.plan)}
-                              </Pill>
-                            )
-                          }
-                        >
-                          <div className="px-3.5 py-1">
-                            <KeyValue term={who.code ?? "Badge"}>
-                              {day.shift_name ?? planWord(day.plan)}
-                            </KeyValue>
-                            {day.starts_at !== null && day.ends_at !== null && (
-                              <KeyValue term="Hours">
-                                {day.starts_at}–{day.ends_at}
-                                {day.crosses_midnight && " +1"}
-                              </KeyValue>
-                            )}
-                            {day.planned_work_minutes !== null && (
-                              <KeyValue term="Paid time">
-                                {readMinutes(day.planned_work_minutes)}
-                              </KeyValue>
-                            )}
-                            {/* A day planned more than once is a governance
-                                signal, which is why the centre makes it a
-                                column rather than something to open a sheet
-                                for. It is shown only when it is one. */}
-                            {day.revision_count > 1 && (
-                              <KeyValue term="Planned" tone="bad">
-                                {day.revision_count} times
-                              </KeyValue>
-                            )}
-                          </div>
-                        </RecordCard>
-                      )
-                    })}
-                  </CardList>
-                )}
-              </>
-            )
+      <Heading count={waiting.length}>Waiting on the store head</Heading>
+      <PeopleTable
+        rows={waiting}
+        rowKey={(row) => row.key}
+        onRowClick={(row) => go(row.to)}
+        empty="Nothing is waiting on the store head."
+        columns={[
+          {
+            key: "kind",
+            header: "Kind",
+            card: "status",
+            cell: (row) => <Pill tone="neutral">{row.kind}</Pill>,
           },
-        })}
-      </Section>
+          {
+            key: "who",
+            header: "Employee",
+            card: "title",
+            cell: (row) => <Person team={team.data} id={row.employeeId} />,
+          },
+          {
+            key: "what",
+            header: "Request",
+            card: "meta",
+            className: "whitespace-normal",
+            cell: (row) => row.what,
+          },
+        ]}
+      />
 
-      <Section title="Waiting on an answer today">
-        {centreState(leave, {
-          loading: "Reading the leave queue…",
-          render: () =>
-            leaveToday.length === 0 && overtimeToday.length === 0 ? (
-              <EmptyState
-                action={
-                  waitingLater > 0 ? (
-                    <AppLink
-                      to="/hr/requests"
-                      className="text-meta font-medium text-accent"
-                    >
-                      {waitingLater} waiting for another day
-                    </AppLink>
-                  ) : undefined
-                }
-              >
-                Nothing today needs a decision.
-              </EmptyState>
-            ) : (
-              <CardList>
-                {leaveToday.map((request) => (
-                  <RecordCard
-                    key={request.id}
-                    icon={<Plane />}
-                    id={nameOf(team.data, request.employee_id).name}
-                    status={<Pill tone="warn">{request.leave_type_name}</Pill>}
-                  >
-                    <div className="px-3.5 py-1">
-                      <KeyValue term="Asked for">
-                        {readDate(request.from_date)} –{" "}
-                        {readDate(request.to_date)}
-                      </KeyValue>
-                      <KeyValue term="Days charged">
-                        {request.chargeable_days}
-                      </KeyValue>
-                      <KeyValue term="Reason">{request.reason}</KeyValue>
-                    </div>
-                  </RecordCard>
-                ))}
-                {overtimeToday.map((order) => (
-                  <RecordCard
-                    key={order.id}
-                    icon={<Clock4 />}
-                    id={nameOf(team.data, order.employee_id).name}
-                    status={<Pill tone="info">Overtime ordered</Pill>}
-                  >
-                    <div className="px-3.5 py-1">
-                      <KeyValue term="Ordered">
-                        {readMinutes(order.planned_minutes)}
-                      </KeyValue>
-                      <KeyValue term="Waiting on">the person, not you</KeyValue>
-                    </div>
-                  </RecordCard>
-                ))}
-              </CardList>
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="min-w-0">
+          <Heading>Attendance today</Heading>
+          {centreState(roster, {
+            loading: "Reading today's rota…",
+            what: "today's rota",
+            render: (days) => (
+              <PeopleTable
+                rows={days}
+                rowKey={(day) => day.employee_id}
+                onRowClick={() => go("/hr/attendance")}
+                empty={`Head office has no rota for ${scope.label} today. That is a rota nobody has built yet, not a shop with nobody in it.`}
+                columns={[
+                  {
+                    key: "who",
+                    header: "Employee",
+                    cell: (day) => (
+                      <Person team={team.data} id={day.employee_id} />
+                    ),
+                  },
+                  {
+                    key: "shift",
+                    header: "Shift",
+                    card: "meta",
+                    cell: (day) =>
+                      day.plan === "SCHEDULED" && day.starts_at !== null
+                        ? `${day.shift_name ?? "Shift"} ${day.starts_at}–${day.ends_at ?? ""}`
+                        : planWord(day.plan),
+                  },
+                  {
+                    key: "status",
+                    header: "Status",
+                    card: "status",
+                    cell: (day) => {
+                      const seen = byEmployee.get(day.employee_id)
+                      const status = dayStatus({
+                        plan: day.plan,
+                        outcomes: seen?.outcomes ?? [],
+                        arrival: seen?.arrival ?? null,
+                        connected,
+                      })
+                      return <Pill tone={status.tone}>{status.label}</Pill>
+                    },
+                  },
+                ]}
+              />
             ),
-        })}
-      </Section>
+          })}
+        </div>
+
+        <div className="min-w-0">
+          <Heading count={exceptions.length}>Needs attention</Heading>
+          <PeopleTable
+            rows={exceptions}
+            rowKey={(row) => row.key}
+            onRowClick={(row) => go(row.to)}
+            empty="Nothing needs attention."
+            columns={[
+              {
+                key: "kind",
+                header: "Kind",
+                card: "status",
+                cell: (row) => <Pill tone={row.tone}>{row.kind}</Pill>,
+              },
+              {
+                key: "who",
+                header: "Employee",
+                card: "title",
+                cell: (row) =>
+                  row.employeeId === null ? (
+                    <span className="text-cell font-medium text-ink">
+                      {scope.label}
+                    </span>
+                  ) : (
+                    <Person team={team.data} id={row.employeeId} />
+                  ),
+              },
+              {
+                key: "text",
+                header: "Finding",
+                card: "meta",
+                className: "whitespace-normal",
+                cell: (row) => row.text,
+              },
+            ]}
+          />
+        </div>
+      </div>
     </>
   )
 }

@@ -165,8 +165,6 @@ function PrintAction({
             printer_host: printer.host,
             printer_port: printer.port,
             chunk_size: printer.chunk,
-            darkness: printer.darkness,
-            speed_ips: printer.speedIps,
             label_width_mm: printer.widthMm,
             label_height_mm: printer.heightMm,
             label_offset_mm: printer.offsetMm,
@@ -239,7 +237,7 @@ function PrintAction({
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-[0.78125rem] text-body">
+        <span className="text-[0.875rem] text-body">
           {run === null
             ? "Not queued yet"
             : `${count(run.printed_count)} of ${count(run.total_items)} printed`}
@@ -414,7 +412,7 @@ function Preview({ jobId }: { jobId: string }) {
             asked why "Writes" held one serial when eleven were printing. It
             is a specimen: this variant, its first serial, drawn at the size
             the bench below is set to. */}
-        <p className="text-[0.71875rem] text-mute">
+        <p className="text-[0.875rem] text-mute">
           One label of {count(total)}
           {lines.length > 1 && " — pick a variant to see its own"}. Each piece
           gets its own serial and its own EPC.
@@ -430,7 +428,7 @@ function Preview({ jobId }: { jobId: string }) {
                   type="button"
                   onClick={() => setSku(line.sku_code)}
                   aria-pressed={chosen}
-                  className={`min-h-[1.875rem] rounded-full px-2.5 text-[0.71875rem] transition-colors ${
+                  className={`min-h-[1.875rem] rounded-full px-2.5 text-[0.875rem] transition-colors ${
                     chosen
                       ? "bg-ink text-canvas"
                       : "bg-soft-2 text-body hover:bg-soft-3"
@@ -466,7 +464,7 @@ function Preview({ jobId }: { jobId: string }) {
                   dangerouslySetInnerHTML={{ __html: drawn.svg }}
                 />
               ) : (
-                <pre className="max-h-[13rem] overflow-auto rounded-inner border border-hairline bg-soft-2 p-3.5 font-mono text-[0.6875rem] leading-[1.6] whitespace-pre text-body">
+                <pre className="max-h-[13rem] overflow-auto rounded-inner border border-hairline bg-soft-2 p-3.5 font-mono text-[0.875rem] leading-[1.6] whitespace-pre text-body">
                   {drawn.zpl}
                 </pre>
               )}
@@ -486,7 +484,7 @@ function Preview({ jobId }: { jobId: string }) {
                 </KeyValue>
               </div>
 
-              <p className="text-[0.71875rem] text-mute">
+              <p className="text-[0.875rem] text-mute">
                 {drawn.source === "SESSION"
                   ? "The next label this run has left to print, drawn from the words it froze when it was queued."
                   : "Drawn from the job as it stands now. Queueing freezes these words, so a reprint six weeks from now reproduces this tag and not today's catalogue."}{" "}
@@ -538,7 +536,7 @@ function ConnectionTest() {
       <Problem error={test.error} />
       {probe !== null &&
         (probe.reachable ? (
-          <div className="flex flex-col gap-1 text-[0.71875rem]">
+          <div className="flex flex-col gap-1 text-[0.875rem]">
             <div className="flex items-center gap-1.5">
               <Pill tone="ok">answered</Pill>
               <span className="font-mono text-mute">
@@ -570,7 +568,7 @@ function ConnectionTest() {
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-1 text-[0.71875rem]">
+          <div className="flex flex-col gap-1 text-[0.875rem]">
             <div className="flex items-center gap-1.5">
               <Pill tone="bad">no answer</Pill>
               <span className="font-mono text-mute">{probe.address}</span>
@@ -598,10 +596,10 @@ function PrinterCard() {
           somebody walks to another one, and then the first thing they want to
           know is which machine this browser still thinks it is talking to.
           The summary answers that without opening anything. */}
-      <Collapsible.Trigger className="group flex w-full items-center gap-1.5 text-left text-[0.71875rem] font-medium text-body transition-colors hover:text-ink">
+      <Collapsible.Trigger className="group flex w-full items-center gap-1.5 text-left text-[0.875rem] font-medium text-body transition-colors hover:text-ink">
         <ChevronRight className="size-3.5 text-line-ico transition-transform duration-150 group-data-[panel-open]:rotate-90" />
         Printer
-        <span className="font-mono text-[0.65625rem] text-mute">
+        <span className="font-mono text-[0.875rem] text-mute">
           {printer.host}:{printer.port} · {printer.language} · {printer.widthMm}
           ×{printer.heightMm} mm
         </span>
@@ -712,7 +710,7 @@ function PrinterCard() {
                     })
                   }
                   title={preset.note}
-                  className={`min-h-[1.875rem] rounded-full px-2.5 text-[0.71875rem] tabular-nums transition-colors ${
+                  className={`min-h-[1.875rem] rounded-full px-2.5 text-[0.875rem] tabular-nums transition-colors ${
                     chosen
                       ? "bg-ink text-canvas"
                       : "bg-soft-2 text-body hover:bg-soft-3"
@@ -768,7 +766,7 @@ function PrinterCard() {
             </Field>
           </div>
           <ConnectionTest />
-          <p className="text-[0.71875rem] text-mute">
+          <p className="text-[0.875rem] text-mute">
             58 × 40 mm is the tag the label layout was tuned against by hand,
             and what the node assumes when a run leaves it out. Other sizes
             scale from it — the ones above are starting points, not a list of

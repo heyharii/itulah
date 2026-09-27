@@ -5,8 +5,11 @@ import {
   ArrowUpDown,
   Bookmark,
   Check,
+  ChevronRight,
   ChevronsUpDown,
+  ListFilter,
   Columns3,
+  Download,
   Save,
   Search,
   SlidersHorizontal,
@@ -15,11 +18,14 @@ import {
 import { useEffect, useState } from "react"
 
 import { ClearFilters, FilterControls } from "@/components/ui/filter-bar"
+import { BottomSheet, MorphHeight } from "@/components/ui/picker-sheet"
 import { Sheet } from "@/components/ui/sheet"
-import { useOptions } from "@/lib/filter-chrome"
+import { csvName, downloadCsv, toCsv, type CsvColumn } from "@/lib/csv"
+import { useOptions, POP_MOTION } from "@/lib/filter-chrome"
 import { count } from "@/lib/format"
 import { usePanelDock } from "@/lib/layout"
 import { useSheet } from "@/lib/sheets"
+import { toast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 import {
   operatorsFor,
@@ -47,7 +53,7 @@ import {
 /* -------------------------------------------------------------------------- */
 
 const ROW =
-  "flex h-[2.375rem] w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-3 text-left text-[0.8125rem] transition-colors hover:border-hairline-strong"
+  "flex h-[2.375rem] w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-3 text-left text-[0.875rem] transition-colors hover:border-hairline-strong"
 
 export function DockedFilters({
   model,
@@ -140,12 +146,12 @@ export function DockedFilters({
         <dl className="-mx-1 mb-1 grid grid-cols-2 gap-x-3 gap-y-2 border-b border-hairline px-1 pb-3">
           {kpis.map((kpi) => (
             <div key={kpi.label} className="min-w-0">
-              <dt className="truncate text-[0.625rem] font-medium tracking-[0.04em] text-mute uppercase">
+              <dt className="truncate text-[0.875rem] font-medium tracking-[0.04em] text-mute uppercase">
                 {kpi.label}
               </dt>
               <dd
                 title={kpi.note}
-                className="truncate text-[0.8125rem] font-semibold text-ink tabular-nums"
+                className="truncate text-[0.875rem] font-semibold text-ink tabular-nums"
               >
                 {kpi.value}
               </dd>
@@ -161,7 +167,7 @@ export function DockedFilters({
       )}
 
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-[0.8125rem] font-medium text-body">Filter by</h4>
+        <h4 className="text-[0.875rem] font-medium text-body">Filter by</h4>
         {filters.length > 0 && (
           <ClearFilters model={model} label={`Clear ${filters.length}`} />
         )}
@@ -184,7 +190,7 @@ export function DockedFilters({
         <button
           type="button"
           onClick={() => (sheet.isOpen ? sheet.close() : sheet.open(true))}
-          className="inline-flex items-center gap-1.5 text-[0.75rem] font-medium text-body transition-colors hover:text-ink"
+          className="inline-flex items-center gap-1.5 text-[0.875rem] font-medium text-body transition-colors hover:text-ink"
         >
           <SlidersHorizontal className="size-3.5" />
           Edit filters
@@ -192,7 +198,7 @@ export function DockedFilters({
         <button
           type="button"
           onClick={() => (picker.isOpen ? picker.close() : picker.open(true))}
-          className="inline-flex items-center gap-1.5 text-[0.75rem] font-medium text-body transition-colors hover:text-ink"
+          className="inline-flex items-center gap-1.5 text-[0.875rem] font-medium text-body transition-colors hover:text-ink"
         >
           <Check className="size-3.5" />
           Fields
@@ -233,14 +239,14 @@ export function DockedFilters({
                   writeFields(id, null)
                   setPicked(null)
                 }}
-                className="text-[0.8125rem] font-medium text-body transition-colors hover:text-ink"
+                className="text-[0.875rem] font-medium text-body transition-colors hover:text-ink"
               >
                 Show all
               </button>
               <button
                 type="button"
                 onClick={() => picker.close()}
-                className="inline-flex h-8 items-center rounded-inner bg-cta px-3 text-[0.8125rem] font-medium text-cta-fg transition-colors hover:bg-cta-hover"
+                className="inline-flex h-8 items-center rounded-inner bg-cta px-3 text-[0.875rem] font-medium text-cta-fg transition-colors hover:bg-cta-hover"
               >
                 Save
               </button>
@@ -255,10 +261,10 @@ export function DockedFilters({
             onChange={(event) => setNeedle(event.target.value)}
             placeholder="Search"
             aria-label="Search fields"
-            className="h-9 min-w-0 flex-1 bg-transparent text-[0.8125rem] text-ink outline-none placeholder:text-mute"
+            className="h-9 min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-mute"
           />
         </div>
-        <h4 className="mb-1.5 text-[0.8125rem] font-medium text-body">
+        <h4 className="mb-1.5 text-[0.875rem] font-medium text-body">
           {subject}
         </h4>
         <div className="grid gap-x-6 sm:grid-cols-2">
@@ -273,7 +279,7 @@ export function DockedFilters({
                     ? "This field is narrowing the list, so it stays on screen"
                     : undefined
                 }
-                className="flex min-h-9 cursor-pointer items-center gap-2.5 text-[0.8125rem] text-text"
+                className="flex min-h-9 cursor-pointer items-center gap-2.5 text-[0.875rem] text-text"
               >
                 <input
                   type="checkbox"
@@ -294,7 +300,7 @@ export function DockedFilters({
             )
           })}
           {matching.length === 0 && (
-            <p className="text-[0.8125rem] text-mute">No field like that.</p>
+            <p className="text-[0.875rem] text-mute">No field like that.</p>
           )}
         </div>
       </Sheet>
@@ -421,7 +427,12 @@ function FieldRow({
           sideOffset={4}
           className="z-50"
         >
-          <Menu.Popup className="flex max-h-80 min-w-[15rem] flex-col rounded-card border border-hairline bg-canvas p-1.5 shadow-pop">
+          <Menu.Popup
+            className={cn(
+              "flex max-h-80 min-w-[15rem] flex-col rounded-card border border-hairline bg-canvas p-1.5 shadow-pop",
+              POP_MOTION
+            )}
+          >
             {options.length > 8 && (
               <div className="mb-1 flex items-center gap-2 border-b border-hairline px-2 pb-1.5">
                 <Search className="size-3.5 shrink-0 text-line-ico" />
@@ -432,13 +443,13 @@ function FieldRow({
                   onKeyDown={(event) => event.stopPropagation()}
                   placeholder={`Search ${field.label.toLowerCase()}`}
                   aria-label={`Search ${field.label}`}
-                  className="min-w-0 flex-1 bg-transparent py-1 text-[0.8125rem] text-ink outline-none placeholder:text-mute"
+                  className="min-w-0 flex-1 bg-transparent py-1 text-[0.875rem] text-ink outline-none placeholder:text-mute"
                 />
               </div>
             )}
             <div className="min-h-0 flex-1 overflow-y-auto">
               {shortlist.length === 0 && (
-                <p className="px-2 py-3 text-[0.8125rem] text-mute">
+                <p className="px-2 py-3 text-[0.875rem] text-mute">
                   No {field.label.toLowerCase()} like that.
                 </p>
               )}
@@ -466,7 +477,7 @@ function FieldRow({
                       }
                     }}
                     className={cn(
-                      "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.8125rem] outline-none select-none",
+                      "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.875rem] outline-none select-none",
                       on ? "text-ink" : "text-text",
                       "data-[highlighted]:bg-soft-2"
                     )}
@@ -598,7 +609,7 @@ export function SavedViews({
 
   return (
     <div className="mt-1 flex flex-col gap-2 border-t border-hairline pt-3">
-      <h5 className="text-[0.6875rem] font-semibold tracking-[0.06em] text-body uppercase">
+      <h5 className="text-[0.875rem] font-semibold tracking-[0.06em] text-body uppercase">
         Saved views
       </h5>
 
@@ -609,11 +620,11 @@ export function SavedViews({
               <button
                 type="button"
                 onClick={() => apply(view)}
-                className="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-inner px-2 text-left text-[0.8125rem] text-text transition-colors hover:bg-soft-2 hover:text-ink"
+                className="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-inner px-2 text-left text-[0.875rem] text-text transition-colors hover:bg-soft-2 hover:text-ink"
               >
                 <Bookmark className="size-3.5 shrink-0 text-line-ico" />
                 <span className="truncate">{view.name}</span>
-                <span className="ml-auto shrink-0 text-[0.6875rem] text-mute tabular-nums">
+                <span className="ml-auto shrink-0 text-[0.875rem] text-mute tabular-nums">
                   {count(view.filters.length)}
                 </span>
               </button>
@@ -639,13 +650,13 @@ export function SavedViews({
           onKeyDown={(event) => event.key === "Enter" && save()}
           placeholder="View name"
           aria-label="Name this view"
-          className="h-[2.125rem] min-w-0 flex-1 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.8125rem] text-ink outline-none placeholder:text-mute focus:border-accent"
+          className="h-[2.125rem] min-w-0 flex-1 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] text-ink outline-none placeholder:text-mute focus:border-accent"
         />
         <button
           type="button"
           onClick={save}
           disabled={name.trim() === ""}
-          className="inline-flex h-[2.125rem] shrink-0 items-center gap-1.5 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.75rem] font-medium text-text transition-colors hover:bg-soft-2 disabled:opacity-50"
+          className="inline-flex h-[2.125rem] shrink-0 items-center gap-1.5 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] font-medium text-text transition-colors hover:bg-soft-2 disabled:opacity-50"
         >
           <Save className="size-3.5" />
           Save
@@ -664,6 +675,54 @@ export function SavedViews({
 /// A catalogue of every field the document could offer is a different feature
 /// and needs the server to declare its fields; this is the tick list for the
 /// columns already here, which is what was asked for.
+/// Export what the list holds as a CSV file — the one button every list uses.
+///
+/// The screen says what the file is called, which columns it has, and how to
+/// get the rows; this does the rest. `rows` is a function rather than an
+/// array because the list on screen is usually one page of the book, and an
+/// export is of the whole of what the filters match — so the screen fetches
+/// it, once, when the button is pressed.
+export function ExportCsv<Row>({
+  title,
+  columns,
+  rows,
+  className,
+}: {
+  /// What the file is named after — `Suppliers` becomes `Suppliers.csv`.
+  readonly title: string
+  readonly columns: readonly CsvColumn<Row>[]
+  readonly rows: () => Promise<readonly Row[]> | readonly Row[]
+  readonly className?: string
+}) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true)
+        try {
+          const all = await rows()
+          downloadCsv(csvName(title), toCsv(columns, all))
+        } catch (problem) {
+          toast.error(
+            problem instanceof Error ? problem.message : "The export failed."
+          )
+        } finally {
+          setBusy(false)
+        }
+      }}
+      className={cn(
+        "inline-flex h-[2.125rem] items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink disabled:opacity-60",
+        className
+      )}
+    >
+      <Download className="size-3.5 stroke-[1.7]" />
+      {busy ? "Exporting…" : "Export CSV"}
+    </button>
+  )
+}
+
 export function ColumnsMenu({
   table,
   className,
@@ -682,7 +741,7 @@ export function ColumnsMenu({
     <Menu.Root>
       <Menu.Trigger
         className={cn(
-          "inline-flex h-[2.125rem] items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.75rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
+          "inline-flex h-[2.125rem] items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
           className
         )}
       >
@@ -696,7 +755,12 @@ export function ColumnsMenu({
           sideOffset={4}
           className="z-50"
         >
-          <Menu.Popup className="min-w-[13rem] rounded-card border border-hairline bg-canvas p-1.5 shadow-pop">
+          <Menu.Popup
+            className={cn(
+              "min-w-[13rem] rounded-card border border-hairline bg-canvas p-1.5 shadow-pop",
+              POP_MOTION
+            )}
+          >
             <span className="block px-2 pt-1 pb-1.5 text-eyebrow font-semibold tracking-[0.05em] text-mute uppercase">
               Columns
             </span>
@@ -709,7 +773,7 @@ export function ColumnsMenu({
                   closeOnClick={false}
                   onClick={() => column.toggleVisibility(!on)}
                   className={cn(
-                    "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.8125rem] outline-none select-none",
+                    "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.875rem] outline-none select-none",
                     on ? "text-ink" : "text-text",
                     "data-[highlighted]:bg-soft-2"
                   )}
@@ -803,14 +867,14 @@ export function ViewPicker({
     <Menu.Root>
       <Menu.Trigger
         className={cn(
-          "inline-flex h-8 items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.8125rem] font-medium text-text shadow-soft transition-colors hover:bg-soft-2",
+          "inline-flex h-8 items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] font-medium text-text shadow-soft transition-colors hover:bg-soft-2",
           className
         )}
       >
         <Bookmark className="size-3.5 text-line-ico" />
         {label}
         {here === undefined && model.filters.length > 0 && (
-          <span className="rounded-full bg-warn-bg px-1.5 py-px text-[0.6875rem] font-semibold text-warn-fg">
+          <span className="rounded-full bg-warn-bg px-1.5 py-px text-[0.875rem] font-semibold text-warn-fg">
             edited
           </span>
         )}
@@ -823,8 +887,13 @@ export function ViewPicker({
           sideOffset={4}
           className="z-50"
         >
-          <Menu.Popup className="min-w-[14rem] rounded-card border border-hairline bg-canvas p-1.5 shadow-pop">
-            <span className="block px-2 pt-1 pb-1.5 text-[0.6875rem] font-semibold tracking-[0.06em] text-mute uppercase">
+          <Menu.Popup
+            className={cn(
+              "min-w-[14rem] rounded-card border border-hairline bg-canvas p-1.5 shadow-pop",
+              POP_MOTION
+            )}
+          >
+            <span className="block px-2 pt-1 pb-1.5 text-[0.875rem] font-semibold tracking-[0.06em] text-mute uppercase">
               Views
             </span>
             {/* The screen's own readings, when it has more than one. Choosing
@@ -880,7 +949,7 @@ export function ViewPicker({
                   {here?.name === one.name && <Check className="size-3.5" />}
                 </span>
                 <span className="truncate">{one.name}</span>
-                <span className="ml-auto shrink-0 text-[0.6875rem] text-mute tabular-nums">
+                <span className="ml-auto shrink-0 text-[0.875rem] text-mute tabular-nums">
                   {count(one.filters.length)}
                 </span>
               </Menu.Item>
@@ -902,7 +971,7 @@ export function ViewPicker({
 }
 
 const ITEM =
-  "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.8125rem] text-text outline-none select-none data-[highlighted]:bg-soft-2"
+  "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.875rem] text-text outline-none select-none data-[highlighted]:bg-soft-2"
 
 /* -------------------------------------------------------------------------- */
 /*  The sort menu                                                              */
@@ -917,6 +986,7 @@ export function SortMenu({
   table,
   sorting,
   onSort,
+  compact = false,
   className,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -927,11 +997,15 @@ export function SortMenu({
   /// travels in the request.
   readonly sorting: readonly { readonly id: string; readonly desc: boolean }[]
   readonly onSort: (id: string, desc: boolean) => void
+  /// Under 48rem the trigger is the arrow alone. A column name on its own —
+  /// "Receiving" — read on a phone as a button that did something called
+  /// receiving, and it was the one label pushing the toolbar off the glass.
+  /// The menu still names the column; the trigger's accessible name says it.
+  readonly compact?: boolean
   readonly className?: string
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const columns = table
-    .getAllLeafColumns()
+  const columns = (table?.getAllLeafColumns() ?? [])
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .filter(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -946,8 +1020,10 @@ export function SortMenu({
   return (
     <Menu.Root>
       <Menu.Trigger
+        aria-label={`Sort by ${label}`}
+        title={`Sort by ${label}`}
         className={cn(
-          "inline-flex h-[2.125rem] items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.75rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
+          "inline-flex h-[2.125rem] items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
           className
         )}
       >
@@ -956,7 +1032,7 @@ export function SortMenu({
         ) : (
           <ArrowUp className="size-3.5 stroke-[1.7]" />
         )}
-        {label}
+        <span className={cn(compact && "max-md:sr-only")}>{label}</span>
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner
@@ -965,8 +1041,13 @@ export function SortMenu({
           sideOffset={4}
           className="z-50"
         >
-          <Menu.Popup className="min-w-[13rem] rounded-card border border-hairline bg-canvas p-1.5 shadow-pop">
-            <span className="block px-2 pt-1 pb-1.5 text-[0.6875rem] font-semibold tracking-[0.06em] text-mute uppercase">
+          <Menu.Popup
+            className={cn(
+              "min-w-[13rem] rounded-card border border-hairline bg-canvas p-1.5 shadow-pop",
+              POP_MOTION
+            )}
+          >
+            <span className="block px-2 pt-1 pb-1.5 text-[0.875rem] font-semibold tracking-[0.06em] text-mute uppercase">
               Sort by
             </span>
             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
@@ -976,7 +1057,9 @@ export function SortMenu({
                 <Menu.Item
                   key={column.id}
                   closeOnClick={false}
-                  onClick={() => onSort(column.id, on ? !current.desc : false)}
+                  onClick={() =>
+                    onSort?.(column.id, on ? !current.desc : false)
+                  }
                   className={cn(ITEM, on && "text-ink")}
                 >
                   <span className="grid w-3.5 shrink-0 place-items-center text-accent">
@@ -1038,7 +1121,7 @@ export function ChoiceMenu({
     <Menu.Root>
       <Menu.Trigger
         className={cn(
-          "inline-flex h-[2.125rem] items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.75rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
+          "inline-flex h-[2.125rem] items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
           className
         )}
       >
@@ -1052,8 +1135,13 @@ export function ChoiceMenu({
           sideOffset={4}
           className="z-50"
         >
-          <Menu.Popup className="min-w-[13rem] rounded-card border border-hairline bg-canvas p-1.5 shadow-pop">
-            <span className="block px-2 pt-1 pb-1.5 text-[0.6875rem] font-semibold tracking-[0.06em] text-mute uppercase">
+          <Menu.Popup
+            className={cn(
+              "min-w-[13rem] rounded-card border border-hairline bg-canvas p-1.5 shadow-pop",
+              POP_MOTION
+            )}
+          >
+            <span className="block px-2 pt-1 pb-1.5 text-[0.875rem] font-semibold tracking-[0.06em] text-mute uppercase">
               {heading}
             </span>
             {options.map((option) => {
@@ -1124,5 +1212,518 @@ export function QuickFilters({
         />
       ))}
     </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  The phone's one button for all three                                       */
+/* -------------------------------------------------------------------------- */
+
+/// Filter, sort and views, as ONE control on a phone — a dynamic sheet.
+///
+/// On the desk they are three controls on the toolbar's line, and that is
+/// right there. On a 375px screen the three, plus search and New order, broke
+/// the toolbar onto two and three lines and pushed the list down the glass.
+/// So below 48rem a list shows one button beside its search, and it opens one
+/// sheet whose first page names the three with what each is set to; tapping
+/// one changes the sheet's page in place (`MorphHeight`) rather than stacking
+/// a second sheet on the first, and ← goes back. Nothing here is new
+/// behaviour: the filter page is `FilterControls`, the sort page is the same
+/// columns `SortMenu` offers, the views page is `ViewPicker`'s list.
+export function ListOptionsSheet({
+  model,
+  filterModel,
+  table,
+  sorting = [],
+  onSort,
+  orders,
+  id = "orders",
+  all = "All orders",
+  className,
+}: {
+  /// What the views are compared against and applied to.
+  readonly model: FilterState
+  /// What the filter page edits — the same state, usually with the server's
+  /// facet counts folded into its fields.
+  readonly filterModel?: FilterState
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly table?: any
+  readonly sorting?: readonly { readonly id: string; readonly desc: boolean }[]
+  readonly onSort?: (id: string, desc: boolean) => void
+  /// A list sorted by a named order rather than by a table column — Sourcing's
+  /// "Best match · Newest · Price low" — offered on the sort page instead of
+  /// the columns. `null` is the list's own default order.
+  readonly orders?: {
+    readonly options: readonly {
+      readonly value: string | null
+      readonly label: string
+    }[]
+    readonly value: string | null
+    readonly onChange: (value: string | null) => void
+  }
+  readonly id?: string
+  readonly all?: string
+  readonly className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [page, setPage] = useState<string>("menu")
+  const [back, setBack] = useState(false)
+  const go = (next: string, backwards = next === "menu") => {
+    setBack(backwards)
+    setPage(next)
+  }
+  const fm = filterModel ?? model
+  const fieldPage = page.startsWith("field:")
+    ? fm.fields.find((one) => one.column === page.slice(6))
+    : undefined
+
+  const [saved, setSaved] = useState<SavedView[]>([])
+  useEffect(() => {
+    const refresh = () => setSaved(readViews(id))
+    refresh()
+    listeners.add(refresh)
+    return () => void listeners.delete(refresh)
+  }, [id])
+  const same = (a: readonly Filter[], b: readonly Filter[]) =>
+    JSON.stringify(a) === JSON.stringify(b)
+  const here = saved.find((one) => same(one.filters, model.filters))
+  const viewLabel = model.filters.length === 0 ? all : (here?.name ?? "Custom")
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const columns = (table?.getAllLeafColumns() ?? []).filter(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (column: any) =>
+      column.getCanSort() && typeof column.columnDef.header === "string"
+  )
+  const current = sorting[0]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const by = columns.find((column: any) => column.id === current?.id)
+  const sortLabel =
+    orders !== undefined
+      ? (orders.options.find((one) => one.value === orders.value)?.label ??
+        "Default")
+      : by === undefined
+        ? "Default"
+        : String(by.columnDef.header)
+
+  const narrowing = model.filters.length
+  const title =
+    fieldPage !== undefined
+      ? fieldPage.label
+      : page === "clauses"
+        ? "Edit filters"
+        : page === "filter"
+          ? "Filter"
+          : page === "sort"
+            ? "Sort by"
+            : page === "views"
+              ? "Views"
+              : "Show"
+
+  const ROW =
+    "flex min-h-12 w-full items-center gap-3 rounded-inner px-3 text-left text-[0.9375rem] text-ink active:bg-soft-2"
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={
+          narrowing > 0
+            ? `Filter, sort and views, ${narrowing} filters`
+            : "Filter, sort and views"
+        }
+        aria-haspopup="dialog"
+        onClick={() => {
+          setPage("menu")
+          setOpen(true)
+        }}
+        className={cn(
+          "relative grid size-tap shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-text shadow-soft transition-[scale] duration-(--t-press) active:scale-[0.97]",
+          className
+        )}
+      >
+        <SlidersHorizontal className="size-4" />
+        {narrowing > 0 && (
+          <span className="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.875rem] font-semibold text-white tabular-nums ring-2 ring-canvas">
+            {narrowing}
+          </span>
+        )}
+      </button>
+
+      <BottomSheet
+        open={open}
+        onOpenChange={setOpen}
+        title={title}
+        onBack={
+          page === "menu"
+            ? undefined
+            : () =>
+                go(fieldPage || page === "clauses" ? "filter" : "menu", true)
+        }
+        action={
+          page === "filter" && narrowing > 0 ? (
+            <button
+              type="button"
+              onClick={() => model.clear()}
+              className="h-tap shrink-0 rounded-inner px-3 text-[0.9375rem] font-medium text-accent"
+            >
+              Clear
+            </button>
+          ) : undefined
+        }
+      >
+        <MorphHeight page={page} back={back}>
+          <div className="px-2 pb-3">
+            {page === "menu" && (
+              <>
+                {[
+                  {
+                    to: "filter" as const,
+                    icon: ListFilter,
+                    label: "Filter",
+                    value: narrowing === 0 ? "None" : count(narrowing),
+                  },
+                  {
+                    to: "sort" as const,
+                    icon: current?.desc ? ArrowDown : ArrowUp,
+                    label: "Sort by",
+                    value: sortLabel,
+                  },
+                  {
+                    to: "views" as const,
+                    icon: Bookmark,
+                    label: "View",
+                    value: viewLabel,
+                  },
+                ].map((one) => (
+                  <button
+                    key={one.to}
+                    type="button"
+                    onClick={() => go(one.to)}
+                    className={ROW}
+                  >
+                    <one.icon className="size-4 shrink-0 text-line-ico" />
+                    <span className="flex-1">{one.label}</span>
+                    <span className="max-w-[45%] truncate text-body">
+                      {one.value}
+                    </span>
+                    <ChevronRight className="size-4 shrink-0 text-line-ico" />
+                  </button>
+                ))}
+              </>
+            )}
+
+            {page === "filter" && (
+              <>
+                {fm.fields.map((field) => (
+                  <SheetFieldRow
+                    key={field.column}
+                    field={field}
+                    model={fm}
+                    table={table}
+                    className={ROW}
+                    onOpen={(oneTap) =>
+                      go(oneTap ? `field:${field.column}` : "clauses")
+                    }
+                  />
+                ))}
+                {/* The questions a one-tap list cannot ask — a date range,
+                    a price band, "is not" — in the full clause editor. */}
+                <button
+                  type="button"
+                  onClick={() => go("clauses")}
+                  className={cn(ROW, "text-body")}
+                >
+                  <SlidersHorizontal className="size-4 shrink-0 text-line-ico" />
+                  <span className="flex-1">Edit filters</span>
+                  <ChevronRight className="size-4 shrink-0 text-line-ico" />
+                </button>
+              </>
+            )}
+
+            {fieldPage !== undefined && (
+              <SheetFieldOptions
+                field={fieldPage}
+                model={fm}
+                table={table}
+                rowClass={ROW}
+              />
+            )}
+
+            {page === "clauses" && (
+              <div className="px-2">
+                <FilterControls
+                  model={fm}
+                  table={table}
+                  stacked
+                  touch
+                  withClear={false}
+                />
+              </div>
+            )}
+
+            {page === "sort" &&
+              orders !== undefined &&
+              orders.options.map((one) => {
+                const on = one.value === orders.value
+                return (
+                  <button
+                    key={one.label}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => {
+                      orders.onChange(one.value)
+                      setOpen(false)
+                    }}
+                    className={cn(ROW, on && "font-medium")}
+                  >
+                    <span className="flex-1">{one.label}</span>
+                    {on && <Check className="size-4 text-accent" />}
+                  </button>
+                )
+              })}
+
+            {page === "sort" &&
+              orders === undefined &&
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              columns.map((column: any) => {
+                const on = column.id === current?.id
+                return (
+                  <button
+                    key={column.id}
+                    type="button"
+                    aria-pressed={on}
+                    // A second tap on the column that is already the order
+                    // turns it round, the way a header does.
+                    onClick={() =>
+                      onSort?.(column.id, on ? !current.desc : false)
+                    }
+                    className={cn(ROW, on && "font-medium")}
+                  >
+                    <span className="flex-1">
+                      {String(column.columnDef.header)}
+                    </span>
+                    {on &&
+                      (current.desc ? (
+                        <ArrowDown className="size-4 text-accent" />
+                      ) : (
+                        <ArrowUp className="size-4 text-accent" />
+                      ))}
+                  </button>
+                )
+              })}
+
+            {page === "views" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    model.clear()
+                    setOpen(false)
+                  }}
+                  className={ROW}
+                >
+                  <span className="flex-1">{all}</span>
+                  {narrowing === 0 && <Check className="size-4 text-accent" />}
+                </button>
+                {saved.map((one) => (
+                  <button
+                    key={one.name}
+                    type="button"
+                    onClick={() => {
+                      model.clear()
+                      one.filters.forEach((clause) => model.commit(clause))
+                      setOpen(false)
+                    }}
+                    className={ROW}
+                  >
+                    <span className="flex-1 truncate">{one.name}</span>
+                    <span className="text-meta text-mute tabular-nums">
+                      {count(one.filters.length)}
+                    </span>
+                    {here?.name === one.name && (
+                      <Check className="size-4 text-accent" />
+                    )}
+                  </button>
+                ))}
+                {narrowing > 0 && here === undefined && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const name = window.prompt("Name this view")?.trim()
+                      if (!name) return
+                      const next = [
+                        ...readViews(id).filter((one) => one.name !== name),
+                        { name, filters: model.filters },
+                      ]
+                      try {
+                        localStorage.setItem(
+                          storageKey(id),
+                          JSON.stringify(next)
+                        )
+                      } catch {
+                        /* applied; it just will not be here tomorrow */
+                      }
+                      announce()
+                    }}
+                    className={cn(ROW, "text-accent")}
+                  >
+                    <Save className="size-4" />
+                    <span className="flex-1">Save this as a view</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </MorphHeight>
+      </BottomSheet>
+    </>
+  )
+}
+
+/// Whether a field's values can be listed and picked with one tap — the same
+/// test the docked panel's rows apply.
+function isOneTap(field: FilterField, options: readonly unknown[]): boolean {
+  const kind = field.spec.kind
+  return (
+    (kind === "option" ||
+      kind === "multi" ||
+      kind === "boolean" ||
+      kind === "text") &&
+    options.length > 0
+  )
+}
+
+/// One field on the sheet's filter page: its name, what it is set to, and a
+/// step into its values. A component rather than a map body because the
+/// values come from a hook (`useOptions`).
+function SheetFieldRow({
+  field,
+  model,
+  table,
+  className,
+  onOpen,
+}: {
+  field: FilterField
+  model: FilterState
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table?: any
+  className: string
+  onOpen: (oneTap: boolean) => void
+}) {
+  const options = useOptions(field, table)
+  const clause = model.filters.find((one) => one.column === field.column)
+  const chosen = clause?.values ?? []
+  const shown =
+    clause === undefined
+      ? "Any"
+      : chosen.length === 1
+        ? (field.spec.format?.(chosen[0]) ??
+          options.find((one) => one.value === chosen[0])?.label ??
+          chosen[0])
+        : chosen.length > 1
+          ? `${count(chosen.length)} chosen`
+          : "Set"
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(isOneTap(field, options))}
+      className={className}
+    >
+      <span className="flex-1 truncate">{field.label}</span>
+      <span
+        className={cn(
+          "max-w-[50%] truncate",
+          clause === undefined ? "text-body" : "font-medium text-accent"
+        )}
+      >
+        {shown}
+      </span>
+      <ChevronRight className="size-4 shrink-0 text-line-ico" />
+    </button>
+  )
+}
+
+/// A field's values as a page of the sheet: tap one to narrow the list to it,
+/// tap it again to let go — the docked panel's one-tap rows, a thumb's size.
+function SheetFieldOptions({
+  field,
+  model,
+  table,
+  rowClass,
+}: {
+  field: FilterField
+  model: FilterState
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table?: any
+  rowClass: string
+}) {
+  const options = useOptions(field, table)
+  const [needle, setNeedle] = useState("")
+  const index = model.filters.findIndex((one) => one.column === field.column)
+  const clause = index === -1 ? undefined : model.filters[index]
+  const first = operatorsFor(field.spec)[0]
+  const chosen = clause?.values ?? []
+  const shortlist =
+    needle.trim() === ""
+      ? options
+      : options.filter((one) =>
+          one.label.toLowerCase().includes(needle.trim().toLowerCase())
+        )
+  const pick = (value: string) => {
+    const on = chosen.includes(value)
+    const next: Filter = {
+      ...(clause ?? { column: field.column, operator: first }),
+      column: field.column,
+      operator: clause?.operator ?? first,
+      values: on ? [] : [value],
+    }
+    if (next.values?.length === 0 && index !== -1) model.remove(index)
+    else if (index === -1) model.commit(next)
+    else model.update(index, next)
+  }
+  return (
+    <>
+      {options.length > 8 && (
+        <label className="mx-2 mb-2 flex h-11 items-center gap-2 rounded-inner border border-hairline-2 bg-soft px-3 focus-within:border-accent">
+          <Search className="size-4 shrink-0 text-line-ico" />
+          <input
+            value={needle}
+            onChange={(event) => setNeedle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && shortlist[0]) {
+                event.preventDefault()
+                pick(shortlist[0].value)
+              }
+            }}
+            enterKeyHint="done"
+            placeholder="Search"
+            aria-label={`Search ${field.label}`}
+            className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
+          />
+        </label>
+      )}
+      {shortlist.length === 0 && (
+        <p className="px-3 py-6 text-center text-meta text-mute">
+          No {field.label.toLowerCase()} like that.
+        </p>
+      )}
+      {shortlist.map((option) => {
+        const on = chosen.includes(option.value)
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={on}
+            onClick={() => pick(option.value)}
+            className={cn(rowClass, on && "font-medium")}
+          >
+            {field.spec.leading?.(option.value)}
+            <span className="flex-1 truncate">{option.label}</span>
+            {on && <Check className="size-4 shrink-0 text-accent" />}
+          </button>
+        )
+      })}
+    </>
   )
 }

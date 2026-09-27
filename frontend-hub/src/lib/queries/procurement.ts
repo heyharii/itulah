@@ -5,6 +5,7 @@ import type {
   CatalogPurchaseOrderRequest,
   CatalogueVocabulary,
   CreateSupplierBankAccountRequest,
+  CreateSupplierContactRequest,
   CreateSupplierItemRequest,
   CreateSupplierRequest,
   PaymentTermsBook,
@@ -12,10 +13,13 @@ import type {
   SourcingPage,
   Supplier,
   SupplierBankAccount,
+  PurchaseOrderRevisionEntry,
+  SupplierContact,
   SupplierItem,
   SupplierList,
   SupplierStatus,
   UpdateSupplierBankAccountRequest,
+  UpdateSupplierContactRequest,
   UpdateSupplierRequest,
 } from "@itulah/contract"
 
@@ -72,6 +76,14 @@ export interface PurchaseOrderRow {
   /// Quantities covered by non-rejected, non-void supplier bills.
   readonly invoiced_stock_units: number
   readonly fully_received: boolean
+  /// What the pieces received so far are worth, net of the discount
+  /// allocated to them. PPN is not split out: the net value is what is paid.
+  readonly received_value_minor: number
+  /// When the order was finished — the last receipt, or the last line closed
+  /// short. Null while it is still open.
+  readonly fulfilled_at: string | null
+  /// The delivery date has passed and pieces are still owed.
+  readonly overdue: boolean
 }
 
 /// How the order book is narrowed, on the SERVER.
@@ -92,6 +104,9 @@ export interface PurchaseOrderScope {
 export interface PurchaseOrderLine {
   readonly po_line_id: string
   readonly line_number: number
+  /// The catalogue item the line was ordered from — what an edit names it by.
+  /// Null only on orders raised line by line, which cannot be edited.
+  readonly supplier_item_id: string | null
   readonly unit_price_minor: number
   readonly ordered_value_minor: number
   /// What is owed, derived from receipts. A line that arrived short shows both.
@@ -120,12 +135,39 @@ export interface PurchaseOrderLine {
   readonly closed_short_by: string | null
   readonly closed_short_reason: string | null
   readonly line_status: string
+  /// What the buyer means the goods to sell for, and the markup over the
+  /// purchase price it came from (basis points).
+  readonly base_price_minor?: number | null
+  readonly markup_bps?: number | null
+  /// How many of each colour and size, and a SKU's own price.
+  readonly variants?: readonly {
+    readonly colour_code: string | null
+    readonly size_code: string | null
+    readonly quantity: number
+    readonly base_price_minor: number | null
+  }[]
+  /// What it was ordered in — "10" "KODI" at "20" pieces each.
+  readonly order_unit_code?: string | null
+  readonly order_unit_quantity?: string | null
+  readonly unit_factor?: string | null
 }
 
 export interface PurchaseOrderDetail {
   readonly purchase_order_id: string
   readonly po_number: string
   readonly supplier_id: string
+  /// The supplier's record id (`supplier_id` above is its CODE). Null on
+  /// orders raised line by line rather than from a catalogue.
+  readonly supplier_ref_id: string | null
+  readonly notes: string | null
+  /// Whether the order can still be rewritten, and if not, why — asked of the
+  /// server on every read so Edit is offered only where a save would be taken.
+  readonly editable: boolean
+  readonly edit_blocked_reason: string | null
+  /// Whether the order can still be called off — only while nothing has been
+  /// received, billed or advanced against it — and if not, why.
+  readonly cancellable?: boolean
+  readonly cancel_blocked_reason?: string | null
   readonly supplier_name: string | null
   readonly destination_site_id: string
   readonly origin_kind: string
@@ -149,6 +191,9 @@ export interface PurchaseOrderDetail {
   readonly net_minor: number
   /// The day the supplier promised — the earliest of the lines.
   readonly expected_arrival: string | null
+  readonly created_at: string
+  /// Every saved edit, newest first: who, when, and what changed.
+  readonly revisions?: readonly PurchaseOrderRevisionEntry[]
   readonly lines: readonly PurchaseOrderLine[]
 }
 
@@ -342,6 +387,59 @@ export interface ImageUploadTicket {
 }
 
 // ---------------------------------------------------------------------------
+// Supplier contacts
+
+/// The people at a supplier, the primary one first.
+///
+/// `includeRetired` is the picker/master split the server draws: a form
+/// choosing who to send a PO to wants the live ones, and the screen that
+/// retired somebody has to be able to find them again.
+export function supplierContacts(
+  supplierId: string,
+  includeRetired = false,
+  signal?: AbortSignal
+) {
+  const query = includeRetired ? "?include_retired=true" : ""
+  return node.get<SupplierContact[]>(
+    `/api/v1/suppliers/${supplierId}/contacts${query}`,
+    { signal }
+  )
+}
+
+export function createSupplierContact(
+  supplierId: string,
+  request: CreateSupplierContactRequest,
+  idempotencyKey: string,
+  signal?: AbortSignal
+) {
+  return node.post<SupplierContact>(
+    `/api/v1/suppliers/${supplierId}/contacts`,
+    request,
+    { signal, headers: guarded(idempotencyKey) }
+  )
+}
+
+/// Correct a contact, make them primary, retire them or bring them back.
+///
+/// The contact's own `version` is the `If-Match`, exactly as on the account
+/// beside it: two buyers looking at the same stale row cannot both write.
+export function updateSupplierContact(
+  supplierId: string,
+  contactId: string,
+  request: UpdateSupplierContactRequest,
+  version: number,
+  idempotencyKey: string,
+  signal?: AbortSignal
+) {
+  return node.request<SupplierContact>(
+    "PATCH",
+    `/api/v1/suppliers/${supplierId}/contacts/${contactId}`,
+    request,
+    { signal, headers: guarded(idempotencyKey, version) }
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Supplier items — the update request is the one supplier shape ts-rs does not
 // export, because `NullablePatch` has no generated form. Absent leaves a field
 // alone, `null` clears it, a value sets it.
@@ -362,6 +460,8 @@ export interface UpdateSupplierItemRequest {
   /// and an empty list is "this does not come in variants after all".
   readonly colour_codes?: readonly string[] | null
   readonly size_codes?: readonly string[] | null
+  /// The item's own pack sizes; present replaces them.
+  readonly units?: readonly { unit_code: string; factor: string }[] | null
 }
 
 /// One page of a supplier's own catalogue.
@@ -478,6 +578,8 @@ export const procurementKeys = {
   /// account invalidates with the record it belongs to.
   supplierBankAccounts: (id: string) =>
     ["procurement", "suppliers", id, "bank-accounts"] as const,
+  supplierContacts: (id: string) =>
+    ["procurement", "suppliers", id, "contacts"] as const,
   supplierItems: () => ["procurement", "supplier-items"] as const,
   supplierItem: (id: string) => ["procurement", "supplier-items", id] as const,
   /// The sourcing search. The scope is part of the key because a different
@@ -654,6 +756,48 @@ export function createCatalogPurchaseOrder(
   )
 }
 
+/// The whole order as it should now read, for an order nothing has happened
+/// against yet. The supplier and destination are fixed: changing either is a
+/// different order.
+export interface CatalogPurchaseOrderRevision {
+  readonly notes: string | null
+  readonly discount_minor: number | null
+  readonly lines: CatalogPurchaseOrderRequest["lines"]
+}
+
+/// Rewrite an issued catalog order. Same receipt as raising one; the command
+/// id on it is the revision sent to the DC.
+export function reviseCatalogPurchaseOrder(
+  id: string,
+  request: CatalogPurchaseOrderRevision,
+  idempotencyKey: string,
+  signal?: AbortSignal
+) {
+  return node.put<CatalogPurchaseOrderReceipt>(
+    `/api/v1/purchase-orders/${id}`,
+    request,
+    { signal, headers: { "Idempotency-Key": idempotencyKey } }
+  )
+}
+
+/// Call off an order nothing has been received against. The DC is told, and
+/// takes it off the receiving bay's worklist.
+export function cancelPurchaseOrder(
+  id: string,
+  reason: string | null,
+  idempotencyKey: string,
+  signal?: AbortSignal
+) {
+  return node.post<{
+    readonly purchase_order_id: string
+    readonly po_number: string
+  }>(
+    `/api/v1/purchase-orders/${id}/cancel`,
+    { reason },
+    { signal, headers: { "Idempotency-Key": idempotencyKey } }
+  )
+}
+
 /// Raise an order line by line, for goods no supplier catalogue carries.
 ///
 /// The server takes no idempotency key here — it is the older route, and the
@@ -756,7 +900,15 @@ export type SupplierPage = SupplierList
 /// the second is not its column to sort: the count comes from the catalogue
 /// search, so ordering a page of suppliers by it would rank the page rather
 /// than the book.
-export type SupplierSort = "code" | "name" | "created"
+export type SupplierSort =
+  | "code"
+  | "name"
+  | "created"
+  | "status"
+  | "active"
+  | "completed"
+  | "cancelled"
+  | "last_purchased"
 
 /// What a screen is asking the supplier book for.
 ///
@@ -834,6 +986,12 @@ export function supplierScopeFromFilters(
       scope.status = values[0] as SupplierStatus
   }
   return scope
+}
+
+/// Every live contact of every supplier — what the supplier export reads, in
+/// one request rather than one per supplier.
+export function allSupplierContacts(signal?: AbortSignal) {
+  return node.get<SupplierContact[]>("/api/v1/suppliers/contacts", { signal })
 }
 
 export function supplierDetail(id: string, signal?: AbortSignal) {
@@ -970,6 +1128,51 @@ export function createSupplierItem(
     request,
     { signal, headers: guarded(idempotencyKey) }
   )
+}
+
+/// A new item and its photograph, as one act.
+///
+/// The picture is filed under the supplier's code and the item's own code, so
+/// it can only be uploaded once the item exists — and then attached with a
+/// second write. That second write has its OWN key: the first one's would be
+/// read as a retry of the create and replayed, leaving the item saved and the
+/// picture nowhere.
+///
+/// A picture that fails does not fail the item: the item is what the order
+/// needs, and a missing photograph is something somebody can add later. The
+/// failure comes back beside the item for the caller to say out loud.
+export async function createSupplierItemWithPhoto(
+  supplierId: string,
+  request: CreateSupplierItemRequest,
+  photo: Blob | null,
+  supplierCode: string | undefined,
+  idempotencyKey: string
+): Promise<{ item: SupplierItem; photoTrouble: string | null }> {
+  const item = await createSupplierItem(supplierId, request, idempotencyKey)
+  if (photo === null) return { item, photoTrouble: null }
+  try {
+    if (supplierCode === undefined) {
+      throw new Error(
+        "the supplier's code has not loaded, so there was nowhere to file it"
+      )
+    }
+    const url = await uploadSupplierItemImage(
+      supplierCode,
+      item.supplier_item_code,
+      photo
+    )
+    return {
+      item: await updateSupplierItem(
+        item.supplier_item_id,
+        { image_url: url },
+        item.version,
+        crypto.randomUUID()
+      ),
+      photoTrouble: null,
+    }
+  } catch (error) {
+    return { item, photoTrouble: (error as Error).message }
+  }
 }
 
 export function supplierItemDetail(id: string, signal?: AbortSignal) {

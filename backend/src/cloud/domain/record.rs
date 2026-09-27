@@ -123,6 +123,7 @@ pub enum RecordKind {
     // Money
     Account,
     Journal,
+    JournalDraft,
     Bill,
     Payment,
     /// A shop asking head office to pay something, and what happened to the ask.
@@ -136,6 +137,38 @@ pub enum RecordKind {
     /// column of its own.
     PaymentInstruction,
     Asset,
+    /// A deal GA keeps: the lease, the policy, the permit, the subscription.
+    ///
+    /// Its own kind for the same reason every object in brief §6 gets one —
+    /// files, comments and history hang on a `(kind, id)` pair, and a
+    /// contract's papers (the signed agreement, the policy document) are filed
+    /// against the deal and not against the asset or site it mentions.
+    Contract,
+    /// A standing service promise on the schedule — the interval and the day it
+    /// next comes due. Its own kind because the files and history worth keeping
+    /// are the service's, not the asset's.
+    MaintenanceTask,
+    /// What somebody found on a walk-round. Append-only evidence (0365), and
+    /// its own record so a photograph or a technician's report can be filed
+    /// against the inspection itself.
+    Inspection,
+    /// A breakdown GA records: the object, the supplier, the estimate and the
+    /// budget. The MONEY is Finance's; this is the fact of the breakdown.
+    Repair,
+    /// A thing swapped for another because repairing it no longer made sense.
+    Replacement,
+    /// The request to let a thing go, and Finance's answer. Its own kind
+    /// because the decision has a life — requested, approved, posted — that the
+    /// asset's own row does not.
+    Disposal,
+    /// A place GA keeps facilities facts about — a shop, a warehouse, an
+    /// office, a mess. The `site` row belongs to the register's own table; this
+    /// kind is what a photograph, a comment or a history entry hangs on.
+    Location,
+    /// A place asking for what it needs: ATK, a mop, a cash-box. Its own kind
+    /// because it has a life — requested, approved, ordered, received, billed —
+    /// and because the bill that settles it points back at the ask.
+    SupplyRequest,
     BankLine,
     BankStatement,
     StatementSource,
@@ -145,6 +178,12 @@ pub enum RecordKind {
     /// by the poster, and a correction has three states an entry never has.
     /// See 0129 and 0259.
     Correction,
+    /// One integrity check's own record. 0190's `notification_subject_kind_fkey`
+    /// has pointed at this word since the check started raising notifications,
+    /// and 0314 registered the row — but `RecordKind` never learned it, so the
+    /// two vocabularies disagreed. It has no sheet of its own: the check is
+    /// read inside the latest-integrity report, which is the path below.
+    IntegrityCheck,
     // People
     Employee,
     LeaveRequest,
@@ -182,7 +221,7 @@ impl RecordKind {
     /// Exported because two guards read it: the conformance test that compares
     /// this list against the `record_kind` table, and the catalogue that
     /// records which kind each route files under.
-    pub const ALL: [Self; 62] = [
+    pub const ALL: [Self; 72] = [
         Self::Article,
         Self::ArticleSetup,
         Self::Colour,
@@ -218,11 +257,21 @@ impl RecordKind {
         Self::CommercialRule,
         Self::Account,
         Self::Journal,
+        Self::JournalDraft,
         Self::Bill,
         Self::Payment,
         Self::PaymentInstruction,
         Self::Correction,
+        Self::IntegrityCheck,
         Self::Asset,
+        Self::Contract,
+        Self::MaintenanceTask,
+        Self::Inspection,
+        Self::Repair,
+        Self::Replacement,
+        Self::Disposal,
+        Self::Location,
+        Self::SupplyRequest,
         Self::BankLine,
         Self::BankStatement,
         Self::StatementSource,
@@ -285,11 +334,21 @@ impl RecordKind {
             Self::CommercialRule => "commercial_rule",
             Self::Account => "account",
             Self::Journal => "journal",
+            Self::JournalDraft => "journal_draft",
             Self::Bill => "bill",
             Self::Payment => "payment",
             Self::PaymentInstruction => "payment_instruction",
             Self::Correction => "correction",
+            Self::IntegrityCheck => "integrity_check",
             Self::Asset => "asset",
+            Self::Contract => "contract",
+            Self::MaintenanceTask => "maintenance_task",
+            Self::Inspection => "inspection",
+            Self::Repair => "repair",
+            Self::Replacement => "replacement",
+            Self::Disposal => "disposal",
+            Self::Location => "location",
+            Self::SupplyRequest => "supply_request",
             Self::BankLine => "bank_line",
             Self::BankStatement => "bank_statement",
             Self::StatementSource => "statement_source",
@@ -354,11 +413,21 @@ impl RecordKind {
             Self::CommercialRule => "Promotion",
             Self::Account => "Account",
             Self::Journal => "Journal entry",
+            Self::JournalDraft => "Journal draft",
             Self::Bill => "Supplier bill",
             Self::Payment => "Payment",
             Self::PaymentInstruction => "Payment instruction",
             Self::Correction => "Correction",
+            Self::IntegrityCheck => "Integrity check",
             Self::Asset => "Fixed asset",
+            Self::Contract => "Contract",
+            Self::MaintenanceTask => "Maintenance task",
+            Self::Inspection => "Inspection",
+            Self::Repair => "Repair",
+            Self::Replacement => "Replacement",
+            Self::Disposal => "Disposal",
+            Self::Location => "Location",
+            Self::SupplyRequest => "Supply request",
             Self::BankLine => "Bank line",
             Self::BankStatement => "Bank statement",
             Self::StatementSource => "Statement source",
@@ -438,11 +507,21 @@ impl RecordKind {
             Self::CommercialRule => "/api/v1/commercial/rules",
             Self::Account => "/api/v1/finance/accounts",
             Self::Journal => "/api/v1/finance/journal",
+            Self::JournalDraft => "/api/v1/finance/journal/drafts",
             Self::Bill => "/api/v1/finance/bills",
             Self::Payment => "/api/v1/finance/payments",
             Self::PaymentInstruction => "/api/v1/finance/payment-instructions",
             Self::Correction => "/api/v1/finance/corrections",
+            Self::IntegrityCheck => "/api/v1/finance/integrity",
             Self::Asset => "/api/v1/finance/assets",
+            Self::Contract => "/api/v1/ga/contracts",
+            Self::MaintenanceTask => "/api/v1/ga/maintenance-tasks",
+            Self::Inspection => "/api/v1/ga/inspections",
+            Self::Repair => "/api/v1/ga/repairs",
+            Self::Replacement => "/api/v1/ga/replacements",
+            Self::Disposal => "/api/v1/ga/disposals",
+            Self::Location => "/api/v1/ga/locations",
+            Self::SupplyRequest => "/api/v1/ga/supplies",
             Self::BankLine => "/api/v1/finance/bank-lines",
             Self::BankStatement => "/api/v1/finance/bank-statements",
             Self::StatementSource => "/api/v1/finance/statement-sources",
@@ -536,6 +615,10 @@ const ROUTE_SUBJECTS: &[(&str, RecordKind)] = &[
     ("/api/v1/finance/assets/{}", RecordKind::Asset),
     ("/api/v1/finance/bank-lines/{}", RecordKind::BankLine),
     ("/api/v1/finance/bills/{}", RecordKind::Bill),
+    (
+        "/api/v1/finance/journal/drafts/{}",
+        RecordKind::JournalDraft,
+    ),
     ("/api/v1/finance/journal/{}", RecordKind::Journal),
     ("/api/v1/finance/payments/{}", RecordKind::Payment),
     (
@@ -553,6 +636,37 @@ const ROUTE_SUBJECTS: &[(&str, RecordKind)] = &[
         "/api/v1/finance/statement-sources/{}",
         RecordKind::StatementSource,
     ),
+    // One check's own record, read at `/api/v1/finance/integrity/{key}`. The
+    // literal `/integrity/run` beside it is a machine act, not a record and not
+    // matched here: a placeholder in a shape matches only a placeholder.
+    (
+        "/api/v1/finance/integrity/{}",
+        RecordKind::IntegrityCheck,
+    ),
+    // GA's own records. Every path that carries the record's id is here, and
+    // the placeholders match only the route's own `{param}` segments — so
+    // `/api/v1/ga/repairs/{}/move` files against the repair and not against
+    // the literal word "move". Without these the maintenance and contract
+    // sheets would show an empty history: the act would be logged, but not the
+    // thing it was done to.
+    ("/api/v1/ga/assets/{}", RecordKind::Asset),
+    ("/api/v1/ga/assets/{}/transfer", RecordKind::Asset),
+    ("/api/v1/ga/assets/{}/notes", RecordKind::Asset),
+    ("/api/v1/ga/contracts/{}", RecordKind::Contract),
+    ("/api/v1/ga/contracts/{}/archive", RecordKind::Contract),
+    ("/api/v1/ga/contracts/{}/meter-readings", RecordKind::Contract),
+    ("/api/v1/ga/maintenance-tasks/{}", RecordKind::MaintenanceTask),
+    ("/api/v1/ga/inspections/{}", RecordKind::Inspection),
+    ("/api/v1/ga/repairs/{}", RecordKind::Repair),
+    ("/api/v1/ga/repairs/{}/move", RecordKind::Repair),
+    ("/api/v1/ga/repairs/{}/approve-budget", RecordKind::Repair),
+    ("/api/v1/ga/replacements/{}", RecordKind::Replacement),
+    ("/api/v1/ga/replacements/{}/move", RecordKind::Replacement),
+    ("/api/v1/ga/disposals/{}", RecordKind::Disposal),
+    ("/api/v1/ga/disposals/{}/decide", RecordKind::Disposal),
+    ("/api/v1/ga/disposals/{}/close", RecordKind::Disposal),
+    ("/api/v1/ga/locations/{}", RecordKind::Location),
+    ("/api/v1/ga/supplies/{}/move", RecordKind::SupplyRequest),
     ("/api/v1/holiday-calendars/{}", RecordKind::HolidayCalendar),
     ("/api/v1/hire-proposals/{}", RecordKind::HireProposal),
     ("/api/v1/inventory/allotments/{}", RecordKind::Allotment),
@@ -759,6 +873,11 @@ pub const DECLARED_BY_HANDLER: &[(&str, &str, Option<RecordKind>)] = &[
     ("POST", "/api/v1/finance/assets", Some(RecordKind::Asset)),
     ("POST", "/api/v1/finance/bills", Some(RecordKind::Bill)),
     ("POST", "/api/v1/finance/journal", Some(RecordKind::Journal)),
+    (
+        "POST",
+        "/api/v1/finance/journal/drafts",
+        Some(RecordKind::JournalDraft),
+    ),
     (
         "POST",
         "/api/v1/finance/payments",

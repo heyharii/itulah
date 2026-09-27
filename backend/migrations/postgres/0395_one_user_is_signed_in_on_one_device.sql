@@ -1,0 +1,11 @@
+-- One user, one device, one sign-in.
+--
+-- The owner's rule (2026-09-26): an account is signed in in one place at a
+-- time. Signing in again — on another device or the same one — revokes every
+-- other live session of that account, so the device left behind is signed out
+-- on its next request.
+--
+-- `revoked_reason` says why a session ended, so the device that was pushed out
+-- can be told it was signed in elsewhere rather than just "session expired".
+-- NULL on a session that is still live, or one revoked before this existed.
+ALTER TABLE auth_session ADD COLUMN revoked_reason text;

@@ -60,6 +60,13 @@ impl FromStr for Role {
 ///   commercial authoring, missing resolution) is SUPERVISOR;
 /// - the sales flow itself and every read is CASHIER.
 pub fn required_role(method: &str, path: &str) -> Role {
+    // Exchange the signed-in Cloud identity for a DC session. Whether the
+    // caller is assigned to the destination is checked by the handler; this
+    // path itself is a self-service sign-in action, so even a cashier may use
+    // it.
+    if method == "POST" && path == "/api/v1/auth/edge-sso-ticket" {
+        return Role::Cashier;
+    }
     let admin_prefixes = [
         "/api/v1/auth/users",
         "/api/v1/auth/edge-assignments",
@@ -72,6 +79,8 @@ pub fn required_role(method: &str, path: &str) -> Role {
         "/api/v1/sync/breaker",
         "/api/v1/sync/dead-letters",
         "/api/v1/sync/origins",
+        "/api/v1/sync/enrollments",
+        "/api/v1/sync/nodes",
         "/api/v1/sync/commands",
         // Both lanes of the sync plus the request-log failure counts and the
         // open exposures: the operator's view, not a till's. Its siblings
@@ -235,6 +244,57 @@ pub fn required_role(method: &str, path: &str) -> Role {
     if path.starts_with("/api/v1/employees/me/") {
         return Role::Cashier;
     }
+    // Three more self-service writes whose subject is the caller, spelled on
+    // paths that do not carry `me` because the record is born from the call:
+    // a swap of one's own roster day, one's own expense claim, and one's own
+    // grievance. The handlers re-check the action key each act needs —
+    // `request_own` when the subject is the caller, the place's filing key
+    // when a manager files for a colleague — so this widens the door without
+    // granting anything; a cashier filing for a colleague still trips the
+    // supervisor key and is refused there.
+    if path == "/api/v1/roster-swaps"
+        || path == "/api/v1/expense-claims"
+        || path == "/api/v1/grievances"
+    {
+        return Role::Cashier;
+    }
+    // What happens to those filings afterwards, by the person who filed them:
+    // sending a drafted claim up, and taking back a claim, a swap, a
+    // correction or a grievance. Without this they fell through to Supervisor,
+    // so a cashier could file a claim from the phone and never send it. Each
+    // handler binds the act to its *actor* — the filer, compared by name or by
+    // employment record — and re-checks the filing key when it is anyone
+    // else, so this opens the door to the filer and to nobody new.
+    if let Some(rest) = path.strip_prefix("/api/v1/") {
+        let filer_acts = [
+            ("expense-claims/", "/submission"),
+            ("expense-claims/", "/withdrawal"),
+            ("roster-swaps/", "/withdrawal"),
+            ("attendance-corrections/", "/withdrawal"),
+            ("grievances/", "/withdrawal"),
+        ];
+        if filer_acts.iter().any(|(collection, act)| {
+            rest.strip_prefix(collection)
+                .and_then(|tail| tail.strip_suffix(act))
+                .is_some_and(|id| !id.is_empty() && !id.contains('/'))
+        }) {
+            return Role::Cashier;
+        }
+    }
+    // A notification is one person's own queue: reading it is marking your own
+    // row, and the handler takes the reader from the session, never the path.
+    if path.starts_with("/api/v1/notifications/")
+        && (path.ends_with("/read") || path == "/api/v1/notifications/read-all")
+    {
+        return Role::Cashier;
+    }
+    // Saying yes or no to being woken on this browser is the same: the
+    // handler files the subscription under the session's own username, and
+    // removes only the caller's own. Without this, a cashier could read their
+    // notifications and not be told about them.
+    if path == "/api/v1/push/subscriptions" {
+        return Role::Cashier;
+    }
     // Talking is not an administrative act. Without this, the fall-through at
     // the bottom would make posting a message require Supervisor — a cashier
     // could read a conversation they are in and not answer it.
@@ -307,6 +367,14 @@ mod tests {
         }
     }
 
+    #[test]
+    fn edge_sso_ticket_issuance_is_available_to_any_signed_in_role() {
+        assert_eq!(
+            required_role("POST", "/api/v1/auth/edge-sso-ticket"),
+            Role::Cashier
+        );
+    }
+
     /// The point of delegating: a bill's comments are gated like a bill, and a
     /// count's like a count. One route, fifty-seven answers.
     #[test]
@@ -353,6 +421,39 @@ mod tests {
             required_role("DELETE", "/api/v1/comments/abc"),
             Role::Cashier
         );
+    }
+
+    /// The filer's own follow-up acts reach the handler, which binds them to
+    /// the filer; deciding the same filings still does not.
+    #[test]
+    fn a_filer_may_send_up_and_take_back_their_own_filing() {
+        for path in [
+            "/api/v1/expense-claims/5b9e/submission",
+            "/api/v1/expense-claims/5b9e/withdrawal",
+            "/api/v1/roster-swaps/SW-1/withdrawal",
+            "/api/v1/attendance-corrections/C-1/withdrawal",
+            "/api/v1/grievances/5b9e/withdrawal",
+            "/api/v1/notifications/5b9e/read",
+            "/api/v1/notifications/read-all",
+        ] {
+            assert_eq!(required_role("POST", path), Role::Cashier, "{path}");
+        }
+        for method in ["POST", "DELETE"] {
+            assert_eq!(
+                required_role(method, "/api/v1/push/subscriptions"),
+                Role::Cashier
+            );
+        }
+        for path in [
+            "/api/v1/expense-claims/5b9e/decision",
+            "/api/v1/roster-swaps/SW-1/decision",
+            "/api/v1/attendance-corrections/C-1/decision",
+            "/api/v1/grievances/5b9e/resolution",
+            "/api/v1/expense-claims//withdrawal",
+            "/api/v1/expense-claims/a/b/withdrawal",
+        ] {
+            assert_eq!(required_role("POST", path), Role::Supervisor, "{path}");
+        }
     }
 
     #[test]

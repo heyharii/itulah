@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import * as api from "@/api"
+import { Icon } from "@/icons"
 import { money } from "@itulah/contract/money"
 
 /// Four things a cashier does that are neither scanning nor taking money.
@@ -26,6 +27,64 @@ import { money } from "@itulah/contract/money"
 /// none of them is handed an actor or a terminal, and a shell drawn without
 /// those would have to invent them. They are regions, and `till.tsx` decides
 /// where each one sits.
+
+// ── the sheet ───────────────────────────────────────────────────────────
+
+/// A panel drawn OVER the counter: the basket stays visible behind it and
+/// Escape (bound by the till) or the × brings the cashier straight back.
+export function Sheet({
+  title,
+  onClose,
+  children,
+  foot,
+}: {
+  title: string
+  onClose: () => void
+  children: ReactNode
+  foot?: ReactNode
+}) {
+  // Focus moves into the sheet so the keyboard and a screen reader land where
+  // the eye does; the till puts it back on the scan field when it closes.
+  const box = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const first = box.current?.querySelector<HTMLElement>(
+      ".sheet-body button:not(:disabled), .sheet-body input, .sheet-foot button:not(:disabled)",
+    )
+    ;(first ?? box.current)?.focus()
+  }, [])
+  return (
+    <div
+      className="sheet-wrap"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <section
+        ref={box}
+        className="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation()
+            onClose()
+          }
+        }}
+      >
+        <header className="sheet-head">
+          <h2>{title}</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="Tutup">
+            <Icon name="x" />
+          </button>
+        </header>
+        <div className="sheet-body">{children}</div>
+        {foot !== undefined && <footer className="sheet-foot">{foot}</footer>}
+      </section>
+    </div>
+  )
+}
 
 // ── abandoning a basket ─────────────────────────────────────────────────
 
@@ -76,17 +135,19 @@ export function CancelSale({
 
   return (
     <div className="overlay">
-      <div className="overlay-card">
-        <h3>Buang keranjang ini?</h3>
-        <p className="overlay-total num">{money(totalMinor, currency)}</p>
-        <p className="muted" style={{ fontSize: 11.5 }}>
-          {units} unit dilepas dari konter, dan keranjangnya kosong lagi.
+      <div
+        className="overlay-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Batalkan transaksi"
+      >
+        <span className="seal warn">
+          <Icon name="trash" />
+        </span>
+        <h3>Batalkan transaksi ini?</h3>
+        <p className="muted num" style={{ fontSize: 12.5 }}>
+          {units} unit · {money(totalMinor, currency)}
         </p>
-        <div className="notice" style={{ width: "100%", textAlign: "left" }}>
-          Belum ada uang yang berpindah — keranjang ini belum pernah menjadi
-          penjualan, jadi tidak ada yang perlu dikembalikan. Yang diminta hanya
-          alasannya.
-        </div>
         <div className="chips" style={{ width: "100%" }}>
           {REASONS.map((one) => (
             <button
@@ -103,24 +164,18 @@ export function CancelSale({
           <input
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
-            placeholder="Tulis sendiri kalau tidak ada di atas…"
+            placeholder="Tulis alasan"
             autoComplete="off"
             maxLength={120}
           />
         </label>
-        {reason === null && (
-          <p className="muted" style={{ fontSize: 11.5 }}>
-            Pilih salah satu di atas atau tulis alasannya — keranjang tidak
-            dibuang tanpa satu pun.
-          </p>
-        )}
         <button
           className="btn danger"
           style={{ width: "100%" }}
           disabled={reason === null}
           onClick={() => reason !== null && onConfirm(reason)}
         >
-          Buang keranjang
+          Batalkan transaksi
         </button>
         <button
           className="btn ghost"
@@ -174,39 +229,17 @@ export function HoldList({
   const [dropping, setDropping] = useState<string | null>(null)
 
   return (
-    <div className="page">
-      <div className="page-inner">
-        <div className="page-head">
-          <div>
-            <h1>Keranjang tertahan</h1>
-            <p>
-              Diparkir di terminal ini saja — tidak pernah dikirim ke node, dan
-              hilang kalau terminal ditutup. Totalnya dihitung ulang oleh node
-              begitu keranjangnya dilanjutkan.
-            </p>
-          </div>
-          <button className="btn ghost" onClick={onBack}>
-            ← Kembali ke konter
-          </button>
-        </div>
-
-        {!canResume && (
+    <Sheet title="Transaksi ditahan" onClose={onBack}>
+        {!canResume && held.length > 0 && (
           <div className="notice warn">
-            Konter sedang memegang keranjang lain, jadi tidak ada yang bisa
-            dilanjutkan sekarang: satu konter mengerjakan satu keranjang. Tahan
-            atau kosongkan keranjang yang sedang terbuka dulu, lalu kembali ke
-            sini. Membuang yang tertahan tetap bisa dilakukan dari sini.
+            Selesaikan atau tahan keranjang yang sedang terbuka dulu.
           </div>
         )}
 
         {held.length === 0 ? (
           <div className="empty">
-            <h3>Tidak ada yang tertahan</h3>
-            <p>
-              Tekan “Tahan” di konter untuk memarkir keranjang yang sedang
-              terbuka. Keranjang itu lalu muncul di sini sampai dilanjutkan atau
-              dibuang.
-            </p>
+            <Icon name="hold" />
+            <h3>Tidak ada transaksi ditahan</h3>
           </div>
         ) : (
           <div className="rows">
@@ -263,8 +296,7 @@ export function HoldList({
             ))}
           </div>
         )}
-      </div>
-    </div>
+    </Sheet>
   )
 }
 
@@ -472,7 +504,7 @@ function refusal(reply: api.EdgeReply<unknown>): string {
 
 /// A field the node did not send, said as that rather than drawn as a dash.
 function Missing() {
-  return <span className="muted">Tidak disebut node</span>
+  return <span className="muted">—</span>
 }
 
 function Text({ value }: { value: string | null }) {
@@ -569,25 +601,24 @@ export function ReceiptPreview({
       : null
 
   return (
-    <div className="page">
-      <div className="page-inner">
-        <div className="page-head">
-          <div>
-            <h1>Struk sebelum dicetak</h1>
-            <p>
-              Isi di bawah ini datang dari node, dan node juga yang mencetaknya.
-              Terminal tidak menyusun struk sendiri — yang di layar dan yang di
-              kertas berasal dari satu dokumen yang sama.
-            </p>
-          </div>
-          <button className="btn ghost" onClick={onBack}>
-            ← Kembali
+    <Sheet
+      title="Pratinjau struk"
+      onClose={onBack}
+      foot={
+        <>
+          <button className="btn" onClick={onBack}>
+            Tutup
           </button>
-        </div>
-
+          <button className="btn primary" disabled={doc === null} onClick={onPrint}>
+            <Icon name="print" />
+            Cetak
+          </button>
+        </>
+      }
+    >
         {asking && (
           <div className="empty">
-            <h3>Menanyakan struk ke node…</h3>
+            <h3>Memuat struk…</h3>
             <p className="num">{saleId}</p>
           </div>
         )}
@@ -595,11 +626,6 @@ export function ReceiptPreview({
         {trouble !== null && (
           <>
             <p className="error">{trouble}</p>
-            <p className="muted">
-              Tidak ada yang bisa dicetak selama node belum menyebutkan isi
-              penjualan ini: pencetakan berjalan lewat node yang sama, dan node
-              yang tidak bisa menyebutkannya juga tidak bisa mencetaknya.
-            </p>
           </>
         )}
 
@@ -607,9 +633,7 @@ export function ReceiptPreview({
           <>
             {doc.stamp !== null && (
               <div className="notice warn">
-                Struk ini bertanda <strong>{doc.stamp}</strong> — sebagian atau
-                seluruh penjualan ini pernah dibatalkan atau diretur. Tanda itu
-                ikut tercetak.
+                Bertanda <strong>{doc.stamp}</strong>
               </div>
             )}
 
@@ -645,7 +669,7 @@ export function ReceiptPreview({
                   ke waktu lokal saat mencetak; mengubahnya di sini juga berarti
                   dua tempat yang memformat satu waktu. */}
               <div className="kv">
-                <span className="muted">Waktu (seperti disimpan node)</span>
+                <span className="muted">Waktu</span>
                 <span className="num">
                   <Text value={doc.completedAt} />
                 </span>
@@ -661,10 +685,7 @@ export function ReceiptPreview({
             <div>
               <span className="label">Barang</span>
               {doc.lines.length === 0 ? (
-                <p className="muted">
-                  Node tidak menyebutkan satu baris barang pun pada penjualan
-                  ini.
-                </p>
+                <p className="muted">Tidak ada baris barang.</p>
               ) : (
                 <div className="receipt-lines" style={{ marginTop: 10 }}>
                   {doc.lines.map((line, at) => (
@@ -709,9 +730,7 @@ export function ReceiptPreview({
               )}
               {doc.unreadable > 0 && (
                 <p className="error">
-                  {doc.unreadable} entri pada dokumen ini tidak berbentuk baris
-                  atau pembayaran, jadi tidak digambar. Kertasnya bisa berisi
-                  lebih banyak daripada layar ini.
+                  {doc.unreadable} entri tidak terbaca.
                 </p>
               )}
             </div>
@@ -766,21 +785,11 @@ export function ReceiptPreview({
                 dihitung mesin harga dan tersimpan di penjualan. Angka 0 itu
                 tetap ditampilkan apa adanya — yang ditambahkan di sini hanya
                 keterangan bahwa 0 pada struk tidak berarti nol poin. */}
-            {doc.pointsEarned === 0 && (
-              <p className="muted">
-                Dokumen struk selalu menyebut poin 0. Node menghitung poin per
-                baris dan menyimpannya pada penjualan, tetapi tidak
-                memasukkannya ke struk — jadi 0 di atas bukan bukti bahwa
-                pembeli tidak mendapat poin.
-              </p>
-            )}
 
             <div>
               <span className="label">Pembayaran</span>
               {doc.tenders.length === 0 ? (
-                <p className="muted">
-                  Node tidak menyebutkan cara pembayaran pada penjualan ini.
-                </p>
+                <p className="muted">Tidak ada data pembayaran.</p>
               ) : (
                 <div className="receipt-lines" style={{ marginTop: 10 }}>
                   {doc.tenders.map((one, at) => (
@@ -802,12 +811,8 @@ export function ReceiptPreview({
 
             {gap !== null && gap !== 0 && (
               <div className="notice warn">
-                Dibayar dikurangi kembalian tidak sama dengan total barang —
-                selisih <strong className="num">{money(gap, currency)}</strong>.
-                Dokumen struk dari node tidak memuat baris biaya, jadi tas
-                belanja atau ongkos pada tagihan ini ikut terbayar tetapi tidak
-                muncul di daftar di atas. Selisih itu ditampilkan apa adanya;
-                layar ini tidak mengarang barisnya.
+                Selisih <strong className="num">{money(gap, currency)}</strong>{" "}
+                (biaya seperti kantong tidak tercantum di struk)
               </div>
             )}
 
@@ -817,7 +822,7 @@ export function ReceiptPreview({
 
             {doc.strange.length > 0 && (
               <div>
-                <span className="label">Kunci yang belum dikenali layar ini</span>
+                <span className="label">Data lain</span>
                 <div className="chips">
                   {doc.strange.map(([key, value]) => (
                     <span className="chip" key={key}>
@@ -826,33 +831,12 @@ export function ReceiptPreview({
                     </span>
                   ))}
                 </div>
-                <p className="muted">
-                  Node mengirimkan ini dan layar ini belum tahu cara
-                  menggambarnya. Ditampilkan mentah, bukan dibuang — kertasnya
-                  mungkin memuatnya.
-                </p>
               </div>
             )}
 
-            <p className="muted">
-              Dokumen struk tidak menyebutkan mata uang. Angka di atas dibaca
-              sebagai {currency.toUpperCase()}, yaitu mata uang yang dipakai
-              terminal ini.
-            </p>
           </>
         )}
-
-        <div className="rows">
-          <button
-            className="btn primary lg"
-            disabled={doc === null}
-            onClick={onPrint}
-          >
-            Cetak struk ini
-          </button>
-        </div>
-      </div>
-    </div>
+    </Sheet>
   )
 }
 
@@ -933,26 +917,7 @@ export function BagPicker({
   onBack: () => void
 }) {
   return (
-    <div className="page">
-      <div className="page-inner">
-        <div className="page-head">
-          <div>
-            <h1>Tas belanja</h1>
-            <p>
-              Tas tidak dipindai — tas tidak bertag, jadi tas masuk sebagai
-              biaya pada tagihan, bukan sebagai barang di keranjang.
-            </p>
-          </div>
-          <button className="btn ghost" onClick={onBack}>
-            ← Kembali ke konter
-          </button>
-        </div>
-
-        <div className="notice">
-          Biaya tas dihitung terpisah dari barang: tidak kena promo, tidak ikut
-          menghitung batas minimum belanja, dan tidak menghasilkan poin.
-        </div>
-
+    <Sheet title="Kantong belanja" onClose={onBack}>
         <div className="pick-list">
           {BAGS.map((bag) => (
             <button
@@ -960,9 +925,9 @@ export function BagPicker({
               key={bag.description}
               onClick={() => onAdd(bag)}
             >
+              <Icon name="bag" />
               <div className="grow">
                 <strong>{bag.description}</strong>
-                <small>{bag.code}</small>
               </div>
               {bag.amount_minor === 0 ? (
                 <span className="badge ok">Gratis</span>
@@ -974,13 +939,6 @@ export function BagPicker({
             </button>
           ))}
         </div>
-
-        <p className="muted">
-          Struk yang dicetak node saat ini belum memuat baris biaya, jadi tas
-          akan terlihat pada yang dibayar tetapi tidak pada daftar barang di
-          struk. Sebutkan ke pembeli saat menyerahkan tasnya.
-        </p>
-      </div>
-    </div>
+    </Sheet>
   )
 }

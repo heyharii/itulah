@@ -114,6 +114,8 @@ fn browser_cookie_header(set_cookies: &[String]) -> (String, String) {
 
 fn cloud_config() -> AppConfig {
     AppConfig {
+        po_import: inventory_backend::cloud::intake::po::PoImportConfig::from_env(),
+        clock: None,
         bind_addr: "127.0.0.1:0"
             .parse::<SocketAddr>()
             .unwrap_or_else(|error| panic!("bind: {error}")),
@@ -124,6 +126,7 @@ fn cloud_config() -> AppConfig {
         observed_window_hours: 24,
         lost_risk_window_days: 30,
         enable_test_controls: false,
+        finance_automation_enabled: false,
         frontend_dir: frontend_dir(),
         sync_upload_url: None,
         sync_upload_key: None,
@@ -716,13 +719,31 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
         .as_str()
         .and_then(|value| Uuid::parse_str(value).ok())
         .unwrap_or_else(|| panic!("Store user id"));
+    // A DC grant can go without a password — the hub signs people in there
+    // with their Cloud session. A store has no such exchange.
+    let passwordless_store_grant = cloud::upsert_edge_assignment(
+        &pool,
+        UpsertEdgeAssignmentRequest {
+            origin_id: origin_id.into(),
+            user_id,
+            role: Role::Cashier.into(),
+            edge_password: None,
+            offline_ttl_seconds: Some(7 * 24 * 60 * 60),
+        },
+        "admin",
+    )
+    .await;
+    assert!(matches!(
+        passwordless_store_grant,
+        Err(AppError::Validation(_))
+    ));
     let weak_edge_credential = cloud::upsert_edge_assignment(
         &pool,
         UpsertEdgeAssignmentRequest {
             origin_id: origin_id.into(),
             user_id,
             role: Role::Cashier.into(),
-            edge_password: "1234567".into(),
+            edge_password: Some("1234567".into()),
             offline_ttl_seconds: Some(7 * 24 * 60 * 60),
         },
         "admin",
@@ -735,7 +756,7 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
             origin_id: origin_id.into(),
             user_id,
             role: Role::Cashier.into(),
-            edge_password: "edge-cashier-pin".into(),
+            edge_password: Some("edge-cashier-pin".into()),
             offline_ttl_seconds: Some(7 * 24 * 60 * 60),
         },
         "admin",
@@ -1523,4 +1544,78 @@ async fn an_edge_reports_its_outbox_and_says_so_when_it_has_no_sender() {
         "a button that silently does nothing is worse than one that says so"
     );
     assert!(triggered.body["reason"].is_string());
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_dc_grant_needs_no_password_and_a_role_change_keeps_the_one_it_has(pool: PgPool) {
+    let origin_id = "dc-edge";
+    cloud::register_origin_credential_binding(
+        &pool,
+        origin_id,
+        "dc-integration-sync-key-0000000000001",
+        Some("DC"),
+        Some("dc"),
+        Some("DC"),
+        Some(1),
+        Some(true),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("register DC: {error}"));
+    let user = cloud::create_user(
+        &pool,
+        CreateUserRequest {
+            username: "dc.operator".into(),
+            display_name: "DC Operator".into(),
+            password: "cloud-password-1".into(),
+            role: Role::Cashier.into(),
+        },
+        "admin",
+    )
+    .await
+    .unwrap_or_else(|error| panic!("create DC user: {error}"));
+    let user_id = user["id"]
+        .as_str()
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .unwrap_or_else(|| panic!("DC user id"));
+    let grant = |role: Role, edge_password: Option<&str>| {
+        cloud::upsert_edge_assignment(
+            &pool,
+            UpsertEdgeAssignmentRequest {
+                origin_id: origin_id.into(),
+                user_id,
+                role: role.into(),
+                edge_password: edge_password.map(Into::into),
+                offline_ttl_seconds: None,
+            },
+            "admin",
+        )
+    };
+    let verifier = || async {
+        sqlx::query(
+            "SELECT credential_hash,edge_role FROM edge_identity_assignment
+             WHERE origin_id=$1 AND user_id=$2",
+        )
+        .bind(origin_id)
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .map(|row| (row.get::<String, _>(0), row.get::<String, _>(1)))
+        .unwrap_or_else(|error| panic!("assignment: {error}"))
+    };
+
+    grant(Role::Cashier, None)
+        .await
+        .unwrap_or_else(|error| panic!("passwordless DC grant: {error}"));
+    assert_eq!(verifier().await.0, security::SSO_ONLY_VERIFIER);
+
+    grant(Role::Cashier, Some("dc-offline-pin-1"))
+        .await
+        .unwrap_or_else(|error| panic!("offline password: {error}"));
+    let (with_password, _) = verifier().await;
+    assert!(with_password.starts_with("$argon2"));
+
+    grant(Role::Supervisor, None)
+        .await
+        .unwrap_or_else(|error| panic!("role change: {error}"));
+    assert_eq!(verifier().await, (with_password, "SUPERVISOR".to_owned()));
 }

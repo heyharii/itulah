@@ -26,15 +26,18 @@ Not built, deliberately. Listed so they are proposals rather than oversights.
 - **Finance** — Budget & Forecast, Tax & Compliance, Inventory Accounting,
   Close & Reports as separate screens. The 21 finance endpoints cover the
   ledger, position, bills, bank and assets.
-- **People** — being built. `PEOPLE-BRIEF.md` holds the approved shape: one
+- **People** — built to the Frappe HRMS standard for the flows the owner
+  confirmed (2026-09-23). `PEOPLE-BRIEF.md` holds the approved shape: one
   module with two faces (a place manager and head office), grouped Work ·
   Records · Pay · Setup, with per-item visibility driven by the caller's own
-  posting. Leave, Overtime, Payroll and the roster half of attendance are
-  ports from the two HR donors — `docs/hr-port-provenance.md` tracks each one.
-  Three of the prototype's six stay proposals: **Claims & Advances** and
-  **Performance & Training** have no table and no donor, and **Biometric &
-  Devices** waits on the punch-source question the brief sets out. Delete this
-  line when phase 6 closes.
+  posting. Leave, Overtime, Payroll, attendance and the hire proposal are
+  ports — `docs/hr-port-provenance.md` tracks each one — and Claims,
+  Grievances and Exits (interview + Full & Final) landed on top of them. The
+  owner dropped **Performance** and **Training** (designs kept in the
+  alignment plan), and the recruitment pipeline was refused 2026-09-04: the
+  narrow hire proposal is the whole of recruitment. Org-structure masters
+  (department/designation/grade) are also dropped — "which unit" is the open
+  assignment's `org_place` and nothing else.
 - **Store ops** — Shift Close, Cash Deposit, Cash Difference, EDC Settlement,
   POS Devices, Incidents, Checklists. These are **store-edge** concerns and
   belong to `frontend-store`, not to the central console.

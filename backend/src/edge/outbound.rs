@@ -162,7 +162,7 @@ impl SessionKind {
 }
 
 pub fn open_session(
-    connection: &mut Connection,
+    connection: &Connection,
     kind: SessionKind,
     request: OpenSessionRequest,
 ) -> Result<Session, EdgeError> {

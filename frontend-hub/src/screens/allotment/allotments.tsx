@@ -273,7 +273,7 @@ function Journey({
           <span key={tick} className={cn("h-2 flex-1 rounded-full", tone)} />
         ))}
       </span>
-      <span className="w-9 shrink-0 text-right text-[0.71875rem] font-medium text-body tabular-nums">
+      <span className="w-9 shrink-0 text-right text-[0.875rem] font-medium text-body tabular-nums">
         {share}%
       </span>
     </div>
@@ -436,18 +436,18 @@ export function Allotments() {
           the shape the order book has worn since its own panel docked, and the
           reason the filter popover above the table is gone. Below that width
           the same model is reached from the panel's own sheet. */}
-      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
           {shortages.length > 0 && (
             <Card className="mb-[1.125rem] overflow-hidden">
               <CardHeader>
                 <CardTitle>Promised more than the pool holds</CardTitle>
-                <span className="text-[0.75rem] text-mute tabular-nums">
+                <span className="text-[0.875rem] text-mute tabular-nums">
                   {count(shortages.length)}
                 </span>
               </CardHeader>
               <div className="border-t border-hairline px-4 py-3">
-                <p className="mb-2.5 text-[0.71875rem] text-mute">
+                <p className="mb-2.5 text-[0.875rem] text-mute">
                   On Hand is Stock minus Allotted, so a negative reading means
                   the allotments standing against this pool add up to more than
                   the goods in it. The server reports it rather than preventing
@@ -459,10 +459,10 @@ export function Allotments() {
                 >
                   {shortages.map((item) => (
                     <tr key={item.sku_id} className="border-t border-hairline">
-                      <td className="py-2 pr-2 text-[0.8125rem] text-ink">
+                      <td className="py-2 pr-2 text-[0.875rem] text-ink">
                         {item.article_name}
                       </td>
-                      <td className="py-2 text-right font-mono text-[0.65625rem] text-body">
+                      <td className="py-2 text-right font-mono text-[0.875rem] text-body">
                         {item.sku_code}
                       </td>
                       <td className="py-2 text-right tabular-nums">
@@ -539,7 +539,7 @@ export function Allotments() {
                       value={count(byStore.data.sku_summary.length)}
                     />
                   </MetricRow>
-                  <p className="mt-3 text-[0.71875rem] text-mute">
+                  <p className="mt-3 text-[0.875rem] text-mute">
                     This summary spans every allotment ever addressed to{" "}
                     {byStore.data.destination_name} — not only the ones listed
                     below.
@@ -595,7 +595,7 @@ export function Allotments() {
                 note: "Pools promising more than they hold.",
               },
             ]}
-            className="hidden min-[1440px]:flex"
+            className="hidden dock:flex"
           />
         )}
       </div>
@@ -655,7 +655,7 @@ function ByStoreSkus({
     <Card className="mb-[1.125rem] overflow-hidden">
       <CardHeader>
         <CardTitle>Owed to {store}, by SKU</CardTitle>
-        <span className="text-[0.75rem] text-mute tabular-nums">
+        <span className="text-[0.875rem] text-mute tabular-nums">
           {count(shown.length)} SKUs
         </span>
       </CardHeader>
@@ -684,10 +684,10 @@ function ByStoreSkus({
               return (
                 <tr key={row.sku_id} className="border-t border-hairline">
                   <td className="py-2 pr-2">
-                    <span className="block text-[0.8125rem] text-ink">
+                    <span className="block text-[0.875rem] text-ink">
                       {identity?.article_name ?? row.sku_code}
                     </span>
-                    <span className="font-mono text-[0.65625rem] text-mute">
+                    <span className="font-mono text-[0.875rem] text-mute">
                       {row.sku_code}
                       {identity &&
                         ` · ${[identity.colour, identity.size].filter(Boolean).join(" · ")}`}
@@ -766,7 +766,7 @@ function ByArticle({
         <CardTitle>
           {store === null ? "Every article ever allotted" : `Sent to ${store}`}
         </CardTitle>
-        <span className="text-[0.75rem] text-mute tabular-nums">
+        <span className="text-[0.875rem] text-mute tabular-nums">
           {count(rows.length)} articles
         </span>
       </CardHeader>
@@ -810,10 +810,10 @@ function ByArticle({
                             className="size-8 shrink-0 rounded-inner"
                           />
                           <div className="min-w-0">
-                            <span className="block truncate text-[0.8125rem] text-ink">
+                            <span className="block truncate text-[0.875rem] text-ink">
                               {item.article_name}
                             </span>
-                            <span className="font-mono text-[0.65625rem] text-mute">
+                            <span className="font-mono text-[0.875rem] text-mute">
                               {item.article_code}
                             </span>
                           </div>
@@ -909,8 +909,7 @@ function AllotmentSheet({
       open={id !== null}
       subject={id === null ? undefined : { kind: "allotment", id }}
       onOpenChange={(open) => !open && onClose()}
-      id={detail.data?.allotment_number}
-      title={detail.data ? humanise(detail.data.type) : "Allotment"}
+      title={detail.data?.allotment_number ?? "Allotment"}
     >
       {queryState(detail, {
         loading: "Opening the allotment…",
@@ -960,9 +959,6 @@ function AllotmentSheet({
               <Facts>
                 <Fact term="Raised by">{record.created_by}</Fact>
                 <Fact term="Raised">{moment(record.created_at)}</Fact>
-                <Fact term="Owner">
-                  {record.activation_target_origin_id ?? "This node"}
-                </Fact>
                 <Fact term="Notes">{record.notes ?? "—"}</Fact>
               </Facts>
 
@@ -997,12 +993,11 @@ function AllotmentSheet({
                   {record.lines.map((item) => (
                     <tr key={item.id} className="border-t border-hairline">
                       <td className="py-2 pr-2">
-                        <span className="block text-[0.8125rem] text-ink">
+                        <span className="block text-[0.875rem] text-ink">
                           {item.article_name}
                         </span>
-                        <span className="font-mono text-[0.65625rem] text-mute">
-                          {item.sku_code} · {item.source_pool_id} →{" "}
-                          {item.destination_id}
+                        <span className="font-mono text-[0.875rem] text-mute">
+                          {item.sku_code}
                         </span>
                       </td>
                       <td className="py-2 pr-2 text-right tabular-nums">
@@ -1069,7 +1064,7 @@ function AllotmentSheet({
                         key={movement.movement_id}
                         className="border-t border-hairline"
                       >
-                        <td className="py-2 pr-2 font-mono text-[0.65625rem] text-body">
+                        <td className="py-2 pr-2 font-mono text-[0.875rem] text-body">
                           <AppLink
                             to="/inventory/pools"
                             sheet={{
@@ -1122,12 +1117,7 @@ function AllotmentSheet({
                   </Banner>
                 )}
 
-                {owned ? (
-                  <p className="mb-3 text-[0.71875rem] text-mute">
-                    A DC owns this allotment, so picking happens there against
-                    the activation command — not here.
-                  </p>
-                ) : (
+                {owned ? null : (
                   <div className="mb-4 flex flex-col gap-3">
                     <Field
                       label="Pick against a line"
@@ -1172,7 +1162,6 @@ function AllotmentSheet({
                 <div className="flex flex-col gap-3">
                   <Field
                     label="Cancel what is still reserved"
-                    hint="Whole-allotment, never per line. Nothing already picked comes back."
                   >
                     <Input
                       value={reason}

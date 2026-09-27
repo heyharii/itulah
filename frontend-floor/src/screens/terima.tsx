@@ -1,20 +1,24 @@
 import { useQuery } from "@tanstack/react-query"
 import { ClipboardCheck, Truck } from "lucide-react"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 
 import { RecordCard } from "@/components/ui/card"
-import { Pill } from "@/components/ui/pill"
 import { KeyValue } from "@/components/ui/rows"
 import { CardList, Screen, Section } from "@/components/ui/screen"
 import { Segmented } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { ago, count, signed } from "@/lib/format"
-import { useGo } from "@/lib/go"
 import { pendingOf, useOutbox } from "@/lib/outbox"
-import { useParam } from "@/lib/params"
+import { useParam, useSheetParam } from "@/lib/params"
 import { queryState } from "@/lib/query-state"
 import { reads } from "@/lib/queries"
 import { groupByOrder } from "@/lib/work"
+import {
+  CheckStatus,
+  CountStatus,
+  HitungSheet,
+  PeriksaSheet,
+} from "@/screens/terima-sheets"
 import type {
   PurchaseCountAwaitingVerification,
   PurchaseWorkLine,
@@ -33,9 +37,20 @@ import type {
 /// counter who has seen "120" counts to 120. The lines are there so somebody can
 /// find the order on the paperwork in their hand; the numbers are on the other
 /// slice, where the verifier is entitled to them.
+///
+/// **An order opens in a sheet over the list, not on a screen of its own.** The
+/// list stays under it and a swipe down puts it away, so the next lorry is one
+/// tap from the last one saved. Which order is open is `?po=` — a reload, or a
+/// tab the OS killed, reopens the same sheet — and what was typed into it is a
+/// draft on the phone, which the order's card owns up to.
+///
+/// **Back puts the sheet away.** A card tap pushes an entry for the sheet
+/// (`useSheetParam`), and every way of closing it — the swipe, the backdrop,
+/// the save, the decision — goes back through that entry, so the phone's back
+/// button does the same and nothing stale is left behind the list.
 export function Terima() {
-  const go = useGo()
   const view = useParam("lihat")
+  const po = useSheetParam("po")
   const slice = view.value === "periksa" ? "periksa" : "hitung"
 
   const work = useQuery(reads.purchaseWork())
@@ -43,49 +58,88 @@ export function Terima() {
   const pendingCounts = pendingOf(useOutbox(), "hitung")
   const pendingChecks = pendingOf(useOutbox(), "periksa")
 
-  return (
-    <Screen>
-      <div className="pt-1 pb-4">
-        <Segmented
-          value={slice}
-          onChange={(next) => view.set(next)}
-          options={[
-            { value: "hitung", label: "Hitung" },
-            { value: "periksa", label: "Periksa" },
-          ]}
-        />
-      </div>
+  // The order a close was asked for on, until the URL has caught up.
+  //
+  // Going back is answered by a `popstate`, not at once, and Base UI's drawer
+  // looks on the very next frame to see whether its close was taken: a sheet
+  // still open then is put back, and a swipe that let go snapped up under the
+  // finger before sliding away. So the sheet is closed here, in the press, and
+  // the URL follows. It is also what makes a second close a no-op — two
+  // `history.back()`s before the first lands would walk off the bay.
+  const [closing, setClosing] = useState<string | undefined>(undefined)
+  const [was, setWas] = useState(po.value)
+  if (po.value !== was) {
+    setWas(po.value)
+    setClosing(undefined)
+  }
+  const shown = po.value === closing ? undefined : po.value
 
-      {slice === "hitung" ? (
-        <>
-          {pendingCounts.length > 0 && (
-            <Banner tone="warn" className="mb-4">
-              {count(pendingCounts.length)} hitungan tersimpan di HP ini dan
-              belum sampai ke node.
-            </Banner>
-          )}
-          {queryState(work, {
-            loading: "Menanyakan order yang belum datang…",
-            render: (lines) => <Owed lines={lines} onOpen={(po) => go("/terima/hitung", { po })} />,
-          })}
-        </>
-      ) : (
-        <>
-          {pendingChecks.length > 0 && (
-            <Banner tone="warn" className="mb-4">
-              {count(pendingChecks.length)} pemeriksaan tersimpan di HP ini dan
-              belum sampai ke node.
-            </Banner>
-          )}
-          {queryState(queue, {
-            loading: "Menanyakan hitungan yang menunggu…",
-            render: (rows) => (
-              <ToVerify rows={rows} onOpen={(po) => go("/terima/periksa", { po })} />
-            ),
-          })}
-        </>
-      )}
-    </Screen>
+  // A card tap is a fresh opening, whatever was on its way out a moment ago.
+  const open = (next: string) => {
+    setClosing(undefined)
+    po.open(next)
+  }
+  const close = () => {
+    if (shown === undefined) return
+    setClosing(shown)
+    po.close()
+  }
+
+  return (
+    <>
+      <Screen>
+        <div className="pt-1 pb-4">
+          <Segmented
+            value={slice}
+            onChange={(next) => view.set(next)}
+            options={[
+              { value: "hitung", label: "Hitung" },
+              { value: "periksa", label: "Periksa" },
+            ]}
+          />
+        </div>
+
+        {slice === "hitung" ? (
+          <>
+            {pendingCounts.length > 0 && (
+              <Banner tone="warn" className="mb-4">
+                {count(pendingCounts.length)} hitungan tersimpan di HP ini dan
+                belum sampai ke node.
+              </Banner>
+            )}
+            {queryState(work, {
+              loading: "Menanyakan order yang belum datang…",
+              render: (lines) => <Owed lines={lines} onOpen={open} />,
+            })}
+          </>
+        ) : (
+          <>
+            {pendingChecks.length > 0 && (
+              <Banner tone="warn" className="mb-4">
+                {count(pendingChecks.length)} pemeriksaan tersimpan di HP ini
+                dan belum sampai ke node.
+              </Banner>
+            )}
+            {queryState(queue, {
+              loading: "Menanyakan hitungan yang menunggu…",
+              render: (rows) => <ToVerify rows={rows} onOpen={open} />,
+            })}
+          </>
+        )}
+      </Screen>
+
+      {/* Each sheet opens only on its own slice: the same `?po=` is a count on
+        one half and a verification on the other, and the two rising over each
+        other would be neither. */}
+      <HitungSheet
+        po={slice === "hitung" ? shown : undefined}
+        onClose={close}
+      />
+      <PeriksaSheet
+        po={slice === "periksa" ? shown : undefined}
+        onClose={close}
+      />
+    </>
   )
 }
 
@@ -120,7 +174,7 @@ function Owed({
             key={order.po_number}
             icon={<Truck />}
             id={order.po_number}
-            status={<Pill tone="info">{count(order.lines.length)} baris</Pill>}
+            status={<CountStatus order={order} />}
             onPress={() => onOpen(order.po_number)}
           >
             <div className="px-3.5 pt-2 pb-3">
@@ -181,13 +235,7 @@ function ToVerify({
             key={order.po_number}
             icon={<ClipboardCheck />}
             id={order.po_number}
-            status={
-              order.off === 0 ? (
-                <Pill tone="ok">Cocok</Pill>
-              ) : (
-                <Pill tone="warn">{count(order.off)} selisih</Pill>
-              )
-            }
+            status={<CheckStatus po={order.po_number} off={order.off} />}
             onPress={() => onOpen(order.po_number)}
           >
             <div className="px-3.5 pt-2 pb-3">

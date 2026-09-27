@@ -7,11 +7,13 @@
 //! the day's takings, and a till whose arithmetic is wrong must not have its
 //! numbers quietly believed.
 
-use inventory_backend::cloud::domain::{parse_sales_completed, FACT_SALES_COMPLETED};
+use inventory_backend::cloud::domain::{
+    parse_sales_completed, FACT_SALES_COMPLETED, FACT_SALES_VOIDED,
+};
 use inventory_backend::cloud::postgres as cloud;
 use inventory_backend::edge::{
-    EdgeInventory, EdgeRole, MoveRequest, MovementCause, NodeContext, ReceiveRequest, SaleRequest,
-    SiteId, SqliteEdge,
+    EdgeInventory, EdgeRole, MoveRequest, MovementCause, NodeContext, QuoteRequest, ReceiveRequest,
+    SaleRequest, SiteId, SqliteEdge,
 };
 use inventory_backend::tender::{PaymentMethod, SaleTender};
 use serde_json::json;
@@ -82,6 +84,8 @@ fn queued_facts(edge: &SqliteEdge) -> Vec<(String, serde_json::Value)> {
 fn cash(amount_minor: i64) -> Vec<SaleTender> {
     vec![SaleTender {
         voucher_authorization_id: None,
+        acquirer: None,
+        card_kind: None,
         method: PaymentMethod::Cash,
         amount_minor,
         reference: None,
@@ -315,12 +319,16 @@ fn a_basket_paid_half_on_a_card_records_both_halves() {
             tenders: vec![
                 SaleTender {
                     voucher_authorization_id: None,
+                    acquirer: None,
+                    card_kind: None,
                     method: PaymentMethod::Card,
                     amount_minor: 150_000,
                     reference: Some("BCA auth 4471".into()),
                 },
                 SaleTender {
                     voucher_authorization_id: None,
+                    acquirer: None,
+                    card_kind: None,
                     method: PaymentMethod::Cash,
                     amount_minor: 100_000,
                     reference: None,
@@ -393,6 +401,8 @@ fn a_card_cannot_be_charged_above_the_basket() {
         epcs: vec!["EPC90000011".into()],
         tenders: vec![SaleTender {
             voucher_authorization_id: None,
+            acquirer: None,
+            card_kind: None,
             method: PaymentMethod::Card,
             amount_minor: 150_000,
             reference: None,
@@ -418,6 +428,8 @@ fn a_reference_that_looks_like_a_card_number_is_refused() {
         epcs: vec!["EPC90000012".into()],
         tenders: vec![SaleTender {
             voucher_authorization_id: None,
+            acquirer: None,
+            card_kind: None,
             method: PaymentMethod::Card,
             amount_minor: 50_000,
             reference: Some("4571 2234 9981 0043".into()),
@@ -490,4 +502,241 @@ async fn tenders_that_do_not_add_up_are_refused_not_believed(pool: PgPool) {
         1,
         "10,000 with no payment behind it must be refused loudly, not stored quietly"
     );
+}
+
+// ---- A code the shop has never heard of is refused, loudly -----------------
+//
+// The engine already reports every coupon it knows and refuses with a reason.
+// A code matching NOTHING was the one silent case: the basket priced as if the
+// shopper had said nothing, and the typo was discovered at home, on the
+// receipt. Both doors check: the quote the cashier is looking at, and the sale
+// the till would have taken.
+
+#[test]
+fn an_unknown_coupon_code_is_refused_at_quote_and_sale() {
+    let edge = shop();
+    stock_one(&edge, "EPC90000004", "TEH-1KG", 12_000, "d");
+    // One code the shop genuinely holds, seeded the way an activated
+    // publication leaves it.
+    {
+        let connection = edge.connection();
+        let guard = connection.lock().unwrap_or_else(|e| panic!("lock: {e}"));
+        guard
+            .execute(
+                "INSERT INTO commercial_publication
+                     (id, version, name, effective_from, effective_to, activated_at)
+                 VALUES ('pub-coupon', 1, 'test book',
+                         '2026-01-01T00:00:00Z', NULL, '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap_or_else(|e| panic!("seed publication: {e}"));
+        // A price for the basket, so the quote below is a real pricing and the
+        // refusal is about the code, not about a shop with no book.
+        guard
+            .execute(
+                "INSERT INTO commercial_price_rule
+                     (publication_id, sku_id, site_id, channel, sellable,
+                      currency, unit_price_minor, tax_category, sku_code)
+                 VALUES ('pub-coupon', 'sku-teh', NULL, 'STORE', 1,
+                         'IDR', 12_000, 'STANDARD', 'TEH-1KG')",
+                [],
+            )
+            .unwrap_or_else(|e| panic!("seed price: {e}"));
+        guard
+            .execute(
+                "INSERT INTO commercial_tax_rule
+                     (publication_id, tax_category, rate_bps, tax_inclusive)
+                 VALUES ('pub-coupon', 'STANDARD', 0, 1)",
+                [],
+            )
+            .unwrap_or_else(|e| panic!("seed tax: {e}"));
+        guard
+            .execute(
+                "INSERT INTO commercial_coupon
+                     (code, publication_id, rule_id, active, customer_id,
+                      valid_from, valid_to, max_uses)
+                 VALUES ('BAIKAN10', 'pub-coupon', 'rule-coupon', 1, NULL,
+                         NULL, NULL, NULL)",
+                [],
+            )
+            .unwrap_or_else(|e| panic!("seed coupon: {e}"));
+    }
+
+    // Baseline first: the basket without the stranger's code prices plainly.
+    let plain = edge
+        .quote_basket(QuoteRequest {
+            epcs: vec!["EPC90000004".into()],
+            coupon_codes: Vec::new(),
+            customer_id: None,
+            charges: Vec::new(),
+        })
+        .unwrap_or_else(|e| panic!("quote: {e}"));
+    assert_eq!(plain["amount_due_minor"], 12_000);
+
+    let refused = edge.quote_basket(QuoteRequest {
+        epcs: vec!["EPC90000004".into()],
+        coupon_codes: vec!["SALAHKETIK".into()],
+        customer_id: None,
+        charges: Vec::new(),
+    });
+    assert!(
+        refused.is_err(),
+        "a code matching nothing must not price as silence"
+    );
+    let message = format!("{}", refused.unwrap_err());
+    assert!(
+        message.contains("SALAHKETIK"),
+        "the refusal names the code: {message}"
+    );
+
+    let sale_refused = edge.complete_sale(SaleRequest {
+        charges: Vec::new(),
+        coupon_codes: vec!["SALAHKETIK".into()],
+        customer_id: None,
+        idempotency_key: "sale-unknown-code".into(),
+        actor_id: "kasir-1".into(),
+        epcs: vec!["EPC90000004".into()],
+        tenders: cash(12_000),
+    });
+    assert!(
+        sale_refused.is_err(),
+        "the till must not take money behind a code it cannot name"
+    );
+
+    // The code the shop DOES hold keeps its engine path: priced, not refused.
+    let known = edge
+        .quote_basket(QuoteRequest {
+            epcs: vec!["EPC90000004".into()],
+            coupon_codes: vec!["BAIKAN10".into()],
+            customer_id: None,
+            charges: Vec::new(),
+        })
+        .unwrap_or_else(|e| panic!("known code: {e}"));
+    let _ = known; // the rule it opens does not exist here, so it prices plain;
+                   // what matters is that nothing threw.
+}
+
+// ---- The centre's side of a void -------------------------------------------
+//
+// The shop's void travelled as stock movement only, so the centre kept the
+// money, the counters and the member's points as if the sale stood. It now
+// also receives `sales.voided`: the sale is marked, money reports can leave it
+// out, and the award is taken back — exactly once, however many times the
+// fact arrives.
+
+fn void_payload(sale_id: Uuid) -> serde_json::Value {
+    json!({
+        "sale_id": sale_id,
+        "site_id": ORIGIN,
+        "voided_at": chrono::Utc::now(),
+        "reason": "salahscan sebelum dibayar",
+        "refund_minor": 30_000,
+        "actor_id": "kasir-1",
+        "approved_by": "supervisor-1",
+    })
+}
+
+async fn ingest_void(pool: &PgPool, seq: i64, sale_id: Uuid) {
+    cloud::ingest_batch(
+        pool,
+        &inventory_backend::cloud::domain::IngestBatch {
+            origin_id: ORIGIN.into(),
+            generation: 1,
+            facts: vec![inventory_backend::cloud::domain::SyncFact {
+                seq,
+                event_id: Uuid::new_v4(),
+                event_type: FACT_SALES_VOIDED.into(),
+                payload: void_payload(sale_id),
+                created_at: chrono::Utc::now(),
+            }],
+            command_watermark: 0,
+            command_blocked: None,
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("ingest void: {e}"));
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_void_marks_the_sale_and_takes_back_its_points_once(pool: PgPool) {
+    let sale_id = Uuid::new_v4();
+    let mut payload = sale_payload(sale_id, 30_000, 30_000, 0, 30_000);
+    payload["customer_id"] = json!("MEMBER-001");
+    payload["points_earned"] = json!(10);
+    ingest(&pool, 1, payload).await;
+    cloud::apply_pending(&pool, 200)
+        .await
+        .unwrap_or_else(|e| panic!("apply sale: {e}"));
+
+    let status: String = sqlx::query_scalar("SELECT status FROM edge_sale WHERE sale_id = $1")
+        .bind(sale_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("status: {e}"));
+    assert_eq!(status, "COMPLETED");
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT balance_points FROM points_account WHERE customer_id = 'MEMBER-001'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("balance: {e}"));
+    assert_eq!(balance, 10, "the award lands before any void can undo it");
+
+    // The void arrives, and the centre answers it.
+    ingest_void(&pool, 2, sale_id).await;
+    let report = cloud::apply_pending(&pool, 200)
+        .await
+        .unwrap_or_else(|e| panic!("apply void: {e}"));
+    assert!(report.blocked.is_empty(), "{:?}", report.blocked);
+
+    let status: String = sqlx::query_scalar("SELECT status FROM edge_sale WHERE sale_id = $1")
+        .bind(sale_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("status 2: {e}"));
+    assert_eq!(status, "VOIDED");
+
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT balance_points FROM points_account WHERE customer_id = 'MEMBER-001'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("balance 2: {e}"));
+    assert_eq!(balance, 0, "the award left with the sale that earned it");
+
+    // Money reports leave it out: gross given is not gross taken.
+    let summary = cloud::sales_by_site(
+        &pool,
+        chrono::Utc::now() - chrono::Duration::hours(1),
+        chrono::Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("report: {e}"));
+    assert_eq!(
+        summary["sites"].as_array().map(Vec::len).unwrap_or(0),
+        0,
+        "a voided sale is not the shop's takings"
+    );
+
+    // The same void lands again — a resend after a lost ack. One reversal,
+    // decided by the ledger's index, not by luck.
+    ingest_void(&pool, 3, sale_id).await;
+    let report = cloud::apply_pending(&pool, 200)
+        .await
+        .unwrap_or_else(|e| panic!("apply void replay: {e}"));
+    assert!(report.blocked.is_empty());
+    let reversals: i64 = sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM points_ledger WHERE entry_type = 'VOID_REVERSAL'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("reversals: {e}"));
+    assert_eq!(reversals, 1, "a redelivered void takes back nothing twice");
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT balance_points FROM points_account WHERE customer_id = 'MEMBER-001'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("balance 3: {e}"));
+    assert_eq!(balance, 0);
 }

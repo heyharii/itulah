@@ -14,7 +14,7 @@
 //! booked against an unmapped account is. The other leg is one of two
 //! meanings — `cash_variance` when the drawer held more than the books said,
 //! `cash_shortage` when it held less — and until somebody points the one a
-//! count needs at an account on the Account Map screen, posting that
+//! count needs at an account on the Account Links screen, posting that
 //! difference refuses and says so. A count itself is still recorded: observing
 //! a shortage does not depend on knowing where to book it.
 
@@ -33,7 +33,7 @@ const CASH_MEANINGS: [&str; 3] = ["cash", "petty_cash", "cashier_float"];
 /// Where a difference goes when it is posted: one meaning per side, since
 /// 0296. An overage is income and a shortage is a cost, and the sign is known
 /// at exactly one moment — when `post_variance` subtracts the books from the
-/// count — so this is where the side is chosen, not on the Account Map.
+/// count — so this is where the side is chosen, not on the Account Links screen.
 const VARIANCE_MEANING: &str = "cash_variance";
 const SHORTAGE_MEANING: &str = "cash_shortage";
 
@@ -199,9 +199,10 @@ async fn drawer_meaning(
     site_id: &str,
 ) -> Result<(String, String), AppError> {
     let rows = sqlx::query(
-        "SELECT semantic_key, qualifier FROM account_map
-          WHERE account_code = $1 AND site_id = $2 AND semantic_key = ANY($3)
-          ORDER BY semantic_key, qualifier",
+        "SELECT role AS semantic_key, source_id AS qualifier FROM account_resolution
+          WHERE account_code = $1 AND site_id = $2 AND role = ANY($3)
+            AND source_type = 'COMPANY'
+          ORDER BY role, source_id",
     )
     .bind(account_code)
     .bind(site_id)
@@ -212,7 +213,7 @@ async fn drawer_meaning(
     match rows.len() {
         0 => Err(AppError::Validation(format!(
             "{account_code} at {site_id} is not a cash drawer: point one of {} at it on the \
-             Account Map screen, or count the account that is",
+             Account Links screen, or count the account that is",
             CASH_MEANINGS.join(", ")
         ))),
         1 => Ok((
@@ -221,7 +222,7 @@ async fn drawer_meaning(
         )),
         _ => Err(AppError::Validation(format!(
             "{account_code} at {site_id} is mapped by more than one meaning; one account carries \
-             one meaning, so fix the Account Map before counting against it"
+             one meaning, so fix the links on the Account Links screen before counting against it"
         ))),
     }
 }
@@ -323,7 +324,7 @@ pub async fn record_count(
 /// drawer is credited and `cash_shortage` debited. Never a debit to
 /// `cash_variance`: that meaning sits on `4301`, a revenue account, and a
 /// shortage booked there was a cost hiding inside income. Both legs go through
-/// `account_map`, so this function names no client account code — and a
+/// `account_resolution`, so this function names no client account code — and a
 /// difference cannot be posted anywhere until somebody has said where the
 /// meaning it needs lives at that location.
 /// The decision to post, and the sentence that justifies it.

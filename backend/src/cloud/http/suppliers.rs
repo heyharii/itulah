@@ -30,7 +30,7 @@ pub struct CatalogListQuery {
 
 /// What a sourcing screen asks for.
 ///
-/// The multi-valued facets arrive comma-separated — `division=KIDS,DIVIDED` —
+/// The multi-valued facets arrive comma-separated — `division=ANAK_LAKI,NON_DIVISI` —
 /// rather than as repeated keys, because that is what the browser's own filter
 /// state already serialises to in the URL, and a second encoding for the same
 /// idea is a second thing to get wrong.
@@ -53,8 +53,8 @@ pub struct SourcingQuery {
     division: Option<String>,
     #[serde(default)]
     tags: Option<String>,
-    /// The same three facets, negated — `division_not=KIDS` is "anything but
-    /// kidswear".
+    /// The same three facets, negated — `division_not=ANAK_LAKI` is "anything but
+    /// boys' wear".
     ///
     /// A separate parameter rather than a sign inside the existing one, because
     /// the two are ANDed and a buyer may legitimately ask for both at once:
@@ -585,6 +585,63 @@ pub async fn create_catalog_purchase_order(
     )
     .await?;
     Ok((StatusCode::CREATED, Json(receipt)))
+}
+
+/// Rewrite a catalog order nothing has happened against yet.
+///
+/// Refused with a conflict naming the reason once goods, a bill, a price query
+/// or a closed line stand against it — see
+/// `infrastructure::purchase_order_edit_blocker`.
+pub async fn revise_catalog_purchase_order(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(purchase_order_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<infrastructure::CatalogPurchaseOrderRevision>,
+) -> Result<Json<infrastructure::CatalogPurchaseOrderReceipt>, AppError> {
+    let key = idempotency_key(&headers)?;
+    let request_digest = digest(&json!({
+        "actor": &principal.username,
+        "purchase_order_id": purchase_order_id,
+        "request": &request,
+    }))?;
+    let receipt = infrastructure::revise_catalog_purchase_order(
+        &state.db,
+        purchase_order_id,
+        request,
+        &principal.username,
+        &key,
+        &request_digest,
+    )
+    .await?;
+    Ok(Json(receipt))
+}
+
+/// Cancel an order nothing has been received against.
+pub async fn cancel_purchase_order(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(purchase_order_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<infrastructure::CancelPurchaseOrderRequest>,
+) -> Result<Json<infrastructure::PurchaseOrderCancelled>, AppError> {
+    let key = idempotency_key(&headers)?;
+    let request_digest = digest(&json!({
+        "actor": &principal.username,
+        "purchase_order_id": purchase_order_id,
+        "request": &request,
+    }))?;
+    Ok(Json(
+        infrastructure::cancel_purchase_order(
+            &state.db,
+            purchase_order_id,
+            request,
+            &principal.username,
+            &key,
+            &request_digest,
+        )
+        .await?,
+    ))
 }
 
 /// Where a purchase order can be delivered.

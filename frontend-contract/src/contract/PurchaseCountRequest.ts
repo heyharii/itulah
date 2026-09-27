@@ -21,4 +21,11 @@ receipt_id: string, po_line_id: string,
 /**
  * Counted by hand, in pieces.
  */
-counted_quantity: number, actor_id: string, idempotency_key: string, };
+counted_quantity: number, 
+/**
+ * The unit the count was typed in — `KODI` — and how many, as a decimal
+ * string ("9.5"). The node converts with the line's own factor and
+ * refuses a count whose pieces disagree with `counted_quantity`, or that
+ * is not a whole number of pieces. Absent means pieces.
+ */
+counted_unit_code?: string | null, counted_unit_quantity?: string | null, actor_id: string, idempotency_key: string, };

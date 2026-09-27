@@ -38,4 +38,14 @@ is_pkp: boolean,
  * A DEFAULT and only that. The composer copies it onto the order the
  * moment a supplier is chosen; from there it is the order's own schedule.
  */
-default_payment_terms_code: string | null, version: number, created_by: string, created_at: string, updated_by: string, updated_at: string, };
+default_payment_terms_code: string | null, 
+/**
+ * `PT`, `CV` or `UD` — what kind of company this is, printed after the
+ * name ("Sepatu Sejahtera, CV"). Absent on suppliers nobody has asked.
+ * See migration 0392.
+ */
+legal_form: string | null, 
+/**
+ * Free text the buyer keeps on the record.
+ */
+notes: string | null, version: number, created_by: string, created_at: string, updated_by: string, updated_at: string, };

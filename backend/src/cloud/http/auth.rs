@@ -15,7 +15,7 @@ use crate::cloud::{
         ResetPasswordRequest, SetEdgeAssignmentActiveRequest, SetRfidDeviceActiveRequest,
         SetUserActiveRequest, SetUserRoleRequest, UpsertEdgeAssignmentRequest,
     },
-    domain::{required_role, role_allows, RecordKind, Role},
+    domain::{relay, required_role, role_allows, PlaceId, RecordKind, Role},
     http::audit::{id_in, DeclaredSubject},
     postgres as infrastructure,
 };
@@ -24,13 +24,15 @@ use crate::security::{self, CSRF_COOKIE, SESSION_COOKIE};
 use axum::{
     body::{to_bytes, Body},
     extract::{Path, Query, Request, State},
-    http::{header, HeaderValue},
+    http::{header, HeaderMap, HeaderValue},
     middleware::Next,
     response::{IntoResponse, Response},
     Extension, Json,
 };
 use serde_json::{json, Value};
 use uuid::Uuid;
+
+const EDGE_SSO_TICKET_TTL_SECONDS: i64 = 60;
 
 /// Request bodies are already capped by the router's `DefaultBodyLimit`; this
 /// is the middleware's own ceiling when buffering a body to check actor_id.
@@ -43,6 +45,109 @@ pub struct Principal {
     pub display_name: String,
     pub role: Role,
     pub authenticated_with_cookie: bool,
+    /// The node this call was relayed through, for a call a store node carried
+    /// up on its signed-in manager's behalf. `None` for every session of the
+    /// cloud's own.
+    ///
+    /// Not a place stamped into a session — the thing `Reach`'s module doc
+    /// refuses. A session outlives a transfer; this lives exactly one request,
+    /// and it names where the *node* is, which the node's key proves on every
+    /// call, not where the person is posted.
+    pub relayed: Option<RelayBinding>,
+}
+
+/// Where a relayed call came from: the node that proved it with its key, the
+/// site that node is registered for, and the `org_place` that site is.
+#[derive(Clone, Debug)]
+pub struct RelayBinding {
+    pub origin_id: String,
+    pub site_id: String,
+    /// `site.kind` — `STORE` or `DC` — for a row whose coverage names a kind
+    /// of site rather than a site.
+    pub site_kind: String,
+    pub place_id: PlaceId,
+}
+
+impl Principal {
+    /// The place a relayed call may reach, and no other; `None` when unbound.
+    pub fn bound_place(&self) -> Option<&PlaceId> {
+        self.relayed.as_ref().map(|binding| &binding.place_id)
+    }
+
+    /// The site a relayed call may reach, and no other; `None` when unbound.
+    pub fn bound_site(&self) -> Option<&str> {
+        self.relayed.as_ref().map(|binding| binding.site_id.as_str())
+    }
+
+    /// The `site` filter a list may run with.
+    ///
+    /// Unbound, whatever was asked. Bound, the node's own site and nothing
+    /// else: asking for nothing is answered with it (a shop's screen asking
+    /// for "the register" means its own), and asking for any other site — or
+    /// for its own and another's — is refused in a sentence rather than
+    /// quietly narrowed, so a screen that believed it was reading two shops
+    /// learns that it is not.
+    ///
+    /// For readers whose rows carry a site but that resolve no `Reach` — GA's.
+    /// HR's readers are bounded by `Reach::bounded_to` instead, in one place.
+    pub fn site_filter(&self, asked: Vec<String>) -> Result<Vec<String>, AppError> {
+        let Some(bound) = self.bound_site() else {
+            return Ok(asked);
+        };
+        match asked.iter().find(|site| site.as_str() != bound) {
+            Some(other) => Err(AppError::Forbidden(format!(
+                "this till speaks for {bound}; it cannot read {other}"
+            ))),
+            None => Ok(vec![bound.to_owned()]),
+        }
+    }
+
+    /// Refuse a relayed call touching a row that is not at the node's site.
+    ///
+    /// `None` is a row at no one site, and is refused too: a shop's till reads
+    /// and writes what is *its*. A row that may instead cover many sites — a
+    /// contract — asks [`Principal::may_touch_coverage`].
+    pub fn may_touch_site(&self, site: Option<&str>, what: &str) -> Result<(), AppError> {
+        match self.bound_site() {
+            None => Ok(()),
+            Some(bound) if site == Some(bound) => Ok(()),
+            Some(bound) => Err(AppError::Forbidden(format!(
+                "this till speaks for {bound}; that {what} is not {bound}'s"
+            ))),
+        }
+    }
+
+    /// Refuse a relayed call touching a row that neither sits at the node's
+    /// site nor covers it.
+    ///
+    /// GA's contracts name one site or a coverage (`ga_contract.site_scope`):
+    /// `ALL_SITES` covers every place, `ALL_STORES` every store and never head
+    /// office — the rule `ga_locations` already applies when it lists a
+    /// place's contracts, so a till reads by id exactly the contracts its own
+    /// place's page shows it.
+    pub fn may_touch_coverage(
+        &self,
+        site: Option<&str>,
+        coverage: Option<&str>,
+        what: &str,
+    ) -> Result<(), AppError> {
+        let Some(binding) = self.relayed.as_ref() else {
+            return Ok(());
+        };
+        let covered = match (site, coverage) {
+            (Some(site), _) => site == binding.site_id,
+            (None, Some("ALL_SITES")) => true,
+            (None, Some("ALL_STORES")) => binding.site_kind == "STORE",
+            (None, _) => false,
+        };
+        if covered {
+            return Ok(());
+        }
+        Err(AppError::Forbidden(format!(
+            "this till speaks for {bound}; that {what} does not cover {bound}",
+            bound = binding.site_id
+        )))
+    }
 }
 
 /// Paths that must stay reachable without a token: liveness, login itself,
@@ -58,11 +163,40 @@ fn is_public(path: &str) -> bool {
     if super::member::is_member_path(path) {
         return true;
     }
+    // The three voucher-relay routes a till reaches through its own node
+    // (`/api/v1/sync/vouchers/{code}/(authorize|commit|release)`). A counter
+    // cannot hold a bearer card against a session it does not have — these are
+    // answered by a node proving which shop it is, guarded per-origin by
+    // `x-sync-key` inside the handler (`http::relay_site`), exactly like
+    // `/sync/ingest`. The session gate has no business asking a drawer for a
+    // login.
+    if path.starts_with("/api/v1/sync/vouchers/") {
+        return true;
+    }
+    // The points-redemption relay a till reaches through its own node, same
+    // shape and same reason as the voucher trio just above: a cashier's
+    // counter has no session to hold a member's points against, only a node
+    // proving which shop it is — guarded per-origin by `x-sync-key` inside the
+    // handler, exactly like `/sync/vouchers/`.
+    if path.starts_with("/api/v1/sync/points/redeem-requests") {
+        return true;
+    }
     matches!(
         path,
         "/api/v1/health"
             | "/api/v1/auth/login"
             | "/api/v1/sync/ingest"
+            | "/api/v1/sync/handshake"
+            // A machine enrolling has no session and no registered key yet:
+            // the claim is authorised by its one-time code, the status by the
+            // key whose digest the claim carried. Both checked in the handler
+            // (`http::enrolment`). Exact paths, so the Admin routes under
+            // `/sync/enrollments` stay behind the gate.
+            | "/api/v1/sync/enroll/claim"
+            // A shop server's heartbeat: proven by its own `x-sync-key` in
+            // the handler (`http::fleet`), like `/sync/ingest`.
+            | "/api/v1/sync/heartbeat"
+            | "/api/v1/sync/enroll/status"
             // The two routes a unit's attendance station reaches, both guarded
             // by the same per-origin `x-sync-key` as `/sync/ingest` and both
             // re-checking it in the handler (`http::terminal::node_place`).
@@ -86,6 +220,20 @@ pub async fn require_auth(
     mut request: Request,
     next: Next,
 ) -> Result<Response, AppError> {
+    // A call a store node relays for its signed-in manager is answered before
+    // anything else, and in particular before the development shortcut below:
+    // a relayed call is bound to the node's own place, and a cloud that has
+    // switched its own sessions off has not thereby made every shop head
+    // office. See `relayed_principal`.
+    if is_relayed(request.headers()) {
+        let method = request.method().as_str().to_owned();
+        let path = request.uri().path().to_owned();
+        let principal = relayed_principal(&state, &method, &path, request.headers()).await?;
+        gate_role_with(&method, &path, principal.role, &permission_overrides(&state).await)?;
+        // No CSRF check: there is no cookie here to ride, only the node's key.
+        let request = with_principal(request, principal).await?;
+        return Ok(next.run(request).await);
+    }
     if state.config.jwt_secret.is_none() {
         // Auth disabled is development-only, but handlers must still receive a
         // truthful server-owned actor rather than accepting actor_id from a
@@ -96,6 +244,7 @@ pub async fn require_auth(
             display_name: "Development".to_owned(),
             role: Role::Admin,
             authenticated_with_cookie: false,
+            relayed: None,
         });
         return Ok(next.run(request).await);
     }
@@ -128,12 +277,7 @@ pub async fn require_auth(
     let role = session.role;
 
     let method = request.method().as_str().to_owned();
-    let needed = required_role(&method, &path);
-    if !role_allows(needed, role) {
-        return Err(AppError::Forbidden(format!(
-            "this action requires the {needed} role"
-        )));
-    }
+    gate_role_with(&method, &path, role, &permission_overrides(&state).await)?;
 
     if authenticated_with_cookie && !matches!(request.method().as_str(), "GET" | "HEAD" | "OPTIONS")
     {
@@ -164,11 +308,85 @@ pub async fn require_auth(
         display_name: session.display_name,
         role,
         authenticated_with_cookie,
+        relayed: None,
     };
 
-    // Enforce a truthful audit trail: a JSON body carrying actor_id must name
-    // the authenticated principal. The body is buffered and re-attached
-    // unchanged so idempotency digests still cover the exact bytes sent.
+    let request = with_principal(request, principal).await?;
+    Ok(next.run(request).await)
+}
+
+/// The role overrides Finance set (0472), read through a short cache so the
+/// gate does not query on every request. A change clears it.
+static PERMISSION_CACHE: std::sync::RwLock<Option<(std::time::Instant, Vec<(String, String, Role)>)>> =
+    std::sync::RwLock::new(None);
+
+pub fn forget_permission_overrides() {
+    if let Ok(mut cache) = PERMISSION_CACHE.write() {
+        *cache = None;
+    }
+}
+
+async fn permission_overrides(state: &AppState) -> Vec<(String, String, Role)> {
+    if let Ok(cache) = PERMISSION_CACHE.read() {
+        if let Some((at, rows)) = cache.as_ref() {
+            if at.elapsed() < std::time::Duration::from_secs(30) {
+                return rows.clone();
+            }
+        }
+    }
+    let rows: Vec<(String, String, Role)> = infrastructure::role_permissions(&state.db)
+        .await
+        .map(|rows| {
+            rows.into_iter()
+                .filter_map(|row| {
+                    row.min_role
+                        .parse::<Role>()
+                        .ok()
+                        .map(|role| (row.method, row.path_prefix, role))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Ok(mut cache) = PERMISSION_CACHE.write() {
+        *cache = Some((std::time::Instant::now(), rows.clone()));
+    }
+    rows
+}
+
+/// The rung a method and path need: the most specific override Finance set,
+/// an exact method before `*`, else the code's default.
+fn needed_role(method: &str, path: &str, overrides: &[(String, String, Role)]) -> Role {
+    overrides
+        .iter()
+        .filter(|(m, prefix, _)| (m == "*" || m.eq_ignore_ascii_case(method)) && path.starts_with(prefix.as_str()))
+        .max_by_key(|(m, prefix, _)| (prefix.len(), m != "*"))
+        .map(|(_, _, role)| *role)
+        .unwrap_or_else(|| required_role(method, path))
+}
+
+/// The path gate: the rung a method and path need, against the rung held.
+fn gate_role_with(
+    method: &str,
+    path: &str,
+    role: Role,
+    overrides: &[(String, String, Role)],
+) -> Result<(), AppError> {
+    let needed = needed_role(method, path, overrides);
+    if !role_allows(needed, role) {
+        return Err(AppError::Forbidden(format!(
+            "this action requires the {needed} role"
+        )));
+    }
+    Ok(())
+}
+
+/// Attach the principal, after holding any `actor_id` in the body to it.
+///
+/// Enforce a truthful audit trail: a JSON body carrying actor_id must name
+/// the authenticated principal. The body is buffered and re-attached
+/// unchanged so idempotency digests still cover the exact bytes sent.
+async fn with_principal(request: Request, principal: Principal) -> Result<Request, AppError> {
+    let method = request.method().as_str().to_owned();
     let request = if method != "GET" && method != "HEAD" {
         let (parts, body) = request.into_parts();
         let bytes = to_bytes(body, MAX_BUFFERED_BODY_BYTES)
@@ -192,7 +410,103 @@ pub async fn require_auth(
         request.extensions_mut().insert(principal);
         request
     };
-    Ok(next.run(request).await)
+    Ok(request)
+}
+
+/// Does this request say it was relayed by a node?
+///
+/// Either relay header is enough to be treated as one — and so to be held to
+/// everything a relayed call is held to. A request carrying only half the
+/// relay is refused as a relay, never quietly answered as a session.
+fn is_relayed(headers: &HeaderMap) -> bool {
+    headers.contains_key(relay::RELAY_ORIGIN_HEADER)
+        || headers.contains_key(relay::RELAY_USER_HEADER)
+}
+
+/// The principal a store node's relayed call acts as — or the reason it acts
+/// as nobody.
+///
+/// # The chain, and what each link proves
+///
+/// 1. **The path is on the relay list** (`domain::relay`). Checked first and
+///    without the database: a relay is a narrow door, and a request for a room
+///    it does not open onto is refused before anybody is looked up.
+/// 2. **The node is who it says.** `x-relay-origin` is proved against that
+///    origin's own `x-sync-key` by the same `authenticate_origin` the ingest,
+///    the voucher relay and the punch station use — one spelling of "is this
+///    really store-07". An authenticated cloud refuses an unregistered origin;
+///    development keeps the master-key fallback, and the next link still binds
+///    the call to a place, so it is bounded there too.
+/// 3. **The node is somewhere.** Its registered site must be an `org_place`
+///    (`place_of_origin`). A node bound to no place has nowhere its manager
+///    could be managing, and is refused rather than left unbounded.
+/// 4. **The person may sign in there, now.** `x-relay-user` names an active
+///    login with an active assignment at this origin (`relay_subject`). The
+///    node cannot prove who stands at its till — only its own sign-in can —
+///    so this is the node's word, believed exactly as far as the cloud's own
+///    register allows, and never further than the node's own place.
+///
+/// The principal then carries the person's real name, so `actor_id` checks
+/// and every audit row name them and not the node; the LOWER of their cloud
+/// rung and their rung at this node, so a head-office login at a till is that
+/// till's supervisor; and the node's binding, which `reach_from` and the GA
+/// guards turn into a bound on every read and write.
+async fn relayed_principal(
+    state: &AppState,
+    method: &str,
+    path: &str,
+    headers: &HeaderMap,
+) -> Result<Principal, AppError> {
+    if !relay::is_relayable(method, path) {
+        return Err(AppError::Forbidden(format!(
+            "{method} {path} is not something a store node may relay"
+        )));
+    }
+    let origin_id = headers
+        .get(relay::RELAY_ORIGIN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .ok_or_else(|| AppError::Unauthorized("a relayed call must name its node".into()))?;
+    let user_id = headers
+        .get(relay::RELAY_USER_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| Uuid::parse_str(value.trim()).ok())
+        .ok_or_else(|| {
+            AppError::Unauthorized("a relayed call must name the person it is for".into())
+        })?;
+    let origin = super::authenticate_origin(state, headers, origin_id).await?;
+    let place_id = infrastructure::place_of_origin(&state.db, &origin.origin_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::Forbidden(format!(
+                "{} is not bound to a place, so there is nowhere its relay could reach",
+                origin.origin_id
+            ))
+        })?;
+    // `place_of_origin` found a place through the origin's site, so the site
+    // `authenticate_origin` read is there; the refusal is for a register that
+    // changed between the two reads.
+    let site_id = origin.site_id.ok_or_else(|| {
+        AppError::Forbidden(format!("{} is not bound to a site", origin.origin_id))
+    })?;
+    let site_kind = infrastructure::relay_site_kind(&state.db, &site_id).await?;
+    let subject = infrastructure::relay_subject(&state.db, &origin.origin_id, user_id).await?;
+    Ok(Principal {
+        // A relayed call has no session of its own at the cloud: nothing to
+        // revoke, nothing to sign out of — the node's own sign-in is the one.
+        session_id: Uuid::nil(),
+        username: subject.username,
+        display_name: subject.display_name,
+        role: relay::relayed_role(subject.role, subject.edge_role),
+        authenticated_with_cookie: false,
+        relayed: Some(RelayBinding {
+            origin_id: origin.origin_id,
+            site_id,
+            site_kind,
+            place_id,
+        }),
+    })
 }
 
 pub async fn login(
@@ -253,6 +567,51 @@ pub async fn me(Extension(principal): Extension<Principal>) -> Json<CloudMe> {
         display_name: principal.display_name,
         role: principal.role.into(),
     })
+}
+
+#[derive(serde::Deserialize)]
+pub struct EdgeSsoTicketRequest {
+    pub origin_id: String,
+}
+
+/// Issue a destination-bound one-time ticket for the signed-in Cloud user.
+///
+/// This route is deliberately not public: Cloud's session middleware
+/// authenticates it and requires the normal CSRF echo for this POST. The
+/// short-lived ticket is returned with no-store headers and is meant to be
+/// posted directly to the selected DC, never placed in a URL or browser
+/// storage.
+pub async fn edge_sso_ticket(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<EdgeSsoTicketRequest>,
+) -> Result<Response, AppError> {
+    let origin_id = request.origin_id.trim();
+    if origin_id.is_empty() || origin_id.len() > 128 {
+        return Err(AppError::Validation("invalid DC origin_id".into()));
+    }
+    let user_id = infrastructure::edge_sso_subject(&state.db, origin_id, &principal.username).await?;
+    let seed = crate::security::sso::signing_seed_from_env()
+        .map_err(AppError::Configuration)?
+        .ok_or_else(|| {
+            AppError::Configuration(
+                "Cloud-to-DC sign-in is not configured; set INVENTORY_SSO_SIGNING_KEY_HEX".into(),
+            )
+        })?;
+    let issued_at = chrono::Utc::now().timestamp();
+    let claims = crate::security::sso::TicketClaims {
+        sub: user_id.to_string(),
+        aud: origin_id.to_owned(),
+        origin_id: origin_id.to_owned(),
+        iat: issued_at,
+        exp: issued_at + EDGE_SSO_TICKET_TTL_SECONDS,
+        jti: Uuid::new_v4().to_string(),
+    };
+    let ticket = crate::security::sso::issue_ticket(&claims, &seed)
+        .map_err(AppError::Configuration)?;
+    let mut response = Json(json!({ "ticket": ticket })).into_response();
+    prevent_auth_caching(&mut response);
+    Ok(response)
 }
 
 pub async fn logout(

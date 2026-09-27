@@ -1,11 +1,11 @@
 //! What a day of takings comes to in the ledger, as a function of the day.
 //!
 //! Everything this module needs arrives as an argument: the tenders already
-//! grouped, what promotions gave away, what went back over the counter, and
-//! the VAT rate the prices were quoted at. It reads nothing, asks nothing the
-//! time of day, and mints no identities — so the same day gives the same entry
-//! whenever anybody generates it, which is the property that makes
-//! regeneration safe and a posted day auditable.
+//! grouped, what went back over the counter, and the tax figures the day is
+//! reported with. It reads nothing, asks nothing the time of day, and mints no
+//! identities — so the same day gives the same entry whenever anybody
+//! generates it, which is the property that makes regeneration safe and a
+//! posted day auditable.
 //!
 //! `tests/kernel_purity.rs` guards that. The reason it is worth guarding here
 //! and not only for depreciation: a posting rule that could read the database
@@ -28,53 +28,69 @@
 //!
 //! ```text
 //!   Dr  the asset that bucket became      receipts - refunds
-//!   Cr  the income account for it         receipts - VAT + its share of the discount
+//!   Cr  the income account for it         receipts: what the customer was charged
 //! ```
 //!
-//! and once for the day:
+//! with two buckets that have no asset of their own: a free VOUCHER debits
+//! `sales_discount` (owner decision 13 — nothing was owed when it was issued,
+//! so the value spent is a discount), and returned goods paying for their
+//! replacement are answered by the return document below. And once for the
+//! day:
 //!
 //! ```text
-//!   Dr  sales_discount                    what promotions gave away
-//!   Dr  sales_return                      what came back, less its VAT
-//!   Cr  vat_out                           VAT taken, less VAT unwound
-//!   Cr  rounding                          the residue, when the documents exceed their rows
+//!   Dr  sales_return                      what the return documents say went back
+//!   Cr  other_income_expense              the residue, when the documents exceed their rows
 //!   Dr  rounding_loss                     the residue, when the rows exceed their documents
 //! ```
 //!
-//! # Why the discount is grossed back up
+//! # Promotions are inside revenue, not beside it
 //!
 //! A till records what the customer paid, which is already net of every
-//! promotion. Booking only that would report a smaller sale and no discount at
-//! all, and "what did the Lebaran promotion cost us" would have the same
-//! answer it had before promotions existed: none. So the discount is a DEBIT
-//! to contra revenue and the income accounts are credited with what would have
-//! been charged. The profit is identical; the story is not.
+//! promotion, markdown and bundle price. That net figure IS the sale: the
+//! income accounts are credited with it, and nothing is debited to
+//! `sales_discount` for what a promotion took off (owner decision, 25 Sep
+//! 2026).
 //!
-//! Its VAT is not adjusted, because none was ever charged on it: the price the
-//! customer was taxed on is the discounted one.
+//! This is the client's own practice, and the reason is comparability. Their
+//! 2025 books credit Penjualan with what each line was actually sold for and
+//! leave `4012 Potongan Penjualan` holding only a small residue of bill-level
+//! discounts — 22 million against the 829 million of promotion the POS
+//! summary shows. Grossing every promotion back up, as this rule once did,
+//! put our revenue line some 800 million above theirs for the same trade and
+//! made every year-on-year comparison a reconciliation exercise. Our POS has
+//! no bill-level or cashier discount at all — every rupiah off comes from a
+//! promotion rule — so the residue the client books to 4012 has nothing to
+//! correspond to here, and 4012 carries free vouchers only.
 //!
-//! # Why VAT is extracted per bucket
+//! What a promotion cost is still answerable, and exactly: from the POS sales
+//! data (`edge_sale_promotion`, the per-division sales summary, the campaign
+//! reports), which record every benefit per rule and per line. The GL is not
+//! the place that question is asked. The day's `discount_minor` is carried on
+//! the document as that reported figure and posts nowhere.
 //!
-//! Because then it needs no allocation. Extracting one VAT figure for the day
-//! and splitting it across buckets leaves a residue of a few rupiah that has
-//! to go somewhere, and the somewhere is always the same account, so it
-//! accumulates. Bucket by bucket, every credit is derived from its own debit
-//! and the entry ties exactly.
+//! # No tax line
 //!
-//! # What `rounding` is for, and what it is not
+//! PPN is ignored (owner policy P11), and `0377` deleted the `vat_out` and
+//! `vat_in` meanings. So no side this rule builds names a tax account — not on
+//! a sale and not on a return: the whole receipt is revenue and the whole
+//! refund is `sales_return`. The rate and whatever tax the tills recorded are
+//! still read and kept on the document (`vat_recorded_minor`,
+//! `vat_recomputed_minor`) for the day's report; `vat_minor`, what was posted
+//! to tax, is always nought.
+//!
+//! # What the residue accounts are for, and what they are not
 //!
 //! Exactly one thing: the difference between what the return DOCUMENTS say was
-//! refunded and what their refund ROWS add up to. Nothing else lands there. A
-//! rounding account that absorbs whatever did not tie is a rounding account
-//! that hides the thing it was supposed to reveal.
+//! refunded and what their refund ROWS (and the returned goods given out again
+//! as a replacement) add up to. Nothing else lands there. An account that
+//! absorbs whatever did not tie is an account that hides the thing it was
+//! supposed to reveal.
 //!
-//! It is two meanings since 0296, one per side. Documents over rows is money
-//! the shop kept and credits `rounding` on `4301`; rows over documents is
-//! money the shop paid out with nothing to show for it and debits
-//! `rounding_loss` on `8301`. The sign is known here, when the residue is
-//! computed, and nowhere else — and a debit to `rounding` would put a cost
-//! inside a revenue account, which is the one presentation defect the chart
-//! of forty was meant to cure.
+//! The sign picks the side. Documents over rows is value the shop kept — money
+//! never leaves the till on a return (owner decision 11), so a return worth
+//! more than its replacement is forfeited to `other_income_expense`. Rows over
+//! documents is money the shop paid out with nothing to show for it and debits
+//! `rounding_loss`. Neither may ever put a cost inside a revenue account.
 //!
 //! # No cost of goods
 //!
@@ -160,17 +176,26 @@ pub struct TenderBucket {
     /// Money back out through this same bucket.
     pub refunds_minor: i64,
     pub tender_count: i64,
+    /// Set when the bucket's payment method settles straight into a bank
+    /// (0468): the MDR it keeps, in basis points of the net taken. The day
+    /// then debits the bank net of MDR and books the MDR at once; otherwise
+    /// the acquirer owes the gross and the MDR waits for its settlement.
+    pub direct_mdr_bps: Option<i32>,
 }
 
 /// A day, as the ledger has to see it.
 #[derive(Clone, Debug)]
 pub struct DayFigures {
     pub buckets: Vec<TenderBucket>,
-    /// What promotions took off before the customer paid.
+    /// What promotions took off before the customer paid, as the tills
+    /// reported it. Carried to the document for the report and posted
+    /// nowhere: the receipts are already net of it, and that net is the sale
+    /// (see "Promotions are inside revenue").
     pub discount_minor: i64,
-    /// What the return documents say went back, VAT inclusive. Compared
-    /// against the refund rows inside the buckets; the difference is the only
-    /// thing that reaches `rounding` or `rounding_loss`.
+    /// What the return documents say went back, VAT inclusive, and what
+    /// `sales_return` is debited with. Compared against the refund rows inside
+    /// the buckets; the difference is the only thing that reaches
+    /// `other_income_expense` or `rounding_loss`.
     pub returns_minor: i64,
     /// The rate the prices were quoted at, in basis points, VAT inclusive.
     pub vat_rate_bps: i32,
@@ -180,7 +205,8 @@ pub struct DayFigures {
     /// none, or a return whose lines could not be traced back to what they
     /// were sold as. On such a day the rate above stands in, which is what
     /// this rule did for every day before 0276. Never half of each — a day is
-    /// posted from one authority or the other, and the document says which.
+    /// reported from one authority or the other, and the document says which.
+    /// Reported only: no tax is posted while PPN is ignored (P11).
     pub recorded_vat: Option<RecordedVat>,
 }
 
@@ -230,8 +256,11 @@ impl LedgerSide {
 /// What one bucket turned out to be worth, for the working paper.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BucketOutcome {
+    /// Tax posted from this bucket: always nought while PPN is ignored (P11).
     pub vat_minor: i64,
-    /// This bucket's share of the day's discount.
+    /// Discount posted from this bucket's sales: always nought, because a
+    /// promotion is inside the price the bucket was credited with. Kept so a
+    /// document generated under the old rule still reads back.
     pub discount_minor: i64,
 }
 
@@ -243,23 +272,24 @@ pub struct DayPosting {
     pub total_minor: i64,
     /// One per input bucket, in the same order.
     pub buckets: Vec<BucketOutcome>,
-    /// VAT taken less VAT unwound by returns. Signed: negative means the day
-    /// gave back more tax than it took.
+    /// Tax the entry posted. Always nought while PPN is ignored (P11); the
+    /// tax the day carried is in `vat_recorded_minor` and
+    /// `vat_recomputed_minor`, reported and not posted.
     pub vat_minor: i64,
-    /// What the day is worth to the income statement: takings less VAT, less
-    /// what promotions gave away, less what came back. Signed, because a day
-    /// of nothing but returns is a real day.
+    /// What the day is worth to the income statement: what the income
+    /// accounts were credited with, less the free vouchers debited to
+    /// `sales_discount`, less what came back. Signed, because a day of nothing
+    /// but returns is a real day.
     pub revenue_minor: i64,
     /// What the tenders came to, before refunds and net of change given.
     pub receipts_minor: i64,
-    /// `RECORDED` when `vat_minor` is what the sources recorded, `RATE` when
-    /// the rate had to stand in for a source that recorded nothing.
+    /// `RECORDED` when every source recorded its tax, `RATE` when the rate
+    /// had to stand in for a source that recorded nothing. Reported only.
     pub vat_source: &'static str,
     /// What the sources recorded, net of returns. `None` on a `RATE` day,
-    /// because on that day there is no such figure.
+    /// because on that day there is no such figure. Reported only.
     pub vat_recorded_minor: Option<i64>,
-    /// What `vat_rate_bps` says the same day comes to. Posted on a `RATE` day,
-    /// carried as validation on a `RECORDED` one.
+    /// What `vat_rate_bps` says the same day comes to. Reported only.
     pub vat_recomputed_minor: i64,
 }
 
@@ -309,7 +339,8 @@ fn meanings_for(
 /// replacement: not a wire tender, a bucket `read_day` builds from the returns.
 pub const RETURN_CREDIT: &str = "RETURN";
 
-const ONLINE_REFUSAL: &str = "an OTHER (online/marketplace) tender has no posting rule: this company \
+const ONLINE_REFUSAL: &str =
+    "an OTHER (online/marketplace) tender has no posting rule: this company \
      does not sell online (owner decision 14). Retender it at the source to the method that \
      really took the money, then generate the day again";
 
@@ -352,50 +383,23 @@ fn vat_within(amount_minor: i64, rate_bps: i32) -> i64 {
     i64::try_from(inside).unwrap_or(0)
 }
 
-/// Split `amount` across `weights` so the parts sum to exactly `amount`.
-///
-/// Largest remainder: every part gets its floor, and the rupiah left over go
-/// to the parts that were rounded down hardest. The alternative — round each
-/// part and let the total be whatever it is — leaves an entry that does not
-/// balance by a few rupiah, and a poster that then has to invent a plug.
-///
-/// With no weight at all the whole amount goes to the first part, so a day
-/// that gave everything away and took nothing still books its discount.
-fn allocate(amount: i64, weights: &[i64]) -> Vec<i64> {
-    let mut parts = vec![0i64; weights.len()];
-    if weights.is_empty() || amount == 0 {
-        return parts;
-    }
-    let total: i128 = weights.iter().map(|w| i128::from(*w)).sum();
-    if total <= 0 {
-        parts[0] = amount;
-        return parts;
-    }
-    let mut assigned: i128 = 0;
-    // (remainder, index), so the largest remainder is picked first and ties
-    // break on position rather than on iteration order.
-    let mut remainders: Vec<(i128, usize)> = Vec::with_capacity(weights.len());
-    for (index, weight) in weights.iter().enumerate() {
-        let exact = i128::from(amount) * i128::from(*weight);
-        let floor = exact / total;
-        parts[index] = i64::try_from(floor).unwrap_or(0);
-        assigned += floor;
-        remainders.push((exact - floor * total, index));
-    }
-    let mut left = i128::from(amount) - assigned;
-    remainders.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    let mut cursor = 0;
-    while left > 0 && !remainders.is_empty() {
-        let (_, index) = remainders[cursor % remainders.len()];
-        parts[index] += 1;
-        left -= 1;
-        cursor += 1;
-    }
-    parts
+/// Turn a day into an entry.
+/// Finance's choices that change the shape of a day's entry.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DayRules {
+    /// ERPNext's "Enable discount accounting for selling": the promotions the
+    /// tills took off are credited back to revenue, spread over the tenders in
+    /// proportion, and debited to `promotion_discount`, so revenue reads gross
+    /// and the discount has its own account. Off by default: the client books
+    /// promotions net (owner policy P18).
+    pub discount_accounting: bool,
 }
 
-/// Turn a day into an entry.
 pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
+    build_with(figures, DayRules::default())
+}
+
+pub fn build_with(figures: &DayFigures, rules: DayRules) -> Result<DayPosting, String> {
     if !(0..=100_000).contains(&figures.vat_rate_bps) {
         return Err("the VAT rate is outside the range a rate can be".to_string());
     }
@@ -446,62 +450,30 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
         meanings.push(meanings_for(&bucket.method, bucket.card_kind)?);
     }
 
-    let weights: Vec<i64> = figures
-        .buckets
-        .iter()
-        .map(|bucket| bucket.receipts_minor)
-        .collect();
-    let discounts = allocate(figures.discount_minor, &weights);
-    // What the rate says, kept whatever the day is posted from: on a RECORDED
-    // day this is the validation figure, and a column somebody can query beats
-    // a line in a log nobody reads.
+    // What the rate says the day's tax came to, and what came back with the
+    // returns. Reported beside the recorded figure and never posted: PPN is
+    // ignored (owner policy P11) and 0377 deleted `vat_out`, so a side naming
+    // it would be refused rather than land anywhere.
     let recomputed_taken: i64 = figures
         .buckets
         .iter()
         .map(|bucket| vat_within(bucket.receipts_minor, figures.vat_rate_bps))
         .sum();
-    // PPN is ignored for now (owner decision, 25 Sep): no `vat_out` line is
-    // built, and the whole receipt is revenue. The rate and the recorded figures
-    // are still read and stored for the day's report — only the posting is off.
-    // 0377 removes the `vat_out` map, so a line that still tried to name it
-    // would be refused rather than quietly land somewhere.
-    const PPN_IGNORED: bool = true;
-    let recomputed_returned = if PPN_IGNORED {
-        0
-    } else {
-        vat_within(figures.returns_minor, figures.vat_rate_bps)
-    };
-    // A recorded figure is one number for the day and the entry wants one per
-    // bucket, so it is split the same way the discount is: largest remainder,
-    // which sums back to exactly what the tills recorded. Rounding each bucket
-    // at the rate instead is how the recorded total stopped being the posted
-    // total in the first place.
-    let bucket_vat: Vec<i64> = if PPN_IGNORED {
-        vec![0; figures.buckets.len()]
-    } else {
-        match &figures.recorded_vat {
-            Some(recorded) => allocate(recorded.taken_minor, &weights),
-            None => figures
-                .buckets
-                .iter()
-                .map(|bucket| vat_within(bucket.receipts_minor, figures.vat_rate_bps))
-                .collect(),
-        }
-    };
+    let recomputed_returned = vat_within(figures.returns_minor, figures.vat_rate_bps);
 
     let mut sides: Vec<LedgerSide> = Vec::new();
     let mut outcomes = Vec::with_capacity(figures.buckets.len());
-    let mut vat_taken: i64 = 0;
     let mut revenue: i64 = 0;
+    let mut vouchers: i64 = 0;
     let mut refunded: i64 = 0;
     let mut receipts: i64 = 0;
 
     for (index, bucket) in figures.buckets.iter().enumerate() {
         let (asset_key, income_key) = meanings[index];
         let (asset_qualifier, income_qualifier) = qualifiers_for(&bucket.method, &bucket.acquirer);
-        let vat = bucket_vat[index];
-        let share = discounts[index];
-        let income = bucket.receipts_minor - vat + share;
+        // What the customers were charged through this bucket. Already net of
+        // every promotion, and that net is the sale.
+        let income = bucket.receipts_minor;
         let net = bucket.receipts_minor - bucket.refunds_minor;
 
         let label = if bucket.acquirer.is_empty() {
@@ -515,13 +487,31 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
             // return document, exactly as a refund row would.
             refunded += bucket.receipts_minor;
         } else if net > 0 {
+            if asset_key == "sales_discount" {
+                vouchers += net;
+            }
+            let fee = bucket
+                .direct_mdr_bps
+                .map(|bps| (net * i64::from(bps) + 5_000) / 10_000)
+                .unwrap_or(0);
             sides.push(LedgerSide::debit(
                 asset_key,
                 &asset_qualifier,
-                net,
+                net - fee,
                 format!("{label} takings"),
             ));
+            if fee > 0 {
+                sides.push(LedgerSide::debit(
+                    "card_fee",
+                    &asset_qualifier,
+                    fee,
+                    format!("{label} MDR, settled straight to the bank"),
+                ));
+            }
         } else if net < 0 {
+            if asset_key == "sales_discount" {
+                vouchers += net;
+            }
             sides.push(LedgerSide::credit(
                 asset_key,
                 &asset_qualifier,
@@ -538,53 +528,61 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
             ));
         }
 
-        vat_taken += vat;
         revenue += income;
         refunded += bucket.refunds_minor;
         receipts += bucket.receipts_minor;
         outcomes.push(BucketOutcome {
-            vat_minor: vat,
-            discount_minor: share,
+            vat_minor: 0,
+            discount_minor: 0,
         });
     }
 
-    if figures.discount_minor > 0 {
+    // Discount accounting: the promotion, credited back to each tender's
+    // revenue in proportion to what it took and debited to its own account.
+    if rules.discount_accounting && figures.discount_minor > 0 && receipts > 0 {
+        let mut left = figures.discount_minor;
+        let incomes: Vec<(usize, i64)> = figures
+            .buckets
+            .iter()
+            .enumerate()
+            .filter(|(index, bucket)| bucket.receipts_minor > 0 && !meanings[*index].1.is_empty())
+            .map(|(index, bucket)| (index, bucket.receipts_minor))
+            .collect();
+        for (position, (index, taken)) in incomes.iter().enumerate() {
+            let share = if position + 1 == incomes.len() {
+                left
+            } else {
+                figures.discount_minor * taken / receipts
+            };
+            left -= share;
+            if share > 0 {
+                let bucket = &figures.buckets[*index];
+                let (_, income_qualifier) = qualifiers_for(&bucket.method, &bucket.acquirer);
+                sides.push(LedgerSide::credit(
+                    meanings[*index].1,
+                    &income_qualifier,
+                    share,
+                    format!("{} promotions, gross", bucket.method),
+                ));
+            }
+        }
         sides.push(LedgerSide::debit(
-            "sales_discount",
+            "promotion_discount",
             "",
             figures.discount_minor,
-            "promotions given away".to_string(),
+            "promotions taken off at the till".to_string(),
         ));
     }
 
-    let vat_returned = match &figures.recorded_vat {
-        Some(recorded) => recorded.returned_minor,
-        None => recomputed_returned,
-    };
-    let returns_net = figures.returns_minor - vat_returned;
+    // The whole of what went back, tax and all: with no tax line there is
+    // nothing to take out of it.
+    let returns_net = figures.returns_minor;
     if returns_net > 0 {
         sides.push(LedgerSide::debit(
             "sales_return",
             "",
             returns_net,
             "returned over the counter".to_string(),
-        ));
-    }
-
-    let vat = vat_taken - vat_returned;
-    if vat > 0 {
-        sides.push(LedgerSide::credit(
-            "vat_out",
-            "",
-            vat,
-            "PPN keluaran".to_string(),
-        ));
-    } else if vat < 0 {
-        sides.push(LedgerSide::debit(
-            "vat_out",
-            "",
-            -vat,
-            "PPN unwound by returns".to_string(),
         ));
     }
 
@@ -629,8 +627,8 @@ pub fn build(figures: &DayFigures) -> Result<DayPosting, String> {
         sides,
         total_minor: debits,
         buckets: outcomes,
-        vat_minor: vat,
-        revenue_minor: revenue - figures.discount_minor - returns_net,
+        vat_minor: 0,
+        revenue_minor: revenue - vouchers - returns_net,
         receipts_minor: receipts,
         vat_source: if figures.recorded_vat.is_some() {
             "RECORDED"
@@ -658,11 +656,39 @@ mod tests {
             receipts_minor: receipts,
             refunds_minor: 0,
             tender_count: 1,
+            direct_mdr_bps: None,
         }
     }
 
+    /// The sum of one meaning's debits less its credits, across the entry.
+    fn net(posted: &DayPosting, key: &str) -> i64 {
+        posted
+            .sides
+            .iter()
+            .filter(|side| side.semantic_key == key)
+            .map(|side| side.debit_minor - side.credit_minor)
+            .sum()
+    }
+
+    fn assert_balanced(posted: &DayPosting) {
+        let debits: i64 = posted.sides.iter().map(|s| s.debit_minor).sum();
+        let credits: i64 = posted.sides.iter().map(|s| s.credit_minor).sum();
+        assert_eq!(debits, credits, "{:?}", posted.sides);
+    }
+
+    fn assert_no_tax_line(posted: &DayPosting) {
+        assert!(
+            posted
+                .sides
+                .iter()
+                .all(|s| s.semantic_key != "vat_out" && s.semantic_key != "vat_in"),
+            "PPN is ignored (P11): no tax line may be built\n{:?}",
+            posted.sides
+        );
+    }
+
     #[test]
-    fn a_cash_day_credits_income_and_the_tax_it_carried() {
+    fn a_cash_day_credits_the_whole_receipt_to_income_and_no_tax() {
         let day = DayFigures {
             buckets: vec![bucket("CASH", "", None, 1_110_000)],
             discount_minor: 0,
@@ -672,14 +698,15 @@ mod tests {
         };
         let posted = build(&day).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(posted.total_minor, 1_110_000);
-        assert_eq!(posted.vat_minor, 110_000);
-        assert_eq!(posted.revenue_minor, 1_000_000);
+        assert_eq!(posted.vat_minor, 0);
+        assert_eq!(posted.revenue_minor, 1_110_000);
+        // Reported beside the day, not posted.
+        assert_eq!(posted.vat_recomputed_minor, 110_000);
         assert_eq!(
             posted.sides,
             vec![
                 LedgerSide::debit("cash", "", 1_110_000, "CASH takings".into()),
-                LedgerSide::credit("revenue_cash", "", 1_000_000, "CASH sales".into()),
-                LedgerSide::credit("vat_out", "", 110_000, "PPN keluaran".into()),
+                LedgerSide::credit("revenue_cash", "", 1_110_000, "CASH sales".into()),
             ]
         );
     }
@@ -700,13 +727,8 @@ mod tests {
             recorded_vat: None,
         };
         let posted = build(&day).unwrap_or_else(|error| panic!("{error}"));
-        let debits: i64 = posted.sides.iter().map(|s| s.debit_minor).sum();
-        let credits: i64 = posted.sides.iter().map(|s| s.credit_minor).sum();
-        assert_eq!(debits, credits);
-        // The discount is split across the buckets and nothing is lost doing
-        // it — the reason `allocate` exists.
-        let shared: i64 = posted.buckets.iter().map(|b| b.discount_minor).sum();
-        assert_eq!(shared, 117_000);
+        assert_balanced(&posted);
+        assert_no_tax_line(&posted);
         // Every meaning a mixed day needs, and each qualified the way its
         // account is.
         let keys: Vec<(&str, &str)> = posted
@@ -720,11 +742,50 @@ mod tests {
         assert!(keys.contains(&("revenue_credit", "VISA")));
         assert!(keys.contains(&("card_receivable_debit", "GOPAY")));
         assert!(keys.contains(&("revenue_debit", "GOPAY")));
-        assert!(keys.contains(&("sales_discount", "")));
+        // The voucher, and only the voucher, reaches the discount account.
+        assert_eq!(net(&posted, "sales_discount"), 200_000);
+        assert!(posted.buckets.iter().all(|b| b.discount_minor == 0));
+        assert_eq!(
+            posted.revenue_minor,
+            1_110_000 + 2_220_000 + 3_330_000 + 555_000
+        );
+    }
+
+    /// A shirt listed at 249,950 sold at 224,950 under a line promotion, paid
+    /// by card; a second sold at list for cash. The promotion is inside the
+    /// price, as the client books it: revenue is what was charged, per tender,
+    /// and nothing reaches 4012.
+    #[test]
+    fn a_line_promotion_is_inside_revenue_and_never_reaches_the_discount_account() {
+        let day = DayFigures {
+            buckets: vec![
+                bucket("CASH", "", None, 249_950),
+                bucket("CARD", "BCA", Some(CardKind::Debit), 224_950),
+            ],
+            discount_minor: 25_000,
+            returns_minor: 0,
+            vat_rate_bps: 1_100,
+            recorded_vat: None,
+        };
+        let posted = build(&day).unwrap_or_else(|error| panic!("{error}"));
+        assert_balanced(&posted);
+        assert_no_tax_line(&posted);
+        assert_eq!(net(&posted, "sales_discount"), 0);
+        assert!(posted
+            .sides
+            .iter()
+            .all(|s| s.semantic_key != "sales_discount"));
+        assert_eq!(net(&posted, "revenue_cash"), -249_950);
+        assert_eq!(net(&posted, "revenue_debit"), -224_950);
+        assert_eq!(net(&posted, "cash"), 249_950);
+        assert_eq!(net(&posted, "card_receivable_debit"), 224_950);
+        assert_eq!(posted.revenue_minor, 249_950 + 224_950);
+        assert_eq!(posted.total_minor, 249_950 + 224_950);
+        assert!(posted.buckets.iter().all(|b| b.discount_minor == 0));
     }
 
     #[test]
-    fn a_return_reduces_income_and_unwinds_its_tax() {
+    fn a_return_debits_sales_return_at_the_full_amount_and_unwinds_no_tax() {
         let mut cash = bucket("CASH", "", None, 1_110_000);
         cash.refunds_minor = 111_000;
         let day = DayFigures {
@@ -736,17 +797,56 @@ mod tests {
         };
         let posted = build(&day).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(posted.receipts_minor, 1_110_000);
-        assert_eq!(posted.vat_minor, 110_000 - 11_000);
-        assert_eq!(posted.revenue_minor, 1_000_000 - 100_000);
-        let debits: i64 = posted.sides.iter().map(|s| s.debit_minor).sum();
-        let credits: i64 = posted.sides.iter().map(|s| s.credit_minor).sum();
-        assert_eq!(debits, credits);
-        // Nothing reached rounding, on either side: the documents and their
-        // rows agree.
-        assert!(posted
-            .sides
-            .iter()
-            .all(|s| s.semantic_key != "rounding" && s.semantic_key != "rounding_loss"));
+        assert_eq!(posted.vat_minor, 0);
+        assert_eq!(posted.revenue_minor, 1_110_000 - 111_000);
+        assert_eq!(net(&posted, "sales_return"), 111_000);
+        assert_balanced(&posted);
+        assert_no_tax_line(&posted);
+        // Nothing reached the residue accounts, on either side: the documents
+        // and their rows agree.
+        assert!(posted.sides.iter().all(|s| s.semantic_key != "rounding"
+            && s.semantic_key != "rounding_loss"
+            && s.semantic_key != "other_income_expense"));
+    }
+
+    /// The case that used to be refused: the tills recorded their tax and a
+    /// return came back. The recorded return tax once shrank the return debit
+    /// and debited `vat_out`, a meaning 0377 deleted.
+    #[test]
+    fn a_recorded_tax_day_with_a_promotion_and_a_return_posts_no_tax_and_no_promotion() {
+        let mut cash = bucket("CASH", "", None, 555_000);
+        cash.refunds_minor = 111_000;
+        let day = DayFigures {
+            buckets: vec![
+                cash,
+                bucket("CARD", "VISA", Some(CardKind::Credit), 1_000_000),
+                bucket("QRIS", "BNI", None, 300_000),
+            ],
+            discount_minor: 150_000,
+            returns_minor: 111_000,
+            vat_rate_bps: 1_100,
+            recorded_vat: Some(RecordedVat {
+                taken_minor: 183_000,
+                returned_minor: 11_000,
+            }),
+        };
+        let posted = build(&day).unwrap_or_else(|error| panic!("{error}"));
+        assert_balanced(&posted);
+        assert_no_tax_line(&posted);
+        assert_eq!(net(&posted, "sales_discount"), 0);
+        assert_eq!(net(&posted, "sales_return"), 111_000);
+        // Income per tender is what that tender was charged.
+        assert_eq!(net(&posted, "revenue_cash"), -555_000);
+        assert_eq!(net(&posted, "revenue_credit"), -1_000_000);
+        assert_eq!(net(&posted, "revenue_debit"), -300_000);
+        assert_eq!(net(&posted, "cash"), 555_000 - 111_000);
+        assert_eq!(posted.vat_minor, 0);
+        assert_eq!(posted.vat_source, "RECORDED");
+        assert_eq!(posted.vat_recorded_minor, Some(183_000 - 11_000));
+        assert_eq!(
+            posted.revenue_minor,
+            555_000 + 1_000_000 + 300_000 - 111_000
+        );
     }
 
     #[test]
@@ -890,25 +990,5 @@ mod tests {
             classify_card(Some(CardKind::Credit), "BCA"),
             (CardKind::Credit, false)
         );
-    }
-
-    #[test]
-    fn an_allocation_never_loses_or_invents_a_rupiah() {
-        for amount in [0i64, 1, 7, 999, 1_000_000, 117_000] {
-            for weights in [
-                vec![1, 1, 1],
-                vec![0, 0, 0],
-                vec![1_110_000, 2_220_000, 3_330_000, 555_000],
-                vec![7],
-            ] {
-                let parts = allocate(amount, &weights);
-                assert_eq!(
-                    parts.iter().sum::<i64>(),
-                    amount,
-                    "{amount} across {weights:?} came to {parts:?}"
-                );
-                assert!(parts.iter().all(|p| *p >= 0));
-            }
-        }
     }
 }

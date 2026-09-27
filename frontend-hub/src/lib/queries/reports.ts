@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { node } from "@/lib/api"
 import type { Filter, FilterKind, Operator } from "@/lib/filters"
 import type { SavedReportPage, SavedReportRow } from "@itulah/contract"
+import { toCsv as rowsToCsv } from "@/lib/csv"
 
 /// Reports: the definition, not the rows.
 ///
@@ -358,17 +359,13 @@ export function useAmendReport(id: string) {
 ///
 /// The server already sent every row the report has — a second endpoint that
 /// re-ran the query to format it as text would be a second chance for the two
-/// to disagree.
+/// to disagree. The quoting is `lib/csv.ts`'s, shared with every list export.
 export function toCsv(result: ReportResult): string {
-  const escape = (value: string | number | null) => {
-    const text = value === null || value === undefined ? "" : String(value)
-    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
-  }
-  const header = result.columns.map((column) => escape(column.label)).join(",")
-  const body = result.rows
-    .map((row) =>
-      result.columns.map((column) => escape(row[column.key])).join(",")
-    )
-    .join("\n")
-  return `${header}\n${body}`
+  return rowsToCsv(
+    result.columns.map((column) => ({
+      label: column.label,
+      value: (row: ReportResult["rows"][number]) => row[column.key],
+    })),
+    result.rows
+  )
 }

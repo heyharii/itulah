@@ -329,7 +329,7 @@ function PickCard({
         )}
       </Thumbnail>
       <div className="px-2.5 py-2">
-        <div className="truncate text-[0.8125rem] font-medium text-ink">
+        <div className="truncate text-[0.875rem] font-medium text-ink">
           {item.name}
         </div>
         {item.colours.length > 0 && (
@@ -337,11 +337,11 @@ function PickCard({
             <Swatches colours={item.colours} cap={5} />
           </div>
         )}
-        <div className="mt-1 text-[0.8125rem] font-semibold text-ink tabular-nums">
+        <div className="mt-1 text-[0.875rem] font-semibold text-ink tabular-nums">
           {money(item.unit_price_minor)}
         </div>
         {on && (
-          <div className="mt-1 text-[0.6875rem] text-mute">On the order</div>
+          <div className="mt-1 text-[0.875rem] text-mute">On the order</div>
         )}
       </div>
     </button>

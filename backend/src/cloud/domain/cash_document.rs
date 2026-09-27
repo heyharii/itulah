@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 /// `cash_in_transit` is here and is not this lane's key to define — it belongs
 /// to the store-deposit work, where money that has left a shop and not yet
 /// reached the bank has to live somewhere. Naming it here costs nothing: a
-/// document that used it before it is mapped is refused by `account_map` with
+/// document that used it before it is linked is refused by `account_resolution` with
 /// a message naming the key.
 pub const MONEY_MEANINGS: [&str; 7] = [
     "cash",

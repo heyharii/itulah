@@ -154,7 +154,7 @@ export function Cash() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Store"
+        crumb="Finance · Reports"
         title="Cash"
         sub="Tills, floats and petty cash — where the notes are, according to the books."
       />
@@ -283,7 +283,7 @@ function DrawerRow({ drawer }: { drawer: Drawer }) {
       <Td>
         <span className="font-medium text-ink">{account.account_name}</span>
         {account.qualifier !== "" && (
-          <span className="block text-[0.65625rem] text-mute">
+          <span className="block text-[0.875rem] text-mute">
             {account.qualifier}
           </span>
         )}
@@ -305,7 +305,7 @@ function DrawerRow({ drawer }: { drawer: Drawer }) {
         ) : (
           <>
             {day(last.counted_on)}
-            <span className="block text-[0.65625rem] text-mute">
+            <span className="block text-[0.875rem] text-mute">
               {last.counted_by === "" ? "counted by nobody named" : last.counted_by}
               {last.witnessed_by === "" ? "" : `, witnessed by ${last.witnessed_by}`}
             </span>
@@ -323,7 +323,7 @@ function DrawerRow({ drawer }: { drawer: Drawer }) {
               {last.variance_minor > 0 ? "+" : ""}
               {money(last.variance_minor)}
             </span>
-            <span className="block text-[0.65625rem] text-mute">
+            <span className="block text-[0.875rem] text-mute">
               {last.entry_id === null ? "not in the books" : last.entry_number}
             </span>
           </>

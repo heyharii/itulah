@@ -683,9 +683,9 @@ fn elg_001(_fixtures: &Fixtures) -> Outcome {
         [
             CartLine::new("SHIRT", 1)
                 .of_article("TOPS")
-                .in_division("MENSWEAR")
+                .in_division("PRIA")
                 .tagged("LEBARAN"),
-            CartLine::new("SHOES", 1).in_division("FOOTWEAR"),
+            CartLine::new("SHOES", 1).in_division("SANDAL_SEPATU"),
             CartLine::new("HAT", 1),
         ]
     };
@@ -709,7 +709,7 @@ fn elg_001(_fixtures: &Fixtures) -> Outcome {
         (
             "division",
             Applicability::Division {
-                divisions: fx::skus(&["MENSWEAR"]),
+                divisions: fx::skus(&["PRIA"]),
             },
         ),
         (

@@ -3,51 +3,50 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
-/// Pills, for everything interactive.
+/// A pill, in four weights of emphasis.
 ///
-/// There is no radius between a pill and a 16px card in this language, so a
-/// button never gets `rounded-lg`. `dark` is the one black CTA and there is at
-/// most one per screen — the black is deliberately not an accent, so the CTA
-/// and the indigo never come to mean the same thing.
+/// `primary` is the one near-black action a screen holds — at most one. The
+/// rest step down: `secondary` is a white pill standing on the grey page,
+/// `soft` sits inside a white card, `quiet` is a text link that still has a
+/// 44px target.
 ///
-/// The heights are the one place this parts company with the workbench's
-/// buttons. DESIGN.md's phone rule is "touch targets ≥ 44px", and the console's
-/// 32px pill is a mouse target; a thumb aiming at it is the usual reason a
-/// button gets pressed twice.
+/// Every variant shrinks to 0.97 on press (`.press`): the only feedback a
+/// touch screen can give on pointer-down, and the one that makes a button feel
+/// like it heard you.
+const DISABLED =
+  "disabled:pointer-events-none disabled:bg-none disabled:bg-soft-2 disabled:text-mute disabled:shadow-none disabled:[&_svg]:text-faint"
+
 const button = cva(
-  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full font-medium whitespace-nowrap transition-colors select-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0",
+  `press inline-flex shrink-0 items-center justify-center gap-2 rounded-full font-medium whitespace-nowrap select-none ${DISABLED} [&_svg]:shrink-0`,
   {
     variants: {
       variant: {
-        dark: "bg-ink text-on-dark hover:bg-black active:bg-black",
-        ghost:
-          "border border-hairline-2 bg-canvas text-text hover:bg-soft-2 active:bg-soft-2 [&_svg]:text-line-ico",
-        soft: "bg-soft-2 text-text hover:bg-hairline active:bg-hairline [&_svg]:text-line-ico",
-        quiet:
-          "text-body hover:bg-soft-2 hover:text-ink active:bg-soft-2 [&_svg]:text-line-ico",
+        primary: "cta-fill text-cta-fg [&_svg]:text-cta-fg",
+        secondary:
+          "bg-canvas text-ink shadow-soft hover:bg-soft [&_svg]:text-ink",
+        ghost: "bg-canvas text-ink shadow-soft hover:bg-soft [&_svg]:text-ink",
+        soft: "bg-soft-2 text-ink hover:bg-hairline [&_svg]:text-text",
+        quiet: "text-body hover:text-ink [&_svg]:text-line-ico",
+        danger: "bg-bad-bg text-bad-fg [&_svg]:text-bad-fg",
       },
       size: {
-        default: "h-11 px-5 text-nav [&_svg]:size-4",
-        sm: "h-9 px-4 text-meta [&_svg]:size-3.5",
-        /// Only for a control sitting inside a line of running text, where a
-        /// 44px pill would push the line apart.
-        inline: "h-7 px-2.5 text-meta [&_svg]:size-3.5",
+        lg: "h-14 px-7 text-button font-semibold [&_svg]:size-5",
+        default: "h-12 px-6 text-nav font-semibold [&_svg]:size-[1.125rem]",
+        sm: "h-9 px-4 text-meta font-semibold [&_svg]:size-4",
+        inline: "h-8 px-3 text-meta [&_svg]:size-3.5",
         icon: "size-11 [&_svg]:size-5",
       },
       block: { true: "w-full", false: "" },
     },
-    defaultVariants: { variant: "ghost", size: "default", block: false },
+    defaultVariants: { variant: "secondary", size: "default", block: false },
   },
 )
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof button> {
-  /// Wear the button, but be something else — a router `<Link>`, usually.
-  ///
-  /// The same escape hatch base-ui's button offered, kept because the
-  /// alternative is a `<button>` whose click handler navigates, and that costs
-  /// the reader a long-press menu and an address they can copy.
+  /// Render as another element (a router `Link`) while keeping the button's
+  /// styling — Base UI's `render` prop pattern, in a few lines.
   render?: React.ReactElement<{ className?: string }>
 }
 

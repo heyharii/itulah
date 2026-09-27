@@ -205,6 +205,18 @@ pub async fn create_session(
     let token = security::random_token();
     let csrf_token = security::random_token();
     let expires_at = Utc::now() + Duration::minutes(ttl_minutes.max(1));
+    let mut transaction = pool.begin().await?;
+    // One user, one device (migration 0395): this sign-in ends every other
+    // live session of the account, in the same transaction that opens it, so
+    // two sign-ins racing each other cannot both survive.
+    sqlx::query(
+        "UPDATE auth_session
+            SET revoked_at = now(), revoked_reason = 'SIGNED_IN_ELSEWHERE'
+          WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user.id)
+    .execute(&mut *transaction)
+    .await?;
     sqlx::query(
         "INSERT INTO auth_session
              (session_id,token_sha256,csrf_token_sha256,user_id,auth_version,expires_at)
@@ -216,8 +228,9 @@ pub async fn create_session(
     .bind(user.id)
     .bind(user.auth_version)
     .bind(expires_at)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
+    transaction.commit().await?;
     Ok(IssuedSession {
         token,
         csrf_token,
@@ -247,8 +260,24 @@ pub async fn authenticate_session(
     .bind(security::sha256_hex(token))
     .bind(idle_minutes.clamp(1, 24 * 60) as i32)
     .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::Unauthorized("invalid or expired session".into()))?;
+    .await?;
+    let Some(row) = row else {
+        // Say why, when the reason is one the person can act on: a device
+        // pushed out by a sign-in elsewhere should say so, not "expired".
+        let superseded: Option<bool> = sqlx::query_scalar(
+            "SELECT revoked_reason = 'SIGNED_IN_ELSEWHERE'
+               FROM auth_session WHERE token_sha256 = $1",
+        )
+        .bind(security::sha256_hex(token))
+        .fetch_optional(pool)
+        .await?
+        .flatten();
+        return Err(AppError::Unauthorized(if superseded == Some(true) {
+            "this account was signed in on another device".into()
+        } else {
+            "invalid or expired session".into()
+        }));
+    };
     let session_id: Uuid = row.get("session_id");
     sqlx::query("UPDATE auth_session SET last_seen_at=now() WHERE session_id=$1")
         .bind(session_id)

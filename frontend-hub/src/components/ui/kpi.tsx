@@ -45,7 +45,7 @@ export function Kpi({
       {delta && (
         <div
           className={cn(
-            "mt-1.5 inline-flex items-center gap-0.5 text-[0.71875rem] font-semibold",
+            "mt-1.5 inline-flex items-center gap-0.5 text-[0.875rem] font-semibold",
             tone === "up" && "text-ok",
             tone === "down" && "text-bad",
             (tone === "flat" || !tone) && "text-mute"

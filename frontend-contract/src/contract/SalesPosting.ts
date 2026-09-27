@@ -12,9 +12,16 @@ gross_minor: number,
 /**
  * What the tenders came to, net of change given.
  */
-settled_minor: number, discount_minor: number, returns_minor: number, 
+settled_minor: number, 
 /**
- * PPN taken, less PPN unwound by returns.
+ * What promotions took off, as the tills reported it. Reported only:
+ * the receipts are already net of it and that net is the revenue posted,
+ * so nothing of it reaches `sales_discount` (owner decision, 25 Sep 2026).
+ */
+discount_minor: number, returns_minor: number, 
+/**
+ * PPN posted. Nought while PPN is ignored (P11); the tax the day carried
+ * is in `vat_recorded_minor` and `vat_recomputed_minor`.
  */
 vat_minor: number, 
 /**

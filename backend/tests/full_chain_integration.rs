@@ -48,13 +48,12 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 const DC_ORIGIN: &str = "dc-01-edge";
-/// The warehouse the cloud actually knows about. Since 0256 the warehouse IS
-/// head office and the site is `ho`; the POOLS it holds are still spelled
-/// `dc.warehouse`, and `allotment` still carries
-/// `CHECK (source_pool_id = 'dc.warehouse')` — so neither the site nor the
-/// pool is a name the test may choose freely, and they no longer share a
-/// spelling.
-const DC_SITE: &str = "ho";
+/// The warehouse the cloud actually knows about. Since 0353 it is kind `HO` —
+/// the warehouse IS head office — but its id is still `dc`, the only spelling
+/// the edge's `SiteId` accepts for it, and its pools are `dc.warehouse` and
+/// friends. The rename to `ho` is 0256's, and has not landed; until it does,
+/// neither the site nor the pool is a name the test may choose freely.
+const DC_SITE: &str = "dc";
 const DC_KEY: &str = "dc-01-full-chain-sync-key-000001";
 
 const STORE_ORIGIN: &str = "store-01-edge";
@@ -84,6 +83,8 @@ fn frontend() -> PathBuf {
 
 fn cloud_config() -> AppConfig {
     AppConfig {
+        po_import: inventory_backend::cloud::intake::po::PoImportConfig::from_env(),
+        clock: None,
         bind_addr: "127.0.0.1:0"
             .parse::<SocketAddr>()
             .unwrap_or_else(|e| panic!("socket address: {e}")),
@@ -94,6 +95,7 @@ fn cloud_config() -> AppConfig {
         observed_window_hours: 24,
         lost_risk_window_days: 30,
         enable_test_controls: false,
+        finance_automation_enabled: false,
         frontend_dir: frontend(),
         sync_upload_url: None,
         sync_upload_key: None,
@@ -461,7 +463,7 @@ fn order_body() -> Value {
             "article_code": SUPPLIER_CODE,
             "article_name": "Kemeja Lengan Panjang",
             "image_url": "https://cdn.itulah.co.id/kemeja.jpg",
-            "division_code": "MENSWEAR",
+            "division_code": "PRIA",
             "tags": ["KEMEJA", "LENGAN_PANJANG"],
             "ordered_quantity": 60,
             "unit_price_minor": INTAKE_PRICE
@@ -473,12 +475,12 @@ fn setup_body(receipt_line_id: &Value) -> Value {
     json!({
         "receipt_line_id": receipt_line_id,
         "article_name": "Kemeja Lengan Panjang Merah",
-        "division_code": "MENSWEAR",
+        "division_code": "PRIA",
         "tags": ["KEMEJA", "LENGAN_PANJANG"],
         "image_url": "https://cdn.itulah.co.id/kemeja-merah.jpg",
         "currency": "IDR",
         "created_by": "merchandiser-1",
-        "colours": [{ "colour_digit": "1", "label": "Merah", "hex_code": "#C0392B" }],
+        "colours": [{ "colour_digit": "1", "colour_code": "RED" }],
         "variants": [
             { "colour_digit": "1", "size_code": "03", "quantity": 30, "base_price_minor": INTAKE_PRICE },
             { "colour_digit": "1", "size_code": "04", "quantity": 30, "base_price_minor": INTAKE_PRICE }

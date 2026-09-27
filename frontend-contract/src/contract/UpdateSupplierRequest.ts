@@ -24,4 +24,12 @@ is_pkp?: boolean | null,
  * The standing terms; `null` clears them, which is what a supplier who
  * has gone back to paying on delivery needs.
  */
-default_payment_terms_code?: string | null, };
+default_payment_terms_code?: string | null, 
+/**
+ * `PT`, `CV` or `UD`; `null` clears it.
+ */
+legal_form?: string | null, 
+/**
+ * The buyer's note on the record; `null` clears it.
+ */
+notes?: string | null, };

@@ -1,0 +1,143 @@
+name: Store server packages
+
+# The store server a shop installs: a Linux tarball with its installer and a
+# Windows MSI. Built on every change to the node or its packaging, published
+# as workflow artifacts; a `store-v*` tag is a release. See
+# STORE-SERVER-PLAN.md §3.
+
+on:
+  push:
+    # Branches as well as tags: with only a tag filter, GitHub would skip
+    # every branch push, and the packages would first be built on release day.
+    branches: ["**"]
+    tags: ["store-v*"]
+    paths:
+      - "backend/src/edge/**"
+      - "backend/src/sync/**"
+      - "backend/src/bin/store.rs"
+      - "backend/Cargo.toml"
+      - "deploy/edge/**"
+      - "deploy/windows/**"
+      - "frontend-store-new/**"
+      - ".github/workflows/store-server.yml"
+  workflow_dispatch:
+    inputs:
+      cloud_url:
+        description: "Head office address baked in as the setup page's default"
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  ITULAH_DEFAULT_CLOUD_URL: ${{ inputs.cloud_url || vars.ITULAH_CLOUD_URL }}
+
+jobs:
+  web:
+    name: Shop web app
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend-store-new/package-lock.json
+      - working-directory: frontend-store-new
+        run: npm ci && npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: frontend-store-new/dist
+
+  linux:
+    name: Linux x64 tarball
+    needs: web
+    runs-on: ubuntu-22.04 # the oldest glibc we promise to run on
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend -> target
+      - name: Test the node's unattended parts
+        working-directory: backend
+        run: cargo test --lib -- edge::node edge::enrolment edge::diagnose sync::enrolment
+      - name: Build
+        working-directory: backend
+        run: cargo build --release --bin store
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: package/web
+      - name: Package
+        run: |
+          set -euo pipefail
+          version="$(backend/target/release/store --version | awk '{print $2}')"
+          cp backend/target/release/store package/
+          cp deploy/edge/store-edge.service deploy/edge/install-store.sh package/
+          chmod +x package/install-store.sh package/store
+          name="itulah-store-${version}-linux-x64"
+          mv package "$name"
+          tar czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: itulah-store-*-linux-x64.tar.gz*
+
+  windows:
+    name: Windows x64 MSI
+    needs: web
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend -> target
+      - name: Test the node's unattended parts
+        working-directory: backend
+        run: cargo test --lib -- edge::node edge::enrolment edge::diagnose sync::enrolment
+      - name: Build
+        working-directory: backend
+        run: cargo build --release --bin store
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: bin/web
+      - name: Build the MSI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item backend/target/release/store.exe bin/
+          $version = ((& bin/store.exe --version) -split ' ')[1]
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.Util.wixext/5.0.2
+          wix build deploy/windows/store.wxs -arch x64 -ext WixToolset.Util.wixext `
+            -d "Version=$version" -d "BinDir=$PWD\bin" -o "itulah-store-$version-x64.msi"
+          (Get-FileHash -Algorithm SHA256 "itulah-store-$version-x64.msi").Hash.ToLowerInvariant() |
+            Out-File -Encoding ascii "itulah-store-$version-x64.msi.sha256"
+      # Unsigned until a signing identity exists (STORE-SERVER-PLAN §10.3).
+      # An unsigned MSI installs, but SmartScreen warns "unknown publisher".
+      - name: Smoke-test the installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Get-ChildItem itulah-store-*.msi | Select-Object -First 1
+          $p = Start-Process msiexec -ArgumentList "/i `"$($msi.FullName)`" /qn /l*v install.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 80; throw "install failed: $($p.ExitCode)" }
+          Start-Sleep -Seconds 10
+          $svc = Get-Service ItulahStore
+          if ($svc.Status -ne 'Running') { throw "service is $($svc.Status)" }
+          # Not enrolled yet, so the setup page answers on loopback.
+          $page = Invoke-WebRequest http://127.0.0.1:8082/setup -UseBasicParsing
+          if ($page.StatusCode -ne 200) { throw "setup page answered $($page.StatusCode)" }
+          & "C:\Program Files\itulah Store\store.exe" diagnose
+          $p = Start-Process msiexec -ArgumentList "/x `"$($msi.FullName)`" /qn" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "uninstall failed: $($p.ExitCode)" }
+          if (-not (Test-Path "$env:ProgramData\itulah\store")) { throw "uninstall removed the data" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: itulah-store-*-x64.msi*

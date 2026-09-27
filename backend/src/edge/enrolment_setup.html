@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pasang Server Toko</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #ffffff; --text: #1b1b19; --muted: #6b6b66;
+    --line: #e4e4df; --accent: #1f5eff; --ok: #1a7f4b; --warn: #a15c00; --bad: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121211; --card: #1c1c1a; --text: #ededea; --muted: #9a9a94;
+      --line: #2e2e2b; --accent: #6b95ff; --ok: #4cc38a; --warn: #f0a847; --bad: #ff7a70;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main {
+    width: 100%; max-width: 440px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 28px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  p { margin: 0 0 16px; color: var(--muted); }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
+  input {
+    width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line);
+    background: transparent; color: var(--text); font: inherit;
+  }
+  input#code { font: 600 20px/1.2 ui-monospace, "Cascadia Mono", monospace; letter-spacing: 0.08em; text-transform: uppercase; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  button {
+    margin-top: 20px; width: 100%; padding: 11px; border: 0; border-radius: 8px;
+    background: var(--accent); color: #fff; font: 600 15px/1 inherit; cursor: pointer;
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .error { color: var(--bad); font-size: 13px; margin-top: 12px; min-height: 1em; }
+  .number {
+    font: 700 44px/1 ui-monospace, "Cascadia Mono", monospace; letter-spacing: 0.06em;
+    text-align: center; padding: 20px 0; border: 1px dashed var(--line); border-radius: 10px; margin: 8px 0 16px;
+  }
+  .meta { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
+  .dot.live { animation: pulse 1.6s ease-in-out infinite; }
+  .dot.ok { background: var(--ok); }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) { .dot.live { animation: none; } }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <section id="idle" hidden>
+    <h1>Pasang server toko</h1>
+    <p>Masukkan kode aktivasi dari kantor pusat (Hub → System → Nodes → Install server).</p>
+    <form id="form">
+      <label for="code">Kode aktivasi</label>
+      <input id="code" autocomplete="off" spellcheck="false" placeholder="XXXXX-XXXXX" maxlength="13" required autofocus>
+      <label for="cloud">Alamat cloud</label>
+      <input id="cloud" type="url" placeholder="https://…" required>
+      <button id="submit" type="submit">Hubungkan</button>
+      <div class="error" id="idle-error" role="alert"></div>
+    </form>
+  </section>
+
+  <section id="waiting" hidden>
+    <h1>Menunggu persetujuan</h1>
+    <p>Sebutkan angka ini ke kantor pusat. Mereka akan mencocokkannya sebelum menyetujui mesin ini sebagai server <strong id="site"></strong>.</p>
+    <div class="number" id="number" aria-live="polite"></div>
+    <div class="meta"><span class="dot live"></span><span id="waiting-note">Memeriksa setiap beberapa detik. Halaman ini boleh ditutup — server tetap menunggu.</span></div>
+    <div class="error" id="waiting-error" role="alert"></div>
+  </section>
+
+  <section id="enrolled" hidden>
+    <h1>Terhubung</h1>
+    <p>Mesin ini sekarang server <strong id="enrolled-site"></strong>. Data awal sedang dikirim dari cloud.</p>
+    <div class="meta"><span class="dot ok"></span><span>Server toko sedang dimulai…</span></div>
+  </section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let shown = null;
+
+  function show(name) {
+    for (const id of ["idle", "waiting", "enrolled"]) $(id).hidden = id !== name;
+    shown = name;
+  }
+
+  function render(state) {
+    if (state.state === "IDLE") {
+      if (shown !== "idle") {
+        show("idle");
+        if (state.cloud_url && !$("cloud").value) $("cloud").value = state.cloud_url;
+      }
+      $("idle-error").textContent = state.error || "";
+    } else if (state.state === "WAITING") {
+      show("waiting");
+      $("site").textContent = state.site_id;
+      $("number").textContent = state.verification.slice(0, 3) + " " + state.verification.slice(3);
+      $("waiting-error").textContent = state.error || "";
+    } else if (state.state === "ENROLLED") {
+      show("enrolled");
+      $("enrolled-site").textContent = state.site_id;
+      setTimeout(() => location.replace("/"), 6000);
+    }
+  }
+
+  async function refresh() {
+    try {
+      const response = await fetch("/setup/state", { cache: "no-store" });
+      if (response.ok) render(await response.json());
+    } catch {
+      // The node restarting into its normal mode drops this server; the
+      // redirect above takes over.
+    }
+  }
+
+  $("form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    $("submit").disabled = true;
+    $("idle-error").textContent = "";
+    try {
+      const response = await fetch("/setup/claim", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code: $("code").value, cloud_url: $("cloud").value }),
+      });
+      const body = await response.json();
+      if (!response.ok) $("idle-error").textContent = body.error || "Gagal.";
+      else render(body);
+    } catch (error) {
+      $("idle-error").textContent = "Server lokal tidak menjawab: " + error;
+    } finally {
+      $("submit").disabled = false;
+    }
+  });
+
+  refresh();
+  setInterval(refresh, 3000);
+</script>
+</body>
+</html>

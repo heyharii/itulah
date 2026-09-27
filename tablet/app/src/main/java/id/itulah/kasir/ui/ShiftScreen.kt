@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -49,10 +51,18 @@ fun ShiftScreen(
     onBack: () -> Unit,
 ) {
     Column(
-        Modifier.fillMaxSize().background(Soft).verticalScroll(rememberScrollState()).padding(16.dp),
+        // `.page` / `.page-inner`: a secondary page is a centred column, not
+        // the width of the counter.
+        Modifier
+            .fillMaxSize()
+            .background(Soft3)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 22.dp)
+            .wrapContentWidth(androidx.compose.ui.Alignment.CenterHorizontally)
+            .widthIn(max = 880.dp),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Shift", fontSize = 22.sp)
+            Text("Shift", style = Type.hero.copy(fontSize = 24.sp, letterSpacing = (-0.6).sp))
             GhostButton("Kembali", onBack, Modifier.width(120.dp))
         }
         Spacer(Modifier.height(14.dp))
@@ -66,18 +76,20 @@ fun ShiftScreen(
             SectionLabel("Laporan Z · ${shift.terminalId}")
             Spacer(Modifier.height(8.dp))
             KeyValue("Modal awal", Money.grouped(shift.openingFloatMinor))
-            KeyValue("Penjualan (${shift.saleCount})", Money.grouped(shift.salesTotalMinor))
-            KeyValue("Tunai", Money.grouped(shift.cashSalesMinor))
-            KeyValue("Non-tunai", Money.grouped(shift.nonCashMinor))
-            KeyValue("Kembalian keluar", "−" + Money.grouped(shift.changeGivenMinor))
-            KeyValue("Retur tunai", "−" + Money.grouped(shift.cashRefundsMinor))
             KeyValue("Kas masuk/keluar", Money.grouped(shift.cashMovementsMinor))
             if (shift.voidedCount > 0) KeyValue("Dibatalkan", "${shift.voidedCount}", tone = Warn)
-            Divider(Modifier.padding(vertical = 8.dp))
-            // Deliberately the only place the expectation appears, and only
-            // while the shift is still open — the close screen below must not
-            // show it.
-            KeyValue("Seharusnya di laci", Money.format(shift.expectedCashMinor), strong = true)
+            // A cashier is served the report blind and sees none of what the
+            // drawer should hold — not the takings, not the expectation. A
+            // supervisor signed in on this tablet reads it whole.
+            if (!shift.blind) {
+                KeyValue("Penjualan (${shift.saleCount})", Money.grouped(shift.salesTotalMinor))
+                KeyValue("Tunai", Money.grouped(shift.cashSalesMinor))
+                KeyValue("Non-tunai", Money.grouped(shift.nonCashMinor))
+                KeyValue("Kembalian keluar", "−" + Money.grouped(shift.changeGivenMinor))
+                KeyValue("Retur tunai", "−" + Money.grouped(shift.cashRefundsMinor))
+                Divider(Modifier.padding(vertical = 8.dp))
+                KeyValue("Seharusnya di laci", Money.format(shift.expectedCashMinor), strong = true)
+            }
         }
 
         Spacer(Modifier.height(12.dp))
@@ -125,11 +137,12 @@ private fun CashMovement(busy: Boolean, onMovement: (String, Long, String) -> Un
             // Signed at the node: money in is positive, out is negative. The
             // four kinds are the vocabulary the ledger already speaks.
             listOf("DROP", "PAYOUT", "PICKUP", "CORRECTION").forEach { candidate ->
-                GhostButton(
+                ChoiceTile(
                     candidate,
-                    { kind = candidate },
-                    Modifier.weight(1f),
-                    tone = if (candidate == kind) Ink else Mute,
+                    selected = candidate == kind,
+                    onClick = { kind = candidate },
+                    modifier = Modifier.weight(1f),
+                    height = 46.dp,
                 )
             }
         }

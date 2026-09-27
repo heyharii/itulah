@@ -167,7 +167,9 @@ function load(): readonly Job[] {
     // is going to finish it. It is waiting — and it is safe to say so, because
     // the keys it carries make a second delivery a no-op.
     return parsed.map((entry: Job) =>
-      entry.state === "sending" ? { ...entry, state: "waiting" as const } : entry,
+      entry.state === "sending"
+        ? { ...entry, state: "waiting" as const }
+        : entry,
     )
   } catch {
     // Storage that cannot be read is storage that cannot be trusted, but it is
@@ -190,7 +192,8 @@ function load(): readonly Job[] {
 function save(next: readonly Job[], removed?: ReadonlySet<string>): void {
   const known = new Set(next.map((entry) => entry.localId))
   const theirs = load().filter(
-    (entry) => !known.has(entry.localId) && removed?.has(entry.localId) !== true,
+    (entry) =>
+      !known.has(entry.localId) && removed?.has(entry.localId) !== true,
   )
   // Oldest first, because `flush` sends in array order and a day's work read
   // back out of order is a day nobody can follow.
@@ -546,57 +549,84 @@ async function perform(job: Job): Promise<Outcome> {
 /// One at a time and in order: the floor's work read back in the order it was
 /// done is work a supervisor can follow, and a burst of parallel writes against a
 /// SQLite node holding an immediate transaction is contention for nothing.
+///
+/// **One tab at a time, too.** `pumping` only guards this tab. Two tabs on one
+/// phone share the queue through `localStorage`, so a job saved in one wakes the
+/// other (`onOtherTab`) and both sent it at once. The node is meant to make the
+/// second delivery a no-op; on 2026-09-26 a picklist delivered twice together
+/// came back as two rounds, and the answer the phone kept said two garments
+/// "were not on the rack" that were in fact on the trolley. The lock makes the
+/// second tab wait its turn, and it reads the queue again once it has the lock,
+/// so what the first tab settled is not sent a second time.
 export async function flush(): Promise<void> {
   if (pumping) return
   pumping = true
   try {
-    for (;;) {
-      const next = queue.find((entry) => entry.state === "waiting")
-      if (next === undefined) return
-
-      patch(next.localId, { state: "sending" })
-      try {
-        const outcome = await perform(next)
-        patch(next.localId, {
-          state: "settled",
-          settledAt: new Date().toISOString(),
-          lastError: null,
-          attempts: next.attempts + 1,
-          outcome: outcome.said,
-          partial: outcome.partial,
-        })
-        prune()
-        // Work that has landed changes several stations at once, and it lands
-        // from here rather than from a component — after a reload, in a
-        // backgrounded tab, off a timer. Nothing else would notice, so a picking
-        // screen would go on offering a line somebody already picked. The whole
-        // `dc` prefix, because that is the truth: one write here genuinely moves
-        // the queues on every other station's screen.
-        void queryClient.invalidateQueries({ queryKey: keys.dc.all })
-        void queryClient.invalidateQueries({ queryKey: keys.pools() })
-      } catch (error) {
-        const attempts = next.attempts + 1
-        if (shouldRetry(error)) {
-          patch(next.localId, {
-            state: "waiting",
-            attempts,
-            lastError: describe(error),
-          })
-          // Back off rather than spin. The retry is scheduled and this pass
-          // stops: the entry it just failed on is the oldest, and skipping past
-          // it would put the floor's work out of order.
-          schedule(Math.min(30_000, 1_000 * 2 ** Math.min(attempts, 5)))
-          return
+    const locks = typeof navigator === "undefined" ? undefined : navigator.locks
+    if (locks === undefined) {
+      await pump()
+    } else {
+      await locks.request(PUMP_LOCK, async () => {
+        const stored = load()
+        if (stored.length > 0) {
+          queue = stored
+          for (const listener of listeners) listener()
         }
-        patch(next.localId, {
-          state: "refused",
-          attempts,
-          lastError: describe(error),
-        })
-      }
+        await pump()
+      })
     }
   } finally {
     pumping = false
+  }
+}
+
+const PUMP_LOCK = "floor.outbox.pump"
+
+async function pump(): Promise<void> {
+  for (;;) {
+    const next = queue.find((entry) => entry.state === "waiting")
+    if (next === undefined) return
+
+    patch(next.localId, { state: "sending" })
+    try {
+      const outcome = await perform(next)
+      patch(next.localId, {
+        state: "settled",
+        settledAt: new Date().toISOString(),
+        lastError: null,
+        attempts: next.attempts + 1,
+        outcome: outcome.said,
+        partial: outcome.partial,
+      })
+      prune()
+      // Work that has landed changes several stations at once, and it lands
+      // from here rather than from a component — after a reload, in a
+      // backgrounded tab, off a timer. Nothing else would notice, so a picking
+      // screen would go on offering a line somebody already picked. The whole
+      // `dc` prefix, because that is the truth: one write here genuinely moves
+      // the queues on every other station's screen.
+      void queryClient.invalidateQueries({ queryKey: keys.dc.all })
+      void queryClient.invalidateQueries({ queryKey: keys.pools() })
+    } catch (error) {
+      const attempts = next.attempts + 1
+      if (shouldRetry(error)) {
+        patch(next.localId, {
+          state: "waiting",
+          attempts,
+          lastError: describe(error),
+        })
+        // Back off rather than spin. The retry is scheduled and this pass
+        // stops: the entry it just failed on is the oldest, and skipping past
+        // it would put the floor's work out of order.
+        schedule(Math.min(30_000, 1_000 * 2 ** Math.min(attempts, 5)))
+        return
+      }
+      patch(next.localId, {
+        state: "refused",
+        attempts,
+        lastError: describe(error),
+      })
+    }
   }
 }
 

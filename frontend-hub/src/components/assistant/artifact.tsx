@@ -240,7 +240,7 @@ function Articles({ data }: { data: unknown }) {
             {text(article, "name")}
           </span>,
           count(num(article, "sku_count")),
-          field(article, "active") === false ? "Retired" : "Active",
+          field(article, "active") === false ? "Cancelled" : "Active",
         ])}
       empty="No article matched."
     />

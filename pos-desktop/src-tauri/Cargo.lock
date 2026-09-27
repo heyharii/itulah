@@ -2307,6 +2307,7 @@ name = "pos-desktop"
 version = "0.1.0"
 dependencies = [
  "hmac",
+ "libloading",
  "serde",
  "serde_json",
  "sha2",

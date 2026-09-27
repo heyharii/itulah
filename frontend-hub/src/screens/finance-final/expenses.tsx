@@ -133,7 +133,7 @@ export function Expenses() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Store"
+        crumb="Finance · Cash & Bank"
         title="Expenses"
         sub="What a shop spent out of its own hands, what it was for, and how much of the float is left."
       />
@@ -149,7 +149,7 @@ export function Expenses() {
         <Toolbar.Spacer />
         {/* The effective answer in words, always. A date box filled with today
             and a date box the server defaulted look identical to a reader. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {range.chip}
           {site === "" ? (
             " · every location"
@@ -165,7 +165,7 @@ export function Expenses() {
       <div className="flex flex-col gap-5">
         {/* ── How much can I still spend ───────────────────────────────── */}
         <section className="flex flex-col gap-2.5">
-          <h2 className="text-[0.8125rem] font-semibold text-ink">
+          <h2 className="text-[0.875rem] font-semibold text-ink">
             The tin{" "}
             {nodeSite !== null && (
               <span className="font-normal text-mute">
@@ -227,7 +227,7 @@ export function Expenses() {
 
         {/* ── The float position, per unit ─────────────────────────────── */}
         <section className="flex flex-col gap-2.5">
-          <h2 className="text-[0.8125rem] font-semibold text-ink">
+          <h2 className="text-[0.875rem] font-semibold text-ink">
             Float position, per unit
           </h2>
           {positions.isPending ? (
@@ -359,7 +359,7 @@ export function Expenses() {
 
         {/* ── The receipts ─────────────────────────────────────────────── */}
         <section className="flex flex-col gap-2.5">
-          <h2 className="text-[0.8125rem] font-semibold text-ink">
+          <h2 className="text-[0.875rem] font-semibold text-ink">
             The petty cash book
             {nodeSite !== null && (
               <span className="font-normal text-mute">
@@ -445,7 +445,7 @@ export function Expenses() {
                             move, and an audit six months from now asks who was
                             allowed to approve this, THEN. */}
                         {entry.rung !== null && (
-                          <span className="ml-1.5 text-[0.65625rem] text-mute">
+                          <span className="ml-1.5 text-[0.875rem] text-mute">
                             {entry.rung === "ADMIN" ? "head office" : "store"}
                           </span>
                         )}

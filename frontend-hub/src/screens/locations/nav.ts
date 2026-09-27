@@ -25,12 +25,13 @@ import type { AppModule } from "@/lib/navigation"
 /// twice. A building, a floor or an area is a sub-location.
 export const gaLocationsNav: AppModule = {
   id: "ga-locations",
-  label: "Locations",
+  label: "Lokasi",
   icon: Pin,
   home: "/locations",
-  // Declared now, inert, so the GA column reads whole before the screen lands:
-  // a menu row that opened onto nothing would be the one thing worse than a
-  // missing one. The screen arrives with the location hub.
-  soon: true,
-  sections: [{ items: [{ path: "/locations", label: "Locations", icon: Pin }] }],
+  // Live: the list and its hub are written, so the row navigates rather than
+  // sitting inert. `site` is the company's own list of places, so this module
+  // has one door and does not unfold — the hub is a sheet raised over this
+  // list, not a second screen beside it. Paths and labels unchanged: the
+  // screen arrives at the path the menu already claimed.
+  sections: [{ items: [{ path: "/locations", label: "Lokasi", icon: Pin }] }],
 }

@@ -1,12 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
-import {
-  activeShift,
-  cashMovement,
-  closeShift,
-  openShift,
-  shiftReport,
-} from "@/api"
+import { activeShift, cashMovement, closeShift, openShift } from "@/api"
+import { Icon } from "@/icons"
+import { Topbar } from "@/till"
 import type { ShiftReport } from "@itulah/contract"
 import { money } from "@itulah/contract/money"
 
@@ -64,29 +60,19 @@ const MOVES = [
   {
     kind: "DROP",
     sign: -1,
-    label: "Uang keluar laci",
-    hint: "Setor ke brankas — uangnya keluar dari laci, tapi masih di toko.",
+    label: "Setor ke brankas",
   },
   {
     kind: "PICKUP",
     sign: 1,
-    label: "Uang masuk laci",
-    hint: "Tambahan modal atau uang kecil untuk kembalian.",
+    label: "Tambah uang laci",
   },
 ] as const
 
 type MoveKind = (typeof MOVES)[number]["kind"]
 
-/// The node names tenders and movements in English on the wire; the counter
-/// reads Indonesian. Anything unknown prints as it arrived rather than as a
-/// blank — a tender added at the centre must not vanish off a Z report.
-const TENDER: Record<string, string> = {
-  CASH: "Tunai",
-  CARD: "Kartu",
-  QRIS: "QRIS",
-  VOUCHER: "Voucher",
-}
-
+/// The node names movements in English on the wire; the counter reads
+/// Indonesian. Anything unknown prints as it arrived rather than as a blank.
 const MOVEMENT: Record<string, string> = {
   OPENING_FLOAT: "Modal awal",
   DROP: "Setor ke brankas",
@@ -98,18 +84,16 @@ const MOVEMENT: Record<string, string> = {
 /// `EdgeReply.problem` is typed nullable but the shell fills it on every
 /// refusal. If it ever is not, say that plainly rather than render nothing and
 /// leave a cashier looking at a button that did something invisible.
-const SILENT = "Node toko menolak, tetapi tidak mengatakan alasannya."
+const SILENT = "Node toko menolak tanpa alasan."
 
 /// The write went through — the drawer has changed — but the reply could not be
 /// read, so nothing on this screen may be trusted until the node is asked again.
-const UNREADABLE =
-  "Node menjawab dalam bentuk yang tidak dikenali layar ini. Keadaan laci dibaca ulang."
+const UNREADABLE = "Jawaban node tidak terbaca. Keadaan laci dibaca ulang."
 
 /// `actor_id` is required by the node, and when the node runs with auth switched
 /// off it is NOT overwritten from a session — whatever this screen sends is what
 /// the ledger keeps forever. Checked here so the refusal names the real problem.
-const NAMELESS =
-  "Terminal ini belum tahu siapa yang bertugas, jadi pergerakan uang tidak bisa diatasnamakan siapa pun. Masuk dulu sebagai kasir."
+const NAMELESS = "Masuk dulu sebagai kasir."
 
 function minorOf(text: string): number {
   return Number(text.replace(/\D/g, "")) || 0
@@ -136,7 +120,10 @@ function asReport(body: unknown): ShiftReport | null {
   if (body === null || typeof body !== "object") return null
   const maybe = body as Partial<ShiftReport>
   if (typeof maybe.shift_id !== "string") return null
-  if (typeof maybe.expected_cash_minor !== "number") return null
+  // Not `expected_cash_minor`: a cashier is served the report blind, with
+  // that figure null (`http.rs::blind_for_cashier`), and a blind report is
+  // still a report.
+  if (typeof maybe.status !== "string") return null
   return maybe as ShiftReport
 }
 
@@ -177,6 +164,12 @@ type Reading =
   | { readonly kind: "closed"; readonly report: ShiftReport }
   | { readonly kind: "unknown"; readonly problem: string }
 
+/// Notes and coins a drawer is counted in, largest first. The same set the
+/// payment page counts change out in.
+const DENOMINATIONS = [
+  100_000, 50_000, 20_000, 10_000, 5_000, 2_000, 1_000, 500, 200, 100,
+] as const
+
 export function ShiftScreen({
   actorId,
   terminalId,
@@ -195,9 +188,6 @@ export function ShiftScreen({
       setReading({ kind: "unknown", problem: reply.problem ?? SILENT })
       return
     }
-    // `null` is the shop's ordinary morning. An object that cannot be read is
-    // something else entirely, and saying "belum ada shift" for it would be
-    // this screen inventing an answer the node never gave.
     if (reply.body === null) {
       setReading({ kind: "none" })
       return
@@ -216,8 +206,6 @@ export function ShiftScreen({
     void read()
   }, [read])
 
-  /// A write landed. `null` means it landed but the reply was unreadable — the
-  /// drawer moved, so the only honest thing left is to ask the node again.
   const onDone = useCallback(
     (report: ShiftReport | null) => {
       if (report === null) {
@@ -237,25 +225,16 @@ export function ShiftScreen({
   if (reading.kind === "reading") {
     panel = (
       <div className="empty">
-        <h3>Menanyakan ke node toko…</h3>
-        <p>
-          Keadaan laci belum diketahui. Layar ini tidak menebaknya sambil
-          menunggu.
-        </p>
+        <h3>Memuat shift…</h3>
       </div>
     )
   } else if (reading.kind === "unknown") {
     panel = (
       <>
-        <div className="notice warn">
-          <strong>Node toko tidak menjawab.</strong> Jadi layar ini tidak tahu
-          apakah ada shift yang sedang terbuka — dan “tidak tahu” bukan berarti
-          “tidak ada”. Node yang memegang jawabannya, bukan terminal ini.
-        </div>
         <p className="error">{reading.problem}</p>
         <div className="rows">
           <button className="btn primary" onClick={() => void read()}>
-            Tanya lagi
+            Coba lagi
           </button>
         </div>
       </>
@@ -282,26 +261,19 @@ export function ShiftScreen({
     )
   }
 
-  // The same shell every secondary screen in this app wears: `#app` is the
-  // window, `.page` the one thing in it that scrolls. Deliberately without the
-  // counter's topbar — this screen is entered from the till and leaves by the
-  // button beside its own heading, and a second way back is a second thing to
-  // press by accident with a customer waiting.
   return (
     <div id="app" data-screen="sale">
+      <Topbar actorId={actorId} />
       <main className="page">
         <div className="page-inner">
           <div className="page-head">
             <div>
-              <h1>Shift kasir</h1>
-              <p>
-                Satu laci, satu shift, satu terminal —{" "}
-                <span className="num">{terminalId}</span>. Tanpa shift yang
-                terbuka, konter ini tidak boleh menerima uang.
-              </p>
+              <h1>Shift &amp; kas</h1>
+              <p className="num">{terminalId}</p>
             </div>
             <button className="btn ghost" onClick={onBack}>
-              ← Kembali ke konter
+              <Icon name="back" />
+              Kembali ke konter
             </button>
           </div>
           {panel}
@@ -317,22 +289,26 @@ function Rupiah({
   caption,
   text,
   onText,
+  autoFocus,
 }: {
   caption: string
   text: string
   onText: (next: string) => void
+  autoFocus?: boolean
 }) {
+  const value = Number(text) || 0
   return (
     <div>
       <span className="label">{caption}</span>
       <div className="amount-field" style={{ marginTop: 8 }}>
         <span className="rp">Rp</span>
         <input
-          value={text}
+          value={value > 0 ? value.toLocaleString("id-ID") : ""}
           onChange={(event) => onText(event.target.value.replace(/\D/g, ""))}
           inputMode="numeric"
           placeholder="0"
           aria-label={caption}
+          autoFocus={autoFocus}
         />
       </div>
       <div className="numpad" style={{ marginTop: 8 }}>
@@ -341,6 +317,7 @@ function Rupiah({
             key={key}
             type="button"
             className={key === "⌫" ? "del" : undefined}
+            aria-label={key === "⌫" ? "Hapus satu angka" : undefined}
             onClick={() =>
               onText(
                 key === "⌫"
@@ -357,13 +334,10 @@ function Rupiah({
   )
 }
 
-/// Opening the drawer.
-///
-/// The terminal is shown and not typed: it comes from the shell, which is the
-/// only thing that knows which machine this is, and a till whose id could be
-/// edited at the counter is a till whose takings can be filed under another
-/// drawer.
-function Opening({
+/// Opening the drawer: the float counted into it this morning. Also what a
+/// cashier is shown straight after signing in when no shift is open yet —
+/// see `ShiftGate` below.
+export function Opening({
   actorId,
   terminalId,
   onDone,
@@ -403,45 +377,88 @@ function Opening({
   }
 
   return (
-    <>
-      <div className="notice">
-        Belum ada shift yang terbuka di terminal ini. Hitung modal awal di laci,
-        tulis jumlahnya, lalu buka shift — mulai dari sana setiap rupiah yang
-        masuk dan keluar punya tempat.
-      </div>
-
-      <div className="kv">
-        <span className="muted">Terminal</span>
-        <strong className="num">{terminalId}</strong>
-      </div>
-      <div className="kv">
-        <span className="muted">Dibuka oleh</span>
-        <strong>{actorId.trim() === "" ? "—" : actorId}</strong>
-      </div>
-
-      <Rupiah caption="Modal awal di laci" text={text} onText={setText} />
+    <form
+      className="rows"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!busy) void open()
+      }}
+    >
+      <Rupiah caption="Modal awal di laci" text={text} onText={setText} autoFocus />
 
       {problem !== null && <p className="error">{problem}</p>}
 
-      <div className="rows">
-        <button
-          className="btn primary"
-          disabled={busy}
-          onClick={() => void open()}
-        >
-          {busy ? "Membuka…" : `Buka shift dengan ${money(minorOf(text), CURRENCY)}`}
-        </button>
-      </div>
-    </>
+      <button className="btn primary lg" type="submit" disabled={busy}>
+        {busy ? "Membuka…" : `Buka shift · ${money(minorOf(text), CURRENCY)}`}
+      </button>
+    </form>
   )
 }
 
-/// The shift as it runs.
-///
-/// Note what is NOT here: penjualan tunai, dan berapa yang seharusnya ada di
-/// laci. Both are in the report this screen already holds, and either one shown
-/// now would be the expected figure handed to the person about to count against
-/// it. They appear at the close, after a number has been committed.
+/// Straight after sign-in, when this terminal has no open shift: the float is
+/// asked for before the counter opens, because a till with no shift has no
+/// drawer to put the first sale's cash in. If the node cannot be asked, the
+/// counter opens anyway — the shift screen stays one press away.
+export function ShiftGate({
+  actorId,
+  terminalId,
+  onReady,
+  onSignOut,
+}: {
+  actorId: string
+  terminalId: string
+  onReady: () => void
+  onSignOut: () => void
+}) {
+  const [state, setState] = useState<"asking" | "none">("asking")
+
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const reply = await activeShift()
+      if (!alive) return
+      const report = reply.ok ? asReport(reply.body) : null
+      if (reply.ok && (reply.body === null || report?.status !== "OPEN")) {
+        setState("none")
+        return
+      }
+      onReady()
+    })()
+    return () => {
+      alive = false
+    }
+  }, [onReady])
+
+  return (
+    <div id="app" data-screen="sale">
+      <Topbar actorId={actorId} onSignOut={onSignOut} />
+      <main className="page">
+        <div className="page-inner" style={{ maxWidth: 440 }}>
+          {state === "asking" ? (
+            <div className="empty">
+              <h3>Memuat shift…</h3>
+            </div>
+          ) : (
+            <>
+              <div className="page-head">
+                <div>
+                  <h1>Buka shift</h1>
+                  <p>Hitung uang di laci, lalu isi modal awalnya.</p>
+                </div>
+              </div>
+              <Opening
+                actorId={actorId}
+                terminalId={terminalId}
+                onDone={() => onReady()}
+              />
+            </>
+          )}
+        </div>
+      </main>
+    </div>
+  )
+}
+
 function Running({
   actorId,
   terminalId,
@@ -455,18 +472,24 @@ function Running({
 }) {
   const [closing, setClosing] = useState(false)
 
+  // A blind count shows nothing that points at the expected figure — not the
+  // takings, not the movements — from the moment counting starts.
+  if (closing) {
+    return (
+      <Closing
+        actorId={actorId}
+        report={report}
+        onDone={onDone}
+        onCancel={() => setClosing(false)}
+      />
+    )
+  }
+
   return (
     <>
       {report.terminal_id !== terminalId && (
-        // The active-shift call names no terminal, so the node answers with the
-        // earliest shift open anywhere in the shop — `any_open_shift`. One till
-        // per shop makes that the same answer every time; two do not, and a
-        // cashier must not find that out by counting the wrong drawer.
         <div className="notice warn">
-          Shift yang terbuka ini milik terminal{" "}
-          <strong>{report.terminal_id}</strong>, bukan {terminalId}. Node
-          menjawab dengan shift terbuka paling awal di toko ini. Pastikan laci
-          yang Anda pegang memang laci itu sebelum menyentuh uangnya.
+          Shift ini milik terminal <strong>{report.terminal_id}</strong>.
         </div>
       )}
 
@@ -482,102 +505,59 @@ function Running({
           <strong className="num">{report.sale_count}</strong>
         </div>
         <div className="stat">
-          <small>Total penjualan</small>
-          <strong className="num">
-            {money(report.sales_total_minor, CURRENCY)}
+          <small>Dibuka</small>
+          <strong style={{ fontSize: 15 }}>
+            {when(report.opened_at)}
           </strong>
+          <small style={{ marginTop: 4 }}>{report.opened_by}</small>
         </div>
       </div>
 
-      <div>
+      {report.voided_count > 0 && (
         <div className="kv">
-          <span className="muted">Dibuka</span>
-          <span>
-            {when(report.opened_at)} · {report.opened_by}
+          <span className="muted">Void</span>
+          <span className="badge warn">
+            {report.voided_count} transaksi ·{" "}
+            {money(report.voided_total_minor, CURRENCY)}
           </span>
         </div>
-        <div className="kv">
-          <span className="muted">Terminal</span>
-          <span className="num">{report.terminal_id}</span>
-        </div>
-        <div className="kv">
-          <span className="muted">Batal</span>
-          <span>
-            {report.voided_count === 0 ? (
-              <span className="badge ok">Tidak ada</span>
-            ) : (
-              <span className="badge warn">
-                {report.voided_count} transaksi ·{" "}
-                {money(report.voided_total_minor, CURRENCY)}
-              </span>
-            )}
-          </span>
-        </div>
-      </div>
+      )}
 
-      {closing ? (
-        <Closing
-          actorId={actorId}
-          report={report}
-          onDone={onDone}
-          onCancel={() => setClosing(false)}
-        />
-      ) : (
-        <>
-          <Movement
-            actorId={actorId}
-            shiftId={report.shift_id}
-            onDone={onDone}
-          />
+      <Movement actorId={actorId} shiftId={report.shift_id} onDone={onDone} />
 
-          <div>
-            <span className="label">Pergerakan kas shift ini</span>
-            <div className="rows" style={{ marginTop: 8 }}>
-              {report.movements.length === 0 ? (
-                <div className="empty">
-                  <h3>Belum ada pergerakan</h3>
+      {report.movements.length > 0 && (
+        <div>
+          <span className="label">Pergerakan kas</span>
+          <div className="rows" style={{ marginTop: 8 }}>
+            {report.movements.map((one) => (
+              <div className="row-item" key={one.id}>
+                <div className="grow">
+                  <h3>{MOVEMENT[one.kind] ?? one.kind}</h3>
                   <p>
-                    Selain penjualan, belum ada uang yang masuk atau keluar dari
-                    laci ini.
+                    {one.reason} · {when(one.occurred_at)} · {one.actor_id}
+                    {one.approved_by !== null && ` · disetujui ${one.approved_by}`}
                   </p>
                 </div>
-              ) : (
-                report.movements.map((one) => (
-                  <div className="row-item" key={one.id}>
-                    <div className="grow">
-                      <h3>{MOVEMENT[one.kind] ?? one.kind}</h3>
-                      <p>
-                        {one.reason} · {when(one.occurred_at)} · {one.actor_id}
-                        {one.approved_by !== null && ` · disetujui ${one.approved_by}`}
-                      </p>
-                    </div>
-                    <strong className="num">
-                      {one.amount_minor < 0 ? "−" : "+"}
-                      {money(Math.abs(one.amount_minor), CURRENCY)}
-                    </strong>
-                  </div>
-                ))
-              )}
-            </div>
+                <strong className="num">
+                  {one.amount_minor < 0 ? "−" : "+"}
+                  {money(Math.abs(one.amount_minor), CURRENCY)}
+                </strong>
+              </div>
+            ))}
           </div>
-
-          <div className="rows">
-            <button className="btn" onClick={() => setClosing(true)}>
-              Tutup shift…
-            </button>
-          </div>
-        </>
+        </div>
       )}
+
+      <div className="rows">
+        <button className="btn danger lg" onClick={() => setClosing(true)}>
+          <Icon name="lock" />
+          Tutup shift
+        </button>
+      </div>
     </>
   )
 }
 
-/// Cash that moves for a reason that is not a sale.
-///
-/// Two fields decide what is written: which direction, and why. The amount is
-/// typed as a magnitude and signed from the direction, so the cashier never has
-/// to reason about a minus, and the reason is refused here rather than at the
-/// node so the refusal arrives in the language of the counter.
 function Movement({
   actorId,
   shiftId,
@@ -603,13 +583,11 @@ function Movement({
       return
     }
     if (amount <= 0) {
-      setProblem("Isi nominalnya dulu — pergerakan kas nol tidak mencatat apa pun.")
+      setProblem("Isi nominalnya.")
       return
     }
     if (reason.trim() === "") {
-      setProblem(
-        "Alasan wajib diisi. Uang yang keluar dari laci tanpa alasan adalah baris yang tidak bisa direkonstruksi lagi saat diaudit.",
-      )
+      setProblem("Alasan wajib diisi.")
       return
     }
     setBusy(true)
@@ -636,14 +614,16 @@ function Movement({
   }
 
   return (
-    <div>
+    <div className="rows">
       <span className="label">Uang masuk / keluar laci</span>
-
-      <div className="rows" style={{ marginTop: 8 }}>
+      <div className="segmented" role="radiogroup" aria-label="Jenis pergerakan">
         {MOVES.map((one) => (
           <button
             key={one.kind}
-            className={one.kind === kind ? "btn primary" : "btn"}
+            type="button"
+            role="radio"
+            aria-checked={one.kind === kind}
+            aria-pressed={one.kind === kind}
             onClick={() => {
               setKind(one.kind)
               setProblem(null)
@@ -653,49 +633,39 @@ function Movement({
           </button>
         ))}
       </div>
-      <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
-        {chosen.hint}
-      </p>
-      <div className="notice" style={{ marginTop: 8 }}>
-        Pengeluaran dan koreksi tidak ada di sini: keduanya menuntut otorisasi
-        supervisor pada permintaannya, dan terminal ini belum punya jalan untuk
-        mengirimkannya.
-      </div>
 
-      <div style={{ marginTop: 12 }}>
-        <Rupiah caption="Nominal" text={text} onText={setText} />
-      </div>
+      <Rupiah caption="Nominal" text={text} onText={setText} />
 
-      <label className="field" style={{ marginTop: 12 }}>
-        Alasan (wajib)
+      <label className="field">
+        Alasan
         <input
           value={reason}
           onChange={(event) => setReason(event.target.value)}
-          placeholder="Misalnya: setor ke brankas sore, amplop 3"
+          placeholder="Misalnya: setor sore, amplop 3"
           autoComplete="off"
         />
       </label>
 
       {problem !== null && <p className="error">{problem}</p>}
 
-      <div className="rows" style={{ marginTop: 12 }}>
-        <button className="btn" disabled={busy} onClick={() => void send()}>
-          {busy
-            ? "Mencatat…"
-            : `Catat ${chosen.label.toLowerCase()} ${money(amount, CURRENCY)}`}
-        </button>
-      </div>
+      <button className="btn" disabled={busy} onClick={() => void send()}>
+        {busy ? "Mencatat…" : `Catat · ${money(amount, CURRENCY)}`}
+      </button>
     </div>
   )
 }
 
-/// The count.
+/// Closing the drawer, counted blind.
 ///
-/// The declared figure is the cashier's and is sent exactly as typed — the node
-/// computes its own expectation and stores both, so the two can never be
-/// reconciled after the fact into agreeing. What the node expects is fetched
-/// here and kept out of sight until a figure has been committed: shown earlier
-/// it would be a target, and a count that has seen its target is not a count.
+/// The cashier counts every note and coin into the rows below and never sees
+/// the figure the node expects — not while counting, not before sending. The
+/// expected cash is not even fetched: a number this screen never holds is a
+/// number it cannot leak. Only once the count is locked and the shift closed
+/// does the node's answer come back, and `Closed` shows the difference.
+///
+/// The sheet travels as `counted`, one line per denomination, and the node
+/// refuses it unless it adds up to the declared figure — the count sheet is
+/// what an audit asks for the next morning.
 function Closing({
   actorId,
   report,
@@ -707,62 +677,38 @@ function Closing({
   onDone: (report: ShiftReport | null) => void
   onCancel: () => void
 }) {
-  const [text, setText] = useState("")
+  const [counts, setCounts] = useState<Record<number, string>>({})
   const [note, setNote] = useState("")
-  const [expected, setExpected] = useState<ShiftReport | null>(null)
-  // Why there is no figure to compare against, when there is none. A close is
-  // still allowed without it: the declaration is the cashier's either way, and
-  // the node does its own arithmetic when the close lands.
-  const [blind, setBlind] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const attempt = useIdempotency()
 
-  // Asked again rather than taken from the report already on screen: a till
-  // that has been selling while this panel was opened has moved on, and the
-  // figure worth comparing to is the one from a second ago.
-  useEffect(() => {
-    void (async () => {
-      const reply = await shiftReport(report.shift_id)
-      if (!reply.ok) {
-        setBlind(reply.problem ?? SILENT)
-        return
-      }
-      const fresh = asReport(reply.body)
-      if (fresh === null) {
-        setBlind(UNREADABLE)
-        return
-      }
-      setExpected(fresh)
-    })()
-  }, [report.shift_id])
+  const pieces = (value: number) => Number(counts[value] ?? "") || 0
+  const declared = DENOMINATIONS.reduce(
+    (sum, value) => sum + value * pieces(value),
+    0,
+  )
 
-  const counted = text !== ""
-  const declared = minorOf(text)
-  const gap = expected === null ? null : declared - expected.expected_cash_minor
+  const set = (value: number, next: number) =>
+    setCounts((was) => ({
+      ...was,
+      [value]: next <= 0 ? "" : String(Math.min(next, 9999)),
+    }))
 
   async function close() {
     if (actorId.trim() === "") {
       setProblem(NAMELESS)
       return
     }
-    if (!counted) {
-      setProblem("Tulis dulu jumlah uang yang Anda hitung di laci.")
-      return
-    }
-    // A difference with no explanation is the thing somebody has to guess at
-    // next week. The node does not demand it; the counter does, while the
-    // person who counted is still standing at the drawer.
-    if (gap !== null && gap !== 0 && note.trim() === "") {
-      setProblem(
-        "Ada selisih. Tulis catatan singkat sekarang, selagi Anda masih di depan laci — nanti tidak ada lagi yang ingat.",
-      )
-      return
-    }
     setBusy(true)
     setProblem(null)
     const draft = {
       declared_cash_minor: declared,
+      counted: DENOMINATIONS.map((value) => ({
+        value_minor: value,
+        pieces: pieces(value),
+      })).filter((line) => line.pieces > 0),
       note: note.trim() === "" ? null : note.trim(),
       actor_id: actorId,
     }
@@ -779,101 +725,119 @@ function Closing({
     setProblem(reply.problem ?? SILENT)
   }
 
-  return (
-    <div>
-      <div className="notice">
-        Hitung dulu uang tunai di laci, lalu tulis jumlahnya. Angka yang
-        diharapkan node sengaja belum ditampilkan: hitungan yang sudah melihat
-        targetnya bukan lagi hitungan.
-      </div>
-
-      <div style={{ marginTop: 12 }}>
-        <Rupiah
-          caption="Uang tunai yang Anda hitung"
-          text={text}
-          onText={setText}
-        />
-      </div>
-
-      {counted && (
-        <div style={{ marginTop: 12 }}>
-          {blind !== null ? (
-            <>
-              <div className="notice warn">
-                Node belum memberi angka pembanding, jadi selisihnya baru
-                dihitung saat shift ditutup. Yang Anda tulis tetap yang dikirim.
-              </div>
-              <p className="error">{blind}</p>
-            </>
-          ) : expected === null ? (
-            <div className="notice">Mengambil angka node…</div>
-          ) : (
-            <>
-              <div className="kv">
-                <span className="muted">Anda hitung</span>
-                <strong className="num">{money(declared, CURRENCY)}</strong>
-              </div>
-              <div className="kv">
-                <span className="muted">Menurut node</span>
-                <strong className="num">
-                  {money(expected.expected_cash_minor, CURRENCY)}
-                </strong>
-              </div>
-              <div className="kv">
-                <span className="muted">Selisih</span>
-                <Gap gap={gap ?? 0} />
-              </div>
-            </>
-          )}
+  if (confirming) {
+    return (
+      <div className="rows">
+        <span className="label">Periksa hitungan</span>
+        <div>
+          {DENOMINATIONS.filter((value) => pieces(value) > 0).map((value) => (
+            <div className="kv" key={value}>
+              <span>
+                {money(value, CURRENCY)} × {pieces(value)}
+              </span>
+              <span className="num">
+                {money(value * pieces(value), CURRENCY)}
+              </span>
+            </div>
+          ))}
         </div>
-      )}
-
-      <label className="field" style={{ marginTop: 12 }}>
-        Catatan{gap !== null && gap !== 0 ? " (wajib — ada selisih)" : " (opsional)"}
-        <input
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder="Misalnya: kurang 5rb, kembalian salah hitung"
-          autoComplete="off"
-        />
-      </label>
-
-      {problem !== null && <p className="error">{problem}</p>}
-
-      <div className="rows" style={{ marginTop: 12 }}>
+        <div className="count-total">
+          <span>Total dihitung</span>
+          <strong className="num">{money(declared, CURRENCY)}</strong>
+        </div>
+        <label className="field">
+          Catatan (opsional)
+          <input
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            autoComplete="off"
+          />
+        </label>
+        {problem !== null && <p className="error">{problem}</p>}
         <button
-          className="btn danger"
+          className="btn danger lg"
           disabled={busy}
           onClick={() => void close()}
         >
-          {busy ? "Menutup…" : "Tutup shift dan kunci angkanya"}
+          {busy ? "Menutup…" : "Kunci hitungan & tutup shift"}
         </button>
-        <button className="btn ghost" disabled={busy} onClick={onCancel}>
-          Batal, shift tetap terbuka
+        <button
+          className="btn ghost"
+          disabled={busy}
+          onClick={() => setConfirming(false)}
+        >
+          Hitung ulang
         </button>
       </div>
+    )
+  }
+
+  return (
+    <div className="rows">
+      <div className="page-head" style={{ alignItems: "center" }}>
+        <div>
+          <span className="label">Tutup shift · hitung uang di laci</span>
+        </div>
+        <button className="btn ghost" onClick={onCancel}>
+          Batal
+        </button>
+      </div>
+
+      <div className="denom-grid">
+        {DENOMINATIONS.map((value) => (
+          <div className="denom-row" key={value}>
+            <span className="num">{money(value, CURRENCY)}</span>
+            <div className="qty">
+              <button
+                type="button"
+                aria-label={`Kurangi ${money(value, CURRENCY)}`}
+                onClick={() => set(value, pieces(value) - 1)}
+              >
+                −
+              </button>
+              <input
+                value={counts[value] ?? ""}
+                onChange={(event) =>
+                  set(value, Number(event.target.value.replace(/\D/g, "")) || 0)
+                }
+                inputMode="numeric"
+                placeholder="0"
+                aria-label={`Jumlah lembar ${money(value, CURRENCY)}`}
+              />
+              <button
+                type="button"
+                aria-label={`Tambah ${money(value, CURRENCY)}`}
+                onClick={() => set(value, pieces(value) + 1)}
+              >
+                +
+              </button>
+            </div>
+            <strong className="num">
+              {pieces(value) > 0 ? money(value * pieces(value), CURRENCY) : "—"}
+            </strong>
+          </div>
+        ))}
+      </div>
+
+      <div className="count-total">
+        <span>Total dihitung</span>
+        <strong className="num">{money(declared, CURRENCY)}</strong>
+      </div>
+
+      <button className="btn primary lg" onClick={() => setConfirming(true)}>
+        Lanjut
+      </button>
     </div>
   )
 }
 
-/// The difference, in the direction a cashier thinks in. Short is not an error
-/// state and long is not a success; both are facts that need looking at, so
-/// neither is drawn in green.
-function Gap({ gap }: { gap: number }) {
-  if (gap === 0) return <span className="badge ok">Cocok</span>
-  return (
-    <span className={gap < 0 ? "badge bad" : "badge warn"}>
-      {gap < 0 ? "Kurang " : "Lebih "}
-      {money(Math.abs(gap), CURRENCY)}
-    </span>
-  )
-}
-
-/// What the shift came to, as the node recorded it.
+/// A closed shift, as the cashier who counted it is allowed to see it.
 ///
-/// Every figure below is read back from the close reply rather than recomputed
-/// here: the variance is stored at the node the moment the drawer is closed,
-/// and a screen that recalculated it could only ever disagree with the books.
+/// Blind to the end: no expected cash, no difference, and none of the figures
+/// it could be worked back from — not the cash takings, not the change given,
+/// not the per-tender totals. The node has all of them and the back office
+/// reads the variance from there; a cashier who could see it here would know,
+/// next time, what number the count is meant to come to.
 function Closed({
   report,
   onAgain,
@@ -883,99 +847,56 @@ function Closed({
 }) {
   return (
     <>
-      <div className="notice">
-        Shift <span className="num">{report.shift_id}</span> sudah ditutup
-        {report.closed_at !== null && ` pada ${when(report.closed_at)}`}
-        {report.closed_by !== null && ` oleh ${report.closed_by}`}. Angkanya
-        terkunci — shift yang sudah tutup tidak bisa ditutup dua kali.
+      <div className="pay-done" style={{ flex: "none", padding: "8px 0" }}>
+        <span className="seal">
+          <Icon name="check" />
+        </span>
+        <h3>Shift ditutup</h3>
       </div>
 
-      <div className="stats">
-        <div className="stat">
-          <small>Dihitung kasir</small>
-          <strong className="num">
-            {report.declared_cash_minor === null
-              ? "—"
-              : money(report.declared_cash_minor, CURRENCY)}
-          </strong>
-        </div>
-        <div className="stat">
-          <small>Menurut node</small>
-          <strong className="num">
-            {money(report.expected_cash_minor, CURRENCY)}
-          </strong>
-        </div>
-        <div className="stat">
-          <small>Selisih</small>
-          <strong className="num">
-            {report.variance_minor === null ? (
-              "—"
-            ) : (
-              <Gap gap={report.variance_minor} />
-            )}
-          </strong>
-        </div>
+      <div className="count-total">
+        <span>Uang yang Anda hitung</span>
+        <strong className="num">
+          {report.declared_cash_minor === null
+            ? "—"
+            : money(report.declared_cash_minor, CURRENCY)}
+        </strong>
       </div>
+
+      {(report.counted ?? []).length > 0 && (
+        <div>
+          {(report.counted ?? []).map((line) => (
+            <div className="kv" key={line.value_minor}>
+              <span>
+                {money(line.value_minor, CURRENCY)} × {line.pieces}
+              </span>
+              <span className="num">
+                {money(line.value_minor * line.pieces, CURRENCY)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div>
         <div className="kv">
-          <span className="muted">Modal awal</span>
-          <span className="num">
-            {money(report.opening_float_minor, CURRENCY)}
+          <span className="muted">Ditutup</span>
+          <span>
+            {report.closed_at !== null ? when(report.closed_at) : "—"}
+            {report.closed_by !== null && ` · ${report.closed_by}`}
           </span>
         </div>
         <div className="kv">
-          <span className="muted">Penjualan tunai</span>
-          <span className="num">{money(report.cash_sales_minor, CURRENCY)}</span>
-        </div>
-        <div className="kv">
-          <span className="muted">Kembalian keluar</span>
-          <span className="num">
-            {money(report.change_given_minor, CURRENCY)}
-          </span>
-        </div>
-        <div className="kv">
-          <span className="muted">Retur tunai</span>
-          <span className="num">
-            {money(report.cash_refunds_minor, CURRENCY)}
-          </span>
-        </div>
-        <div className="kv">
-          <span className="muted">Pergerakan kas</span>
-          <span className="num">
-            {money(report.cash_movements_minor, CURRENCY)}
-          </span>
-        </div>
-        <div className="kv">
-          <span className="muted">Bukan tunai</span>
-          <span className="num">{money(report.non_cash_minor, CURRENCY)}</span>
+          <span className="muted">Transaksi</span>
+          <span className="num">{report.sale_count}</span>
         </div>
         {report.note !== null && (
           <div className="kv">
             <span className="muted">Catatan</span>
-            <span>{report.note}</span>
+            <span style={{ textAlign: "right" }}>{report.note}</span>
           </div>
         )}
       </div>
-
-      {report.tenders.length > 0 && (
-        <div>
-          <span className="label">Per metode bayar</span>
-          <div className="rows" style={{ marginTop: 8 }}>
-            {report.tenders.map((one) => (
-              <div className="row-item" key={one.method}>
-                <div className="grow">
-                  <h3>{TENDER[one.method] ?? one.method}</h3>
-                  <p>{one.count} transaksi</p>
-                </div>
-                <strong className="num">
-                  {money(one.amount_minor, CURRENCY)}
-                </strong>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="rows">
         <button className="btn primary" onClick={onAgain}>

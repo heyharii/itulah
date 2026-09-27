@@ -208,7 +208,7 @@ export function Reports() {
         {/* The effective answer, in words, always. A date box left blank and a
             date box filled with today look identical to a reader; the sentence
             is what tells them which report they are looking at. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {kind === "PROFIT_LOSS" ? range.chip : asOf.chip}
           {spread ? (
             " · every location, broken out"
@@ -269,7 +269,7 @@ export function Reports() {
                     <Card>
                       <CardHeader>
                         <CardTitle>By class</CardTitle>
-                        <span className="text-[0.71875rem] text-mute">
+                        <span className="text-[0.875rem] text-mute">
                           The client's own root classes, as the report prints
                           them
                         </span>
@@ -376,7 +376,7 @@ export function Reports() {
                           {money(periodResult(data.result_minor).minor)}
                         </span>
                       </CardHeader>
-                      <p className="px-4 pb-3.5 text-[0.71875rem] text-body">
+                      <p className="px-4 pb-3.5 text-[0.875rem] text-body">
                         Income less expenses, classes 4 through 8 netted, and
                         measured inception to date. It is what makes classes 1,
                         2 and 3 add up — profit earned and not yet closed to
@@ -524,7 +524,7 @@ function LocationSpread({
             <AppLink
               to="/finance/ledger"
               sheet={{ key: "account", value: row.original.account_code }}
-              className="shrink-0 font-mono text-[0.65625rem] text-mute hover:text-accent hover:underline"
+              className="shrink-0 font-mono text-[0.875rem] text-mute hover:text-accent hover:underline"
             >
               {row.original.account_code}
             </AppLink>
@@ -572,7 +572,7 @@ function LocationSpread({
         header: () => (
           <span className="inline-flex flex-col items-end leading-tight">
             <SiteName id={site} />
-            <span className="text-[0.625rem] font-normal text-faint tabular-nums">
+            <span className="text-[0.875rem] font-normal text-faint tabular-nums">
               {money(columnTotals[index] ?? 0)}
             </span>
           </span>
@@ -668,7 +668,7 @@ function LocationSpread({
           ))}
         </CardTitle>
         {matrix.data && (
-          <span className="shrink-0 text-[0.71875rem] text-mute">
+          <span className="shrink-0 text-[0.875rem] text-mute">
             as at {day(matrix.data.as_of)}
           </span>
         )}
@@ -708,7 +708,7 @@ function LocationSpread({
                         value: money(data.grand_total_minor),
                       }}
                     />
-                    <p className="mt-1 text-[0.71875rem] text-mute">
+                    <p className="mt-1 text-[0.875rem] text-mute">
                       The server's total for this level, and the column heads
                       are its per-location totals. Neither is a sum of the rows
                       on screen.
@@ -788,7 +788,7 @@ function Section({ section }: { section: StatementSection }) {
       </CardHeader>
 
       {section.lines.length === 0 ? (
-        <p className="border-t border-hairline px-4 py-3 text-[0.71875rem] text-mute">
+        <p className="border-t border-hairline px-4 py-3 text-[0.875rem] text-mute">
           Nothing under this class has moved.
         </p>
       ) : (
@@ -804,7 +804,7 @@ function Section({ section }: { section: StatementSection }) {
                 <AppLink
                   to="/finance/ledger"
                   sheet={{ key: "account", value: line.account_code }}
-                  className="shrink-0 font-mono text-[0.65625rem] text-mute hover:text-accent hover:underline"
+                  className="shrink-0 font-mono text-[0.875rem] text-mute hover:text-accent hover:underline"
                 >
                   {line.account_code}
                 </AppLink>

@@ -156,6 +156,8 @@ fn cash(amount_minor: i64) -> Vec<SaleTender> {
         amount_minor,
         reference: None,
         voucher_authorization_id: None,
+        acquirer: None,
+        card_kind: None,
     }]
 }
 

@@ -1,4 +1,4 @@
-import { Library, MessageSquare, MessagesSquare } from "lucide-react"
+import { FolderOpen, MessageSquare, MessagesSquare } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
@@ -73,16 +73,17 @@ export const chatNav: AppModule = {
 /// they have sent each other, and `?document=` still opens the same sheet.
 export const libraryNav: AppModule = {
   id: "library",
-  label: "Library",
-  icon: Library,
+  // "Files" since 2026-09-26, when it moved from the icon strip into GA. The
+  // path stays `/library` so the links people have sent keep working.
+  label: "Files",
+  icon: FolderOpen,
   home: "/library",
   // Both of its old addresses. `/documents` is the screen this one absorbed;
   // `/files` is what this screen itself answered at until the owner renamed
   // it on 2026-09-13 — and a rename that 404s the links people have already
   // sent each other is a rename that costs somebody their afternoon.
   moved: ["/documents", "/files"],
-  aside: true,
   sections: [
-    { items: [{ path: "/library", label: "Library", icon: Library }] },
+    { items: [{ path: "/library", label: "Files", icon: FolderOpen }] },
   ],
 }

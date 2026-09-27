@@ -67,7 +67,7 @@ export function PointsLedger() {
             <button
               type="button"
               onClick={customer.close}
-              className="text-[0.8125rem] text-mute underline underline-offset-2 hover:text-ink"
+              className="text-[0.875rem] text-mute underline underline-offset-2 hover:text-ink"
             >
               Show every member
             </button>
@@ -107,7 +107,7 @@ export function PointsLedger() {
                 {entries.map((entry) => (
                   <MiniRow key={entry.entry_id}>
                     <MiniCell>
-                      <span className="text-[0.71875rem] text-body">
+                      <span className="text-[0.875rem] text-body">
                         {moment(entry.created_at)}
                       </span>
                     </MiniCell>
@@ -121,7 +121,7 @@ export function PointsLedger() {
                         {describeEntryType(entry.entry_type)}
                       </span>
                       {entry.reason !== null && (
-                        <span className="block truncate text-[0.6875rem] text-mute">
+                        <span className="block truncate text-[0.875rem] text-mute">
                           {entry.reason}
                         </span>
                       )}
@@ -146,13 +146,13 @@ export function PointsLedger() {
                         return cause === null ? (
                           // An adjustment names no record, and that is exactly
                           // when the actor matters: somebody did this by hand.
-                          <span className="text-[0.6875rem] text-mute">
+                          <span className="text-[0.875rem] text-mute">
                             by {entry.actor}
                           </span>
                         ) : (
                           <span className="flex flex-col items-end leading-tight">
                             <Pill tone="neutral">{cause.what}</Pill>
-                            <span className="font-mono text-[0.625rem] text-mute">
+                            <span className="font-mono text-[0.875rem] text-mute">
                               {cause.id.slice(0, 8)}
                             </span>
                           </span>

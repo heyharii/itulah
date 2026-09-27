@@ -49,7 +49,7 @@ export function Section({
     <section className={className}>
       <div className="mb-2.5 flex items-baseline justify-between gap-2 border-b border-hairline pb-1.5">
         <h4 className="text-card-title font-semibold text-ink">{title}</h4>
-        {aside && <span className="text-[0.71875rem] text-mute">{aside}</span>}
+        {aside && <span className="text-[0.875rem] text-mute">{aside}</span>}
       </div>
       <div className="flex flex-col gap-3.5">{children}</div>
     </section>
@@ -160,7 +160,7 @@ export function Choices<T extends string>({
             <span className="min-w-0 flex-1">
               <span
                 className={cn(
-                  "block text-[0.8125rem] font-medium",
+                  "block text-[0.875rem] font-medium",
                   refused
                     ? "text-mute"
                     : one.value === value
@@ -173,7 +173,7 @@ export function Choices<T extends string>({
               {one.tag !== undefined && (
                 <span
                   className={cn(
-                    "mt-0.5 block font-mono text-[0.6875rem]",
+                    "mt-0.5 block font-mono text-[0.875rem]",
                     one.value === value && !refused
                       ? "text-accent"
                       : "text-mute"
@@ -183,7 +183,7 @@ export function Choices<T extends string>({
                 </span>
               )}
               {(one.refused ?? one.note) && (
-                <span className="block text-[0.71875rem] leading-relaxed text-mute">
+                <span className="block text-[0.875rem] leading-relaxed text-mute">
                   {one.refused ?? one.note}
                 </span>
               )}
@@ -270,10 +270,10 @@ export function Toggle({
         <Switch on={on} label={label} onToggle={onToggle} />
       </span>
       <span className="min-w-0">
-        <span className="block text-[0.8125rem] font-medium text-ink">
+        <span className="block text-[0.875rem] font-medium text-ink">
           {label}
         </span>
-        <span className="block text-[0.71875rem] leading-relaxed text-body">
+        <span className="block text-[0.875rem] leading-relaxed text-body">
           {note}
         </span>
       </span>
@@ -347,9 +347,14 @@ export function Dial({
   // at the last whole one instead of drawing a dot past the end.
   const grain = tick ?? step
   const steps = Math.floor(Number(((max - min) / grain).toFixed(6)))
+  // The ends are left out: the band's own rounded edge already says where
+  // the range stops, and a dot drawn on the curve read as a misplaced mark.
   const dots =
-    steps > 0 && steps <= 50
-      ? Array.from({ length: steps + 1 }, (_, index) => min + index * grain)
+    steps > 1 && steps <= 50
+      ? Array.from(
+          { length: steps - 1 },
+          (_, index) => min + (index + 1) * grain
+        )
       : []
 
   return (
@@ -423,7 +428,7 @@ export function Dial({
             className={cn("h-10 text-right tabular-nums", suffix && "pr-8")}
           />
           {suffix && (
-            <span className="pointer-events-none absolute right-3.5 text-[0.84375rem] text-mute">
+            <span className="pointer-events-none absolute right-3.5 text-[0.875rem] text-mute">
               {suffix}
             </span>
           )}
@@ -438,7 +443,7 @@ export function Dial({
               type="button"
               aria-pressed={typed === one}
               className={cn(
-                "rounded-full px-2 py-0.5 text-[0.71875rem] font-medium tabular-nums transition-colors",
+                "rounded-full px-2 py-0.5 text-[0.875rem] font-medium tabular-nums transition-colors",
                 typed === one
                   ? "bg-accent-bg text-accent"
                   : "bg-soft-2 text-body hover:bg-hairline hover:text-ink"
@@ -503,12 +508,12 @@ export function Stepper({
             aria-label={label}
             placeholder={placeholder}
             className={cn(
-              "w-full bg-transparent text-center text-[0.84375rem] text-ink tabular-nums outline-none",
+              "w-full bg-transparent text-center text-[0.875rem] text-ink tabular-nums outline-none",
               "placeholder:text-mute"
             )}
           />
           {suffix && typed !== null && (
-            <span className="pointer-events-none pl-1 text-[0.84375rem] text-mute">
+            <span className="pointer-events-none pl-1 text-[0.875rem] text-mute">
               {suffix}
             </span>
           )}

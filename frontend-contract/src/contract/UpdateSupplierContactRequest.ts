@@ -7,4 +7,4 @@
  * There is no delete, for the same reason there is none on an account: a
  * person who signed for a delivery is part of what that delivery note said.
  */
-export type UpdateSupplierContactRequest = { name?: string | null, role?: string | null, phone?: string | null, email?: string | null, note?: string | null, is_primary?: boolean | null, retired?: boolean | null, };
+export type UpdateSupplierContactRequest = { name?: string | null, role?: string | null, phone?: string | null, email?: string | null, note?: string | null, address?: string | null, is_primary?: boolean | null, retired?: boolean | null, };

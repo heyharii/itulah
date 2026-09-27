@@ -59,7 +59,7 @@ const columns: ColumnDef<TableSetup, MissingItem>[] = [
         <span className="block truncate font-mono text-id text-ink">
           {row.original.epc ?? row.original.barcode ?? row.original.subject_id}
         </span>
-        <span className="font-mono text-[0.65625rem] text-mute">
+        <span className="font-mono text-[0.875rem] text-mute">
           {row.original.sku_code ?? row.original.subject_type}
         </span>
       </div>
@@ -201,7 +201,7 @@ export function Missing() {
         />
         <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
-        <span className="text-[0.71875rem] text-mute tabular-nums">
+        <span className="text-[0.875rem] text-mute tabular-nums">
           {count(rows.length)} open
         </span>
       </Toolbar>
@@ -348,12 +348,6 @@ function ResolveSheet({
                 : "The resolution was refused."}
             </Banner>
           )}
-          {resolve.isSuccess && resolve.data && (
-            <Banner tone="ok">
-              Posted as {humanise(resolve.data.cause)} — movement group{" "}
-              {resolve.data.movement_group_id}.
-            </Banner>
-          )}
 
           <form
             onSubmit={(event) => {
@@ -379,7 +373,7 @@ function ResolveSheet({
             <form.Subscribe selector={(state) => state.values.outcome}>
               {(outcome) => (
                 <>
-                  <p className="text-[0.71875rem] text-mute">
+                  <p className="text-[0.875rem] text-mute">
                     {outcome === "found"
                       ? "Back on hand in the pool it is actually in — which need not be the one it went missing from."
                       : outcome === "lost"

@@ -25,12 +25,13 @@ import type { AppModule } from "@/lib/navigation"
 /// already for.
 export const lettersNav: AppModule = {
   id: "letters",
-  label: "Letters",
+  label: "Surat",
   icon: FileSignature,
   home: "/letters",
+  sidebarSection: "Layanan pendukung",
   sections: [
     {
-      items: [{ path: "/letters", label: "Letters", icon: FileSignature }],
+      items: [{ path: "/letters", label: "Surat", icon: FileSignature }],
     },
   ],
 }

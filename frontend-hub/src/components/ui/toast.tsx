@@ -18,6 +18,13 @@ export function Toasts() {
     <Sonner
       position="bottom-right"
       offset={20}
+      // On a phone a toast rises above the bottom bar (3.5rem and the home
+      // indicator), not over the tabs somebody is about to press.
+      mobileOffset={{
+        bottom: "calc(4.25rem + env(safe-area-inset-bottom, 0px))",
+        left: 12,
+        right: 12,
+      }}
       gap={10}
       // Long enough to read a number off, short enough not to sit over the
       // corner of a table somebody is already working in.
@@ -29,10 +36,10 @@ export function Toasts() {
             "flex w-full items-start gap-2.5 rounded-card border border-hairline bg-canvas px-3.5 py-3 shadow-pop",
           icon: "mt-px flex size-4 shrink-0 items-center justify-center [&>svg]:size-4",
           content: "flex min-w-0 flex-col gap-0.5",
-          title: "text-[0.8125rem] font-medium text-ink",
-          description: "text-[0.75rem] text-body",
+          title: "text-[0.875rem] font-medium text-ink",
+          description: "text-[0.875rem] text-body",
           actionButton:
-            "ml-auto shrink-0 rounded-full bg-dark px-2.5 py-1 text-[0.71875rem] font-medium text-on-dark",
+            "ml-auto shrink-0 rounded-full bg-dark px-2.5 py-1 text-[0.875rem] font-medium text-on-dark",
           closeButton:
             "rounded-full border border-hairline bg-canvas text-line-ico hover:text-ink",
           success: "[&_[data-icon]]:text-ok-fg",

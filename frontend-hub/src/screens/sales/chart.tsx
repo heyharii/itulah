@@ -80,7 +80,7 @@ export function SalesChart({
         <span className="text-card-title font-semibold text-ink">
           {one !== null ? one.site_name : "The fleet"}
         </span>
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {matrix.buckets.length === 0
             ? "No period in this span."
             : `${bucketTitle(matrix.buckets[0], bucket)} — ${bucketTitle(
@@ -111,7 +111,7 @@ export function SalesChart({
               {showSales(option.kind, matrix.grandTotal(option.kind))}
             </span>
             {before === undefined ? (
-              <span className="text-[0.65625rem] text-faint">{option.hint}</span>
+              <span className="text-[0.875rem] text-faint">{option.hint}</span>
             ) : (
               <Delta
                 now={matrix.grandTotal(option.kind)}

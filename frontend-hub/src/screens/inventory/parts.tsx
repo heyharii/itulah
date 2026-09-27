@@ -48,7 +48,7 @@ export function Choice({
       value={value}
       disabled={disabled}
       onChange={onChange}
-      className={cn("h-8 w-auto max-w-56 px-3 text-[0.78125rem]", className)}
+      className={cn("h-8 w-auto max-w-56 px-3 text-[0.875rem]", className)}
     >
       {placeholder !== undefined && <option value="">{placeholder}</option>}
       {options.map((option) => (

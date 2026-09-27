@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Day } from "@/components/ui/day"
 import { Field, Input, Money, Select } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
@@ -134,12 +135,7 @@ function Activities({
       )}
 
       {plan.activities.length === 0 ? (
-        <Quiet>
-          Nothing declared. A campaign that runs four promotions, two clearance
-          drops and one email is seven things — and until they are written down
-          the only ones anybody can count are the ones that happen to be in a
-          price book.
-        </Quiet>
+        <Quiet>Nothing added yet.</Quiet>
       ) : (
         <div className="flex flex-col gap-1.5">
           {plan.activities.map((one) => (
@@ -164,14 +160,8 @@ function Activities({
           <div className="text-eyebrow font-medium text-body">
             In the books and not in the plan
           </div>
-          <p className="mt-1 text-[0.71875rem] leading-relaxed text-mute">
-            {count(plan.undeclared_rule_ids.length)} published offer
-            {plan.undeclared_rule_ids.length === 1 ? "" : "s"} name this
-            campaign and no activity here claims{" "}
-            {plan.undeclared_rule_ids.length === 1 ? "it" : "them"}. They are
-            running either way — this list is what stands between "what did we
-            run" and reading it back out of the price books.
-          </p>
+          {/* Published offers that name this campaign and that no activity
+              here claims. They run either way; a press files one. */}
           <div className="mt-2 flex flex-wrap gap-1.5">
             {plan.undeclared_rule_ids.map((ruleId) => (
               <button
@@ -179,7 +169,7 @@ function Activities({
                 type="button"
                 disabled={file.isPending}
                 onClick={() => file.mutate(ruleId)}
-                className="rounded-full border border-hairline px-2.5 py-1 font-mono text-[0.65625rem] text-body hover:bg-soft"
+                className="rounded-full border border-hairline px-2.5 py-1 font-mono text-[0.875rem] text-body hover:bg-soft"
               >
                 {ruleId} +
               </button>
@@ -205,11 +195,11 @@ function Activity({
       <Pill tone={activity.status === "DROPPED" ? "warn" : "neutral"}>
         {kindLabel(activity.kind)}
       </Pill>
-      <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-ink">
+      <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
         {activity.name}
       </span>
       {activity.ref_id !== null && (
-        <span className="font-mono text-[0.65625rem] text-mute">
+        <span className="font-mono text-[0.875rem] text-mute">
           {activity.ref_id}
         </span>
       )}
@@ -217,16 +207,16 @@ function Activity({
         // The activity claims a rule the published books file elsewhere. That
         // rule's takings are attributed to another campaign in every report, so
         // this one is reading somebody else's numbers.
-        <span className="text-[0.71875rem] text-bad-fg">not in any book</span>
+        <span className="text-[0.875rem] text-bad-fg">not in any book</span>
       )}
       {activity.starts_on !== null && (
-        <span className="text-[0.71875rem] text-mute tabular-nums">
+        <span className="text-[0.875rem] text-mute tabular-nums">
           {day(activity.starts_on)}
           {activity.ends_on !== null && ` – ${day(activity.ends_on)}`}
         </span>
       )}
       {activity.cost_minor !== null && (
-        <span className="text-[0.71875rem] text-body tabular-nums">
+        <span className="text-[0.875rem] text-body tabular-nums">
           {money(activity.cost_minor)}
         </span>
       )}
@@ -234,7 +224,7 @@ function Activity({
         type="button"
         disabled={busy}
         onClick={onForget}
-        className="text-[0.71875rem] text-mute hover:text-bad-fg"
+        className="text-[0.875rem] text-mute hover:text-bad-fg"
       >
         Remove
       </button>
@@ -283,9 +273,9 @@ function ActivityForm({
 
   const problem =
     name.trim() === ""
-      ? "Give it a name somebody would recognise in a report."
+      ? "Give it a name."
       : needsRef && reference.trim() === ""
-        ? "Name what it ran — the rule id, the markdown id or the code."
+        ? "Add the rule id, markdown id or code."
         : ends !== "" && starts !== "" && ends < starts
           ? "It cannot end before it starts."
           : undefined
@@ -309,14 +299,7 @@ function ActivityForm({
             placeholder="Window poster, 13 shops"
           />
         </Field>
-        <Field
-          label={needsRef ? "Which one" : "Which one (optional)"}
-          hint={
-            needsRef
-              ? "The rule id, markdown id or coupon code, as the book spells it."
-              : "A poster has no id anywhere — leave it empty."
-          }
-        >
+        <Field label={needsRef ? "Reference" : "Reference (optional)"}>
           <Input
             value={reference}
             onChange={(event) => setReference(event.target.value)}
@@ -324,24 +307,26 @@ function ActivityForm({
             className="font-mono"
           />
         </Field>
-        <Field
-          label="What it cost"
-          hint="Printing, a mailing list, an agency. Never the discount it gives away — that is measured from the tills."
-        >
-          <Money value={cost} onChange={setCost} prefix="Rp" label="Cost" />
-        </Field>
-        <Field label="From">
-          <Input
-            type="date"
-            value={starts}
-            onChange={(event) => setStarts(event.target.value)}
+        {/* Printing, a mailing list, an agency — never the discount it gives
+            away, which is measured from the tills. */}
+        <Field label="Cost">
+          <Money
+            value={cost}
+            onChange={setCost}
+            prefix="Rp"
+            placeholder="0"
+            label="Cost"
           />
         </Field>
-        <Field label="To">
-          <Input
-            type="date"
+        <Field label="Starts">
+          <Day value={starts} onChange={setStarts} placeholder="Not set" />
+        </Field>
+        <Field label="Ends">
+          <Day
             value={ends}
-            onChange={(event) => setEnds(event.target.value)}
+            onChange={setEnds}
+            placeholder="Not set"
+            notBefore={starts === "" ? null : starts}
           />
         </Field>
       </div>
@@ -353,7 +338,7 @@ function ActivityForm({
       )}
 
       <div className="mt-3 flex items-center justify-between gap-3">
-        <span className="min-w-0 text-[0.71875rem] text-bad">
+        <span className="min-w-0 text-[0.875rem] text-bad">
           {problem ?? ""}
         </span>
         <span className="flex shrink-0 items-center gap-2">
@@ -373,21 +358,19 @@ function ActivityForm({
   )
 }
 
-const DIMENSIONS: readonly { value: string; label: string; hint: string }[] = [
-  {
-    value: "SITE",
-    label: "Shops",
-    hint: "store-01, store-02 — as the book spells them.",
-  },
-  { value: "CHANNEL", label: "Channels", hint: "STORE, ONLINE, MARKETPLACE." },
-  { value: "SEGMENT", label: "Member segments", hint: "Who it was aimed at." },
-  {
-    value: "DIVISION",
-    label: "Divisions",
-    hint: "The merchandise it is about.",
-  },
-  { value: "ARTICLE", label: "Styles", hint: "Named article codes." },
-  { value: "TAG", label: "Tags", hint: "Anything the catalogue is tagged by." },
+/// Each with an example of how its values are spelled, shown as the
+/// placeholder of the box they are typed into.
+const DIMENSIONS: readonly {
+  value: string
+  label: string
+  example: string
+}[] = [
+  { value: "SITE", label: "Shops", example: "store-01" },
+  { value: "CHANNEL", label: "Channels", example: "STORE" },
+  { value: "SEGMENT", label: "Member segments", example: "GOLD" },
+  { value: "DIVISION", label: "Divisions", example: "MEN" },
+  { value: "ARTICLE", label: "Styles", example: "ART-0001" },
+  { value: "TAG", label: "Tags", example: "summer" },
 ]
 
 /// Where the campaign was DECLARED to run, beside what its book actually binds.
@@ -486,12 +469,7 @@ function Reach({
 
       <div className="rounded-card border border-hairline px-3.5 py-3">
         {declared.length === 0 ? (
-          <p className="text-[0.71875rem] leading-relaxed text-mute">
-            Nothing declared, which reads as everywhere and everybody. A
-            campaign declared for six shops and a campaign whose offers happen
-            to name six shops are different statements — and only the first can
-            be compared against what the book binds.
-          </p>
+          <p className="text-meta text-body">Everywhere, for everybody.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {DIMENSIONS.filter((one) =>
@@ -507,7 +485,7 @@ function Reach({
                   .map((entry) => (
                     <span
                       key={entry.value}
-                      className="inline-flex items-center gap-1 rounded-full bg-soft px-2.5 py-0.5 text-[0.71875rem] text-body"
+                      className="inline-flex items-center gap-1 rounded-full bg-soft px-2.5 py-0.5 text-[0.875rem] text-body"
                     >
                       {entry.value}
                       {editing && (
@@ -548,11 +526,7 @@ function Reach({
                 ))}
               </Select>
             </Field>
-            <Field
-              label="Value"
-              hint={DIMENSIONS.find((one) => one.value === dimension)?.hint}
-              className="min-w-44 flex-1"
-            >
+            <Field label="Value" className="min-w-44 flex-1">
               <Input
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
@@ -562,7 +536,9 @@ function Reach({
                     add()
                   }
                 }}
-                placeholder="store-01"
+                placeholder={
+                  DIMENSIONS.find((one) => one.value === dimension)?.example
+                }
               />
             </Field>
             <Button variant="ghost" onClick={add}>
@@ -619,7 +595,7 @@ function Drift({ plan }: { plan: CampaignPlanView }) {
     return null
   }
   return (
-    <p className="mt-3 text-[0.71875rem] leading-relaxed text-warn-fg">
+    <p className="mt-3 text-[0.875rem] leading-relaxed text-warn-fg">
       {wideOpen && (
         <>
           Declared for {count(declaredSites.length)} shop
@@ -650,37 +626,31 @@ const MEASURES: readonly {
   value: string
   label: string
   unit: "money" | "bps"
-  hint: string
 }[] = [
   {
     value: "SPEND_MINOR",
     label: "Given away, in total",
     unit: "money",
-    hint: "Discounts and clearance together — a flash sale gives every rupiah away through prices.",
   },
   {
     value: "SPEND_PER_DAY_MINOR",
     label: "Given away, a day",
     unit: "money",
-    hint: "The burn rate. Catches a runaway on day two rather than at the end.",
   },
   {
     value: "DISCOUNT_RATE_BPS",
     label: "Discount rate, at most",
     unit: "bps",
-    hint: "Discount over the baskets those offers touched. Basis points: 1500 is 15%.",
   },
   {
     value: "MARGIN_BPS",
     label: "Margin, at least",
     unit: "bps",
-    hint: "An estimate — a purchase order names a style, never a size.",
   },
   {
     value: "AVERAGE_BASKET_MINOR",
     label: "Average basket, at least",
     unit: "money",
-    hint: "Taken, over the baskets it was taken from.",
   },
 ]
 
@@ -760,7 +730,7 @@ function Rails({
       : chosen?.unit === "bps" && limit > 10_000
         ? "A rate cannot pass 100%."
         : plan.guardrails.some((one) => one.measure === measure)
-          ? "There is already a limit on that. Two limits on one measure is a contradiction somebody has to resolve."
+          ? "There is already a limit on that."
           : undefined
 
   return (
@@ -792,11 +762,7 @@ function Rails({
       {adding && (
         <div className="mb-2.5 rounded-card border border-hairline px-3.5 py-3">
           <div className="grid gap-3 sm:grid-cols-3">
-            <Field
-              label="Measure"
-              hint={chosen?.hint}
-              className="sm:col-span-2"
-            >
+            <Field label="Measure" className="sm:col-span-2">
               <Select value={measure} onChange={setMeasure}>
                 {MEASURES.map((one) => (
                   <option key={one.value} value={one.value}>
@@ -805,10 +771,7 @@ function Rails({
                 ))}
               </Select>
             </Field>
-            <Field
-              label="Limit"
-              hint={chosen?.unit === "bps" ? "Basis points." : "Whole rupiah."}
-            >
+            <Field label="Limit">
               <Money
                 value={threshold}
                 onChange={setThreshold}
@@ -817,11 +780,10 @@ function Rails({
                 label="Limit"
               />
             </Field>
-            <Field
-              label="When it is crossed"
-              hint="Stopping dispatches a pause to every shop. Shops are always a little behind, so the line is crossed before anyone here sees it."
-              className="sm:col-span-3"
-            >
+            {/* Stopping dispatches a pause to every shop. Shops are always a
+                little behind, so the line is crossed before anyone here sees
+                it. */}
+            <Field label="When it is crossed" className="sm:col-span-3">
               <Select value={action} onChange={setAction}>
                 <option value="WARN">Say so here</option>
                 <option value="PAUSE_CAMPAIGN">Stop the campaign</option>
@@ -829,7 +791,7 @@ function Rails({
             </Field>
           </div>
           <div className="mt-3 flex items-center justify-between gap-3">
-            <span className="min-w-0 text-[0.71875rem] text-bad">
+            <span className="min-w-0 text-[0.875rem] text-bad">
               {problem ?? ""}
             </span>
             <Button
@@ -863,11 +825,7 @@ function Rails({
       )}
 
       {plan.guardrails.length === 0 ? (
-        <Quiet>
-          No limit set. A budget caps what the offers may discount; a limit here
-          watches how the campaign is BEHAVING — the rate it is discounting at,
-          the margin it is leaving, what it is burning a day.
-        </Quiet>
+        <Quiet>No limit set.</Quiet>
       ) : (
         <div className="flex flex-col gap-1.5">
           {plan.guardrails.map((rail) => {
@@ -879,10 +837,10 @@ function Rails({
                 key={rail.guardrail_id}
                 className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 rounded-inner bg-soft px-3 py-2"
               >
-                <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-ink">
+                <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
                   {measureOf(rail.measure)?.label ?? rail.measure}
                 </span>
-                <span className="text-[0.8125rem] text-body tabular-nums">
+                <span className="text-[0.875rem] text-body tabular-nums">
                   {rail.direction === "AT_MOST" ? "≤ " : "≥ "}
                   {drawLimit(rail.measure, rail.threshold)}
                 </span>
@@ -909,7 +867,7 @@ function Rails({
                       )
                     )
                   }
-                  className="text-[0.71875rem] text-mute hover:text-bad-fg"
+                  className="text-[0.875rem] text-mute hover:text-bad-fg"
                 >
                   Remove
                 </button>
@@ -926,7 +884,7 @@ function Rails({
       )}
 
       {check.data?.paused === true && (
-        <p className="mt-2 text-[0.71875rem] leading-relaxed text-bad-fg">
+        <p className="mt-2 text-[0.875rem] leading-relaxed text-bad-fg">
           A limit set to stop the campaign was crossed, so the campaign has been
           paused and the pause dispatched to every shop.
         </p>
@@ -940,16 +898,16 @@ function Rails({
               className="rounded-inner border border-hairline px-3 py-2.5"
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-[0.8125rem] font-medium text-bad-fg">
+                <span className="text-[0.875rem] font-medium text-bad-fg">
                   {measureOf(breach.measure)?.label ?? breach.measure} crossed
                 </span>
-                <span className="text-[0.71875rem] text-mute tabular-nums">
+                <span className="text-[0.875rem] text-mute tabular-nums">
                   {day(breach.first_seen_at)}
                   {breach.seen_count > 1 &&
                     ` · seen ${count(breach.seen_count)} times`}
                 </span>
               </div>
-              <p className="mt-1 text-[0.71875rem] leading-relaxed text-body tabular-nums">
+              <p className="mt-1 text-[0.875rem] leading-relaxed text-body tabular-nums">
                 {drawLimit(breach.measure, breach.observed)} against a line of{" "}
                 {drawLimit(breach.measure, breach.threshold)}
                 {breach.action_taken === "PAUSED" &&
@@ -964,7 +922,7 @@ function Rails({
                 type="button"
                 disabled={acknowledge.isPending}
                 onClick={() => acknowledge.mutate(breach.breach_id)}
-                className="mt-1.5 text-[0.71875rem] text-accent hover:underline"
+                className="mt-1.5 text-[0.875rem] text-accent hover:underline"
               >
                 I have seen this
               </button>
@@ -979,6 +937,6 @@ function Rails({
 /// The reading beside a rail, coloured by whether it is on the wrong side.
 function cnTone(breached: boolean): string {
   return breached
-    ? "text-[0.8125rem] font-semibold text-bad-fg tabular-nums"
-    : "text-[0.8125rem] text-ok-fg tabular-nums"
+    ? "text-[0.875rem] font-semibold text-bad-fg tabular-nums"
+    : "text-[0.875rem] text-ok-fg tabular-nums"
 }

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { PushControl } from "@/components/shell/push-control"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -111,13 +112,6 @@ export function Notifications() {
         }
       />
 
-      {readAll.data && (
-        <Banner tone="ok" className="mb-3">
-          {readAll.data.cleared === 0
-            ? "There was nothing left to clear."
-            : `${count(readAll.data.cleared)} marked as dealt with.`}
-        </Banner>
-      )}
       {(readAll.isError || read.isError) && (
         <Banner tone="bad" className="mb-3">
           {saying(readAll.error ?? read.error)}
@@ -133,6 +127,12 @@ export function Notifications() {
           {count(unread)} unread. Clearing these will reveal the rest.
         </Banner>
       )}
+
+      {/* Whether this device is woken when something arrives. Here as well as
+          in the bell's popup because on a phone this screen IS the bell. */}
+      <Card className="mb-3 p-3">
+        <PushControl />
+      </Card>
 
       <Card className="overflow-hidden">
         {queryState(page, {
@@ -174,8 +174,8 @@ export function Notifications() {
                           <span
                             className={
                               isUnread
-                                ? "text-[0.84375rem] font-medium text-ink"
-                                : "text-[0.84375rem] text-body"
+                                ? "text-[0.875rem] font-medium text-ink"
+                                : "text-[0.875rem] text-body"
                             }
                           >
                             {item.title}
@@ -185,10 +185,10 @@ export function Notifications() {
                           </Tag>
                           {item.origin_id && <Tag>{item.origin_id}</Tag>}
                         </div>
-                        <p className="mt-0.5 text-[0.78125rem] text-body">
+                        <p className="mt-0.5 text-[0.875rem] text-body">
                           {item.body}
                         </p>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[0.71875rem] text-mute">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[0.875rem] text-mute">
                           <span className="tabular-nums">
                             {moment(item.created_at)}
                           </span>

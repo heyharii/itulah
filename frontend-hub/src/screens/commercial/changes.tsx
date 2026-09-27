@@ -379,7 +379,7 @@ export function Changes() {
           Under 1440px the rail falls below the list rather than squeezing it —
           a 16rem panel beside a thirteen-column table is a table nobody can
           read. */}
-      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
           <Toolbar className="mb-3">
             <Segmented
@@ -397,7 +397,7 @@ export function Changes() {
                 clause. The four tabs narrow the work; this asks for the changes
                 that are no longer work at all, which the default list is
                 entitled to leave out entirely. */}
-            <label className="flex items-center gap-1.5 text-[0.75rem] text-mute">
+            <label className="flex items-center gap-1.5 text-[0.875rem] text-mute">
               <input
                 type="checkbox"
                 checked={settled}

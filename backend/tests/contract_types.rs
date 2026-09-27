@@ -391,6 +391,18 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("CreateSupplierContactRequest: {e}"));
     inventory_backend::cloud::postgres::UpdateSupplierContactRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("UpdateSupplierContactRequest: {e}"));
+    // Units of measure and their conversions: what a buyer may order in, and
+    // how many pieces each is.
+    for_contract!(
+        &config,
+        UnitOfMeasure,
+        UnitConversion,
+        UnitsBook,
+        CreateUnitRequest,
+        UpdateUnitRequest,
+        CreateUnitConversionRequest,
+        UpdateUnitConversionRequest,
+    );
     // Where the words go on a bank's own giro leaf.
     inventory_backend::cloud::postgres::GiroPrintTemplate::export_all(&config)
         .unwrap_or_else(|e| panic!("GiroPrintTemplate: {e}"));
@@ -691,10 +703,70 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("TrialBalance: {e}"));
     inventory_backend::cloud::postgres::TrialBalanceRow::export_all(&config)
         .unwrap_or_else(|e| panic!("TrialBalanceRow: {e}"));
-    inventory_backend::cloud::postgres::AccountMapping::export_all(&config)
-        .unwrap_or_else(|e| panic!("AccountMapping: {e}"));
-    inventory_backend::cloud::postgres::SetAccountMappingRequest::export_all(&config)
-        .unwrap_or_else(|e| panic!("SetAccountMappingRequest: {e}"));
+    inventory_backend::cloud::postgres::AccountLink::export_all(&config)
+        .unwrap_or_else(|e| panic!("AccountLink: {e}"));
+    inventory_backend::cloud::postgres::SetAccountLinkRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetAccountLinkRequest: {e}"));
+    inventory_backend::cloud::postgres::AccountLinkChange::export_all(&config)
+        .unwrap_or_else(|e| panic!("AccountLinkChange: {e}"));
+    inventory_backend::cloud::postgres::PostingReadiness::export_all(&config)
+        .unwrap_or_else(|e| panic!("PostingReadiness: {e}"));
+    inventory_backend::cloud::postgres::ChartChange::export_all(&config)
+        .unwrap_or_else(|e| panic!("ChartChange: {e}"));
+    inventory_backend::cloud::postgres::ChartChangeRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ChartChangeRequest: {e}"));
+    inventory_backend::cloud::postgres::ExpenseCategory::export_all(&config)
+        .unwrap_or_else(|e| panic!("ExpenseCategory: {e}"));
+    inventory_backend::cloud::postgres::SaveExpenseCategoryRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveExpenseCategoryRequest: {e}"));
+    inventory_backend::cloud::postgres::PayComponentPosting::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayComponentPosting: {e}"));
+    inventory_backend::cloud::postgres::SetPayComponentPostingRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetPayComponentPostingRequest: {e}"));
+    inventory_backend::cloud::postgres::SaveAssetClassRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveAssetClassRequest: {e}"));
+    inventory_backend::cloud::postgres::PaymentMethod::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentMethod: {e}"));
+    inventory_backend::cloud::postgres::SavePaymentMethodRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SavePaymentMethodRequest: {e}"));
+    inventory_backend::cloud::postgres::TaxTemplate::export_all(&config)
+        .unwrap_or_else(|e| panic!("TaxTemplate: {e}"));
+    inventory_backend::cloud::postgres::TaxTypeSetting::export_all(&config)
+        .unwrap_or_else(|e| panic!("TaxTypeSetting: {e}"));
+    inventory_backend::cloud::postgres::AccountingDimension::export_all(&config)
+        .unwrap_or_else(|e| panic!("AccountingDimension: {e}"));
+    inventory_backend::cloud::postgres::DimensionValue::export_all(&config)
+        .unwrap_or_else(|e| panic!("DimensionValue: {e}"));
+    inventory_backend::cloud::postgres::SaveDimensionRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveDimensionRequest: {e}"));
+    inventory_backend::cloud::postgres::DimensionResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("DimensionResult: {e}"));
+    inventory_backend::cloud::postgres::AccountSourceRule::export_all(&config)
+        .unwrap_or_else(|e| panic!("AccountSourceRule: {e}"));
+    inventory_backend::cloud::postgres::HeadOfficeAccount::export_all(&config)
+        .unwrap_or_else(|e| panic!("HeadOfficeAccount: {e}"));
+    inventory_backend::cloud::postgres::PostingSwitches::export_all(&config)
+        .unwrap_or_else(|e| panic!("PostingSwitches: {e}"));
+    inventory_backend::cloud::postgres::PostingSwitch::export_all(&config)
+        .unwrap_or_else(|e| panic!("PostingSwitch: {e}"));
+    inventory_backend::cloud::postgres::SetAutomaticPostingRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetAutomaticPostingRequest: {e}"));
+    inventory_backend::cloud::postgres::RolePermission::export_all(&config)
+        .unwrap_or_else(|e| panic!("RolePermission: {e}"));
+    inventory_backend::cloud::postgres::JournalTemplate::export_all(&config)
+        .unwrap_or_else(|e| panic!("JournalTemplate: {e}"));
+    inventory_backend::cloud::postgres::SaveJournalTemplateRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveJournalTemplateRequest: {e}"));
+    inventory_backend::cloud::postgres::JournalRepeat::export_all(&config)
+        .unwrap_or_else(|e| panic!("JournalRepeat: {e}"));
+    inventory_backend::cloud::postgres::SaveJournalRepeatRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveJournalRepeatRequest: {e}"));
+    inventory_backend::cloud::postgres::JournalRepeatSweep::export_all(&config)
+        .unwrap_or_else(|e| panic!("JournalRepeatSweep: {e}"));
+    inventory_backend::cloud::postgres::PeriodClosingRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("PeriodClosingRequest: {e}"));
+    inventory_backend::cloud::postgres::PeriodClosingVoucher::export_all(&config)
+        .unwrap_or_else(|e| panic!("PeriodClosingVoucher: {e}"));
     inventory_backend::cloud::postgres::SemanticKeyDoc::export_all(&config)
         .unwrap_or_else(|e| panic!("SemanticKeyDoc: {e}"));
 
@@ -1775,8 +1847,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PeriodPage: {e}"));
     inventory_backend::cloud::postgres::BankStatementPage::export_all(&config)
         .unwrap_or_else(|e| panic!("BankStatementPage: {e}"));
-    inventory_backend::cloud::postgres::AccountMapPage::export_all(&config)
-        .unwrap_or_else(|e| panic!("AccountMapPage: {e}"));
+    inventory_backend::cloud::postgres::AccountLinkPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("AccountLinkPage: {e}"));
     inventory_backend::cloud::postgres::SavedReportPage::export_all(&config)
         .unwrap_or_else(|e| panic!("SavedReportPage: {e}"));
 
@@ -1821,6 +1893,15 @@ fn the_wire_types_are_written_for_the_browser() {
     // writes nothing, which is how `MasterTerm` has a derive and no file.
     inventory_backend::cloud::postgres::PaymentTermsBook::export_all(&config)
         .unwrap_or_else(|e| panic!("PaymentTermsBook: {e}"));
+    // The master screen's writes (`http::payment_terms`).
+    for_contract!(
+        &config,
+        CreatePaymentTermRequest,
+        UpdatePaymentTermRequest,
+        PaymentTermsTemplateLineInput,
+        CreatePaymentTermsTemplateRequest,
+        UpdatePaymentTermsTemplateRequest,
+    );
 
     inventory_backend::cloud::postgres::PurchaseOrderPage::export_all(&config)
         .unwrap_or_else(|e| panic!("PurchaseOrderPage: {e}"));
@@ -1835,6 +1916,16 @@ fn the_wire_types_are_written_for_the_browser() {
     // cursor on the day thirty suppliers are three hundred.
     inventory_backend::cloud::postgres::SupplierList::export_all(&config)
         .unwrap_or_else(|e| panic!("SupplierList: {e}"));
+    // Every saved edit of a purchase order, which the order sheet reads back
+    // as its history (migration 0393).
+    inventory_backend::cloud::postgres::PurchaseOrderRevisionEntry::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseOrderRevisionEntry: {e}"));
+    inventory_backend::cloud::postgres::CatalogPurchaseLineVariant::export_all(&config)
+        .unwrap_or_else(|e| panic!("CatalogPurchaseLineVariant: {e}"));
+    inventory_backend::cloud::postgres::CancelPurchaseOrderRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CancelPurchaseOrderRequest: {e}"));
+    inventory_backend::cloud::postgres::PurchaseOrderCancelled::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseOrderCancelled: {e}"));
     // Letters — the register, one letter, and the three requests that change
     // one. `export_all` pulls `LetterRow` and `LetterLine` in behind the two
     // envelopes, so the browser's table of goods is the struct the server

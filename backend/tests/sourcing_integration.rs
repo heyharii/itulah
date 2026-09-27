@@ -40,8 +40,13 @@ async fn supplier(pool: &PgPool, code: &str, name: &str) -> Uuid {
     cloud::create_supplier(
         pool,
         CreateSupplierRequest {
-            supplier_code: code.to_owned(),
+            npwp: None,
+            is_pkp: None,
+            default_payment_terms_code: None,
+            supplier_code: Some(code.to_owned()),
             name: name.to_owned(),
+            legal_form: None,
+            notes: None,
             contact_name: None,
             phone: None,
             email: None,
@@ -104,6 +109,7 @@ async fn variant(
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
             colour_codes: colours.iter().map(|one| (*one).to_owned()).collect(),
             size_codes: sizes.iter().map(|one| (*one).to_owned()).collect(),
+            units: vec![],
         },
         ACTOR,
         &format!("item-{code}"),
@@ -133,9 +139,9 @@ async fn codes(pool: &PgPool, scope: SourcingScope) -> Vec<String> {
 /// unfiled item, and one item nobody has tagged.
 async fn seed(pool: &PgPool) -> Uuid {
     let acme = supplier(pool, "ACME", "Acme Garments").await;
-    item(pool, acme, "KID-1", Some("KIDS"), &["KAOS"]).await;
-    item(pool, acme, "KID-2", Some("KIDS"), &["KEMEJA"]).await;
-    item(pool, acme, "MEN-1", Some("MENSWEAR"), &["KAOS"]).await;
+    item(pool, acme, "KID-1", Some("ANAK_LAKI"), &["KAOS"]).await;
+    item(pool, acme, "KID-2", Some("ANAK_LAKI"), &["KEMEJA"]).await;
+    item(pool, acme, "MEN-1", Some("PRIA"), &["KAOS"]).await;
     item(pool, acme, "UNFILED-1", None, &[]).await;
     acme
 }
@@ -147,7 +153,7 @@ async fn excluding_a_division_keeps_the_items_nobody_has_filed(pool: PgPool) {
     let found = codes(
         &pool,
         SourcingScope {
-            excluded_division_codes: vec!["KIDS".to_owned()],
+            excluded_division_codes: vec!["ANAK_LAKI".to_owned()],
             ..everything()
         },
     )
@@ -166,7 +172,7 @@ async fn excluding_every_division_still_leaves_the_unfiled_ones(pool: PgPool) {
     let found = codes(
         &pool,
         SourcingScope {
-            excluded_division_codes: vec!["KIDS".to_owned(), "MENSWEAR".to_owned()],
+            excluded_division_codes: vec!["ANAK_LAKI".to_owned(), "PRIA".to_owned()],
             ..everything()
         },
     )
@@ -179,14 +185,14 @@ async fn excluding_every_division_still_leaves_the_unfiled_ones(pool: PgPool) {
 async fn a_positive_and_a_negative_division_narrow_together(pool: PgPool) {
     seed(&pool).await;
     let acme = supplier(&pool, "BETA", "Beta Textiles").await;
-    item(&pool, acme, "KID-3", Some("KIDS"), &["KAOS"]).await;
+    item(&pool, acme, "KID-3", Some("ANAK_LAKI"), &["KAOS"]).await;
 
     // "Kidswear, but not Beta's" — the pair a single signed parameter could
     // not express, which is why the negation is its own field.
     let found = codes(
         &pool,
         SourcingScope {
-            division_codes: vec!["KIDS".to_owned()],
+            division_codes: vec!["ANAK_LAKI".to_owned()],
             excluded_supplier_ids: vec![acme],
             ..everything()
         },
@@ -303,7 +309,7 @@ async fn wardrobe(pool: &PgPool) -> Uuid {
         pool,
         acme,
         "TEE",
-        Some("MENSWEAR"),
+        Some("PRIA"),
         &[],
         &["NAVY", "BLACK"],
         &["02", "03", "04"],
@@ -313,7 +319,7 @@ async fn wardrobe(pool: &PgPool) -> Uuid {
         pool,
         acme,
         "SHIRT",
-        Some("MENSWEAR"),
+        Some("PRIA"),
         &[],
         &["WHITE", "NAVY"],
         &["03", "04", "05"],
@@ -323,13 +329,13 @@ async fn wardrobe(pool: &PgPool) -> Uuid {
         pool,
         acme,
         "BOOT",
-        Some("FOOTWEAR"),
+        Some("SANDAL_SEPATU"),
         &[],
         &["BLACK"],
         &["14"],
     )
     .await;
-    item(pool, acme, "PLAIN", Some("MENSWEAR"), &[]).await;
+    item(pool, acme, "PLAIN", Some("PRIA"), &[]).await;
     acme
 }
 

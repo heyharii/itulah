@@ -739,3 +739,32 @@ pub async fn corrupt_projection_for_test(
         json!({"warning":"TEST-ONLY projection corruption applied","subject_id":request.subject_id,"place_id":request.place_id,"new_projection_quantity":row.get::<i64,_>("quantity"),"ledger_changed":false}),
     )
 }
+
+/// One row in the clock's own history: what changed, for whom, and what the
+/// business clock said on either side of the change. Evidence only — the
+/// caller logs and moves on when this fails (see `http::clock`).
+pub async fn record_clock_epoch(
+    pool: &PgPool,
+    before: &crate::clock::ClockStatus,
+    after: &crate::clock::ClockStatus,
+    actor: Option<&str>,
+    op: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO clock_epoch(op, actor, previous_mode, previous_virtual_at, mode, \
+         virtual_at, paused, real_at, config) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    )
+    .bind(op)
+    .bind(actor.unwrap_or("anonymous"))
+    .bind(before.source.kind())
+    .bind(before.virtual_now)
+    .bind(after.source.kind())
+    .bind(after.virtual_now)
+    .bind(after.paused)
+    .bind(after.real_now)
+    .bind(serde_json::to_value(&after.source)?)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

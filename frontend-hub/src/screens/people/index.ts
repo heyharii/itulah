@@ -1,10 +1,17 @@
 import type { ScreenMap } from "@/screens/registry"
 import { AttendanceDays } from "@/screens/people/attendance-days"
+import { Benefits } from "@/screens/people/benefits"
+import { Claims } from "@/screens/people/claims"
 import { Directory } from "@/screens/people/directory"
+import { Grievances } from "@/screens/people/grievances"
 import { NewEmployees } from "@/screens/people/hire"
+import { Leave } from "@/screens/people/leave"
 import { Overtime } from "@/screens/people/overtime"
 import { PeopleOverview } from "@/screens/people/overview"
 import { PeopleReports } from "@/screens/people/reports"
+import { Policies } from "@/screens/people/policies"
+import { Scheduler } from "@/screens/people/scheduler"
+import { Structures } from "@/screens/people/structures"
 import { Terminals } from "@/screens/people/terminals"
 import { Pay } from "@/screens/people/pay"
 import { PayrollRuns } from "@/screens/people/payroll"
@@ -23,8 +30,12 @@ export const screens: ScreenMap = {
   "/people": Directory,
   "/people/hire": NewEmployees,
   "/people/requests": Requests,
+  "/people/claims": Claims,
+  /// The confidential channel, read at head office and nowhere else.
+  "/people/grievances": Grievances,
   "/people/overtime": Overtime,
   "/people/roster": Roster,
+  "/people/leave": Leave,
   "/people/attendance-days": AttendanceDays,
   "/people/periods": Periods,
   "/people/pay": Pay,
@@ -34,4 +45,10 @@ export const screens: ScreenMap = {
   "/people/reports": PeopleReports,
   "/people/policy": TimePolicy,
   "/people/terminals": Terminals,
+  /// Benefits, and the rule numbers and structures.
+  "/people/benefits": Benefits,
+  "/people/policies": Policies,
+  "/people/structures": Structures,
+  /// The clock's own evidence, and the one door that runs it by hand.
+  "/people/scheduler": Scheduler,
 }

@@ -140,7 +140,7 @@ export function AccountsReceivable() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Accounting"
+        crumb="Finance · Receivables"
         title="Accounts receivable"
         sub="What is owed to us — settlement an acquirer has not paid over, money one unit owes another, and money in people's hands."
       />
@@ -154,7 +154,7 @@ export function AccountsReceivable() {
           aria-label="Location"
         />
         <Toolbar.Spacer />
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {asOf.chip}
           {site === "" ? (
             " · every location"
@@ -215,7 +215,7 @@ export function AccountsReceivable() {
                 <tr key={family.key}>
                   <Td>
                     <span className="font-medium text-ink">{family.what}</span>
-                    <span className="mt-0.5 block text-[0.65625rem] text-mute">
+                    <span className="mt-0.5 block text-[0.875rem] text-mute">
                       {family.covers}
                     </span>
                   </Td>
@@ -239,7 +239,7 @@ export function AccountsReceivable() {
                       </span>
                     ))}
                   </Td>
-                  <Td className="text-[0.71875rem] text-body">
+                  <Td className="text-[0.875rem] text-body">
                     {family.reading}
                   </Td>
                   <Td align="right">
@@ -273,17 +273,14 @@ export function AccountsReceivable() {
             <i>Receivables</i>, and <code>card_receivable_credit</code>,{" "}
             <code>card_receivable_debit</code> and <code>card_fee</code> each
             point at one of the client&rsquo;s accounts at all fourteen units.
-            Nothing posts to them, because nothing posts a sale to the general
-            ledger at all: every entry in the books today is a supplier
-            invoice, a depreciation run, a bank statement line or a manual
-            journal. Until a day&rsquo;s takings are posted — cash to the
-            drawer, card to a receivable, MDR to the fee account, and the
-            receivable cleared when the acquirer pays — the T+1 money we are
-            owed exists on the merchant statement and nowhere in the books.
-            There is no QRIS receivable account in the chart at all, and no
-            voucher receivable: a voucher is a liability we owe the shopper,
-            settled when it is spent, and it is tracked in the voucher ledger
-            rather than here.
+            Source-driven posting is enabled. Once a sales day is posted, cash
+            goes to the drawer, card and QRIS to the existing receivable
+            accounts, MDR to the fee account, and the receivable clears when
+            the acquirer settlement is posted. QRIS shares Piutang Debit Card;
+            the acquirer remains available as a settlement-ledger dimension.
+            There is no voucher receivable: a voucher is a liability we owe
+            the shopper, settled when it is spent and tracked in the voucher
+            ledger rather than here.
           </Note>
 
           <Note>
@@ -299,12 +296,12 @@ export function AccountsReceivable() {
             <code>parties</code> array of{" "}
             <code>
               {
-                "{ party_kind, party_id, party_name, item_count, oldest_days, buckets }"
+                "{ party_type, party_id, party_name, item_count, oldest_days, buckets }"
               }
             </code>{" "}
             and a grand <code>total</code>, with <code>buckets</code> the same
             five <code>AgingBuckets</code> fields in minor units and the
-            bucketing done in SQL. <code>party_kind</code> is the field the
+            bucketing done in SQL. <code>party_type</code> is the field the
             payable version does not need: this side has three kinds of debtor
             — an acquirer, a unit, a person — and one supplier column cannot
             hold them. Before any of that, something has to give each row a due
@@ -468,7 +465,7 @@ function Settlement({ asOf, site }: { asOf: string; site: string }) {
       <h2 className="mt-2 text-[0.875rem] font-semibold text-ink">
         Settlement accounts, unit by unit
       </h2>
-      <p className="-mt-2 text-[0.71875rem] text-mute">
+      <p className="-mt-2 text-[0.875rem] text-mute">
         {count(rows.length)} mapped across the units this filter admits ·{" "}
         {holding === 0
           ? "not one of them carries a balance"
@@ -501,7 +498,7 @@ function Settlement({ asOf, site }: { asOf: string; site: string }) {
               <Td>
                 <Code>{row.account_code}</Code>
               </Td>
-              <Td className="text-[0.71875rem] text-mute">
+              <Td className="text-[0.875rem] text-mute">
                 {row.semantic_key}
               </Td>
               <Td align="right">

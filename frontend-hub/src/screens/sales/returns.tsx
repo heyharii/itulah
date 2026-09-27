@@ -270,10 +270,10 @@ function ReturnSheet({
                 {record.lines.map((line) => (
                   <tr key={line.id} className="border-t border-hairline">
                     <td className="py-2 pr-2">
-                      <span className="block text-[0.8125rem] text-ink">
+                      <span className="block text-[0.875rem] text-ink">
                         {line.article_name}
                       </span>
-                      <span className="font-mono text-[0.65625rem] text-mute">
+                      <span className="font-mono text-[0.875rem] text-mute">
                         {line.sku_code}
                       </span>
                     </td>
@@ -310,7 +310,7 @@ function ReturnSheet({
                       <td className="py-2 pr-2">
                         <Tag>{entry.method}</Tag>
                       </td>
-                      <td className="py-2 text-right text-[0.75rem] text-mute">
+                      <td className="py-2 text-right text-[0.875rem] text-mute">
                         {entry.reference ?? "—"}
                       </td>
                       <td className="py-2 text-right tabular-nums">

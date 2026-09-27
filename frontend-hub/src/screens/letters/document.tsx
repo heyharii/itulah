@@ -137,7 +137,7 @@ function Fact({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex gap-2 text-[0.75rem] leading-[1.6]">
+    <div className="flex gap-2 text-[0.875rem] leading-[1.6]">
       <span className="w-28 shrink-0 text-body">{label}</span>
       <span className="shrink-0 text-body">:</span>
       <span className="min-w-0 font-medium text-ink">{children}</span>
@@ -174,10 +174,10 @@ function Signatures({
     >
       {roles.map((role, index) => (
         <div key={role} className="text-center">
-          <div className="text-[0.6875rem] text-body">{role}</div>
+          <div className="text-[0.875rem] text-body">{role}</div>
           {/* The gap is where the pen goes. The name is printed under the
               line, the way every signed letter in this country prints it. */}
-          <div className="mt-12 border-t border-ink pt-1 text-[0.6875rem] text-ink">
+          <div className="mt-12 border-t border-ink pt-1 text-[0.875rem] text-ink">
             {editable || (names[index] ?? "") !== "" ? (
               <Editable
                 value={names[index] ?? ""}
@@ -187,7 +187,7 @@ function Signatures({
                 className="min-w-[5rem] text-center"
               />
             ) : (
-              <span className="text-[0.625rem] text-mute">
+              <span className="text-[0.875rem] text-mute">
                 Nama &amp; tanda tangan
               </span>
             )}
@@ -211,7 +211,7 @@ function Goods({
   )
 
   return (
-    <table className="mt-5 w-full border-collapse text-[0.75rem]">
+    <table className="mt-5 w-full border-collapse text-[0.875rem]">
       <thead>
         <tr className="border-y border-ink">
           <th className="w-8 py-1.5 text-left font-semibold">No</th>
@@ -245,7 +245,7 @@ function Goods({
                 <span className="text-body"> · {line.variant}</span>
               )}
             </td>
-            <td className="py-1.5 align-top font-mono text-[0.6875rem]">
+            <td className="py-1.5 align-top font-mono text-[0.875rem]">
               {line.code}
             </td>
             {short && (
@@ -354,14 +354,14 @@ export function LetterPaper({
           <div className="text-[0.9375rem] font-semibold tracking-[0.04em] text-ink uppercase">
             {COMPANY.name}
           </div>
-          <div className="text-[0.6875rem] text-body">{COMPANY.address}</div>
-          <div className="text-[0.6875rem] text-body">{COMPANY.phone}</div>
+          <div className="text-[0.875rem] text-body">{COMPANY.address}</div>
+          <div className="text-[0.875rem] text-body">{COMPANY.phone}</div>
         </div>
         <div className="shrink-0 text-right">
           <div className="text-[0.9375rem] font-semibold tracking-[0.06em] text-ink uppercase">
             {letterKind(letter.kind)}
           </div>
-          <div className="mt-0.5 font-mono text-[0.75rem] text-body">
+          <div className="mt-0.5 font-mono text-[0.875rem] text-body">
             {/* A draft says so on the paper. Somebody printing one to walk it
                 round for a signature must not end up with a document that
                 looks numbered when it is not. */}
@@ -449,7 +449,7 @@ export function LetterPaper({
       {letter.status === "VOID" && (
         <div
           className={cn(
-            "mt-6 border-t border-bad pt-2 text-[0.6875rem] font-medium text-bad-fg"
+            "mt-6 border-t border-bad pt-2 text-[0.875rem] font-medium text-bad-fg"
           )}
         >
           SURAT INI DIBATALKAN

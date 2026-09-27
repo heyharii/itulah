@@ -84,7 +84,7 @@ export function BalanceSheet() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Reports"
+        crumb="Finance · Reports"
         title="Balance Sheet"
         sub="What is held, what is owed, and what is left, as at a date."
       />
@@ -98,7 +98,7 @@ export function BalanceSheet() {
           aria-label="Location"
         />
         <Toolbar.Spacer />
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {asOf.chip}
           {site === "" ? (
             " · every unit"
@@ -187,7 +187,7 @@ export function BalanceSheet() {
                     <tr className="border-t border-hairline-strong">
                       <Td className="font-medium text-ink">
                         Provisional profit
-                        <span className="ml-2 text-[0.6875rem] font-normal text-mute">
+                        <span className="ml-2 text-[0.875rem] font-normal text-mute">
                           earned and not yet closed to equity, inception to date
                         </span>
                       </Td>
@@ -226,11 +226,11 @@ export function BalanceSheet() {
 
               <Note>
                 <b>One moment, one unit.</b>{" "}
-                <code className="font-mono text-[0.6875rem]">
+                <code className="font-mono text-[0.875rem]">
                   GET /finance/statement?kind=BALANCE_SHEET
                 </code>{" "}
                 takes an as-at date and a{" "}
-                <code className="font-mono text-[0.6875rem]">site</code>, and
+                <code className="font-mono text-[0.875rem]">site</code>, and
                 the unit is a filter on the ledger row rather than part of the
                 account code — so <i>Cash on Hand</i> is named once here and the
                 shop is a column, where the client's legacy chart keeps fourteen

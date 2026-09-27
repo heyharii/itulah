@@ -5,16 +5,17 @@ import type { CashCountRow } from "@itulah/contract"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
-import { Dialog, Panel } from "@/components/ui/dialog"
+import { Card } from "@/components/ui/card"
+import { Day } from "@/components/ui/day"
+import { Panel } from "@/components/ui/dialog"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
 import {
   financeKeys,
   listCashCounts,
-  postCashCount,
   recordCashCount,
 } from "@/lib/queries/finance"
 import { parseMinor } from "@/screens/finance/chart"
@@ -52,22 +53,51 @@ export function CashCounts() {
     void client.invalidateQueries({ queryKey: financeKeys.money(null, null) })
   }
 
-  const post = useMutation({
-    mutationFn: (input: { countId: string; reason: string }) =>
-      postCashCount(input.countId, { reason: input.reason }),
-    onSuccess: () => {
-      setAsking(null)
-      setWhy("")
-      refresh()
-    },
-  })
+  // Posting a difference used to live here — a button in the table, a dialog
+  // asking why, and the mutation behind them. The button is gone at the
+  // owner's instruction, so the dialog it was the only door to went with it.
+  // `postCashCount` is still the server's route and `entry_number` still says
+  // which counts reached the books; what is missing is a way in, and that is a
+  // decision about the screen rather than something left half-built.
 
-  // A count saved without a reason is not stuck: the reason can arrive with
-  // the decision to post, which is often when somebody actually knows it.
-  const [asking, setAsking] = useState<CashCountRow | null>(null)
-  const [why, setWhy] = useState("")
+  /// What narrows the list. A month of counts across thirteen shops is four
+  /// hundred rows, and the three questions people arrive with are "when",
+  /// "where" and "who counted it".
+  const [from, setFrom] = useState("")
+  const [to, setTo] = useState("")
+  const [unit, setUnit] = useState("")
+  const [who, setWho] = useState("")
 
-  const rows = counts.data ?? []
+  const all = useMemo(() => counts.data ?? [], [counts.data])
+
+  /// The units and the counters actually present, rather than every site and
+  /// every member of staff: a picker offering an answer that returns nothing
+  /// is a picker that wastes a click to prove it.
+  const units = useMemo(
+    () =>
+      [...new Set(all.map((row) => row.site_id))]
+        .map((id) => ({ value: id, label: siteName(id) }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [all, siteName]
+  )
+  const counters = useMemo(
+    () => [...new Set(all.map((row) => row.counted_by))].sort(),
+    [all]
+  )
+
+  const rows = useMemo(
+    () =>
+      all.filter((row) => {
+        if (from !== "" && row.counted_on < from) return false
+        if (to !== "" && row.counted_on > to) return false
+        if (unit !== "" && row.site_id !== unit) return false
+        if (who !== "" && row.counted_by !== who) return false
+        return true
+      }),
+    [all, from, to, unit, who]
+  )
+  const narrowed =
+    from !== "" || to !== "" || unit !== "" || who !== ""
   const short = rows.filter(
     (row) => row.variance_minor !== 0 && row.entry_id === null
   ).length
@@ -77,34 +107,83 @@ export function CashCounts() {
       <PageHeader
         crumb="Finance lab 2 · Cash & Bank"
         title="Cash Counts"
-        sub="What a person found in the drawer, against what the books say was in it."
+        sub="What a person found in the box, against what the books say was in it."
         actions={
           <Button variant="primary" onClick={() => setCounting(true)}>
-            Count a drawer
+            Count an account
           </Button>
         }
       />
 
-      {post.error instanceof Error && (
-        <Banner tone="bad">{post.error.message}</Banner>
-      )}
+      <Toolbar className="mb-4">
+        <Day
+          value={from}
+          onChange={setFrom}
+          notAfter={to === "" ? null : to}
+          placeholder="From"
+          label="From date"
+          className="h-8 w-36"
+        />
+        <span aria-hidden className="text-mute">
+          →
+        </span>
+        <Day
+          value={to}
+          onChange={setTo}
+          notBefore={from === "" ? null : from}
+          placeholder="To"
+          label="To date"
+          className="h-8 w-36"
+        />
+        <Select
+          aria-label="Unit"
+          value={unit}
+          onChange={setUnit}
+          className="h-8 w-44"
+        >
+          <option value="">All units</option>
+          {units.map((one) => (
+            <option key={one.value} value={one.value}>
+              {one.label}
+            </option>
+          ))}
+        </Select>
+        <Select
+          aria-label="Counted by"
+          value={who}
+          onChange={setWho}
+          className="h-8 w-44"
+        >
+          <option value="">Anyone counting</option>
+          {counters.map((one) => (
+            <option key={one} value={one}>
+              {one}
+            </option>
+          ))}
+        </Select>
+      </Toolbar>
 
       {counts.isPending ? (
         <LoadingState>Reading the counts…</LoadingState>
       ) : rows.length === 0 ? (
+        narrowed ? (
+          <EmptyState>No count matches these filters.</EmptyState>
+        ) : (
         <EmptyState>
-          No drawer has been counted yet. Counting one is the only thing that
+          No cash account has been counted yet. Counting one is the only thing that
           can contradict the cash ledger — there is no statement to check it
           against.
         </EmptyState>
+        )
       ) : (
         <div className="flex flex-col gap-4">
+          <Card className="overflow-hidden">
           <Grid>
             <thead>
               <tr>
-                <Th width="7rem">Counted on</Th>
-                <Th>Drawer</Th>
-                <Th width="9rem">Location</Th>
+                <Th width="7rem">Date</Th>
+                <Th>Account</Th>
+                <Th width="9rem">Unit</Th>
                 <Th align="right" width="8.5rem">
                   Counted
                 </Th>
@@ -115,37 +194,34 @@ export function CashCounts() {
                   Difference
                 </Th>
                 <Th width="8rem">Counted by</Th>
-                <Th width="9rem">In the books</Th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr key={row.count_id}>
                   <Td>{day(row.counted_on)}</Td>
+                  {/* The account, and nothing under it.
+                  
+                      The reason a count was out ("Selisih kembalian, belum
+                      ketemu") and the note breakdown were set in italics
+                      below the name, where they turned a one-line row into a
+                      four-line one and pushed the figures they explain off
+                      the screen. Both are still on the record; neither is a
+                      column. */}
                   <Td>
                     <span className="text-ink">{row.account_name}</span>
-                    {row.reason !== "" && (
-                      <span className="mt-0.5 block text-[0.65625rem] text-body italic">
-                        {row.reason}
-                      </span>
-                    )}
-                    {row.notes.length > 0 && (
-                      <span className="mt-0.5 block text-[0.65625rem] text-mute">
-                        {row.notes
-                          .map(
-                            (note) =>
-                              `${money(note.denomination_minor)}×${note.quantity}`
-                          )
-                          .join(" · ")}
-                      </span>
-                    )}
                   </Td>
                   <Td>{siteName(row.site_id)}</Td>
                   <Td align="right">{money(row.counted_minor)}</Td>
                   <Td align="right">{money(row.per_books_minor)}</Td>
+                  {/* A figure, not a word. The column is headed Difference
+                      and every other cell in it is money, so a count that
+                      found none reads `0` — a pill saying "agrees" made the
+                      one row nobody needs to look at the most decorated thing
+                      in the table, and broke the column the eye scans down. */}
                   <Td align="right">
                     {row.variance_minor === 0 ? (
-                      <Pill tone="ok">agrees</Pill>
+                      <span className="text-mute">0</span>
                     ) : (
                       <span
                         className={
@@ -159,43 +235,12 @@ export function CashCounts() {
                       </span>
                     )}
                   </Td>
-                  <Td>
-                    {row.counted_by}
-                    {row.witnessed_by !== "" && (
-                      <span className="block text-[0.65625rem] text-mute">
-                        witnessed by {row.witnessed_by}
-                      </span>
-                    )}
-                  </Td>
-                  <Td>
-                    {row.entry_number !== null ? (
-                      <span className="font-mono text-[0.6875rem] text-mute">
-                        {row.entry_number}
-                      </span>
-                    ) : row.variance_minor === 0 ? (
-                      <span className="text-mute">nothing to post</span>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={post.isPending}
-                        onClick={() =>
-                          row.reason === ""
-                            ? setAsking(row)
-                            : post.mutate({
-                                countId: row.count_id,
-                                reason: row.reason,
-                              })
-                        }
-                      >
-                        Post difference
-                      </Button>
-                    )}
-                  </Td>
+                  <Td>{row.counted_by}</Td>
                 </tr>
               ))}
             </tbody>
           </Grid>
+          </Card>
 
           <LabNote>
             {short > 0
@@ -210,34 +255,6 @@ export function CashCounts() {
           </LabNote>
         </div>
       )}
-
-      <Dialog
-        open={asking !== null}
-        onOpenChange={(next) => !next && setAsking(null)}
-        title="Put the difference in the books"
-        confirm="Post the difference"
-        pending={post.isPending}
-        onConfirm={() =>
-          asking !== null &&
-          post.mutate({ countId: asking.count_id, reason: why })
-        }
-      >
-        <div className="flex flex-col gap-2.5">
-          <p>
-            {asking === null
-              ? null
-              : `${asking.account_name} was counted at ${money(
-                  asking.counted_minor
-                )} against ${money(asking.per_books_minor)} in the books. Say why before it is booked — it is the only record of the judgement.`}
-          </p>
-          <Textarea
-            value={why}
-            onChange={(event) => setWhy(event.target.value)}
-            rows={2}
-            placeholder="kembalian sore tidak tercatat"
-          />
-        </div>
-      </Dialog>
 
       <CountPanel
         open={counting}
@@ -326,7 +343,7 @@ function CountPanel({
     <Panel
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      title="Count a drawer"
+      title="Count an account"
       sub="Count the notes, then say why it differs from the books."
     >
       <div className="flex flex-col gap-4">
@@ -335,8 +352,14 @@ function CountPanel({
         )}
 
         <div className="grid gap-3 md:grid-cols-2">
-          <Field label="Drawer">
-            <Select value={drawer} onChange={setDrawer} aria-label="Drawer">
+          {/* "Account", not "Drawer". A till drawer is one of the things
+              counted; petty cash at head office is another, and a cashier's
+              float a third. What they have in common is that each is a cash
+              ACCOUNT at a place — the same word Bank Accounts uses for the
+              other half of the money — so a screen that says "drawer" is
+              naming one of three and mislabelling the rest. */}
+          <Field label="Account">
+            <Select value={drawer} onChange={setDrawer} aria-label="Account">
               <option value="">Choose one</option>
               {drawers.map((row) => (
                 <option
@@ -419,7 +442,7 @@ function CountPanel({
           </tbody>
         </Grid>
 
-        <div className="flex flex-col gap-1.5 rounded-inner border border-hairline bg-soft p-3 text-[0.8125rem]">
+        <div className="flex flex-col gap-1.5 rounded-inner border border-hairline bg-soft p-3 text-[0.875rem]">
           <div className="flex justify-between">
             <span className="text-body">Counted</span>
             <span className="font-medium text-ink tabular-nums">

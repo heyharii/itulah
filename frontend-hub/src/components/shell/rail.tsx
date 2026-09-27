@@ -1,181 +1,200 @@
 import { Link, useRouterState } from "@tanstack/react-router"
+import { House, PanelLeft } from "lucide-react"
+import { useLayoutEffect, useRef, useState } from "react"
 
 import {
+  asides,
+  topBarAsides,
   domainForPath,
-  flatDomain,
-  modulesOfDomain,
+  domainHome,
+  domains,
   moduleForPath,
-  shown,
   type AppModule,
-  type NavItem,
 } from "@/lib/navigation"
-import { reportsNav } from "@/screens/reports/nav"
+import { homeNav } from "@/screens/home/nav"
+import { meNav } from "@/screens/me/nav"
 import { systemNav } from "@/screens/system/nav"
 import { cn } from "@/lib/utils"
 
-/// The screens of the domain you are in, down the side.
+/// The dark column at the window's left edge: which part of the business.
 ///
-/// ## Why this is not the module strip any more
+/// ## Why the domains came down off the bar
 ///
-/// It was: fourteen modules as icons, with a labelled column beside it holding
-/// the screens of whichever one was open. Two columns of chrome, 56px plus
-/// 248px, standing permanently in front of a table that is read across.
+/// The bar across the top held them from 2026-09-13, and ran out of room: at
+/// 1280px the tenth chip was already under the clock, and the list is the
+/// shape of the company, so it only ever grows. A column grows downwards,
+/// where a window has height to spare.
 ///
-/// The bar across the top now answers *which part of the business*, so this
-/// column answers only *which screen* — and one domain's screens are six or
-/// eight rows, which is short enough to spell out. It keeps 64px of the window
-/// and borrows the rest of its width only while somebody is pointing at it,
-/// over the page rather than pushing it: a table that re-measures its columns
-/// every time a sidebar opens is a table that flickers for a living.
+/// This is NOT the fourteen-icon strip that was removed before it. That one
+/// held modules, so it grew with the codebase; this holds the ten domains,
+/// and each carries its word under its icon — ten unlabelled glyphs are a
+/// memory test, and Ops, Buying and Selling are three kinds of truck.
 ///
-/// ## What it does NOT do
+/// It is the one dark surface in the chrome, on purpose. The light column
+/// beside it (`sidebar.tsx`) answers *which screen*, and reads as part of the
+/// page; this answers the question above that, and being the only dark thing
+/// on screen is how it says so.
 ///
-/// It does not colour its rows per module, and it does not scroll away the
-/// screen you are on. The asides at its foot — Reports, System — are the two
-/// destinations that belong to no domain yet; they are drawn as a strip under
-/// a rule rather than as rows, because they are not part of the answer the
-/// column above is giving.
-export function Rail() {
+/// ## Motion
+///
+/// One indicator, not one per tile: the lit tile's background is a single
+/// element that slides to whichever domain is current, so moving from
+/// Finance to HR is seen as a move rather than as one light going off and
+/// another coming on. It is measured off the DOM rather than computed from
+/// an index, because tile heights follow the root font size.
+export function Rail({
+  sidebarOpen,
+  onToggleSidebar,
+}: {
+  sidebarOpen?: boolean
+  /// Absent in the drawer, which has its own close and no column to fold.
+  onToggleSidebar?: () => void
+}) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const here = domainForPath(pathname)
   const active = moduleForPath(pathname)
-  const domain = domainForPath(pathname)
-  const owned = domain ? modulesOfDomain(domain) : [active]
-  // A module names itself when its neighbours make the naming worth something.
-  // GA's six modules hold one screen each and every heading was its own row's
-  // word again — see `flatDomain`.
-  const many = owned.length > 1 && !flatDomain(owned)
+
+  // The tile somebody just pressed, and the path they pressed it on. The
+  // router only commits the new location once the screen's code and data
+  // have arrived, and an indicator that waits for that is a click that seems
+  // not to have landed. Tied to the path it was pressed on, so it lapses by
+  // itself the moment the navigation lands — or any other one does.
+  const [pressed, setPressed] = useState<{ id: string; on: string } | null>(
+    null
+  )
+  // Home is a tile like the domains, so the indicator has somewhere to stand
+  // on the one page that belongs to no department.
+  const current = here?.id ?? (active.id === homeNav.id ? homeNav.id : null)
+  const lit = pressed?.on === pathname ? pressed.id : current
+
+  const list = useRef<HTMLDivElement>(null)
+  // `glide` is false for the first placement: a page load that slides the
+  // indicator in from the top is the rail announcing itself, which nobody
+  // asked it to do. Every placement after that travels.
+  const [mark, setMark] = useState<{
+    top: number
+    height: number
+    glide: boolean
+  } | null>(null)
+
+  useLayoutEffect(() => {
+    const tile = list.current?.querySelector<HTMLElement>("[data-lit]")
+    setMark((prev) =>
+      tile
+        ? {
+            top: tile.offsetTop,
+            height: tile.offsetHeight,
+            glide: prev !== null,
+          }
+        : null
+    )
+  }, [lit])
 
   return (
-    <div className="relative z-30 w-16 shrink-0">
-      <nav
-        aria-label="Screens"
-        className={cn(
-          "group absolute inset-y-0 left-0 flex w-16 flex-col items-stretch gap-px overflow-x-hidden overflow-y-auto",
-          "[scrollbar-width:none] border-r border-hairline bg-soft-3 px-2.5 pt-2.5 pb-3 [&::-webkit-scrollbar]:hidden",
-          "transition-[width,box-shadow] duration-[--t-hover]",
-          // The words arrive on hover, and on keyboard focus — a column that
-          // only opens to a pointer is a column a keyboard cannot read.
-          "focus-within:w-60 focus-within:shadow-pop hover:w-60 hover:shadow-pop",
-          // A touch screen has no hover, so it never widens here: the labelled
-          // column is one tap away in the drawer instead.
-          "pointer-coarse:hover:w-16 pointer-coarse:hover:shadow-none"
-        )}
+    <nav
+      aria-label="Domains"
+      className="flex h-full w-[5rem] shrink-0 flex-col items-stretch bg-rail text-rail-text"
+    >
+      <div
+        ref={list}
+        className="relative flex min-h-0 flex-1 [scrollbar-width:none] flex-col gap-0.5 overflow-y-auto px-1.5 pt-2 pb-2 [&::-webkit-scrollbar]:hidden"
       >
-        {owned.map((module) => (
-          <ModuleBlock
-            key={module.id}
-            module={module}
-            pathname={pathname}
-            named={many}
+        {mark && (
+          <span
+            aria-hidden
+            data-motion="travel"
+            className={cn(
+              "pointer-events-none absolute inset-x-1.5 top-0 rounded-inner bg-rail-3",
+              mark.glide &&
+                "transition-[transform,height] duration-(--t-panel) ease-(--ease-out)"
+            )}
+            style={{
+              transform: `translateY(${mark.top}px)`,
+              height: mark.height,
+            }}
           />
-        ))}
+        )}
+        {[
+          { id: homeNav.id, label: homeNav.label, icon: House, to: "/" },
+          ...domains.map((domain) => ({
+            id: domain.id,
+            label: domain.label,
+            icon: domain.icon,
+            to: domainHome(domain),
+          })),
+        ].map((domain) => {
+          const Icon = domain.icon
+          const on = lit === domain.id
+          return (
+            <Link
+              key={domain.id}
+              to={domain.to}
+              aria-current={current === domain.id ? "page" : undefined}
+              data-lit={on ? "" : undefined}
+              onClick={() => setPressed({ id: domain.id, on: pathname })}
+              title={domain.label}
+              className={cn(
+                "relative flex shrink-0 flex-col items-center gap-[0.3125rem] rounded-inner px-0.5 pt-[0.5625rem] pb-[0.4375rem] transition-colors",
+                on
+                  ? "text-rail-ink"
+                  : "text-rail-text hover:bg-rail-2 hover:text-rail-ink"
+              )}
+            >
+              <Icon
+                className={cn(
+                  "size-[1.125rem] shrink-0 stroke-[1.7]",
+                  on ? "text-rail-ink" : "text-rail-mute"
+                )}
+              />
+              <span className="w-full overflow-hidden text-center text-[0.875rem] leading-none font-medium tracking-[-0.01em] whitespace-nowrap">
+                {domain.label}
+              </span>
+            </Link>
+          )
+        })}
+      </div>
 
-        <span className="mt-auto flex items-center gap-px border-t border-hairline pt-2.5">
-          {[reportsNav, systemNav].map((aside) => (
+      {/* The destinations that belong to no domain — discussions, chat,
+          files, reports, System, Profile — as bare icons under a rule, two to a row,
+          all one size so the foot of the rail reads as one block. The bell,
+          chat and discussions are in the top bar beside Ask: they are what
+          somebody checks while working, and the rail's foot is below the fold
+          of the eye.
+          They are not part of the answer the column above gives, so they do
+          not wear its labels. */}
+      <div className="flex shrink-0 flex-col items-center gap-1 border-t border-rail-hair px-1.5 pt-2 pb-3">
+        <div className="grid grid-cols-2 gap-1">
+          {[
+            ...asides.filter((aside) => !topBarAsides.includes(aside)),
+            systemNav,
+            // Profile — the phone's fourth tab — is the desk's fourth tile:
+            // your own attendance, leave and pay, one press from anywhere.
+            meNav,
+          ].map((aside) => (
             <AsideTile
               key={aside.id}
               module={aside}
               active={aside.id === active.id}
             />
           ))}
-        </span>
-      </nav>
-    </div>
-  )
-}
-
-/// One module's screens. The module names itself only when its domain holds
-/// more than one that has anything to group — Selling carries three, Buying
-/// carries one, GA carries six of one screen apiece and is drawn flat — and a
-/// section names itself always, because those headings (Inventory's Audit,
-/// Finance's Books) are the modules' own and were not invented here.
-function ModuleBlock({
-  module,
-  pathname,
-  named,
-}: {
-  module: AppModule
-  pathname: string
-  named: boolean
-}) {
-  const audience = module.useAudience?.() ?? null
-  return (
-    <>
-      {named && <Heading level="module">{module.label}</Heading>}
-      {module.sections.map((section, index) => {
-        const items = section.items.filter(shown(audience))
-        if (items.length === 0) return null
-        return (
-          <div key={section.label ?? index} className="contents">
-            {section.label && (
-              <Heading level={named ? "section" : "module"}>
-                {section.label}
-              </Heading>
-            )}
-            {items.map((item) => (
-              <Row key={item.path} item={item} pathname={pathname} />
-            ))}
-          </div>
-        )
-      })}
-    </>
-  )
-}
-
-/// Headings are hidden rather than removed while the column is narrow: they
-/// keep their height, so nothing below them jumps when the words arrive.
-function Heading({
-  level,
-  children,
-}: {
-  level: "module" | "section"
-  children: React.ReactNode
-}) {
-  return (
-    <h3
-      className={cn(
-        "px-3.5 whitespace-nowrap text-mute transition-opacity duration-[--t-hover]",
-        "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
-        level === "module"
-          ? "mt-3.5 mb-1 text-[0.6875rem] font-semibold tracking-[0.05em] uppercase first:mt-0.5"
-          : "mt-2.5 mb-0.5 text-[0.75rem] font-medium"
-      )}
-    >
-      {children}
-    </h3>
-  )
-}
-
-function Row({ item, pathname }: { item: NavItem; pathname: string }) {
-  const Icon = item.icon
-  const here = pathname === item.path || pathname.startsWith(item.path + "/")
-  return (
-    <Link
-      to={item.path}
-      title={item.label}
-      aria-current={here ? "page" : undefined}
-      className={cn(
-        "flex h-8 shrink-0 items-center gap-2 rounded-inner px-3.5 text-[0.8125rem] font-medium transition-colors",
-        here
-          ? "bg-accent-bg text-accent"
-          : "text-text hover:bg-soft-2 hover:text-ink",
-        "pointer-coarse:h-tap"
-      )}
-    >
-      <Icon
-        className={cn(
-          "size-4 shrink-0 stroke-[1.6]",
-          here ? "text-accent" : "text-line-ico"
+        </div>
+        {onToggleSidebar && (
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            aria-pressed={sidebarOpen}
+            title={`${sidebarOpen ? "Hide" : "Show"} sidebar  ⌘B`}
+            className="grid size-8 place-items-center rounded-inner text-rail-mute transition-colors hover:bg-rail-2 hover:text-rail-ink"
+          >
+            <PanelLeft className="size-[1.0625rem] stroke-[1.55]" />
+          </button>
         )}
-      />
-      <span className="min-w-0 flex-1 truncate opacity-0 transition-opacity duration-[--t-hover] group-focus-within:opacity-100 group-hover:opacity-100">
-        {item.label}
-      </span>
-    </Link>
+      </div>
+    </nav>
   )
 }
 
-/// The two destinations that belong to no domain, as icons at the foot.
 function AsideTile({ module, active }: { module: AppModule; active: boolean }) {
   const Icon = module.icon
   return (
@@ -187,12 +206,12 @@ function AsideTile({ module, active }: { module: AppModule; active: boolean }) {
       className={cn(
         "grid size-8 shrink-0 place-items-center rounded-inner transition-colors",
         active
-          ? "bg-accent-bg text-accent"
-          : "text-line-ico hover:bg-soft-2 hover:text-text",
+          ? "bg-rail-3 text-rail-ink"
+          : "text-rail-mute hover:bg-rail-2 hover:text-rail-ink",
         "pointer-coarse:size-tap"
       )}
     >
-      <Icon className="size-[1.0625rem] stroke-[1.55]" />
+      <Icon className="size-4 stroke-[1.55]" />
     </Link>
   )
 }

@@ -1,0 +1,48 @@
+# ~/Documents/itulah/.omp/config.yml
+# Dibaca HANYA kalau omp dijalankan persis dari ~/Documents/itulah
+# (omp tidak mencari ke folder induk).
+
+tools:
+  # Local development project: auto-approve normal OMP tool calls.
+  approvalMode: yolo
+
+bash:
+  # CATATAN: array di project MENGGANTI array global, tidak menambah.
+  # Jadi aturan global ditulis ulang di sini.
+  patterns:
+    # Loop harian Rust — jalan tanpa konfirmasi
+    - match: "cargo check*"
+      approval: allow
+    - match: "cargo clippy*"
+      approval: allow
+    - match: "cargo fmt*"
+      approval: allow
+    - match: "cargo nextest*"
+      approval: allow
+    - match: "cargo tree*"
+      approval: allow
+    - match: "bacon*"
+      approval: allow
+    # Frontend
+    - match: "npm run*"
+      approval: allow
+    - match: "pnpm*"
+      approval: allow
+    # Git baca-saja
+    - match: "git status*"
+      approval: allow
+    - match: "git diff*"
+      approval: allow
+    - match: "git log*"
+      approval: allow
+    # Pagar pengaman — deny menang di semua mode, termasuk yolo
+    - match: "rm -rf /*"
+      approval: deny
+    - match: "*git push --force*"
+      approval: prompt
+    - match: "*sqlx database drop*"
+      approval: prompt
+    - match: "*sqlx migrate revert*"
+      approval: prompt
+    - match: "*drop database*"
+      approval: prompt

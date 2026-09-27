@@ -33,6 +33,10 @@ use crate::sync::workflow::{
     INVENTORY_OFFICIAL_COUNT_ACTIVATE_V1, INVENTORY_OFFICIAL_COUNT_ADJUSTMENT_RESULT_V1,
     INVENTORY_OFFICIAL_COUNT_RESULT_V1, INVENTORY_PICK_V1,
 };
+use crate::sync::workflow::{
+    parse_store_inbound_announcement, StoreInboundAnnouncePayload,
+    INVENTORY_STORE_INBOUND_ANNOUNCE_V1,
+};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -977,7 +981,7 @@ impl DeadLetterCursor {
 const DEAD_LETTER_DEFAULT_LIMIT: i64 = 100;
 const DEAD_LETTER_MAX_LIMIT: i64 = 500;
 
-/// One rejection row, defined once.
+/// One rejected inbound fact row, defined once.
 ///
 /// Used by the page query and by the facet counts, which is the whole reason it
 /// is a constant: the facets are only honest if they count exactly what the
@@ -994,13 +998,15 @@ const DEAD_LETTER_MAX_LIMIT: i64 = 500;
 ///
 /// Binds: `$1` the search pattern or NULL.
 const DEAD_LETTER_ROWS: &str = "
-    SELECT origin_id, generation, seq, event_id, event_type, payload, reason,
-           rejected_at
-      FROM sync_dead_letter
-     WHERE ($1::text IS NULL
+    SELECT origin_id, generation, seq, event_id, event_type, payload,
+           COALESCE(reason, 'no reason recorded') AS reason,
+           received_at AS rejected_at
+      FROM sync_ingest_fact
+     WHERE status = 'REJECTED'
+       AND ($1::text IS NULL
             OR origin_id ILIKE $1
             OR event_type ILIKE $1
-            OR reason ILIKE $1)
+            OR COALESCE(reason, 'no reason recorded') ILIKE $1)
 ";
 
 /// Every filter, in one place, so the page and the total cannot drift.
@@ -1275,15 +1281,51 @@ pub async fn register_origin_credential_binding(
     active_generation: Option<i64>,
     inventory_enabled: Option<bool>,
 ) -> Result<(), AppError> {
-    let origin_id = origin_id.trim();
-    if origin_id.is_empty() {
-        return Err(AppError::Validation("origin_id must not be empty".into()));
-    }
     if ingest_key.chars().count() < crate::security::MIN_SYNC_KEY_LENGTH {
         return Err(AppError::Validation(format!(
             "ingest_key must be at least {} characters",
             crate::security::MIN_SYNC_KEY_LENGTH
         )));
+    }
+    let mut tx = pool.begin().await?;
+    register_origin_digest_tx(
+        &mut tx,
+        origin_id,
+        &sha256_hex(ingest_key),
+        label,
+        site_id,
+        node_role,
+        active_generation,
+        inventory_enabled,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// The registration itself, given the key's digest rather than the key.
+///
+/// Split out for enrolment (`node_enrolment.rs`), where the cloud never sees
+/// the plaintext at registration time: the machine minted the key and sent
+/// only its SHA-256. Every binding rule — generation 1 for a new origin, no
+/// regression, no rebinding to another site or role, no rollover past an
+/// unapplied durable prefix — is the same rule for both callers because it is
+/// the same code. Runs inside the caller's transaction so an enrolment and
+/// the origin it approves commit together.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn register_origin_digest_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+    ingest_key_sha256: &str,
+    label: Option<&str>,
+    site_id: Option<&str>,
+    node_role: Option<&str>,
+    active_generation: Option<i64>,
+    inventory_enabled: Option<bool>,
+) -> Result<(), AppError> {
+    let origin_id = origin_id.trim();
+    if origin_id.is_empty() {
+        return Err(AppError::Validation("origin_id must not be empty".into()));
     }
     if active_generation.is_some_and(|generation| generation < 1) {
         return Err(AppError::Validation(
@@ -1312,14 +1354,12 @@ pub async fn register_origin_credential_binding(
     } else {
         None
     };
-    let mut tx = pool.begin().await?;
-
     if let Some(existing) = sqlx::query(
         "SELECT site_id,node_role,active_generation
          FROM sync_origin_credential WHERE origin_id=$1 FOR UPDATE",
     )
     .bind(origin_id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await?
     {
         let existing_site: Option<String> = existing.get("site_id");
@@ -1357,7 +1397,7 @@ pub async fn register_origin_credential_binding(
             )
             .bind(origin_id)
             .bind(existing_generation)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?;
             let durable_seq: i64 = state.get("durable_seq");
             let applied_seq: i64 = state.get("applied_seq");
@@ -1392,15 +1432,14 @@ pub async fn register_origin_credential_binding(
              rotated_at = now()",
     )
     .bind(origin_id)
-    .bind(sha256_hex(ingest_key))
+    .bind(ingest_key_sha256)
     .bind(label)
     .bind(site_id)
     .bind(normalized_role)
     .bind(active_generation)
     .bind(inventory_enabled)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
-    tx.commit().await?;
     Ok(())
 }
 
@@ -2305,6 +2344,18 @@ async fn apply_one(
                     });
                 }
                 false
+            } else if event_type == crate::cloud::domain::FACT_SALES_VOIDED {
+                let voided = match crate::cloud::domain::parse_sales_voided(&payload) {
+                    Ok(voided) => voided,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) = apply_sale_voided(&mut tx, &voided).await {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
             } else if event_type == crate::edge::till::FACT_SHIFT_RECORDED {
                 // The drawer, on the same path the tenders take. Nothing here
                 // touches the watermark or the generation: the coordinate is
@@ -2900,9 +2951,18 @@ async fn reconcile_transfer_allotment_attribution(
                 "derived Store receipt quantity exceeds In-Transit quantity".into(),
             ));
         }
+        // A piece the shop has found has been handed over to it: custody
+        // passes at the door, and nothing crosses the door without being
+        // handed over. Nothing else records a handover yet, so without this
+        // `handed_over` stayed at zero, the first matched receipt broke
+        // `handed_over - received >= 0` (0176), and the apply agent held the
+        // shop's whole stream on that fact. Never lowered: a receipt that
+        // stops matching does not un-hand the carton.
         sqlx::query(
             "UPDATE edge_allotment_line_progress
-             SET received_quantity=$2,updated_at=now()
+             SET received_quantity=$2,
+                 handed_over_quantity=GREATEST(handed_over_quantity,$2),
+                 updated_at=now()
              WHERE allotment_line_id=$1",
         )
         .bind(allotment_line_id)
@@ -4180,7 +4240,69 @@ async fn apply_fulfillment_progress(
         .execute(&mut **tx)
         .await?;
     }
+    if progress.stage == FulfillmentStage::InTransit {
+        // Inside the same transaction as the fact, so the announcement exists
+        // exactly when the IN_TRANSIT fact does: a replay of the fact is
+        // refused above (event id, then koli+stage) and cannot announce twice.
+        announce_store_inbound_tx(tx, progress).await?;
+    }
     Ok(true)
+}
+
+/// The environment switch that lets the centre announce inbound deliveries
+/// to shops. Default OFF — see `docs/store-inbound-receiving.md`.
+///
+/// Why a switch and not a per-origin capability check: the centre has no
+/// record of what an edge build understands (`sync_origin_credential` has no
+/// capability column and the ingest carries none), and an edge that receives a
+/// command type it does not know BLOCKS its whole command stream. So the
+/// command must not be issued until every store edge runs a build that
+/// advertises `store.inbound`, and that is an operator's decision.
+pub const STORE_INBOUND_COMMANDS_ENV: &str = "INVENTORY_STORE_INBOUND_COMMANDS";
+
+pub fn store_inbound_commands_enabled() -> bool {
+    std::env::var(STORE_INBOUND_COMMANDS_ENV).is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+/// Tell the destination shop that a koli is on its way to it.
+///
+/// Targets only the STORE origin bound to the destination site; a shop with
+/// no registered, inventory-enabled origin is skipped silently (it receives
+/// the old way, unannounced). Never a broadcast and never a DC.
+async fn announce_store_inbound_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    progress: &FulfillmentProgressPayload,
+) -> Result<(), AppError> {
+    if !store_inbound_commands_enabled() {
+        return Ok(());
+    }
+    let origin: Option<String> = sqlx::query_scalar(
+        "SELECT origin_id FROM sync_origin_credential
+         WHERE site_id=$1 AND node_role='STORE' AND inventory_enabled
+         ORDER BY origin_id LIMIT 1",
+    )
+    .bind(&progress.destination_store_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(origin_id) = origin else {
+        return Ok(());
+    };
+    let payload = StoreInboundAnnouncePayload::from_progress(progress);
+    issue_command_tx(
+        tx,
+        INVENTORY_STORE_INBOUND_ANNOUNCE_V1,
+        &serde_json::to_value(&payload)?,
+        "system:store-inbound",
+        None,
+        &[origin_id],
+    )
+    .await?;
+    Ok(())
 }
 
 async fn validate_in_transit_claim_boundary(
@@ -4805,11 +4927,15 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
         COMMAND_PRICE_AMENDMENT_DECIDED => {
             parse_price_amendment_decision(payload).map_err(AppError::Validation)?;
         }
-        COMMAND_PURCHASE_ORDER_ACTIVATE => {
+        COMMAND_PURCHASE_ORDER_ACTIVATE | crate::cloud::domain::COMMAND_PURCHASE_ORDER_REVISE => {
             // Refused at the issuing desk rather than at the DC: an order the
             // warehouse cannot read blocks its command stream, and the buyer
             // who raised it is the one who can fix it.
             parse_purchase_order(payload).map_err(AppError::Validation)?;
+        }
+        crate::cloud::domain::COMMAND_PURCHASE_ORDER_CANCEL => {
+            crate::cloud::domain::parse_purchase_order_cancellation(payload)
+                .map_err(AppError::Validation)?;
         }
         COMMAND_AUTH_POLICY_REPLACE => {
             crate::cloud::domain::parse_auth_policy(payload).map_err(AppError::Validation)?;
@@ -4829,6 +4955,10 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
         }
         INVENTORY_OFFICIAL_COUNT_ACTIVATE_V1 => {
             parse_official_count_activation(payload).map_err(AppError::Validation)?;
+        }
+        INVENTORY_STORE_INBOUND_ANNOUNCE_V1 => {
+            // A shop that cannot read it blocks its command stream.
+            parse_store_inbound_announcement(payload).map_err(AppError::Validation)?;
         }
         crate::cloud::domain::COMMAND_ATTENDANCE_BOOK_REPLACE => {
             // Refused at the issuing desk rather than at the unit, for the
@@ -5795,6 +5925,44 @@ pub async fn publish_catalog_if_changed(
     Ok(Some(generation))
 }
 
+/// Send one node the product list the fleet already holds.
+///
+/// For a node that joined after the last publication (`node_bootstrap.rs`).
+/// The fleet is brought up to date first, which is enough on its own when the
+/// catalogue had changed: the new node is registered by now and is among the
+/// targets. Otherwise the current generation is sent to this node alone —
+/// the same items under the same generation the others hold, so its hash
+/// matches theirs and the convergence view shows it converged.
+///
+/// Returns the generation the node was sent, or `None` when there is no
+/// catalogue to send.
+pub async fn publish_current_catalog_to(
+    pool: &PgPool,
+    origin_id: &str,
+    issued_by: &str,
+) -> Result<Option<i64>, AppError> {
+    if let Some(generation) = publish_catalog_if_changed(pool, issued_by).await? {
+        return Ok(Some(generation));
+    }
+    let Some(generation): Option<i64> =
+        sqlx::query_scalar("SELECT max(generation) FROM catalog_publication")
+            .fetch_one(pool)
+            .await?
+    else {
+        return Ok(None);
+    };
+    let items = catalog_items(pool).await?;
+    publish_catalog(
+        pool,
+        generation,
+        &items,
+        issued_by,
+        &[origin_id.to_owned()],
+    )
+    .await?;
+    Ok(Some(generation))
+}
+
 /// The product list as the fleet should see it.
 ///
 /// Ordered by SKU code so the hash is a function of the catalogue and not of
@@ -6231,6 +6399,63 @@ async fn apply_sale(
     Ok(())
 }
 
+/// Apply a shop's statement that a completed sale was voided.
+///
+/// Two effects, and the first is the guard for the second. The `edge_sale`
+/// row flips `COMPLETED → VOIDED`, and only a row that actually flipped
+/// proceeds to the reversal — so a redelivered fact finds nothing to do and
+/// a member's balance is untouched by it. The transition is the idempotency
+/// guard; the ledger's own `(sale_id) WHERE entry_type='VOID_REVERSAL'` index
+/// (migration 0354) is the second opinion behind it.
+///
+/// The award figure comes from what the centre recorded when the sale landed,
+/// never from the void fact: one opinion about what the member has. Counters
+/// for campaigns and coupons are deliberately NOT wound back — a budget is a
+/// brake on what was given away, and the discount did come off the basket
+/// before the shop took the sale back. Money reports read `status` and can
+/// leave the sale out; the counters count giving, and say so.
+async fn apply_sale_voided(
+    tx: &mut Transaction<'_, Postgres>,
+    voided: &crate::cloud::domain::SalesVoidedPayload,
+) -> Result<(), AppError> {
+    let flipped = sqlx::query(
+        "UPDATE edge_sale
+            SET status = 'VOIDED', voided_at = $2
+          WHERE sale_id = $1 AND status = 'COMPLETED'",
+    )
+    .bind(voided.sale_id)
+    .bind(voided.voided_at)
+    .execute(&mut **tx)
+    .await?
+    .rows_affected();
+    if flipped == 0 {
+        return Ok(());
+    }
+    let row: Option<(Option<String>, Option<i64>)> =
+        sqlx::query_as("SELECT customer_id, points_earned FROM edge_sale WHERE sale_id = $1")
+            .bind(voided.sale_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    let Some((Some(customer_id), points)) = row else {
+        // An anonymous sale earned nothing and named nobody; the reversal has
+        // no account to land on and nothing to land on it.
+        return Ok(());
+    };
+    let customer_id = customer_id.trim();
+    if customer_id.is_empty() {
+        return Ok(());
+    }
+    let actor = voided
+        .actor_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .unwrap_or("sync");
+    super::loyalty::reverse_for_void(tx, customer_id, voided.sale_id, points.unwrap_or(0), actor)
+        .await?;
+    Ok(())
+}
+
 /// Record that a shop has put a price book into service.
 ///
 /// The site is resolved from the origin's credential here, at the moment the
@@ -6383,6 +6608,7 @@ pub async fn sales_by_site(
                 max(occurred_at)            AS last_sale_at
          FROM edge_sale
          WHERE occurred_at >= $1 AND occurred_at < $2
+           AND status = 'COMPLETED'
          GROUP BY site_id ORDER BY site_id",
     )
     .bind(from)
@@ -6748,6 +6974,7 @@ pub async fn create_purchase_order(
             ordered_quantity: line.ordered_quantity,
             unit_price_minor: line.unit_price_minor,
             promised_date: line.promised_date.map(|d| d.to_string()),
+            units: None,
         });
     }
     // The agreed price goes with the order. The verifier is asked to check it
@@ -6760,6 +6987,7 @@ pub async fn create_purchase_order(
         "supplier_id": request.supplier_id,
         "supplier_name": request.supplier_name,
         "destination_site_id": request.destination_site_id,
+        "created_by": request.created_by,
         "lines": wire_lines,
     });
     parse_purchase_order(&payload).map_err(AppError::Validation)?;
@@ -7030,6 +7258,26 @@ async fn apply_goods_receipt_line(
     .execute(&mut **tx)
     .await?;
 
+    // What came beyond the order goes back to the supplier (owner,
+    // 2026-09-26): the person who raised the order saw the excess when they
+    // verified the count, so the decision is theirs and is recorded as made.
+    // A buyer who wants to keep the extra pieces raises them on an order.
+    if inserted.rows_affected() > 0 && excess_quantity > 0 {
+        sqlx::query(
+            "INSERT INTO purchase_excess_decision
+                 (receipt_line_id, outcome, agreed_unit_price_minor, reason, decided_by)
+             VALUES ($1, 'RETURNED', NULL, $2, $3)
+             ON CONFLICT (receipt_line_id) DO NOTHING",
+        )
+        .bind(line.receipt_line_id)
+        .bind(format!(
+            "{excess_quantity} counted beyond the order — returned to supplier"
+        ))
+        .bind(&line.verified_by)
+        .execute(&mut **tx)
+        .await?;
+    }
+
     // Accepted goods with no identity yet are head office's move, and nobody
     // at the warehouse can make it: the article, its SKUs and their EPCs are
     // minted centrally. Raised only when the line was actually inserted — a
@@ -7234,8 +7482,8 @@ async fn apply_goods_receipt_invoice(
 pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, AppError> {
     let header = sqlx::query(
         "SELECT po_number, supplier_id, supplier_name, destination_site_id, origin_kind,
-                order_status, currency, created_by, issued_at, activation_command_id,
-                discount_minor
+                order_status, currency, created_by, created_at, issued_at, activation_command_id,
+                discount_minor, notes, supplier_ref_id
          FROM purchase_order WHERE purchase_order_id = $1",
     )
     .bind(id)
@@ -7244,7 +7492,7 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
     .ok_or_else(|| AppError::NotFound("purchase order".into()))?;
     let lines = sqlx::query(
         "SELECT l.po_line_id, l.line_number, l.article_code, l.article_name, l.division_code,
-                l.image_url,
+                l.image_url, l.supplier_item_id,
                 l.ordered_quantity,
                 l.cancelled_quantity, l.line_status, l.promised_date,
                 l.closed_short_units, l.closed_short_by, l.closed_short_reason,
@@ -7268,7 +7516,18 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                           WHERE r.po_line_id = l.po_line_id), 0)::bigint AS expected_value_minor,
                 COALESCE((SELECT array_agg(t.tag_code ORDER BY t.tag_code)
                           FROM purchase_order_line_tag t
-                          WHERE t.po_line_id = l.po_line_id), '{}')::text[] AS tags
+                          WHERE t.po_line_id = l.po_line_id), '{}')::text[] AS tags,
+                l.base_price_minor, l.markup_bps,
+                l.order_unit_code, trim_scale(l.order_unit_quantity)::text AS order_unit_quantity,
+                trim_scale(l.unit_factor)::text AS unit_factor,
+                COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                                     'colour_code', v.colour_code,
+                                     'size_code', v.size_code,
+                                     'quantity', v.quantity,
+                                     'base_price_minor', v.base_price_minor)
+                                 ORDER BY v.colour_code NULLS FIRST, v.size_code NULLS FIRST)
+                          FROM purchase_order_line_variant v
+                          WHERE v.po_line_id = l.po_line_id), '[]'::jsonb) AS variants
          FROM purchase_order_line l
          WHERE l.purchase_order_id = $1
          ORDER BY l.line_number",
@@ -7278,6 +7537,8 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
     .await?;
     let mut fully_received = true;
     let mut any_received = false;
+    let mut expected_units_total: i64 = 0;
+    let mut received_units_total: i64 = 0;
     let mut all_lines_settled = true;
     let mut expected_value_total: i64 = 0;
     let mut gross_total: i64 = 0;
@@ -7290,6 +7551,8 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
             let received: i64 = r.get("received_quantity");
             // Both sides are pieces, so the comparison is direct.
             let expected_stock_units = ordered - cancelled;
+            expected_units_total += expected_stock_units;
+            received_units_total += received;
             let short_units: Option<i64> = r.get("closed_short_units");
             if received > 0 {
                 any_received = true;
@@ -7330,6 +7593,9 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
             json!({
                 "po_line_id": r.get::<Uuid, _>("po_line_id"),
                 "line_number": r.get::<i32, _>("line_number"),
+                // The catalogue item the line was ordered from, which is what
+                // an edit of the order names it by.
+                "supplier_item_id": r.get::<Option<Uuid>, _>("supplier_item_id"),
                 "unit_price_minor": unit_price,
                 "ordered_value_minor": r.get::<i64, _>("line_amount_minor"),
                 // What the acceptances against this line are expected to be
@@ -7361,12 +7627,45 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                 "closed_short_by": r.get::<Option<String>, _>("closed_short_by"),
                 "closed_short_reason": r.get::<Option<String>, _>("closed_short_reason"),
                 "line_status": r.get::<String, _>("line_status"),
+                // What the buyer means these to sell for, and in which SKUs.
+                "base_price_minor": r.get::<Option<i64>, _>("base_price_minor"),
+                "markup_bps": r.get::<Option<i32>, _>("markup_bps"),
+                // What it was ordered in — "10 KODI" — beside the pieces.
+                "order_unit_code": r.get::<Option<String>, _>("order_unit_code"),
+                "order_unit_quantity": r.get::<Option<String>, _>("order_unit_quantity"),
+                "unit_factor": r.get::<Option<String>, _>("unit_factor"),
+                "variants": r.get::<Value, _>("variants"),
             })
         })
         .collect();
+    // Asked on every read so the screen offers Edit only where the server
+    // would take it, and can say why not where it would not.
+    let edit_blocked_reason = super::purchase_order_edit_blocker(pool, id).await?;
+    let revisions = super::purchase_order_revisions(pool, id).await?;
+    let cancel_blocked_reason = super::purchase_order_cancel_blocker(pool, id).await?;
+    let order_status = header.get::<String, _>("order_status");
+    // The same reading as the order book's — see `ORDER_BOOK_ROWS`.
+    let lifecycle = if order_status == "CANCELLED" {
+        "CANCELLED"
+    } else if expected_units_total > 0 && received_units_total >= expected_units_total {
+        "FULLY_RECEIVED"
+    } else if all_lines_settled || order_status == "CLOSED" {
+        "SHORT_RECEIVED"
+    } else if any_received {
+        "PARTIALLY_RECEIVED"
+    } else {
+        "ACTIVE"
+    };
     Ok(json!({
         "purchase_order_id": id,
         "po_number": header.get::<String, _>("po_number"),
+        "supplier_ref_id": header.get::<Option<Uuid>, _>("supplier_ref_id"),
+        "notes": header.get::<Option<String>, _>("notes"),
+        "editable": edit_blocked_reason.is_none(),
+        // Whether the order can still be called off, and if not, why.
+        "cancellable": cancel_blocked_reason.is_none(),
+        "cancel_blocked_reason": cancel_blocked_reason,
+        "edit_blocked_reason": edit_blocked_reason,
         "supplier_id": header.get::<String, _>("supplier_id"),
         "supplier_name": header.get::<Option<String>, _>("supplier_name"),
         "destination_site_id": header.get::<String, _>("destination_site_id"),
@@ -7381,15 +7680,9 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
         // The stored `order_status` knows only ISSUED and CLOSED and cannot
         // tell an order that has arrived in full from one nobody has
         // delivered against.
-        "lifecycle": if all_lines_settled || header.get::<String, _>("order_status") == "CLOSED" {
-            "CLOSED"
-        } else if fully_received {
-            "FULLY_RECEIVED"
-        } else if any_received {
-            "PARTIALLY_RECEIVED"
-        } else {
-            "ACTIVE"
-        },
+        "lifecycle": lifecycle,
+        // Every saved edit, newest first: who, when, and what changed.
+        "revisions": revisions,
         // What the deliveries are expected to be worth, at the prices that
         // applied when each was accepted. An operational estimate for Finance
         // to match against — not a payable, and not in the ledger.
@@ -7401,6 +7694,7 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
         "discount_minor": header.get::<i64, _>("discount_minor"),
         "net_minor": (gross_total - header.get::<i64, _>("discount_minor")).max(0),
         "expected_arrival": promised.map(|date| date.to_string()),
+        "created_at": header.get::<DateTime<Utc>, _>("created_at"),
         "lines": items,
     }))
 }
@@ -7506,6 +7800,18 @@ pub struct PurchaseOrderRow {
     /// say whether the company is keeping it.
     pub excess_stock_units: i64,
     pub fully_received: bool,
+    /// What the pieces received so far are worth, at the prices that applied
+    /// when each was accepted and net of the discount allocated to them —
+    /// the figure the Receiving (%) column divides by the net value. PPN is
+    /// not split out: the company does not claim it, so the net value is the
+    /// amount paid, tax and all (owner, 2026-09-26).
+    pub received_value_minor: i64,
+    /// When the order was finished — the last receipt, or the last line
+    /// closed short. Absent while it is still open.
+    pub fulfilled_at: Option<DateTime<Utc>>,
+    /// The delivery date has passed and pieces are still owed. The list pins
+    /// these to the top and marks them red.
+    pub overdue: bool,
 }
 
 /// One value a filter can take, and how many orders would still be there.
@@ -7603,14 +7909,44 @@ const ORDER_BOOK_ROWS: &str = "
            -- waiting. A stored lifecycle would be a second copy of what the
            -- receipts already say, and the two would drift the first time a
            -- fact was replayed.
+           --
+           -- SHORT_RECEIVED is an order that stopped waiting with pieces
+           -- missing: every line closed short. PARTIALLY_RECEIVED is still
+           -- waiting for the rest (owner, 2026-09-26).
            CASE
-               WHEN b.all_lines_settled OR b.order_status = 'CLOSED' THEN 'CLOSED'
+               WHEN b.order_status = 'CANCELLED' THEN 'CANCELLED'
                WHEN b.expected_stock_units > 0
                     AND b.received_stock_units >= b.expected_stock_units
                     THEN 'FULLY_RECEIVED'
+               WHEN b.all_lines_settled OR b.order_status = 'CLOSED' THEN 'SHORT_RECEIVED'
                WHEN b.received_stock_units > 0 THEN 'PARTIALLY_RECEIVED'
                ELSE 'ACTIVE'
-           END AS lifecycle
+           END AS lifecycle,
+           -- Late: promised for a day that has passed, and still owed. An
+           -- order nobody promised a date for cannot be late.
+           (b.order_status = 'ISSUED'
+            AND NOT b.all_lines_settled
+            AND b.received_stock_units < b.expected_stock_units
+            AND b.expected_arrival < (now() AT TIME ZONE 'Asia/Jakarta')::date) AS overdue,
+           -- The house order as one number, so a keyset can seek on it: late
+           -- orders first, the longest-late at the top; then everything else,
+           -- the newest issued first.
+           CASE
+               WHEN b.order_status = 'ISSUED'
+                    AND NOT b.all_lines_settled
+                    AND b.received_stock_units < b.expected_stock_units
+                    AND b.expected_arrival < (now() AT TIME ZONE 'Asia/Jakarta')::date
+                    THEN extract(epoch FROM b.expected_arrival::timestamp)::bigint
+               ELSE 1000000000000
+                    - extract(epoch FROM COALESCE(b.issued_at, TIMESTAMPTZ 'epoch'))::bigint
+           END AS attention_key,
+           CASE
+               WHEN b.expected_stock_units > 0
+                    AND b.received_stock_units >= b.expected_stock_units
+                    THEN b.last_received_at
+               WHEN b.all_lines_settled OR b.order_status = 'CLOSED'
+                    THEN GREATEST(b.last_received_at, b.last_closed_at)
+           END AS fulfilled_at
     FROM (
         SELECT o.purchase_order_id, o.po_number, o.supplier_id, o.supplier_name,
                o.destination_site_id, o.order_status, o.currency, o.issued_at,
@@ -7645,6 +7981,17 @@ const ORDER_BOOK_ROWS: &str = "
                              FROM goods_receipt_line r
                              WHERE r.po_line_id = l.po_line_id)), 0)::bigint
                    AS excess_stock_units,
+               -- What the matched pieces are worth, the same reading the
+               -- order's own detail gives as `expected_value_minor`.
+               COALESCE(sum((SELECT COALESCE(sum(r.matched_quantity
+                                     * COALESCE(r.agreed_unit_price_minor, l.unit_price_minor))
+                                     - sum(r.allocated_discount_minor), 0)
+                             FROM goods_receipt_line r
+                             WHERE r.po_line_id = l.po_line_id)), 0)::bigint
+                   AS received_value_minor,
+               max((SELECT max(r.received_at) FROM goods_receipt_line r
+                     WHERE r.po_line_id = l.po_line_id)) AS last_received_at,
+               max(l.closed_short_at) AS last_closed_at,
                (count(l.po_line_id) > 0 AND bool_and(l.line_status <> 'OPEN'))
                    AS all_lines_settled
         FROM purchase_order o
@@ -7702,7 +8049,9 @@ pub async fn list_purchase_orders(
         Some("supplier") => ("supplier_key", false),
         Some("value") => ("net_key", true),
         Some("expected") => ("expected_key", false),
-        _ => ("issued_key", true),
+        Some("issued") => ("issued_key", true),
+        // The house order: late orders first, then the newest issued.
+        _ => ("attention_key", false),
     };
     let desc = match filter.dir.as_deref() {
         Some("asc") => false,
@@ -7794,6 +8143,9 @@ pub async fn list_purchase_orders(
             invoiced_stock_units: r.try_get("invoiced_stock_units")?,
             excess_stock_units: r.try_get("excess_stock_units")?,
             fully_received: received >= expected,
+            received_value_minor: r.try_get("received_value_minor")?,
+            fulfilled_at: r.try_get("fulfilled_at")?,
+            overdue: r.try_get("overdue")?,
         });
     }
 

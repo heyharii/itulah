@@ -27,6 +27,7 @@ export function TallyRow({
   onLess,
   onMore,
   onRemove,
+  onCount,
 }: {
   name: string
   code: string
@@ -41,6 +42,11 @@ export function TallyRow({
   /// Taking the whole line off the sheet. A picker who typed 40 against the
   /// wrong SKU should not have to press minus forty times.
   onRemove?: () => void
+  /// Typing the exact number instead of pressing + forty times. Given, the
+  /// name and the figure become one real button that opens a count sheet — a
+  /// button, not a click caught on the card, so a keyboard and a screen reader
+  /// reach it too.
+  onCount?: () => void
 }) {
   return (
     <div
@@ -53,7 +59,7 @@ export function TallyRow({
             : "border-hairline",
       )}
     >
-      <span className="min-w-0 flex-1">
+      <Label onCount={onCount} label={`Ketik jumlah ${code}`}>
         <span className="block truncate font-medium text-ink">{name}</span>
         {/* Wraps rather than truncates, and the code is what must never be the
             thing that gives way: it is the identity somebody checks against the
@@ -65,7 +71,7 @@ export function TallyRow({
           </span>
           {note}
         </span>
-      </span>
+      </Label>
 
       <span className="flex items-center gap-1">
         <button
@@ -100,5 +106,31 @@ export function TallyRow({
         )}
       </span>
     </div>
+  )
+}
+
+/// The name-and-code block: a button when the row can be counted exactly, the
+/// plain block otherwise.
+function Label({
+  onCount,
+  label,
+  children,
+}: {
+  onCount?: () => void
+  label: string
+  children: React.ReactNode
+}) {
+  if (onCount === undefined) {
+    return <span className="min-w-0 flex-1">{children}</span>
+  }
+  return (
+    <button
+      type="button"
+      onClick={onCount}
+      aria-label={label}
+      className="-my-1.5 -ml-1.5 min-w-0 flex-1 rounded-inner px-1.5 py-1.5 text-left transition-[background-color,scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.98] active:bg-soft-2"
+    >
+      {children}
+    </button>
   )
 }

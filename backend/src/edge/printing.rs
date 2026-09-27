@@ -1613,6 +1613,8 @@ mod tests {
             label_height_mm: 40,
             label_offset_mm: 0,
             language: None,
+            darkness: None,
+            speed_ips: None,
             chunk_size: Some(4),
             actor_id: "operator-1".into(),
         }
@@ -1772,7 +1774,7 @@ mod tests {
             attempts: 1,
             zpl: "^XA^XZ\n".into(),
         }];
-        let outcomes = dispatch_chunk("169.254.169.254", 9100, &labels);
+        let outcomes = dispatch_chunk("169.254.169.254", 9100, &labels, "");
         assert_eq!(outcomes.len(), 1);
         assert!(outcomes[0].error.is_some(), "{outcomes:?}");
         assert_eq!(outcomes[0].epc, labels[0].epc);

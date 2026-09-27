@@ -1,14 +1,16 @@
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Clock4, FileWarning, Inbox } from "lucide-react"
-import { useMemo } from "react"
+import { useCallback, useMemo } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { AppLink } from "@/components/ui/app-link"
 import { ExceptionQueue, type Exception } from "@/components/ui/exception-queue"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { Banner } from "@/components/ui/states"
+import { Banner, ErrorState } from "@/components/ui/states"
 import { count, day } from "@/lib/format"
+import { queryState } from "@/lib/query-state"
 import {
   awaitingOvertime,
   expiringContracts,
@@ -35,25 +37,9 @@ import { UnitChoice, useUnit } from "@/screens/people/parts"
 /// queue is at the top, each row carries a severity and exactly one action,
 /// and the counters sit underneath as context rather than as the point.
 ///
-/// Both HR prototypes lead with this screen, and the module has never had it.
-/// Every figure on it comes from a route that already existed — nothing here
-/// waited on a new endpoint, which is why it could be built while three other
-/// lanes were still moving.
-///
-/// # What is deliberately absent
-///
-/// The prototypes' **Hari ini** — who is in, who is late, who has not arrived
-/// — is not here, and is not faked. There is no punch source connected yet, so
-/// the honest version of that panel is a banner saying so. A grid of people
-/// with nobody marked present reads as "everybody is absent" to anyone who
-/// does not know the backend, and that is worse than an absence.
-///
-/// The prototypes' **Persetujuan saya** and **Perlu perhatian** are one queue
-/// here rather than two tabs. They differ by who is blocked, not by what the
-/// reader does next: five minutes and a list of things is the situation, and
-/// splitting it in two is how the second tab stops being opened. Payroll
-/// submissions and hire proposals join the same queue as those lanes land.
-///
+/// The queue stays empty until all of its sources have answered; partial data
+/// is not evidence that nothing needs attention.
+
 /// # Names, not uuids
 ///
 /// The leave and overtime queues carry `employee_id` and no name — they are
@@ -62,7 +48,10 @@ import { UnitChoice, useUnit } from "@/screens/people/parts"
 /// `emp_174c7e88…` is a queue nobody can triage.
 export function PeopleOverview() {
   const navigate = useNavigate()
-  const go = (to: string) => () => navigate({ to } as never)
+  const go = useCallback(
+    (to: string) => () => navigate({ to } as never),
+    [navigate]
+  )
   const unit = useUnit()
 
   const leave = useQuery({
@@ -82,7 +71,8 @@ export function PeopleOverview() {
   /// of the count on this screen.
   const workforce = useQuery({
     queryKey: peopleKeys.employees({ status: "ACTIVE", limit: 1 }),
-    queryFn: ({ signal }) => listWorkforce({ status: "ACTIVE", limit: 1 }, signal),
+    queryFn: ({ signal }) =>
+      listWorkforce({ status: "ACTIVE", limit: 1 }, signal),
   })
   const team = useQuery({
     queryKey: peopleKeys.employees({ status: "ACTIVE", limit: 1000 }),
@@ -103,7 +93,7 @@ export function PeopleOverview() {
     return map
   }, [team.data])
 
-  const who = (id: string) => named.get(id) ?? id
+  const who = useCallback((id: string) => named.get(id) ?? id, [named])
 
   const exceptions = useMemo<Exception[]>(() => {
     const found: Exception[] = []
@@ -156,9 +146,56 @@ export function PeopleOverview() {
     }
 
     return found
-  }, [expiring.data, leave.data, overtime.data, named])
+  }, [expiring.data, leave.data, overtime.data, go, who])
 
   const open = (periods.data ?? []).filter((one) => one.status !== "CLOSED")
+
+  /// The empty sentence is meaningful only after every source that can put
+  /// something in the queue has answered. Keep the sources together so a
+  /// slow or refused read can never look like an all-clear.
+  const queueRead = {
+    isPending:
+      leave.isPending ||
+      overtime.isPending ||
+      expiring.isPending ||
+      team.isPending,
+    isError:
+      leave.isError || overtime.isError || expiring.isError || team.isError,
+    error: leave.error ?? overtime.error ?? expiring.error ?? team.error,
+    data: exceptions,
+    refetch: () => {
+      void Promise.all([
+        leave.refetch(),
+        overtime.refetch(),
+        expiring.refetch(),
+        team.refetch(),
+      ])
+    },
+  }
+
+  const workforceValue = workforce.isPending
+    ? "Loading…"
+    : workforce.isError
+      ? "Unavailable"
+      : count(Number(workforce.data.total))
+  const leaveValue = leave.isPending
+    ? "Loading…"
+    : leave.isError
+      ? "Unavailable"
+      : count(leave.data.length)
+  const overtimeValue = overtime.isPending
+    ? "Loading…"
+    : overtime.isError
+      ? "Unavailable"
+      : count(overtime.data.length)
+  const periodsValue =
+    unit.place === null
+      ? "No unit available"
+      : periods.isPending
+        ? "Loading…"
+        : periods.isError
+          ? "Unavailable"
+          : count(open.length)
 
   return (
     <PageContent>
@@ -179,34 +216,27 @@ export function PeopleOverview() {
         }
       />
 
-      <ExceptionQueue
-        exceptions={exceptions}
-        empty="No contract is running out, no leave is waiting on a decision, and every overtime order has been answered."
-      />
+      {queryState(queueRead, {
+        loading: "Checking contracts, leave requests and overtime orders…",
+        render: (rows) => (
+          <ExceptionQueue
+            exceptions={rows}
+            empty="No contracts are past due or ending in the next 30 days, and no leave requests or overtime orders are waiting."
+          />
+        ),
+      })}
 
       <KpiStrip className="md:grid-cols-2 xl:grid-cols-4">
-        <Kpi
-          label="Working here"
-          value={
-            workforce.data === undefined ? "—" : count(Number(workforce.data.total))
-          }
-        />
-        <Kpi
-          label="Leave waiting on a decision"
-          value={leave.data === undefined ? "—" : count(leave.data.length)}
-        />
-        <Kpi
-          label="Overtime unanswered"
-          value={overtime.data === undefined ? "—" : count(overtime.data.length)}
-        />
+        <Kpi label="Working here" value={workforceValue} />
+        <Kpi label="Leave waiting on a decision" value={leaveValue} />
+        <Kpi label="Overtime unanswered" value={overtimeValue} />
         <Kpi
           label={`Months still open at ${unit.name ?? "your place"}`}
-          value={
-            unit.place === null || periods.data === undefined
-              ? "—"
-              : count(open.length)
-          }
+          value={periodsValue}
           delta={
+            unit.place !== null &&
+            !periods.isPending &&
+            !periods.isError &&
             open.length > 0 ? (
               <button
                 type="button"
@@ -220,13 +250,22 @@ export function PeopleOverview() {
         />
       </KpiStrip>
 
-      {/* Last, and stated rather than drawn. This is the panel both prototypes
-          put first, and it cannot be built honestly yet. */}
+      {workforce.isError && (
+        <ErrorState
+          error={workforce.error}
+          onRetry={() => void workforce.refetch()}
+        />
+      )}
+      {unit.place !== null && periods.isError && (
+        <ErrorState
+          error={periods.error}
+          onRetry={() => void periods.refetch()}
+        />
+      )}
+
       <Banner tone="info">
-        Who is in today is not here: no punch source is connected, so nothing
-        knows who arrived. A fingerprint station per unit is being built — until
-        it reports, this screen shows what was decided and planned, never what
-        was worked.
+        For today’s attendance and worked hours, open{" "}
+        <AppLink to="/people/attendance-days">Attendance</AppLink>.
       </Banner>
     </PageContent>
   )

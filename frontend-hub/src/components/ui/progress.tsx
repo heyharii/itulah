@@ -1,3 +1,5 @@
+import { useId } from "react"
+
 import { Meter } from "@/components/ui/meter"
 import { cn } from "@/lib/utils"
 
@@ -35,13 +37,17 @@ export function Progress({
   className?: string
 }) {
   const share = of <= 0 ? 0 : value / of
+  const labelId = useId()
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
-      <span className="w-[5.5rem] shrink-0 text-[0.75rem] text-text">
+      <span
+        id={labelId}
+        className="w-[5.5rem] shrink-0 text-[0.875rem] text-text"
+      >
         {label}
       </span>
-      <Meter value={share} tone={tone} />
-      <span className="w-[3.25rem] shrink-0 text-right text-[0.71875rem] font-semibold text-text tabular-nums">
+      <Meter value={share} tone={tone} labelledBy={labelId} />
+      <span className="w-[3.25rem] shrink-0 text-right text-[0.875rem] font-semibold text-text tabular-nums">
         {detail ?? `${Math.round(share * 100)}%`}
       </span>
     </div>

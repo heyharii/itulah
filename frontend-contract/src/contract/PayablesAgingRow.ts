@@ -3,10 +3,10 @@ import type { AgingBuckets } from "./AgingBuckets";
 
 export type PayablesAgingRow = { supplier_id: string, supplier_name: string | null, 
 /**
- * How many bills are behind these figures — the difference between one
- * disputed invoice and a supplier nobody has paid for a quarter.
+ * How many open items are behind these figures: invoices and unbilled
+ * goods receipts.
  */
-bill_count: number, 
+open_document_count: number, 
 /**
  * The age of the oldest thing still outstanding, in days. Negative when
  * nothing this supplier is owed has fallen due yet.

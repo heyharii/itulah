@@ -26,10 +26,15 @@ import { cva, type VariantProps } from "class-variance-authority"
 /// that same colour is one more of them. Black is the only ink nothing else
 /// uses, so "the button to press" needs no disambiguation.
 export const button = cva(
+  // Pressed, it gives: `scale(0.97)` on `:active`, 120ms, ease-out. Feedback
+  // on the finger landing rather than on its lifting is what a native button
+  // does, and the label and icon shrink with it so it reads as one object
+  // pushed in. `:active` is a real press on touch too — no hover gating.
+  //
   // `rounded-inner` (8), not a pill. A fully round control reads as consumer;
   // the reference screens hold a soft rectangle, and it also stops a button
   // from looking like a status chip at a glance.
-  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-inner font-medium whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0",
+  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-inner font-medium whitespace-nowrap transition-[color,background-color,border-color,box-shadow,scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -43,9 +48,13 @@ export const button = cva(
       size: {
         // 32, from `--spacing-control` — the one height every control in a
         // toolbar agrees on. `sm` exists only for controls inside a table row.
-        default: "h-control px-2.5 text-control [&_svg]:size-4",
-        sm: "h-[1.75rem] px-2 text-meta [&_svg]:size-3.5",
-        icon: "size-control [&_svg]:size-4",
+        // Under a finger every size grows to something a thumb can land
+        // on (40, 36, 40) — the desk's 32/28 stay dense for a mouse. The
+        // pointer decides, not the width: an iPad is wide and still touched.
+        default:
+          "h-control px-2.5 text-control pointer-coarse:h-10 pointer-coarse:px-3.5 [&_svg]:size-4",
+        sm: "h-[1.75rem] px-2 text-meta pointer-coarse:h-9 pointer-coarse:px-3 [&_svg]:size-3.5",
+        icon: "size-control pointer-coarse:size-10 [&_svg]:size-4",
       },
     },
     defaultVariants: { variant: "ghost", size: "default" },

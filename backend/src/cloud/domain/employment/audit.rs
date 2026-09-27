@@ -115,7 +115,7 @@ pub mod actions {
     /// The cashier rung, like [`LEAVE_REQUEST_OWN`], and bounded to the
     /// caller's own record by the handler rather than by the rung.
     pub const OVERTIME_CONSENT_OWN: &str = "people.overtime.consent_own";
-    /// File an attendance correction against somebody's day.
+    /// Filing an attendance correction against somebody's day.
     ///
     /// The place manager's, bounded by their posting: the person who knows the
     /// reader was down on Tuesday is the one standing next to it. Deliberately
@@ -369,6 +369,202 @@ pub mod actions {
     /// `domain::component::adjustment` for why a second chain was rejected.
     pub const PAYROLL_ADJUSTMENT_FILE: &str = "people.payroll_adjustment.file";
 
+    // ── asking for money back ────────────────────────────────────────────
+    //
+    // Expense claims: somebody lists what they spent, a second person
+    // sanctions each line, and the sanction posts. The keys below are the
+    // same three acts the leave module splits — ask, decide, and the one that
+    // moves money — plus the catalogue, and they are disjoint for the same
+    // reason. See `domain::claim`.
+
+    /// Define the claim type catalogue, or retire an entry.
+    ///
+    /// Head office's. A catalogue decision, exactly the shape of
+    /// [`LEAVE_TYPE_SET`]: the codes the whole company files claims under are
+    /// one vocabulary, and a shop with its own idea of what a TRAVEL claim is
+    /// would make every total incomparable with the shop beside it.
+    pub const CLAIM_TYPE_SET: &str = "people.claim_type.set";
+    /// File an expense claim on somebody else's behalf.
+    ///
+    /// A place manager's, bounded by `super::reach::Reach`: not every member
+    /// of staff carries a phone, and the manager who signed the receipts is
+    /// the person who can turn them into a claim. Deliberately separate from
+    /// [`CLAIM_DECIDE`] — the two-actor rule lives on the actors, and a rule
+    /// stated in one key could not compare them.
+    pub const CLAIM_FILE: &str = "people.claim.file";
+    /// File your own expense claim.
+    ///
+    /// The cashier rung, like [`LEAVE_REQUEST_OWN`], and bounded by the
+    /// record rather than the rung: it reaches the caller's own claim and no
+    /// colleague's. Separate from [`CLAIM_FILE`] for the same reason every
+    /// `*_own` key here is separate — "may file their own" and "may file on
+    /// anyone's behalf" are different grants, and one key covering both is
+    /// how a self-service form becomes a way to file claims against a
+    /// colleague.
+    pub const CLAIM_REQUEST_OWN: &str = "people.claim.request_own";
+    /// Sanction a submitted claim, line by line.
+    ///
+    /// Bounded by reach, and the domain refuses the filer deciding their own
+    /// claim — the same comparison [`PAYROLL_APPROVE`] is kept disjoint from
+    /// [`PAYROLL_SUBMIT`] for. One key for approve, reject and send-back,
+    /// because they are one decision with three answers and each of them
+    /// needs a reason.
+    pub const CLAIM_DECIDE: &str = "people.claim.decide";
+    /// Pay an approved claim out of the place's petty cash.
+    ///
+    /// Bounded by reach — a shop's imprest is the shop's — and head office
+    /// holds it unbounded, as everywhere: paying is where the module touches
+    /// the till, and the person who sanctions a claim is not thereby the
+    /// person who opens the cash box, but both are supervisor acts in the
+    /// same place.
+    pub const CLAIM_PAY: &str = "people.claim.pay";
+
+    // ── how it ends ──────────────────────────────────────────────────────
+    //
+    // The confidential channel, the interview at the door, and the statement
+    // that closes a person's books. See `domain::grievance` and
+    // `domain::exit`.
+
+    /// Define the grievance kind catalogue, or retire an entry.
+    ///
+    /// Head office's, exactly the shape of [`CLAIM_TYPE_SET`] and
+    /// [`LEAVE_TYPE_SET`]: the vocabulary the whole company complains under
+    /// is one company's, not thirteen shops' worth of dialects.
+    pub const GRIEVANCE_TYPE_SET: &str = "people.grievance_type.set";
+    /// File a grievance on somebody else's behalf.
+    ///
+    /// A place manager's, bounded by `super::reach::Reach` — the manager who
+    /// signed the complaint their warehouse hand could not type. Deliberately
+    /// separate from [`GRIEVANCE_REQUEST_OWN`] for the reason every
+    /// `*_own`/`*` pair here is separate, and with one consequence the claims
+    /// pair does not have: the person the grievance is ABOUT may be the
+    /// manager holding this key, which is exactly the filing that must carry
+    /// a name and a bound rather than arriving as an anonymous queue entry.
+    pub const GRIEVANCE_FILE: &str = "people.grievance.file";
+    /// File your own grievance.
+    ///
+    /// The cashier rung — the essential key of the whole channel. A grievance
+    /// about your own supervisor that has to be handed to your supervisor is
+    /// not a confidential channel, so the bound is the filing rather than the
+    /// rung: it reaches complaints the caller themselves filed, and no
+    /// colleague's.
+    pub const GRIEVANCE_REQUEST_OWN: &str = "people.grievance.request_own";
+    /// Investigate a grievance.
+    ///
+    /// ADMIN, head office — the queue is nobody's posting but HO's, and a
+    /// grievance against a store manager cannot be investigated by that store
+    /// manager. **Disjoint from [`GRIEVANCE_DECIDE`]**: investigating and
+    /// resolving are two signatures, the payroll lesson. One grant holding
+    /// both is a deployment's choice; the keys being distinct is what makes
+    /// the choice expressible at all.
+    pub const GRIEVANCE_INVESTIGATE: &str = "people.grievance.investigate";
+    /// Resolve a grievance — upheld, or refused as invalid.
+    ///
+    /// ADMIN, and disjoint from [`GRIEVANCE_INVESTIGATE`] for the reason
+    /// above. The domain refuses either act by the person who filed, so the
+    /// channel never closes its own complaint.
+    pub const GRIEVANCE_DECIDE: &str = "people.grievance.decide";
+    /// Read the grievance queue.
+    ///
+    /// **Mapped ADMIN and deliberately its own key rather than a mode of
+    /// [`EMPLOYEE_READ`]** — a key finer than the ladder can express, which
+    /// is what the one key space is for. The accused supervisor holds
+    /// [`EMPLOYEE_READ`] because a rota needs names; if that read also opened
+    /// the queue, the channel would read as a list of who complained about
+    /// whom, and it would stop being a channel the day somebody worked that
+    /// out.
+    pub const GRIEVANCE_READ: &str = "people.grievance.read";
+    /// Complete the interview at the door, or cancel it as never held.
+    ///
+    /// ADMIN, head office's: the interview is created by the machine when
+    /// employment ends, and answering it is the employer's act. The store is
+    /// a party to the exit — it does not hold the pen.
+    pub const EXIT_INTERVIEW_FILE: &str = "people.exit_interview.file";
+    /// Create, settle or cancel a Full & Final statement.
+    ///
+    /// ADMIN, and the whole statement is head office's: it settles across
+    /// places — advances taken at one shop, claims sanctioned at another,
+    /// one journal at head office — so a place-scoped grant could not hold
+    /// it without the settlement crossing a bound the grant cannot name.
+    pub const FNF_SETTLE: &str = "people.fnf.settle";
+
+    // ── the next generation ──────────────────────────────────────────────
+    //
+    // The keys the 0359 workloads join the space with. Every supervisor-rung
+    // key here is bounded by `Reach` like its siblings above; every decide
+    // key falls through to Admin below, because deciding is the employer's.
+
+    /// Ask to swap one of your roster days with a colleague's.
+    ///
+    /// The cashier rung, bounded to the caller's own record: the person whose
+    /// day moves is the person who asks.
+    pub const ROSTER_SWAP_REQUEST_OWN: &str = "people.roster_swap.request_own";
+    /// Decide a colleague's swap request — approve it and the roster moves
+    /// both days, refuse it and the request stays as evidence.
+    ///
+    /// The place manager's, bounded by reach. The requester may not decide
+    /// their own; that rule is on the domain type.
+    pub const ROSTER_SWAP_DECIDE: &str = "people.roster_swap.decide";
+    /// File a change proposal — promotion, transfer, salary, separation —
+    /// against one of your people.
+    ///
+    /// The place manager's, bounded by reach. Deciding falls through to
+    /// Admin below, which is the whole shape: the shop asks, head office
+    /// answers, and the answer is what writes the kernels.
+    pub const CHANGE_PROPOSAL_FILE: &str = "people.change_proposal.file";
+    /// Decide a change proposal. Admin. The domain refuses the filer.
+    pub const CHANGE_PROPOSAL_DECIDE: &str = "people.change_proposal.decide";
+    /// Close a checklist task the store or head office owns.
+    ///
+    /// The place manager's, bounded by reach: the person standing in the shop
+    /// hands over the uniform and marks it handed over.
+    pub const LIFECYCLE_COMPLETE: &str = "people.lifecycle.complete";
+    /// Close one of **your own** checklist tasks, from the phone.
+    ///
+    /// The cashier rung, bounded to the caller's own record, for the reason
+    /// [`LEAVE_REQUEST_OWN`] is separate from [`LEAVE_REQUEST`].
+    pub const LIFECYCLE_COMPLETE_OWN: &str = "people.lifecycle.complete_own";
+    /// Close a checklist task IT owns — an account provisioned, a login
+    /// switched off.
+    ///
+    /// Admin, deliberately: a store cannot mark somebody else's account
+    /// provisioned, any more than it could provision it.
+    pub const LIFECYCLE_COMPLETE_IT: &str = "people.lifecycle.complete_it";
+    /// Open a checklist — onboarding or separation — for one person, by
+    /// hand. Admin: the machine opens these on the hire and on an applied
+    /// separation, and the by-hand door is head office's backfill, not the
+    /// shop's.
+    pub const LIFECYCLE_MANAGE: &str = "people.lifecycle.manage";
+    /// Schedule and record an interview. The place manager's, bounded by
+    /// reach: they are the one who conducts it.
+    pub const RECRUITMENT_INTERVIEW: &str = "people.recruitment.interview";
+    /// Work the pipeline head office holds — funnel stages, offers, hires,
+    /// and the staffing plan the requisitions are measured against. Admin.
+    pub const RECRUITMENT_MANAGE: &str = "people.recruitment.manage";
+    /// Record one person's monthly performance figure. The place manager's,
+    /// bounded by reach; it is their judgement the figure records.
+    pub const PERFORMANCE_RECORD: &str = "people.performance.record";
+    /// Define which figures a position is measured on. Admin.
+    pub const PERFORMANCE_TEMPLATE_SET: &str = "people.performance_template.set";
+    /// Nominate one of your people for a training program. The place
+    /// manager's, bounded by reach.
+    pub const TRAINING_NOMINATE: &str = "people.training.nominate";
+    /// Define training programs and close them. Admin.
+    pub const TRAINING_MANAGE: &str = "people.training.manage";
+    /// Record a benefit handed over — uniform sets. The place manager's,
+    /// bounded by reach.
+    pub const BENEFIT_RECORD: &str = "people.benefit.record";
+    /// Change a rule number in `hr_policy`. Admin, and the change records
+    /// who and why.
+    pub const POLICY_SET: &str = "people.policy.set";
+    /// Read the clock's run ledger: which HR period was worked, when, and
+    /// what it wrote. Admin, because it names the whole estate's mornings.
+    pub const HR_SCHEDULER_READ: &str = "people.scheduler.read";
+    /// Ask the clock to run its HR pass now. Admin, and the request records
+    /// a reason; the jobs themselves carry their own authority on every row
+    /// they write.
+    pub const HR_SCHEDULER_RUN: &str = "people.scheduler.run";
+
     // ── asking for somebody who is not employed yet ──────────────────────
     //
     // *Karyawan baru*: a shop proposes a candidate, head office decides. The
@@ -600,6 +796,38 @@ pub mod actions {
     /// and the first grant somebody was given without the other would be a
     /// grant to do half of it.
     pub const HIRE_EMPLOYING: &[&str] = &[EMPLOYEE_CREATE];
+    /// The keys that may file a claim — a manager on somebody's behalf, or a
+    /// person about their own spending. Deliberately excludes
+    /// [`CLAIM_DECIDE`]: asking to be paid back is not sanctioning it.
+    pub const CLAIM_REQUESTING: &[&str] = &[CLAIM_FILE, CLAIM_REQUEST_OWN];
+    /// The keys that may sanction one. **Disjoint from
+    /// [`CLAIM_REQUESTING`]**, which is the shape of the two-actor rule: the
+    /// domain compares the actor under this key with the actor under the
+    /// filing key, and one grant holding both could compare nothing.
+    pub const CLAIM_DECIDING: &[&str] = &[CLAIM_DECIDE];
+    /// The keys that may pay one out. Its own rather than a mode of
+    /// [`CLAIM_DECIDE`] for the reason [`PAYROLL_SETTLE`] is its own: saying
+    /// money is owed and opening the cash box are two acts, and a grant that
+    /// could do both would be one person closing their own loop.
+    pub const CLAIM_PAYING: &[&str] = &[CLAIM_PAY];
+    /// The keys that may define or retire a claim type.
+    pub const CLAIM_TYPE_SETTING: &[&str] = &[CLAIM_TYPE_SET];
+
+    /// The keys that may file a grievance — a manager on somebody's behalf,
+    /// or a person about their own treatment. Deliberately excludes
+    /// [`GRIEVANCE_INVESTIGATE`] and [`GRIEVANCE_DECIDE`]: complaining is not
+    /// investigating, and the disjointness is the channel.
+    pub const GRIEVANCE_FILING: &[&str] = &[GRIEVANCE_FILE, GRIEVANCE_REQUEST_OWN];
+    /// The keys that may investigate one. Its own slice so the decode gate
+    /// and the resolution gate can never blur into one signature.
+    pub const GRIEVANCE_INVESTIGATING: &[&str] = &[GRIEVANCE_INVESTIGATE];
+    /// The keys that may resolve one. **Deliberately disjoint from
+    /// [`GRIEVANCE_INVESTIGATING`]** — two signatures, the payroll lesson.
+    pub const GRIEVANCE_RESOLVING: &[&str] = &[GRIEVANCE_DECIDE];
+    /// The keys that may complete or cancel an exit interview.
+    pub const EXIT_INTERVIEW_FILING: &[&str] = &[EXIT_INTERVIEW_FILE];
+    /// The keys that may create, settle or cancel a Full & Final statement.
+    pub const FNF_SETTLING: &[&str] = &[FNF_SETTLE];
 
     /// The keys that may put something into the books.
     pub const FINANCE_POSTING: &[&str] = &[FINANCE_POST, FINANCE_JOURNAL_MANUAL];
@@ -680,7 +908,43 @@ pub fn required_role(action_key: &str) -> Role {
         // fall through to Admin below, which is the shape of the feature: the
         // place asks for one figure for one person for one month, and head
         // office decides both what a payslip may say and what it costs.
-        | actions::PAYROLL_ADJUSTMENT_FILE => Role::Supervisor,
+        | actions::PAYROLL_ADJUSTMENT_FILE
+        // Expense claims, up to and including the money: a place manager
+        // files a claim on their staff's behalf, sanctions what a different
+        // filer submitted, and pays an approved one out of the shop's own
+        // imprest — each bounded by `Reach`, the same bound that decides
+        // whose leave is theirs to grant. The catalogue behind them
+        // (`CLAIM_TYPE_SET`) falls through to Admin below, exactly as the
+        // leave kinds and the shift patterns do: the vocabulary is one
+        // company's, not thirteen shops' worth of dialects.
+        | actions::CLAIM_FILE
+        | actions::CLAIM_DECIDE
+        | actions::CLAIM_PAY
+        // A grievance filed on a colleague's behalf is the place manager's,
+        // bounded by `Reach` like every other place-scoped write. Filing is
+        // deliberately the ONLY grievance key at this rung: investigating and
+        // resolving fall through to Admin below, because the queue is head
+        // office's — in a thirteen-store estate, head office is the only
+        // place that is nobody's posting, and a channel a store manager could
+        // investigate would not survive its first complaint about a store
+        // manager.
+        | actions::GRIEVANCE_FILE
+        // The next generation's place half, bounded by `Reach` like the rest
+        // of this arm. Deciding a swap or a change proposal is deliberately
+        // NOT here — those fall through to Admin, the same shape as the hire
+        // proposal above: the shop asks, head office answers. Interviewing
+        // is here because the manager is the one who conducts it; recording
+        // a performance figure and nominating for training are here for the
+        // same reason, and closing a checklist task the store owns is here
+        // because the person standing in the shop is the one who hands the
+        // uniform over.
+        | actions::ROSTER_SWAP_DECIDE
+        | actions::CHANGE_PROPOSAL_FILE
+        | actions::LIFECYCLE_COMPLETE
+        | actions::RECRUITMENT_INTERVIEW
+        | actions::PERFORMANCE_RECORD
+        | actions::TRAINING_NOMINATE
+        | actions::BENEFIT_RECORD => Role::Supervisor,
         // The only finance key below head office. Everything else under
         // `finance.` falls through to Admin with the rest of the rules the
         // places are measured against — including, deliberately, reading the
@@ -705,10 +969,39 @@ pub fn required_role(action_key: &str) -> Role {
         // at all before a reader exists. The rung is everybody's because
         // everybody clocks in; the bound is the record, applied by the handler,
         // so this grant reaches the caller's own day and no colleague's.
+        //
+        // Asking for your own money back is the same shape one more time:
+        // everybody spends, so the rung is everybody's, and the bound is the
+        // claim the caller filed — the handler serves this key only for a
+        // claim whose filer is the caller — so it reaches their own
+        // reimbursement and no colleague's.
+        //
+        // Complaining about your own treatment is the same shape carrying the
+        // highest stakes it has had: the bound is the filing the caller
+        // themselves made, and the point of the key is that a grievance about
+        // your own supervisor does not have to be handed to your supervisor.
         actions::LEAVE_REQUEST_OWN
         | actions::OVERTIME_CONSENT_OWN
         | actions::CORRECTION_REQUEST_OWN
-        | actions::ATTENDANCE_PUNCH_RECORD_OWN => Role::Cashier,
+        | actions::ATTENDANCE_PUNCH_RECORD_OWN
+        | actions::CLAIM_REQUEST_OWN
+        | actions::GRIEVANCE_REQUEST_OWN
+        // The next generation's own-record keys, the same shape one more
+        // time: swapping one of your own roster days, and closing one of
+        // your own checklist tasks from the phone. The rung is everybody's;
+        // the bound is the record, applied by the handler.
+        | actions::ROSTER_SWAP_REQUEST_OWN
+        | actions::LIFECYCLE_COMPLETE_OWN => Role::Cashier,
+        // Everything else falls through to Admin — including the six keys the
+        // exit lane added: `GRIEVANCE_TYPE_SET`, `GRIEVANCE_INVESTIGATE`,
+        // `GRIEVANCE_DECIDE`, `GRIEVANCE_READ`, `EXIT_INTERVIEW_FILE` and
+        // `FNF_SETTLE`. That fall-through is the shape, not an oversight: the
+        // grievance queue is head office's because head office is nobody's
+        // posting, the exit interview is the employer's answer and not the
+        // shop's, and the Full & Final statement settles across places.
+        // Reading the queue is deliberately its own key (`GRIEVANCE_READ`)
+        // rather than a consequence of `EMPLOYEE_READ`, so the supervisor who
+        // reads a rota still does not read who complained about whom.
         _ => Role::Admin,
     }
 }
@@ -986,6 +1279,67 @@ impl Authorization {
     /// [`actions::HIRE_EMPLOYING`] for why it is not a key of its own.
     pub fn authorizes_hire_employment(&self) -> bool {
         actions::HIRE_EMPLOYING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority file an expense claim?
+    pub fn authorizes_claim_filing(&self) -> bool {
+        actions::CLAIM_REQUESTING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority sanction one?
+    ///
+    /// The gate that keeps an approval from being recorded under the key
+    /// somebody used to file — which is the employee paying themselves,
+    /// wearing the shape of a decision. Re-checked on the way in from
+    /// storage, because a decision is what puts money in the books and a row
+    /// edited into that shape would be a posting nobody authorised.
+    pub fn authorizes_claim_decision(&self) -> bool {
+        actions::CLAIM_DECIDING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority pay an approved claim out of petty cash?
+    pub fn authorizes_claim_payout(&self) -> bool {
+        actions::CLAIM_PAYING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority define or retire a claim type?
+    pub fn authorizes_claim_type_definition(&self) -> bool {
+        actions::CLAIM_TYPE_SETTING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority file a grievance?
+    pub fn authorizes_grievance_filing(&self) -> bool {
+        actions::GRIEVANCE_FILING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority investigate one?
+    ///
+    /// Re-checked on the way in from storage: a stored investigation whose
+    /// key never permitted investigating is an inquiry nobody authorised,
+    /// and it must fail to load rather than become the record of what the
+    /// company knew.
+    pub fn authorizes_grievance_investigation(&self) -> bool {
+        actions::GRIEVANCE_INVESTIGATING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority resolve one?
+    ///
+    /// **Deliberately not [`authorizes_grievance_investigation`]** — the two
+    /// keys are distinct so that the two signatures can be held by two
+    /// people, and a stored resolution recorded under the investigating key
+    /// is one person closing their own inquiry.
+    pub fn authorizes_grievance_resolution(&self) -> bool {
+        actions::GRIEVANCE_RESOLVING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority complete or cancel an exit interview?
+    pub fn authorizes_exit_interview(&self) -> bool {
+        actions::EXIT_INTERVIEW_FILING.contains(&self.action_key.as_str())
+    }
+
+    /// May this authority create, settle or cancel a Full & Final statement?
+    pub fn authorizes_fnf_settlement(&self) -> bool {
+        actions::FNF_SETTLING.contains(&self.action_key.as_str())
     }
 }
 

@@ -381,7 +381,7 @@ function MemberReceiptSheet({
                       className="border-t border-hairline"
                     >
                       <td className="py-2 pr-2">
-                        <span className="font-mono text-[0.71875rem] text-ink">
+                        <span className="font-mono text-[0.875rem] text-ink">
                           {line.sku_code}
                         </span>
                       </td>

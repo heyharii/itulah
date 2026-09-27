@@ -5,14 +5,11 @@
 //! reach. That is now the case — the counter has a USB RFID reader and a
 //! fingerprint scanner — and this is where those live.
 //!
-//! # Why they are stubs, and why the stubs say so out loud
+//! # Device bindings
 //!
-//! None of that hardware is on this machine, and neither vendor SDK has been
-//! bound yet. A stub that returned an empty tag list, or "no match", would be
-//! indistinguishable from a reader that saw nothing — which is the failure a
-//! cashier cannot diagnose: they press a finger, nothing happens, and there is
-//! no way to tell a broken scanner from an unrecognised print. So every call
-//! here refuses by name, and the window is expected to show that refusal.
+//! The Chainway R3 is bound on Windows through the vendor's C SDK. Every read
+//! first turns the reader buzzer off and verifies that state, then asks for one
+//! tag only. Fingerprint remains an explicit stub until its SDK is bound.
 //!
 //! # What will replace them
 //!
@@ -29,10 +26,9 @@
 //! print to a server to be matched would be a till that cannot sign anybody in
 //! during an outage, which at a counter means a shop that cannot trade.
 //!
-//! **RFID** may never need a driver at all. Our lane is networked and signed: a
-//! reader proves possession of an enrolment key and POSTs a batch to
-//! `/api/v1/rfid/observations`. A USB sled on this counter is the exception to
-//! that, not a second way for tags to enter the estate.
+//! **RFID** has two lanes: signed network readers post sweep observations to
+//! `/api/v1/rfid/observations`; the counter's Chainway R3 is a local USB reader
+//! and contributes a one-shot EPC to the unsold basket.
 //!
 //! **Printing does not belong here.** Receipts are ESC/POS rendered by the
 //! edge, which is already the party on the printer's LAN. A desktop shell that
@@ -62,8 +58,24 @@ fn unbound(what: &str) -> DeviceState {
 }
 
 #[tauri::command]
-pub fn rfid_state() -> DeviceState {
-    unbound("Pembaca RFID USB")
+pub fn rfid_state(app: tauri::AppHandle) -> DeviceState {
+    match crate::rfid::reader_state(&app) {
+        Ok(version) => DeviceState {
+            bound: true,
+            detail: format!("Chainway R3 terhubung ({version}); buzzer mati dan terverifikasi."),
+        },
+        Err(detail) => DeviceState {
+            bound: false,
+            detail,
+        },
+    }
+}
+
+/// Read exactly one tag from the Chainway R3 after confirming the buzzer is
+/// off. Returns only the EPC, which the existing scan path validates.
+#[tauri::command]
+pub fn rfid_read_single(app: tauri::AppHandle) -> Result<String, String> {
+    crate::rfid::read_single(&app)
 }
 
 #[tauri::command]

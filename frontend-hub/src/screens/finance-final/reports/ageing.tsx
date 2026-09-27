@@ -144,7 +144,7 @@ export function Ageing() {
   const overdue = total === null ? null : total.total_minor - total.not_due_minor
   /// How many documents are behind the payable total. A sum of integers the
   /// server counted, not a second opinion about an amount.
-  const bills = rows.reduce((sum, row) => sum + row.bill_count, 0)
+  const openDocuments = rows.reduce((sum, row) => sum + row.open_document_count, 0)
 
   return (
     <PageContent>
@@ -171,7 +171,7 @@ export function Ageing() {
         {/* The effective answer, in words. A date box filled with today and a
             date box the server defaulted look identical to a reader, and an
             ageing is meaningless until you know the day it was struck. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {asOf.chip}
           {site === "" ? (
             " · every location"
@@ -196,7 +196,7 @@ export function Ageing() {
             <NumberCard
               label="Owed to suppliers"
               value={total?.total_minor ?? null}
-              note={`${count(rows.length)} suppliers · ${count(bills)} bills`}
+              note={`${count(rows.length)} suppliers · ${count(openDocuments)} open items`}
             />
             <NumberCard
               label="Already late"
@@ -230,7 +230,7 @@ export function Ageing() {
                 <tr>
                   <Th>Party</Th>
                   <Th align="right" width="4.5rem">
-                    Bills
+                    Open items
                   </Th>
                   {/* Not "Due date", and that is the one judgement on this
                       page worth reading the code for — see `HowTheAgeIsRead`
@@ -268,7 +268,7 @@ export function Ageing() {
                 {total !== null && (
                   <TotalRow>
                     <Td>Total payable</Td>
-                    <Td align="right">{count(bills)}</Td>
+                    <Td align="right">{count(openDocuments)}</Td>
                     <Td />
                     {BUCKETS.map((bucket) => (
                       <Td key={bucket.key} align="right">
@@ -294,7 +294,7 @@ export function Ageing() {
                 <TotalRow>
                   <Td>
                     Total receivable
-                    <span className="mt-0.5 block text-[0.65625rem] font-normal text-mute">
+                    <span className="mt-0.5 block text-[0.875rem] font-normal text-mute">
                       Nothing counts it, so nothing is claimed
                     </span>
                   </Td>
@@ -399,11 +399,11 @@ function HalfRow({
         colSpan={COLUMNS}
         className="border-hairline-2 bg-soft py-1.5 align-middle"
       >
-        <span className="text-[0.71875rem] font-semibold text-ink">
+        <span className="text-[0.875rem] font-semibold text-ink">
           {label}
         </span>
-        <span className="ml-2 text-[0.6875rem] text-mute">{sub}</span>
-        <span className="ml-2 font-mono text-[0.6875rem] text-faint">
+        <span className="ml-2 text-[0.875rem] text-mute">{sub}</span>
+        <span className="ml-2 font-mono text-[0.875rem] text-faint">
           {detail}
         </span>
       </Td>
@@ -427,7 +427,7 @@ function SupplierRow({ row }: { row: PayablesAgingRow }) {
           className="font-medium text-ink"
         />
       </Td>
-      <Td align="right">{count(row.bill_count)}</Td>
+      <Td align="right">{count(row.open_document_count)}</Td>
       <Td align="right">
         <OldestAge days={row.oldest_days} />
       </Td>

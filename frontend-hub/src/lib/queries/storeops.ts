@@ -29,6 +29,7 @@ import type {
 /// One sale on the list. Transcribed from the `json!` in
 /// `postgres/sales.rs::list_sales`.
 export interface SaleRow {
+  readonly source: "CENTRE" | "EDGE"
   readonly id: string
   readonly sale_number: string
   readonly site_id: string
@@ -517,7 +518,7 @@ export interface ShopSaleLine {
   readonly article_name: string | null
   readonly quantity: number
   readonly unit_price_minor: number
-  readonly line_total_minor: number
+  readonly line_total_minor: number | null
   /// Which rung of the cascade set this price.
   readonly price_source: string | null
   /// Which published book the till was on when it rang this line. A shop still
@@ -541,10 +542,16 @@ export interface ShopSale {
   readonly pricing_trace_id: string | null
   readonly customer_id: string | null
   readonly lines: readonly ShopSaleLine[]
+  readonly tenders: readonly {
+    readonly tender_seq: number
+    readonly method: string
+    readonly amount_minor: number
+    readonly reference: string | null
+  }[]
   readonly promotions: readonly {
     readonly rule_id: string | null
     readonly name: string | null
-    readonly amount_minor: number
+    readonly benefit_minor: number
   }[]
 }
 

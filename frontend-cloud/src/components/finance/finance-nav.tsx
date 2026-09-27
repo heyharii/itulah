@@ -40,7 +40,6 @@ import {
 export type FinanceRoute =
   | "/finance"
   | "/finance/accounts"
-  | "/finance/account-map"
   | "/finance/journal"
   | "/finance/ledger"
   | "/finance/trial-balance"
@@ -205,7 +204,6 @@ const FINANCE_GROUPS: readonly FinanceGroup[] = [
     icon: BookOpen,
     items: [
       { label: "Chart of Accounts", to: "/finance/accounts", ready: true },
-      { label: "Account Map", to: "/finance/account-map", ready: true },
       { label: "Journal Entries", to: "/finance/journal", ready: true },
       { label: "General Ledger", to: "/finance/ledger", ready: true },
       { label: "Trial Balance", to: "/finance/trial-balance", ready: true },

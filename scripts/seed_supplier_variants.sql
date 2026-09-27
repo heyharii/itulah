@@ -56,11 +56,11 @@ SELECT i.supplier_item_id, z.code
   JOIN size_code z ON z.active
  WHERE CASE
          -- Shoes come in EU sizes and nothing else.
-         WHEN i.division_code = 'FOOTWEAR' THEN z.code IN ('11','12','13','14','15')
+         WHEN i.division_code = 'SANDAL_SEPATU' THEN z.code IN ('11','12','13','14','15')
          -- A belt, a bag or a hat is one size, and saying "S–XXL" of one
          -- would be the kind of wrong that makes a buyer stop trusting the
          -- column.
-         WHEN i.division_code = 'ACCESSORY' THEN z.code = '08'
+         WHEN i.division_code = 'AKSESORIS' THEN z.code = '08'
          -- Everything else is a garment: a run starting at XS or S and ending
          -- at L, XL or XXL, chosen per item so the catalogue is not one
          -- identical range repeated two thousand times.

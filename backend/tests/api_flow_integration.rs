@@ -47,7 +47,7 @@ const DC_ORIGIN: &str = "dc-01-edge";
 /// `CHECK (source_pool_id = 'dc.warehouse')` from migration 0004 — so neither
 /// the site nor the pool is a name the test may choose freely, and they no
 /// longer share a spelling.
-const DC_SITE: &str = "ho";
+const DC_SITE: &str = "dc";
 const KEY: &str = "dc-01-integration-sync-key-00000001";
 const SUPPLIER_CODE: &str = "SANDANG-KMJ-LP-01";
 const DELIVERED: i64 = 118;
@@ -63,6 +63,8 @@ fn frontend() -> PathBuf {
 
 fn cloud_config() -> AppConfig {
     AppConfig {
+        po_import: inventory_backend::cloud::intake::po::PoImportConfig::from_env(),
+        clock: None,
         bind_addr: "127.0.0.1:0"
             .parse::<SocketAddr>()
             .unwrap_or_else(|e| panic!("socket address: {e}")),
@@ -73,6 +75,7 @@ fn cloud_config() -> AppConfig {
         observed_window_hours: 24,
         lost_risk_window_days: 30,
         enable_test_controls: false,
+        finance_automation_enabled: false,
         frontend_dir: frontend(),
         sync_upload_url: None,
         sync_upload_key: None,
@@ -234,7 +237,9 @@ impl Fleet {
         ok(self.dc_router(), "POST", uri, Some(body)).await
     }
 
-    /// One pool's on-hand, by id.
+    /// One pool's stock, by id.
+    /// Physical units in the pool. `on_hand` is the display figure (stock less
+    /// what is allotted against it), so a move is checked against `stock`.
     async fn pool_on_hand(&self, pool_id: &str) -> i64 {
         let body = self.dc_get("/api/v1/inventory/pools").await;
         body["items"]
@@ -242,7 +247,7 @@ impl Fleet {
             .unwrap_or_else(|| panic!("no items in {body}"))
             .iter()
             .find(|item| item["id"] == json!(pool_id))
-            .and_then(|item| item["on_hand"].as_i64())
+            .and_then(|item| item["stock"].as_i64())
             .unwrap_or_else(|| panic!("no pool {pool_id} in {body}"))
     }
 
@@ -404,7 +409,7 @@ fn order_body() -> Value {
             "image_url": "https://cdn.itulah.co.id/kemeja.jpg",
             // Presets for the setup form later, from the same vocabulary the
             // master article will use.
-            "division_code": "MENSWEAR",
+            "division_code": "PRIA",
             "tags": ["KEMEJA", "LENGAN_PANJANG"],
             "ordered_quantity": 120,
             "unit_price_minor": 300_000
@@ -418,12 +423,12 @@ fn setup_body(receipt_line_id: &Value) -> Value {
         // No article_code: this product is new to the company, so one is
         // minted during setup.
         "article_name": "Kemeja Lengan Panjang Merah",
-        "division_code": "MENSWEAR",
+        "division_code": "PRIA",
         "tags": ["KEMEJA", "LENGAN_PANJANG"],
         "image_url": "https://cdn.itulah.co.id/kemeja-merah.jpg",
         "currency": "IDR",
         "created_by": "merchandiser-1",
-        "colours": [{ "colour_digit": "1", "label": "Merah", "hex_code": "#C0392B" }],
+        "colours": [{ "colour_digit": "1", "colour_code": "RED" }],
         "variants": [
             { "colour_digit": "1", "size_code": "03", "quantity": 60, "base_price_minor": 450_000 },
             { "colour_digit": "1", "size_code": "04", "quantity": 58, "base_price_minor": 450_000 }
@@ -1209,6 +1214,88 @@ async fn the_api_refuses_variants_that_do_not_account_for_the_delivery(pool: PgP
         .cloud_post("/api/v1/article-setups", setup_body(&receipt_line_id))
         .await;
     assert_eq!(sound["status"], "OPEN");
+}
+
+/// More arrived than was ordered. The centre identifies what matched the order
+/// and leaves the excess for a decision; the DC must take that job rather than
+/// refuse it, because a refused command stops every command queued behind it —
+/// the next purchase order included.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_delivery_over_the_order_does_not_stall_the_dc(pool: PgPool) {
+    const ARRIVED: i64 = 125;
+    let fleet = fleet(pool).await;
+    fleet
+        .cloud_post("/api/v1/purchase-orders", order_body())
+        .await;
+    fleet.sync().await;
+
+    let work = fleet.dc_get("/api/v1/dc/purchase-orders").await;
+    let count = fleet
+        .dc_post(
+            "/api/v1/dc/purchase-counts",
+            json!({
+                "receipt_id": fleet.delivery().await,
+                "po_line_id": work["items"][0]["po_line_id"],
+                "counted_quantity": ARRIVED,
+                "actor_id": "checker-1",
+                "idempotency_key": "count-1"
+            }),
+        )
+        .await;
+    fleet
+        .dc_post(
+            "/api/v1/dc/purchase-verifications",
+            json!({
+                "count_id": count["count_id"],
+                "decision": "Accept",
+                "verifier_actor_id": "verifier-1",
+                "idempotency_key": "verify-1"
+            }),
+        )
+        .await;
+    fleet.sync().await;
+
+    let waiting = fleet.cloud_get("/api/v1/article-setups/unidentified").await;
+    let row = &waiting["items"][0];
+    let identified = row["quantity"]
+        .as_i64()
+        .unwrap_or_else(|| panic!("no quantity in {waiting}"));
+    let mut body = setup_body(&row["receipt_line_id"]);
+    body["variants"] = json!([
+        { "colour_digit": "1", "size_code": "03", "quantity": identified / 2, "base_price_minor": 450_000 },
+        { "colour_digit": "1", "size_code": "04", "quantity": identified - identified / 2, "base_price_minor": 450_000 }
+    ]);
+    let session = fleet.cloud_post("/api/v1/article-setups", body).await;
+    let session_id = session["session_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no session id in {session}"))
+        .to_string();
+    fleet
+        .cloud_post(
+            &format!("/api/v1/article-setups/{session_id}/issue"),
+            json!({ "issued_by": "merchandiser-1" }),
+        )
+        .await;
+
+    // `sync` panics if the DC blocks on a command.
+    fleet.sync().await;
+
+    let jobs = fleet.dc_get("/api/v1/dc/tagging-jobs").await;
+    assert_eq!(jobs["items"].as_array().map(Vec::len), Some(1), "{jobs}");
+    let (_, untagged, unidentified) = fleet.pools().await;
+    assert_eq!(untagged, identified);
+    assert_eq!(unidentified, ARRIVED - identified, "the excess waits, identified by nobody");
+
+    // And the stream is still moving: the next order reaches the DC.
+    fleet
+        .cloud_post("/api/v1/purchase-orders", order_body())
+        .await;
+    fleet.sync().await;
+    let work = fleet.dc_get("/api/v1/dc/purchase-orders").await;
+    assert!(
+        work["items"].as_array().is_some_and(|items| !items.is_empty()),
+        "the next order never arrived: {work}"
+    );
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]

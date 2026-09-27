@@ -23,7 +23,7 @@
 //! deliberately disjoint from both: asking for leave is not granting it.
 
 use super::auth::Principal;
-use super::employment::{current_place, reach_of, resolve, Access};
+use super::employment::{caller_and_reach, current_place, resolve, Access};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
@@ -385,7 +385,7 @@ pub async fn pending(
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<Vec<LeaveRequestView>>, AppError> {
     require(&principal, actions::LEAVE_DECIDE)?;
-    let reach = reach_of(&state, &principal).await?;
+    let (own_record, reach) = caller_and_reach(&state, &principal).await?;
     if reach.is_nowhere() {
         return Err(AppError::Forbidden(format!(
             "{} has no open posting, so no place's requests are theirs to decide",
@@ -399,9 +399,15 @@ pub async fn pending(
         &catalogue,
     )
     .await?;
+    // Not waiting on *you*: your own leave is somebody else's to decide, and a
+    // row offering buttons that can only answer 403 is not a queue item.
     Ok(Json(
         records
             .iter()
+            .filter(|record| {
+                own_record.as_deref() != Some(record.request.employee().as_str())
+                    && record.request.requested().actor().as_str() != principal.username
+            })
             .map(|record| request_view(record, &catalogue))
             .collect(),
     ))
@@ -515,10 +521,20 @@ async fn decidable(
     let record = infrastructure::load_request(&state.db, request_id, &catalogue)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("leave request {request_id}")))?;
-    let reach = reach_of(state, principal).await?;
+    let (own_record, reach) = caller_and_reach(state, principal).await?;
     if !reach.covers(Some(record.request.place().as_str())) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
+            principal.username,
+            record.request.place()
+        )));
+    }
+    // The domain refuses the person who *filed* it; this refuses the person it
+    // is *for*, which the domain cannot see — HR may file on a supervisor's
+    // behalf, and the supervisor then finds their own leave in their queue.
+    if own_record.as_deref() == Some(record.request.employee().as_str()) {
+        return Err(AppError::Forbidden(format!(
+            "{} may not decide their own leave; somebody else who reaches {} decides it",
             principal.username,
             record.request.place()
         )));
@@ -628,6 +644,9 @@ pub async fn withdraw(
     if record.request.employee().as_str() != access.employee_id {
         return Err(AppError::NotFound(format!("leave request {request_id}")));
     }
+    // Withdrawing a colleague's request is a place-scoped write like deciding
+    // one; your own is yours wherever you are posted (`Access::reaches`).
+    access.reaches(Some(record.request.place().as_str()))?;
     record
         .request
         .withdraw(access.authorize(action_key, &body.reason)?)

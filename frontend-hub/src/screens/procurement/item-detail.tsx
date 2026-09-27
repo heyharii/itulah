@@ -113,7 +113,7 @@ export function ItemDetail({
       </Facts>
 
       {item.description && (
-        <p className="text-[0.8125rem] text-body">{item.description}</p>
+        <p className="text-[0.875rem] text-body">{item.description}</p>
       )}
 
       {/* What it comes in. The full lists here, where the card shows five
@@ -138,7 +138,7 @@ export function ItemDetail({
                 {item.colours.map((colour) => (
                   <span
                     key={colour.colour_code}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-hairline px-2 py-[0.1875rem] text-[0.71875rem] text-body"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-hairline px-2 py-[0.1875rem] text-[0.875rem] text-body"
                   >
                     <ColourSwatch
                       hex={colour.hex_code}

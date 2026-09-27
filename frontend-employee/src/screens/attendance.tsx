@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router"
 
-import { Async, Empty, Failure, Panel } from "@/components/bits"
+import { Async, Empty, Failure, List, Panel } from "@/components/bits"
 import { StatusPill } from "@/components/status-pill"
-import { Button, buttonVariants } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
+import { Button } from "@/components/ui/button"
+import { button } from "@/components/ui/button-style"
 import {
   dayOfMonth,
   duration,
@@ -11,9 +11,13 @@ import {
   punchClock,
   weekday,
 } from "@/lib/format"
-import { punchSource } from "@/lib/hr/days"
-import { useAttendance, useCorrections, usePunch } from "@/lib/hr/queries"
-import { cn } from "@/lib/utils"
+import { punchSource, settledOutcomes } from "@/lib/hr/days"
+import {
+  attendanceWindow,
+  useAttendance,
+  useCorrections,
+  usePunch,
+} from "@/lib/hr/queries"
 
 /// The fortnight behind you, one row a day, and the button that starts today.
 ///
@@ -44,7 +48,7 @@ export function Attendance() {
   const corrections = useCorrections()
   const punch = usePunch()
   const pending = (corrections.data ?? []).filter(
-    (correction) => correction.status === "SUBMITTED"
+    (correction) => correction.status === "PENDING"
   )
   const awaitingDecision = new Set(pending.map((one) => one.date))
 
@@ -57,17 +61,15 @@ export function Attendance() {
             get wrong and nothing to choose. */}
         <div className="grid grid-cols-2 gap-3">
           <Button
-            size="lg"
-            className="h-12"
+            variant="primary"
+            size="tap"
             disabled={punch.isPending}
             onClick={() => punch.mutate("IN")}
           >
             Clock in
           </Button>
           <Button
-            size="lg"
-            variant="outline"
-            className="h-12"
+            size="tap"
             disabled={punch.isPending}
             onClick={() => punch.mutate("OUT")}
           >
@@ -76,7 +78,7 @@ export function Attendance() {
         </div>
         {punch.error !== null && <Failure error={punch.error} />}
         {punch.data !== undefined && punch.error === null && (
-          <p className="text-[13px]">
+          <p className="rounded-inner bg-ok-bg px-3.5 py-2.5 text-cell text-ok-fg">
             {punch.data.newly_recorded ? (
               <>
                 Recorded {punch.data.direction === "IN" ? "in" : "out"} at{" "}
@@ -94,7 +96,7 @@ export function Attendance() {
             )}
           </p>
         )}
-        <p className="text-xs text-muted-foreground">
+        <p className="text-meta text-mute">
           There is no fingerprint reader yet, so this is you recording your own
           day. Your manager sees that it came from the app.
         </p>
@@ -108,12 +110,12 @@ export function Attendance() {
               className="flex items-start gap-2"
             >
               <div className="min-w-0">
-                <p className="text-[13px] font-medium">
+                <p className="text-cell font-medium text-ink">
                   {longDate(correction.date)}
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  {correction.claimed_in ?? "—"} –{" "}
-                  {correction.claimed_out ?? "—"} · {correction.reason}
+                <p className="text-meta text-body">
+                  {punchClock(correction.claimed_in)} –{" "}
+                  {punchClock(correction.claimed_out)} · {correction.reason}
                 </p>
               </div>
               <StatusPill status={correction.status} className="ml-auto" />
@@ -135,88 +137,87 @@ export function Attendance() {
                   measure.
                 </Empty>
               ) : (
-                <div className="flex flex-col">
-                  {[...range.days].reverse().map((day, index) => (
-                    <div key={day.date}>
-                      {index > 0 && <Separator className="my-3" />}
-                      <div className="flex items-start gap-3">
-                        {/* The date as a block on the left, the way a diary
+                <List>
+                  {[...range.days].reverse().map((day) => {
+                    const outcomes = settledOutcomes(day, attendanceWindow().to)
+                    return (
+                      <div key={day.date}>
+                        <div className="flex items-start gap-3">
+                          {/* The date as a block on the left, the way a diary
                             reads. Fixed width so fourteen rows line up rather
                             than shuffling with the length of the weekday. */}
-                        <div className="w-9 shrink-0 text-center">
-                          <p className="text-[11px] text-muted-foreground uppercase">
-                            {weekday(day.date)}
-                          </p>
-                          <p className="text-base leading-tight font-semibold tabular-nums">
-                            {dayOfMonth(day.date)}
-                          </p>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <p className="mr-auto text-[13px] tabular-nums">
-                              {punchClock(day.arrival)} –{" "}
-                              {punchClock(day.departure)}
+                          <div className="w-9 shrink-0 text-center">
+                            <p className="text-eyebrow font-medium text-mute uppercase">
+                              {weekday(day.date)}
                             </p>
-                            {/* Every outcome, not the first one. A day is
+                            <p className="num text-card-title leading-tight font-semibold text-ink">
+                              {dayOfMonth(day.date)}
+                            </p>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <p className="num mr-auto text-cell font-medium text-ink">
+                                {punchClock(day.arrival)} –{" "}
+                                {punchClock(day.departure)}
+                              </p>
+                              {/* Every outcome, not the first one. A day is
                                 `LATE` and `AGREED_OVERTIME` at once often
                                 enough that showing one would be choosing which
                                 half of the evening counted. */}
-                            {day.outcomes.map((outcome) => (
-                              <StatusPill key={outcome} status={outcome} />
-                            ))}
-                            {day.outcomes.length === 0 && (
-                              <StatusPill status={day.plan} />
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {duration(day.net_worked_minutes)}
-                            {day.late_minutes > 0 &&
-                              ` · ${day.late_minutes} min late`}
-                            {day.early_leave_minutes > 0 &&
-                              ` · left ${day.early_leave_minutes} min early`}
-                            {day.overtime_minutes_agreed > 0 &&
-                              ` · ${duration(day.overtime_minutes_agreed)} agreed overtime`}
-                          </p>
-                          {/* The provenance, on every day that has any reading
+                              {outcomes.map((outcome) => (
+                                <StatusPill key={outcome} status={outcome} />
+                              ))}
+                              {outcomes.length === 0 && (
+                                <StatusPill status={day.plan} />
+                              )}
+                            </div>
+                            <p className="text-meta text-body">
+                              {duration(day.net_worked_minutes)}
+                              {day.late_minutes > 0 &&
+                                ` · ${day.late_minutes} min late`}
+                              {day.early_leave_minutes > 0 &&
+                                ` · left ${day.early_leave_minutes} min early`}
+                              {day.overtime_minutes_agreed > 0 &&
+                                ` · ${duration(day.overtime_minutes_agreed)} agreed overtime`}
+                            </p>
+                            {/* The provenance, on every day that has any reading
                               at all. Muted, but never absent: this is the line
                               that keeps a tap on a phone from reading as
                               something a reader saw. */}
-                          <p className="text-xs text-muted-foreground italic">
-                            {punchSource(day.punch_sources)}
-                            {day.applied_correction !== null &&
-                              " · corrected by your manager"}
-                          </p>
-                          {/* Offered on the days that are actually wrong, and
+                            <p className="text-meta text-mute italic">
+                              {punchSource(day.punch_sources)}
+                              {day.applied_correction !== null &&
+                                " · corrected by your manager"}
+                            </p>
+                            {/* Offered on the days that are actually wrong, and
                               withdrawn once a fix is already waiting: a second
                               request for the same day is noise for whoever has
                               to decide the first. */}
-                          {(day.outcomes.includes("MISSING_PUNCH") ||
-                            day.outcomes.includes("ABSENT")) &&
-                            !awaitingDecision.has(day.date) && (
-                              <Link
-                                to="/attendance/correction/$date"
-                                params={{ date: day.date }}
-                                className={cn(
-                                  buttonVariants({
-                                    variant: "outline",
+                            {(outcomes.includes("MISSING_PUNCH") ||
+                              outcomes.includes("ABSENT")) &&
+                              !awaitingDecision.has(day.date) && (
+                                <Link
+                                  to="/attendance/correction/$date"
+                                  params={{ date: day.date }}
+                                  className={button({
                                     size: "sm",
-                                  }),
-                                  "mt-2"
-                                )}
-                              >
-                                Ask for a fix
-                              </Link>
+                                    className: "mt-2",
+                                  })}
+                                >
+                                  Ask for a fix
+                                </Link>
+                              )}
+                            {awaitingDecision.has(day.date) && (
+                              <p className="mt-1 text-meta text-warn-fg">
+                                A fix is waiting on your manager.
+                              </p>
                             )}
-                          {awaitingDecision.has(day.date) && (
-                            <p className="mt-1 text-xs text-muted-foreground italic">
-                              A fix is waiting on your manager.
-                            </p>
-                          )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    )
+                  })}
+                </List>
               )}
             </Panel>
 
@@ -229,15 +230,13 @@ export function Attendance() {
               <Panel title="Days that cannot be worked out yet">
                 {range.underivable.map((day) => (
                   <div key={day.date} className="flex flex-col gap-0.5">
-                    <p className="text-[13px] font-medium">
+                    <p className="text-cell font-medium text-ink">
                       {longDate(day.date)}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      {day.reason}
-                    </p>
+                    <p className="text-meta text-body">{day.reason}</p>
                   </div>
                 ))}
-                <p className="text-xs text-muted-foreground">
+                <p className="text-meta text-mute">
                   Nothing is wrong with your day. Something upstream of it is
                   missing, and it is not yours to fix.
                 </p>
@@ -245,7 +244,7 @@ export function Attendance() {
             )}
 
             {!range.punch_source_connected && (
-              <p className="px-1 text-xs text-muted-foreground">
+              <p className="px-1 text-meta text-mute">
                 Your unit has no fingerprint reader registered, so everything
                 above is what you recorded here yourself.
               </p>
@@ -256,10 +255,10 @@ export function Attendance() {
 
       <Link
         to="/overtime"
-        className={cn(
-          buttonVariants({ variant: "outline", size: "lg" }),
-          "h-11"
-        )}
+        className={button({
+          size: "tap",
+          className: "md:h-control md:self-start",
+        })}
       >
         Overtime orders
       </Link>

@@ -1,24 +1,32 @@
 import { cloneElement, isValidElement } from "react"
+import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
-/// The frosted icon chip — DESIGN.md's one mobile control shape.
-///
-/// A 44px white squircle with a hairline and a soft shadow, holding a single
-/// pale line-icon. It is what the mobile app-bar is built from, at both ends
-/// of its three zones, and 44 is the touch-target floor rather than a
-/// decorative size.
+/// A round icon button — the back chevron, the card shortcut. White on the
+/// grey page; there is no dark surface for it to sit on.
+const chip = cva(
+  "press inline-flex size-11 shrink-0 items-center justify-center rounded-full [&_svg]:size-5",
+  {
+    variants: {
+      tone: {
+        light: "bg-canvas shadow-soft [&_svg]:text-ink",
+      },
+    },
+    defaultVariants: { tone: "light" },
+  },
+)
+
 export function Chip({
   className,
   render,
+  tone,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  render?: React.ReactElement<{ className?: string }>
-}) {
-  const classes = cn(
-    "inline-flex size-11 shrink-0 items-center justify-center rounded-inner border border-hairline bg-canvas shadow-soft transition-colors hover:bg-soft-2 active:bg-soft-2 [&_svg]:size-[1.125rem] [&_svg]:text-line-ico",
-    className,
-  )
+}: React.ButtonHTMLAttributes<HTMLButtonElement> &
+  VariantProps<typeof chip> & {
+    render?: React.ReactElement<{ className?: string }>
+  }) {
+  const classes = cn(chip({ tone }), className)
 
   if (render !== undefined && isValidElement(render)) {
     return cloneElement(render, {

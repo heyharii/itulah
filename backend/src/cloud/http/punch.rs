@@ -22,11 +22,11 @@
 //! one layer down.
 
 use super::auth::Principal;
-use super::employment::{current_place, reach_of, resolve};
+use super::employment::{caller_and_reach, current_place, reach_of, resolve};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
-        actions, evaluate_day, AttendanceMonth, Correction, CorrectionEffect, CorrectionId,
+        actions, evaluate_day, required_role_for_action, role_allows, AttendanceMonth, Correction, CorrectionEffect, CorrectionId,
         DayApprovals, DayEvaluation, DayOffset, EmployeeId, MinuteOfDay, PlaceId, PunchDirection,
         PunchTime, Reach,
     },
@@ -617,12 +617,29 @@ const fn yes() -> bool {
 }
 
 /// The corrections waiting on this caller, or a place's whole history.
+///
+/// A place's queue is the deciders'. Anybody below that rung is served their
+/// own filings and nothing else: the rows carry a colleague's name and their
+/// reason in their own words, and being posted to the same shop is not a
+/// reason to read them. The phone asks this route for "my pending fixes", and
+/// narrowing in the browser would have been narrowing after the leak.
 pub async fn list_corrections(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     Query(query): Query<CorrectionQueueQuery>,
 ) -> Result<Json<Vec<CorrectionRow>>, AppError> {
-    let reach = reach_of(&state, &principal).await?;
+    let (own_record, reach) = caller_and_reach(&state, &principal).await?;
+    if !role_allows(
+        required_role_for_action(actions::CORRECTION_DECIDE),
+        principal.role,
+    ) {
+        let Some(mine) = own_record else {
+            return Ok(Json(Vec::new()));
+        };
+        return Ok(Json(
+            infrastructure::corrections_of_employee(&state.db, &mine, query.pending).await?,
+        ));
+    }
     if reach.is_nowhere() {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere, so no queue is theirs",

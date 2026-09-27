@@ -37,9 +37,9 @@ use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, required_role_for_action, role_allows, AttendanceMonth, Authorization,
-        ComponentBase, ComponentBasis, ComponentCode, ComponentInForce, ComponentKind,
-        ComponentRate, ComponentShape, CountedUnit, PayComponent, PayrollAdjustment, RateNumbers,
-        Reach, RecordKind,
+        ComponentBase, ComponentBasis, ComponentCode, ComponentError, ComponentInForce,
+        ComponentKind, ComponentRate, ComponentShape, CountedUnit, PayComponent, PayrollAdjustment,
+        RateNumbers, Reach, RecordKind,
     },
     http::audit::DeclaredSubject,
     postgres::{self as infrastructure, PayrollAdjustmentRow},
@@ -296,6 +296,11 @@ pub struct FileAdjustmentBody {
     /// Positive. Which way it points is the component's kind, so a *kasbon*
     /// instalment is a positive figure under a `DEDUCTION` component.
     pub amount_minor: i64,
+    /// The employee's advance the figure repays, when it is one. The advance
+    /// is checked here, by name; its outstanding is checked again at
+    /// approval, because filings sit while months move.
+    #[serde(default)]
+    pub advance_id: Option<Uuid>,
     pub reason: String,
 }
 
@@ -533,6 +538,13 @@ pub async fn file(
     let month = AttendanceMonth::parse(&body.period).map_err(infrastructure::attendance_error)?;
     let first_day = infrastructure::month_first_day(month)?;
     let component = load(&state, &body.component_code.to_uppercase()).await?;
+    // The advance-side rules are refused here, by name, while the filer can
+    // still fix the form; the DEDUCTION direction is the domain's, which has
+    // the component row.
+    if let Some(advance_id) = body.advance_id {
+        refuse_impossible_recovery(&state, advance_id, &body.employee_id, body.amount_minor)
+            .await?;
+    }
 
     let authorization = Authorization::try_new(
         &principal.username,
@@ -548,11 +560,16 @@ pub async fn file(
         &body.employee_id,
         &component,
         Money::new(body.amount_minor),
+        body.advance_id,
         authorization,
     )
     .map_err(infrastructure::component_error)?;
 
     infrastructure::file_adjustment(&state.db, &adjustment, first_day).await?;
+    // The run already holds slips built before this figure existed. Rebuild
+    // them now, so a place that files and then submits cannot send head office
+    // an arithmetic the filing did not reach.
+    infrastructure::rebuild_draft_run(&state.db, place.as_str(), first_day).await?;
     // Filed against the EMPLOYEE, not against a row of its own. "Why did Siti
     // get three hundred thousand extra in April" is a question somebody asks on
     // her sheet, and an adjustment id is not a record anybody opens — the shape
@@ -562,6 +579,54 @@ pub async fn file(
     Ok(Json(
         infrastructure::adjustments(&state.db, Some(place.as_str()), Some(first_day)).await?,
     ))
+}
+
+/// The advance-side half of filing a recovery, refused by name.
+///
+/// These are checked in the request's own path rather than in the domain
+/// because they need the advance row, which only this path has read — the
+/// component-side rules are [`PayrollAdjustment::file`]'s, which holds that
+/// row. The outstanding half repeats at approval, where `postgres::pay` keeps
+/// its reasons; here it is a courtesy, there it is the guard.
+async fn refuse_impossible_recovery(
+    state: &AppState,
+    advance_id: Uuid,
+    employee_id: &str,
+    amount_minor: i64,
+) -> Result<(), AppError> {
+    let refuse = |error| Err(infrastructure::component_error(error));
+    let Some(advance) = infrastructure::advance_for_recovery(&state.db, advance_id).await? else {
+        return refuse(ComponentError::RecoveryAdvanceUnknown { advance_id });
+    };
+    if advance.party_type != "EMPLOYEE" {
+        return refuse(ComponentError::RecoveryNotAnEmployeeAdvance {
+            advance_id,
+            party_type: advance.party_type,
+        });
+    }
+    if advance.employee_id.as_deref() != Some(employee_id) {
+        return refuse(ComponentError::RecoveryNotTheEmployees {
+            advance_number: advance.advance_number,
+            employee_id: employee_id.to_owned(),
+        });
+    }
+    // The open set, as the lane's own partial index names it (0280): money
+    // out, or part of it back.
+    if !matches!(advance.status.as_str(), "PAID" | "PARTIALLY_SETTLED") {
+        return refuse(ComponentError::RecoveryAdvanceNotPaidOut {
+            advance_number: advance.advance_number,
+            status: advance.status,
+        });
+    }
+    if amount_minor > advance.outstanding_minor {
+        return refuse(ComponentError::RecoveryExceedsOutstanding {
+            advance_number: advance.advance_number,
+            outstanding_minor: advance.outstanding_minor,
+            amount_minor,
+            over_minor: amount_minor - advance.outstanding_minor,
+        });
+    }
+    Ok(())
 }
 
 /// Take one back, while the batch is still the place's.
@@ -613,6 +678,9 @@ pub async fn withdraw(
     let withdrawn = infrastructure::withdraw_adjustment(&state.db, &id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("payroll adjustment {id}")))?;
+    // Taking a figure back changes the month too: the slip that carried it
+    // must lose it before the batch can be submitted.
+    infrastructure::rebuild_draft_run(&state.db, place.as_str(), first_day).await?;
     acted_on.set(RecordKind::Employee, withdrawn.employee_id().to_owned());
 
     Ok(Json(

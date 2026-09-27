@@ -111,11 +111,20 @@ const WINDOW_DAYS = 30
 const SOLO = "__solo"
 
 export function CommercialOverview() {
+  /// The window ends at the top of the NEXT hour, not on this millisecond.
+  /// Both ends are in the performance keys, and a clock read at mount made
+  /// every visit a new key — the two heaviest reads on the page refetched each
+  /// time somebody came back to it. Rounded up rather than down, so nothing
+  /// sold this hour is left out: the stretch after now holds no sales yet.
   const scope = useMemo(() => {
     const to = new Date()
+    to.setUTCMinutes(60, 0, 0)
     const from = new Date(to.getTime() - WINDOW_DAYS * 86_400_000)
     return { from: from.toISOString(), to: to.toISOString() }
   }, [])
+  /// What is running is asked of the real clock, not of the window's rounded
+  /// end — a campaign that closes at half past is not still on at the hour.
+  const now = useMemo(() => new Date().getTime(), [])
 
   const campaigns = useQuery({
     queryKey: performanceKeys.campaigns(scope),
@@ -166,7 +175,7 @@ export function CommercialOverview() {
   // is then measured at the same instant the figures beside it were, and a
   // re-render cannot flip a card from Running to Ended while its numbers go
   // on describing a window that included it.
-  const board = useBoard(campaignRows, posters, Date.parse(scope.to))
+  const board = useBoard(campaignRows, posters, now)
   const stack = useStack(campaignRows, ruleRows, board.colourOf)
 
   const outstanding = changes.data ?? []
@@ -262,7 +271,7 @@ export function CommercialOverview() {
 
       <Card className="mb-5 p-4">
         <SubHead
-          aside={`${day(scope.from)} – ${day(scope.to)} · money taken off the tills`}
+          aside={`${day(scope.from)} – ${day(new Date(now).toISOString())} · money taken off the tills`}
         >
           What the offers gave away
         </SubHead>
@@ -371,7 +380,7 @@ export function CommercialOverview() {
                               <span className="block truncate text-ink">
                                 {rule.name ?? rule.rule_id}
                               </span>
-                              <span className="block truncate text-[0.6875rem] text-mute">
+                              <span className="block truncate text-[0.875rem] text-mute">
                                 {rule.campaign_id === null
                                   ? "No campaign"
                                   : (board.nameOf(rule.campaign_id) ??
@@ -425,7 +434,7 @@ export function CommercialOverview() {
                   <div className="mb-1 text-[1.375rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
                     {money(book.ledger.outstanding_minor)}
                   </div>
-                  <div className="mb-3.5 text-[0.71875rem] text-mute">
+                  <div className="mb-3.5 text-[0.875rem] text-mute">
                     on {count(book.ledger.outstanding_count)} live cards, of{" "}
                     {money(book.ledger.issued_minor)} ever issued
                   </div>
@@ -458,7 +467,7 @@ export function CommercialOverview() {
                       that reason. It is a slice of "still owed" above, never a
                       fourth segment beside it. */}
                   {book.ledger.expired_count > 0 && (
-                    <p className="mt-3.5 border-t border-hairline pt-3 text-[0.71875rem] text-bad-fg">
+                    <p className="mt-3.5 border-t border-hairline pt-3 text-[0.875rem] text-bad-fg">
                       {money(book.ledger.expired_minor)} of that is on{" "}
                       {count(book.ledger.expired_count)} cards that are already
                       past their expiry date.
@@ -528,12 +537,12 @@ export function CommercialOverview() {
                     {[...silent, ...behind].slice(0, 5).map((shop) => (
                       <li
                         key={shop.origin_id}
-                        className="flex items-baseline justify-between gap-3 text-[0.75rem]"
+                        className="flex items-baseline justify-between gap-3 text-[0.875rem]"
                       >
                         <span className="truncate text-text">
                           {shop.label ?? shop.site_id ?? shop.origin_id}
                         </span>
-                        <span className="shrink-0 text-[0.6875rem] text-mute">
+                        <span className="shrink-0 text-[0.875rem] text-mute">
                           {shop.has_ever_activated
                             ? `${count(shop.behind_by ?? 0)} book${(shop.behind_by ?? 0) === 1 ? "" : "s"} behind · ${moment(shop.activated_at)}`
                             : "never reported"}
@@ -571,7 +580,7 @@ export function CommercialOverview() {
                           <span className="block truncate text-ink">
                             {change.name}
                           </span>
-                          <span className="block truncate text-[0.6875rem] text-mute">
+                          <span className="block truncate text-[0.875rem] text-mute">
                             {describeChangeKind(change.kind)} ·{" "}
                             {day(change.effective_from)}
                           </span>
@@ -804,7 +813,7 @@ function CampaignCard({ row }: { row: BoardRow }) {
             <span className="block truncate text-[0.875rem] font-semibold text-ink">
               {row.headline ?? row.name ?? row.campaign_id}
             </span>
-            <span className="block truncate text-[0.6875rem] text-mute">
+            <span className="block truncate text-[0.875rem] text-mute">
               {row.headline && row.name ? `${row.name} · ` : ""}
               {span(row.valid_from, row.valid_to)}
             </span>
@@ -815,12 +824,12 @@ function CampaignCard({ row }: { row: BoardRow }) {
         </div>
 
         {row.sale_count === 0 ? (
-          <p className="text-[0.75rem] text-mute">
+          <p className="text-[0.875rem] text-mute">
             Nothing has been sold under this campaign in the window.
           </p>
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-2 text-[0.71875rem]">
+            <div className="grid grid-cols-3 gap-2 text-[0.875rem]">
               <Figure label="Given away" value={money(row.benefit_minor)} />
               {/* Per campaign, this IS the server's own figure rather than a
                   sum of overlapping rows — so it can be drawn here and not in
@@ -838,7 +847,7 @@ function CampaignCard({ row }: { row: BoardRow }) {
                   value={spend}
                   tone={spend > 0.9 ? "bad" : spend > 0.7 ? "warn" : "accent"}
                 />
-                <span className="shrink-0 text-[0.6875rem] text-mute tabular-nums">
+                <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
                   {Math.round(spend * 100)}% of {money(row.budget_minor)}
                 </span>
               </div>
@@ -853,7 +862,7 @@ function CampaignCard({ row }: { row: BoardRow }) {
 function Figure({ label, value }: { label: string; value: string }) {
   return (
     <span className="block min-w-0">
-      <span className="block truncate text-[0.6875rem] text-mute">{label}</span>
+      <span className="block truncate text-[0.875rem] text-mute">{label}</span>
       <span className="block truncate font-semibold text-ink tabular-nums">
         {value}
       </span>
@@ -932,7 +941,7 @@ function Share({
           <div
             key={part.key}
             className={cn(
-              "flex items-baseline justify-between gap-3 text-[0.75rem]",
+              "flex items-baseline justify-between gap-3 text-[0.875rem]",
               part.value === 0 && "text-mute"
             )}
           >

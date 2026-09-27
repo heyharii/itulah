@@ -227,7 +227,7 @@ export function Deposits() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Store"
+        crumb="Finance · Cash & Bank"
         title="Deposits"
         sub="Takings on their way from a drawer to a bank account."
       />
@@ -369,7 +369,7 @@ export function Deposits() {
                 {/* The window is a lens on the table and never on the
                     exposure, and a reader has to be told which is which. */}
                 {inWindow.length < page.total && (
-                  <p className="text-[0.6875rem] text-mute">
+                  <p className="text-[0.875rem] text-mute">
                     {page.total - inWindow.length} more{" "}
                     {page.total - inWindow.length === 1 ? "deposit" : "deposits"}{" "}
                     outside this window. The figure above counts every one that
@@ -438,7 +438,7 @@ export function Deposits() {
                   </Grid>
                 )}
                 {inScope.length > 0 && (
-                  <p className="text-[0.6875rem] text-mute">
+                  <p className="text-[0.875rem] text-mute">
                     {inScope.length === 1 ? "Statement" : "Statements"}:{" "}
                     {inScope
                       .map(
@@ -480,7 +480,7 @@ function Heading({ title, sub }: { title: string; sub: string }) {
   return (
     <div>
       <h2 className="text-[0.875rem] font-semibold text-ink">{title}</h2>
-      <p className="text-[0.71875rem] text-mute">{sub}</p>
+      <p className="text-[0.875rem] text-mute">{sub}</p>
     </div>
   )
 }
@@ -531,17 +531,17 @@ function DepositRow({ row }: { row: StoreDeposit }) {
         {/* The two legs, each named by the entry that made it. A deposit that
             could not point at its own journal would be a status somebody set. */}
         {row.status === "IN_TRANSIT" && (
-          <span className="mt-0.5 block text-[0.65625rem] text-mute">
+          <span className="mt-0.5 block text-[0.875rem] text-mute">
             {row.days_in_transit === 0
               ? "banked today"
               : `${row.days_in_transit} ${row.days_in_transit === 1 ? "day" : "days"} out`}
           </span>
         )}
         {row.landed_entry_id !== null && row.landed_entry_number !== null && (
-          <span className="mt-0.5 block text-[0.65625rem] text-mute">
+          <span className="mt-0.5 block text-[0.875rem] text-mute">
             {day(row.landed_on)} ·{" "}
             <AppLink
-              to="/finance/journal"
+              to="/finance/accounting/journal-entries"
               sheet={{ key: "entry", value: row.landed_entry_id }}
               className="font-mono text-accent hover:underline"
             >
@@ -575,9 +575,9 @@ function ArrivalRow({
       </Td>
       <Td className="text-body">
         {line.description}
-        {line.counterparty_name !== "" && (
-          <span className="block text-[0.65625rem] text-mute">
-            {line.counterparty_name}
+        {line.party_name !== "" && (
+          <span className="block text-[0.875rem] text-mute">
+            {line.party_name}
           </span>
         )}
       </Td>

@@ -123,7 +123,10 @@ pub async fn reconciliation(
 
 pub fn routes(router: Router<AppState>) -> Router<AppState> {
     router
-        .route("/api/v1/finance/tax/types", get(types))
+        .route(
+            "/api/v1/finance/tax/types",
+            get(types).post(super::finance::save_tax_type),
+        )
         .route("/api/v1/finance/tax/periods", get(periods))
         .route("/api/v1/finance/tax/periods/{id}", get(period))
         .route("/api/v1/finance/tax/items", post(record_item))

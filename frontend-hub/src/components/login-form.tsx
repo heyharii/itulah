@@ -128,7 +128,7 @@ export function LoginForm({
         </div>
 
         {(signInProblem ?? sessionProblem) && (
-          <p className="mt-3.5 text-[0.71875rem] text-bad">
+          <p className="mt-3.5 text-[0.875rem] text-bad">
             {signInProblem ?? sessionProblem}
           </p>
         )}

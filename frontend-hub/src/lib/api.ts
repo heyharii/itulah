@@ -1,4 +1,4 @@
-import { Auth, Dc, Node, Sync } from "@itulah/contract/client"
+import { Auth, Clock, Dc, Node, Sync } from "@itulah/contract/client"
 
 /// This surface is served from the same origin as the CLOUD node it talks to,
 /// so the base URL is empty: production rewrites `/api/*` to the node and
@@ -71,9 +71,8 @@ export function setEdgeToken(token: string | null): void {
 
 setEdgeToken(readStoredEdgeToken())
 
-/// Signing in to the warehouse, separately from signing in to the centre.
-/// Two nodes, two principals, two sessions — the hub does not pretend one
-/// login covers both, because the edge keeps its own accounts.
+/// Local password sign-in for a warehouse recovery account. The normal hub
+/// path exchanges a Cloud ticket for a local DC session in `edge-session.tsx`.
 export const edgeAuth = new Auth(edge)
 
 /// Every warehouse operation the node performs, typed from the Rust that
@@ -85,6 +84,12 @@ export const dc = new Dc(edge)
 
 /// The node's outbox: whether today's work has actually reached the centre.
 export const edgeSync = new Sync(edge)
+
+/// The business clock, against the SAME node as everything else here — the
+/// cloud, not the edge. The warehouse does not get to say what today is; the
+/// centre does. It answers 403 wherever test controls are off, and the chip
+/// that reads it is built to disappear when it does.
+export const clock = new Clock(node)
 
 /// The two keys read from both ends of the app: by the component that decides
 /// whether to draw a login box, and by every screen that has to name an actor

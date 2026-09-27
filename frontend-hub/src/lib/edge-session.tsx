@@ -1,17 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { cacheKey, edge, edgeAuth, setEdgeToken } from "@/lib/api"
+import { cacheKey, edge, edgeAuth, node, setEdgeToken } from "@/lib/api"
 import { useBenchActor } from "@/lib/operations/bench"
-import { ApiError, type Identity } from "@itulah/contract/client"
+import { ApiError, type Identity, type NodeIdentity } from "@itulah/contract/client"
+import type { LoginResponse } from "@itulah/contract"
 
-/// The **warehouse** session, which is not the one in `lib/session.tsx`.
+/// The **warehouse** session, which is separate from `lib/session.tsx`.
 ///
-/// Two backends means two principals: the centre keeps its accounts in
-/// Postgres, a DC edge node keeps its own — including break-glass accounts
-/// that exist precisely so a warehouse can work when it cannot reach the
-/// centre. So somebody signed in to the hub is not thereby signed in to the
-/// warehouse, and this module says so out loud rather than letting the
-/// Operations screens 401 one at a time.
+/// An active Cloud identity can open it through a signed one-time exchange.
+/// The DC still stores and checks its own session and local authorization
+/// policy, including break-glass accounts for when the Cloud link is down.
 ///
 /// Everything here is deliberately a parallel of the cloud session's hooks
 /// rather than a generalisation of them. One pair of hooks taking a node
@@ -26,6 +24,18 @@ import { ApiError, type Identity } from "@itulah/contract/client"
 /// key that does not is a query that survives signing out of the node it came
 /// from, which means showing one operator another's queues.
 export const EDGE_KEY_PREFIX = "edge"
+
+/// Authenticate a local Edge recovery account without sending or replacing
+/// the Cloud cookies shared by the same-origin `/edge` proxy.
+export function edgeLocalLogin(
+  username: string,
+  password: string,
+): Promise<LoginResponse> {
+  return edge.postWithoutCredentials<LoginResponse>("/api/v1/auth/login", {
+    username,
+    password,
+  })
+}
 
 /// Who is signed in *at the node*, asked of the node rather than assumed from
 /// the presence of a token. A token this browser kept can have expired on a
@@ -65,7 +75,10 @@ export function useEdgeIdentity() {
 export function useEdgeNodeIdentity() {
   return useQuery({
     queryKey: cacheKey.edgeIdentity(),
-    queryFn: ({ signal }) => edge.identity({ signal }).catch(() => null),
+    queryFn: ({ signal }) =>
+      edge
+        .getWithoutCredentials<NodeIdentity>("/api/v1/health", { signal })
+        .catch(() => null),
     staleTime: Infinity,
   })
 }
@@ -80,7 +93,7 @@ export function useEdgeSignIn() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: async (input: { username: string; password: string }) => {
-      const response = await edgeAuth.login(input.username, input.password)
+      const response = await edgeLocalLogin(input.username, input.password)
       setEdgeToken(response.token)
       return response
     },
@@ -89,6 +102,33 @@ export function useEdgeSignIn() {
       // `SessionUser` and `me` answers an `EdgeMe`, which is wider. Writing the
       // narrower shape under the wider key is how a screen ends up reading
       // `site_id` as undefined on a node that has one.
+      client.invalidateQueries({ queryKey: cacheKey.edgeMe() })
+    },
+  })
+}
+
+/// Turn the authenticated Cloud session into this DC's local session.
+///
+/// The Cloud request carries the normal Cloud cookie and CSRF echo. Its
+/// response is a short-lived, DC-scoped ticket; the next request sends only
+/// that ticket in a body with browser credentials omitted. The resulting DC
+/// bearer is stored through the same path as a local password sign-in.
+export function useEdgeCloudSignIn() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { originId: string }) => {
+      const { ticket } = await node.post<{ ticket: string }>(
+        "/api/v1/auth/edge-sso-ticket",
+        { origin_id: input.originId }
+      )
+      const response = await edge.postWithoutCredentials<LoginResponse>(
+        "/api/v1/auth/sso/exchange",
+        { ticket }
+      )
+      setEdgeToken(response.token)
+      return response
+    },
+    onSuccess: () => {
       client.invalidateQueries({ queryKey: cacheKey.edgeMe() })
     },
   })

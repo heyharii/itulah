@@ -45,7 +45,7 @@ function Brief({ data }: { data: Brief }) {
       <h1 className="pt-6 text-[1.75rem] leading-none font-semibold tracking-[-0.024em] text-ink">
         {greetings[data.greeting]} <span className="text-mute">{data.who}</span>
       </h1>
-      <p className="mt-2 text-[0.8125rem] text-body">
+      <p className="mt-2 text-[0.875rem] text-body">
         Here is how things are going.
       </p>
 
@@ -204,7 +204,7 @@ function BriefCard({
       {foot && <div className="mt-auto pt-3">{foot}</div>}
       <AppLink
         to={link.to}
-        className={`text-[0.71875rem] text-mute hover:text-ink ${foot ? "pt-3" : "mt-auto pt-3"}`}
+        className={`text-[0.875rem] text-mute hover:text-ink ${foot ? "pt-3" : "mt-auto pt-3"}`}
       >
         {link.label}
       </AppLink>

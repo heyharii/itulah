@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Executive Report · Wira Makmur</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="audit-data.js" defer></script>
+  <script src="finance-reference.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+<a href="#content" class="skip">Langsung ke laporan</a>
+<div class="shell">
+  <nav class="rail" aria-label="Domain aplikasi" id="rail"></nav>
+  <aside class="sidebar" id="sidebar" aria-label="Navigasi laporan">
+    <div class="workspace"><span class="wm">WM</span><span><strong>Wira Makmur</strong><small><i class="dot"></i> Cloud Hub · prototype</small></span><button class="icon-btn mobile-close" data-action="navigation" aria-label="Tutup navigasi">×</button></div>
+    <div class="side-content"><h2>Reports</h2><p class="nav-caption">EXECUTIVE REPORT</p><nav id="report-nav" aria-label="Bagian Executive Report"></nav><p class="nav-caption spaced">PUSTAKA</p><nav id="library-nav" aria-label="Pustaka laporan"></nav></div>
+    <div class="side-foot"><span class="avatar">WM</span><span><strong>Executive workspace</strong><small>Head office · semua unit</small></span></div>
+  </aside>
+  <div class="workspace-main">
+    <header class="topbar"><button class="icon-btn" data-action="navigation" aria-label="Buka atau tutup navigasi" id="nav-toggle"></button><div class="breadcrumb"><span>Reports</span><span class="slash">/</span><strong id="breadcrumb">Ringkasan eksekutif</strong></div><span class="prototype-tag">PROTOTYPE</span><div id="top-tools" class="top-tools"></div><button class="icon-btn" data-action="help" aria-label="Tentang prototipe" id="help-button"></button><span class="avatar">H</span></header>
+    <main id="content" tabindex="-1">
+      <div class="page-header"><div><h1 id="page-title">Ringkasan eksekutif</h1><p id="page-sub">Dari kinerja perusahaan ke keputusan yang perlu diambil.</p></div><div class="header-actions"><button class="button" data-action="definitions" id="definition-button">Definisi metrik</button><button class="button primary" data-action="print" id="print-button">Cetak report</button></div></div>
+      <div class="filterbar" id="filterbar"><label class="filter"><span id="calendar-icon"></span><select id="period" aria-label="Periode laporan"><option value="sep">01–25 September 2026</option><option value="aug">01–31 Agustus 2026</option></select></label><label class="filter"><span id="store-icon"></span><select id="scope" aria-label="Cakupan toko"></select></label><label class="compare"><input type="checkbox" id="compare" checked> Bandingkan periode sebelumnya</label><span class="period-state" id="period-state"></span></div>
+      <div class="context-line" id="context-line"></div>
+      <div id="view"></div>
+      <footer class="report-footer"><span>Wira Makmur · Executive Report</span><span id="footer-note">Angka simulasi untuk evaluasi desain · IDR · WIB</span></footer>
+    </main>
+  </div>
+</div>
+<button class="nav-veil" data-action="navigation" aria-label="Tutup navigasi" tabindex="-1"></button>
+<dialog class="detail-dialog" id="detail" aria-labelledby="detail-title"><div class="detail-head"><div><span class="eyebrow" id="detail-kicker">DEFINISI METRIK</span><h2 id="detail-title"></h2></div><button class="icon-btn" data-action="close-detail" aria-label="Tutup detail">×</button></div><div id="detail-body"></div></dialog>
+<div class="toast" id="toast" role="status"></div>
+</body>
+</html>

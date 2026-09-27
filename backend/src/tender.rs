@@ -126,6 +126,21 @@ pub struct SaleTender {
     /// round: an old till is refused the tender, not trusted with it.
     #[serde(default)]
     pub voucher_authorization_id: Option<String>,
+    /// Which bank's EDC — or which QRIS acquirer — took the money: `BCA`,
+    /// `MANDIRI`, `BRI`, `BNI`. A name, never an instrument, screened exactly as
+    /// `reference` is.
+    ///
+    /// The centre has had the column since migration 0106 and has been
+    /// guessing it from `reference`; a card receivable cannot be cleared
+    /// against the acquirer's settlement, nor a wrong-EDC swipe found, without
+    /// it. Card and QRIS only — cash has no acquirer.
+    #[serde(default)]
+    pub acquirer: Option<String>,
+    /// `DEBIT` or `CREDIT`, on a card tender only. Not read off the acquirer:
+    /// BCA issues debit cards and acquires VISA credit through the same
+    /// terminal, and the chart posts the two to different receivables.
+    #[serde(default)]
+    pub card_kind: Option<String>,
 }
 
 /// What a reference may not be.
@@ -170,6 +185,24 @@ pub fn validate_tenders(
         }
         if let Some(reference) = tender.reference.as_deref() {
             screen_reference(reference)?;
+        }
+        if let Some(acquirer) = tender.acquirer.as_deref() {
+            if !matches!(tender.method, PaymentMethod::Card | PaymentMethod::Qris) {
+                return Err(SalesError::AcquirerOnWrongTender);
+            }
+            let acquirer = acquirer.trim();
+            if acquirer.is_empty() || acquirer.chars().count() > 40 {
+                return Err(SalesError::InvalidAcquirer);
+            }
+            screen_reference(acquirer)?;
+        }
+        if let Some(kind) = tender.card_kind.as_deref() {
+            if tender.method != PaymentMethod::Card {
+                return Err(SalesError::CardKindOnWrongTender);
+            }
+            if !matches!(kind.trim().to_ascii_uppercase().as_str(), "DEBIT" | "CREDIT") {
+                return Err(SalesError::InvalidCardKind(kind.into()));
+            }
         }
         // Stored value needs the centre's word, and only stored value does.
         match tender.method {
@@ -318,11 +351,53 @@ pub enum SalesError {
     VoucherNotAuthorised,
     #[error("only a voucher tender carries an authorisation")]
     AuthorisationOnWrongTender,
+    #[error("only a card or QRIS tender names an acquirer")]
+    AcquirerOnWrongTender,
+    #[error("an acquirer is a short name such as BCA or MANDIRI")]
+    InvalidAcquirer,
+    #[error("only a card tender says whether it was debit or credit")]
+    CardKindOnWrongTender,
+    #[error("card kind must be DEBIT or CREDIT, not {0}")]
+    InvalidCardKind(String),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tender(method: PaymentMethod, acquirer: Option<&str>, kind: Option<&str>) -> SaleTender {
+        SaleTender {
+            method,
+            amount_minor: 100_000,
+            reference: None,
+            voucher_authorization_id: None,
+            acquirer: acquirer.map(Into::into),
+            card_kind: kind.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn an_acquirer_and_a_card_kind_ride_only_where_they_mean_something() {
+        assert!(validate_tenders(100_000, &[tender(PaymentMethod::Card, Some("BCA"), Some("DEBIT"))]).is_ok());
+        assert!(validate_tenders(100_000, &[tender(PaymentMethod::Qris, Some("MANDIRI"), None)]).is_ok());
+        assert_eq!(
+            validate_tenders(100_000, &[tender(PaymentMethod::Cash, Some("BCA"), None)]),
+            Err(SalesError::AcquirerOnWrongTender)
+        );
+        assert_eq!(
+            validate_tenders(100_000, &[tender(PaymentMethod::Qris, Some("BCA"), Some("DEBIT"))]),
+            Err(SalesError::CardKindOnWrongTender)
+        );
+        assert_eq!(
+            validate_tenders(100_000, &[tender(PaymentMethod::Card, Some("BCA"), Some("PREPAID"))]),
+            Err(SalesError::InvalidCardKind("PREPAID".into()))
+        );
+        assert_eq!(
+            validate_tenders(100_000, &[tender(PaymentMethod::Card, Some("4111 1111 1111 1111"), None)]),
+            Err(SalesError::ReferenceLooksLikeAnInstrument),
+            "an acquirer is screened like a reference"
+        );
+    }
 
     #[test]
     fn change_is_only_given_from_cash() {

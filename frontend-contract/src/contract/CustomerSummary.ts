@@ -5,13 +5,13 @@
  */
 export type CustomerSummary = { customer_id: string, 
 /**
- * Points this member has earned, ever.
+ * Points this member has earned, ever, on sales that still stand.
  *
- * NOT a balance. Redemption happens at the till and is not yet recorded
- * anywhere the centre can see, so subtracting nothing and calling the
- * result a balance would be a number that goes stale the first time
- * somebody spends points. When a redemption ledger exists, a
- * `points_balance` can join this; it cannot replace it.
+ * NOT a balance: redemptions are debited in `points_ledger`, and
+ * `GET /api/v1/member/points` is the figure a member can spend. A voided
+ * sale is left out of this and of every other total here, because the
+ * ledger has already taken its points back and the takings no longer
+ * include it.
  */
 points_earned_total: number, transaction_count: number, 
 /**

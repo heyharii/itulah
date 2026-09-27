@@ -70,10 +70,19 @@ import {
 /// allocation column is editable per candidate, which is what makes one bank
 /// line settle two vouchers — the thing ERPNext has and we did not, now built
 /// from `bank_line_match.allocated_minor` (0213).
-export function BankReconciliation() {
+export function BankReconciliation({
+  statementId,
+}: {
+  /// Which statement to open on, when a caller has already chosen one.
+  ///
+  /// Additive: absent, this screen behaves exactly as it did — its own picker,
+  /// defaulting to the first statement. `bank-reconciliation-list` passes one
+  /// because it is a list of accounts and a row press means "that one".
+  statementId?: string | null
+} = {}) {
   const statements = useStatements()
   const money_ = useMoney()
-  const [chosen, setChosen] = useState<string | null>(null)
+  const [chosen, setChosen] = useState<string | null>(statementId ?? null)
   const [exact, setExact] = useState(true)
   // The dates start as the statement's own period, which is what somebody
   // types into ERPNext by hand before it will show them anything. Held with
@@ -255,7 +264,7 @@ export function BankReconciliation() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance lab 2 · Cash & Bank"
+        crumb="Finance · Cash & Bank"
         title="Bank Reconciliation"
         sub="Match what the bank reported against what the books already hold."
         actions={
@@ -314,7 +323,7 @@ export function BankReconciliation() {
               className="h-8 w-[9.5rem]"
             />
             <Toolbar.Spacer />
-            <span className="text-[0.71875rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               {statement === undefined
                 ? null
                 : `${shown.length} of ${statement.line_count} lines · ${unagreed} unreconciled`}
@@ -348,17 +357,15 @@ export function BankReconciliation() {
               }
               note={
                 difference === 0
-                  ? "the bank and the books agree"
-                  : `${unagreed} lines still to agree`
+                  ? "the bank and the books match"
+                  : `${unagreed} lines unreconciled`
               }
             />
           </CardRow>
 
-          {auto.data !== undefined && (
-            <Banner tone={auto.data > 0 ? "ok" : "info"}>
-              {auto.data > 0
-                ? `${auto.data} transaction(s) reconciled automatically.`
-                : "No matches occurred via auto reconciliation."}
+          {auto.data === 0 && (
+            <Banner tone="info">
+              No matches occurred via auto reconciliation.
             </Banner>
           )}
 
@@ -472,35 +479,35 @@ function Row({
   return (
     <tr className={settled ? "bg-soft/60" : undefined}>
       <Td>{day(row.value_date)}</Td>
-      <Td className={row.counterparty_kind === null ? "text-mute" : undefined}>
-        {row.counterparty_kind === null ? (
+      <Td className={row.party_type === null ? "text-mute" : undefined}>
+        {row.party_type === null ? (
           "—"
         ) : (
           <Pill>
-            {KIND_LABEL[row.counterparty_kind] ?? row.counterparty_kind}
+            {KIND_LABEL[row.party_type] ?? row.party_type}
           </Pill>
         )}
       </Td>
-      <Td className={row.counterparty_name === "" ? "text-mute" : undefined}>
-        {row.counterparty_name === "" ? (
+      <Td className={row.party_name === "" ? "text-mute" : undefined}>
+        {row.party_name === "" ? (
           row.bank_said === "" ? (
             "—"
           ) : (
             <span title="what the bank called them">{row.bank_said}</span>
           )
         ) : (
-          <span className="text-ink">{row.counterparty_name}</span>
+          <span className="text-ink">{row.party_name}</span>
         )}
       </Td>
       <Td>
         <span className="text-ink">{row.description}</span>
         {row.note !== "" && (
-          <span className="mt-0.5 block text-[0.65625rem] text-body italic">
+          <span className="mt-0.5 block text-[0.875rem] text-body italic">
             {row.note}
           </span>
         )}
         {row.allocations.length > 0 && (
-          <span className="mt-0.5 block text-[0.65625rem] text-mute">
+          <span className="mt-0.5 block text-[0.875rem] text-mute">
             {row.allocations
               .map(
                 (claim) =>
@@ -517,7 +524,7 @@ function Row({
           {money(row.unallocated_minor)}
         </span>
       </Td>
-      <Td className="font-mono text-[0.6875rem] text-mute">
+      <Td className="font-mono text-[0.875rem] text-mute">
         {row.reference ?? "—"}
       </Td>
       <Td>
@@ -556,7 +563,7 @@ const KIND_LABEL: Record<string, string> = {
   SUPPLIER: "Supplier",
   CUSTOMER: "Customer",
   MEMBER: "Member",
-  STAFF: "Staff",
+  EMPLOYEE: "Employee",
   OTHER: "Someone else",
 }
 
@@ -597,8 +604,8 @@ function ReconcileDialog({
   const [picked, setPicked] = useState<Record<string, string>>({})
   const [account, setAccount] = useState<AccountChoice | null>(null)
   const [memo, setMemo] = useState("")
-  const [kind, setKind] = useState(line?.counterparty_kind ?? "")
-  const [who, setWho] = useState(line?.counterparty_name ?? "")
+  const [kind, setKind] = useState(line?.party_type ?? "")
+  const [who, setWho] = useState(line?.party_name ?? "")
   const [note, setNote] = useState(line?.note ?? "")
 
   const remaining = line?.unallocated_minor ?? 0
@@ -645,8 +652,8 @@ function ReconcileDialog({
       {line === null ? null : (
         <div className="flex flex-col gap-4">
           <div className="rounded-inner border border-hairline p-3">
-            <div className="text-[0.8125rem] text-ink">{line.description}</div>
-            <div className="mt-0.5 text-[0.71875rem] text-mute">
+            <div className="text-[0.875rem] text-ink">{line.description}</div>
+            <div className="mt-0.5 text-[0.875rem] text-mute">
               {line.reference ?? "no reference"}
             </div>
           </div>
@@ -658,16 +665,16 @@ function ReconcileDialog({
                   key={claim.match_id}
                   className="flex items-center gap-2.5 rounded-inner border border-hairline bg-soft px-3 py-2"
                 >
-                  <span className="min-w-0 flex-1 text-[0.75rem]">
+                  <span className="min-w-0 flex-1 text-[0.875rem]">
                     <span className="font-medium text-ink">
                       {claim.entry_number ?? "an entry"}
                     </span>
-                    <span className="block text-[0.65625rem] text-mute">
+                    <span className="block text-[0.875rem] text-mute">
                       {claim.reasons.join(" · ")} · {claim.decided_by_kind} ·{" "}
                       {claim.matched_by}
                     </span>
                   </span>
-                  <span className="text-[0.75rem] tabular-nums">
+                  <span className="text-[0.875rem] tabular-nums">
                     {money(claim.allocated_minor)}
                   </span>
                   <Button
@@ -731,7 +738,7 @@ function ReconcileDialog({
                   />
                 </span>
               </div>
-              <p className="-mt-2 text-[0.65625rem] text-mute">
+              <p className="-mt-2 text-[0.875rem] text-mute">
                 Only journal entries can be matched today: a payment and a bill
                 both reach the bank account through one, so the ledger is where
                 every candidate already is. Turning off{" "}
@@ -776,7 +783,7 @@ function ReconcileDialog({
                           </Td>
                           <Td>
                             <Reasons reasons={candidate.reasons} />
-                            <span className="mt-1 block font-mono text-[0.65625rem] text-mute">
+                            <span className="mt-1 block font-mono text-[0.875rem] text-mute">
                               {candidate.journal_line_id}
                             </span>
                             {candidate.auto_match && (
@@ -810,7 +817,7 @@ function ReconcileDialog({
               )}
 
               <div className="flex items-center gap-3 border-t border-hairline pt-3">
-                <span className="text-[0.75rem] text-body">
+                <span className="text-[0.875rem] text-body">
                   Allocated{" "}
                   <b className="font-medium text-ink tabular-nums">
                     {money(allocated)}
@@ -851,7 +858,7 @@ function ReconcileDialog({
 
           {action === "create" && (
             <div className="flex flex-col gap-3">
-              <p className="text-[0.75rem] leading-relaxed text-body">
+              <p className="text-[0.875rem] leading-relaxed text-body">
                 The bank did something the books never recorded — a charge,
                 interest, a transfer that arrived without a document. This posts
                 a journal entry for what is left of the line and agrees it in
@@ -865,14 +872,14 @@ function ReconcileDialog({
                   account's family demands, or nothing at all when it demands
                   nothing. */}
               <div className="flex flex-col gap-[0.4375rem]">
-                <span className="text-[0.75rem] font-medium text-text">
+                <span className="text-[0.875rem] font-medium text-text">
                   Account
                 </span>
                 <AccountAndCategory
                   value={account}
                   onChange={setAccount}
                   placeholder="Which account is the other side of this"
-                  accept={(one) => (one.is_active ? null : "retired")}
+                  accept={(one) => (one.is_active ? null : "cancelled")}
                   categoryLabel="What this charge was"
                   explain
                 />
@@ -905,7 +912,7 @@ function ReconcileDialog({
 
           {action === "update" && (
             <div className="flex flex-col gap-3">
-              <p className="text-[0.75rem] leading-relaxed text-body">
+              <p className="text-[0.875rem] leading-relaxed text-body">
                 Saying who the other side was makes the line recognisable, and
                 is what somebody reads before agreeing it.
               </p>
@@ -957,9 +964,9 @@ function ReconcileDialog({
                   disabled={busy}
                   onClick={() =>
                     onUpdate({
-                      counterparty_kind: kind === "" ? null : kind,
-                      counterparty_id: null,
-                      counterparty_name: who.trim(),
+                      party_type: kind === "" ? null : kind,
+                      party_id: null,
+                      party_name: who.trim(),
                       note: note.trim(),
                     })
                   }

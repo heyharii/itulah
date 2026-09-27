@@ -165,7 +165,7 @@ export function LabAccruals() {
                             : "open"}
                     </Pill>
                   </Cell>
-                  <Cell right className="font-mono text-[0.75rem] text-mute">
+                  <Cell right className="font-mono text-[0.875rem] text-mute">
                     {pays[0]?.payment_number ?? "—"}
                   </Cell>
                 </Row>
@@ -236,7 +236,7 @@ export function LabAccruals() {
                         {p.status.toLowerCase()}
                       </Pill>
                     </Cell>
-                    <Cell right className="font-mono text-[0.75rem] text-mute">
+                    <Cell right className="font-mono text-[0.875rem] text-mute">
                       {p.entry_id
                         ? b.ledger.entry(p.entry_id)?.entry_number
                         : "—"}

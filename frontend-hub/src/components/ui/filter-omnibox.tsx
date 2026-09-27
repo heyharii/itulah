@@ -647,7 +647,7 @@ export function FilterOmnibox({
                           arrow keys can land on. */}
                       {row.group === "fields" &&
                         rows[at - 1]?.group !== "fields" && (
-                          <div className="px-2.5 pt-2 pb-1 text-[0.65625rem] font-semibold tracking-wide text-mute uppercase">
+                          <div className="px-2.5 pt-2 pb-1 text-[0.875rem] font-semibold tracking-wide text-mute uppercase">
                             Filter by
                           </div>
                         )}
@@ -822,7 +822,7 @@ function Bounds({
             value={values[at] ?? ""}
             onChange={(event) => set(at, event.target.value)}
             placeholder={field.spec.unit ?? field.label}
-            className="h-8 w-full rounded-full border border-transparent bg-soft-2 px-3 text-[0.84375rem] text-ink outline-none placeholder:text-mute"
+            className="h-8 w-full rounded-full border border-transparent bg-soft-2 px-3 text-[0.875rem] text-ink outline-none placeholder:text-mute"
           />
         </span>
       ))}

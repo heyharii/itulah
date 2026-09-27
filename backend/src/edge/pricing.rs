@@ -159,13 +159,17 @@ pub fn load_snapshot_for(
     }
 
     let usage = load_usage(connection)?;
+    let allowances = load_allowances(connection)?;
+    let mut rules = load_rules(connection, &usage)?;
+    let mut campaigns = load_campaigns(connection, &usage)?;
+    hold_to_allowances(&mut rules, &mut campaigns, &allowances);
     Ok(PricingSnapshot {
         publication_version,
         entries,
         markdowns: load_markdowns(connection, site_id, sku_codes)?,
-        rules: load_rules(connection, &usage)?,
+        rules,
         coupons: load_coupons(connection, &usage)?,
-        campaigns: load_campaigns(connection, &usage)?,
+        campaigns,
         tax_rules: load_tax_rules(connection)?,
     })
 }
@@ -176,8 +180,18 @@ pub fn load_snapshot_for(
 type UsageCounts = std::collections::BTreeMap<(String, String), (i64, i64)>;
 
 fn load_usage(connection: &Connection) -> Result<UsageCounts, EdgeError> {
+    // The centre's figure plus what this till has given away since — see
+    // `0043`. Summed here, where the engine reads it, so nothing else on this
+    // node has to know there are two tables behind one count.
     let mut statement = connection
-        .prepare("SELECT kind, key, uses, spent_minor FROM commercial_usage")
+        .prepare(
+            "SELECT kind, key, SUM(uses), SUM(spent_minor) FROM (
+                 SELECT kind, key, uses, spent_minor FROM commercial_usage
+                 UNION ALL
+                 SELECT kind, key, uses, spent_minor FROM commercial_usage_local
+             )
+             GROUP BY kind, key",
+        )
         .map_err(db)?;
     let rows = statement
         .query_map([], |row| {
@@ -195,6 +209,161 @@ fn load_usage(connection: &Connection) -> Result<UsageCounts, EdgeError> {
         counts.insert((kind, key), (uses, spent));
     }
     Ok(counts)
+}
+
+/// This shop's allowance under each split limit, and its own count under it:
+/// the centre's count of its sales when it sent the allowance, plus what this
+/// till has given away since. Keyed like [`UsageCounts`].
+struct Allowance {
+    budget_minor: Option<i64>,
+    max_uses: Option<i64>,
+    own_uses: i64,
+    own_spent_minor: i64,
+}
+
+type Allowances = std::collections::BTreeMap<(String, String), Allowance>;
+
+fn load_allowances(connection: &Connection) -> Result<Allowances, EdgeError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT a.kind, a.key, a.budget_minor, a.max_uses,
+                    a.own_uses + COALESCE(l.uses, 0),
+                    a.own_spent_minor + COALESCE(l.spent_minor, 0)
+               FROM commercial_usage_allowance a
+               LEFT JOIN (
+                    SELECT kind, key, SUM(uses) AS uses, SUM(spent_minor) AS spent_minor
+                      FROM commercial_usage_local
+                     GROUP BY kind, key
+               ) l ON l.kind = a.kind AND l.key = a.key",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                (row.get::<_, String>(0)?, row.get::<_, String>(1)?),
+                Allowance {
+                    budget_minor: row.get(2)?,
+                    max_uses: row.get(3)?,
+                    own_uses: row.get(4)?,
+                    own_spent_minor: row.get(5)?,
+                },
+            ))
+        })
+        .map_err(db)?;
+    let mut allowances = Allowances::new();
+    for row in rows {
+        let (key, allowance) = row.map_err(db)?;
+        allowances.insert(key, allowance);
+    }
+    Ok(allowances)
+}
+
+/// Hold each split rule and campaign to this shop's allowance.
+fn hold_to_allowances(rules: &mut [Rule], campaigns: &mut [Campaign], allowances: &Allowances) {
+    if allowances.is_empty() {
+        return;
+    }
+    for rule in rules.iter_mut() {
+        if let Some(allowance) = allowances.get(&("RULE".to_string(), rule.rule_id.clone())) {
+            rule.caps = with_allowance(rule.caps.clone(), allowance);
+        }
+    }
+    for campaign in campaigns.iter_mut() {
+        if let Some(allowance) =
+            allowances.get(&("CAMPAIGN".to_string(), campaign.campaign_id.clone()))
+        {
+            campaign.caps = with_allowance(campaign.caps.clone(), allowance);
+        }
+    }
+}
+
+/// The tighter of the shop's allowance and the fleet's count, per measure.
+///
+/// The allowance is what makes the limit hold offline; the fleet's count is
+/// kept beside it because a later book may LOWER the limit below what was
+/// already granted — grants are never taken back — and the fleet's count is
+/// then the one that stops the offer. Whichever leaves less wins, and the engine
+/// is handed that one's limit and count.
+fn with_allowance(mut caps: Caps, allowance: &Allowance) -> Caps {
+    if let Some(granted) = allowance.budget_minor {
+        let own_left = granted - allowance.own_spent_minor;
+        let fleet_left = caps.budget.map(|budget| budget.minor - caps.spent.minor);
+        if fleet_left.is_none_or(|fleet| own_left < fleet) {
+            caps.budget = Some(Money::new(granted));
+            caps.spent = Money::new(allowance.own_spent_minor);
+        }
+    }
+    if let Some(granted) = allowance.max_uses {
+        let own_left = granted - allowance.own_uses;
+        let fleet_left = caps.max_uses.map(|max| max - caps.used);
+        if fleet_left.is_none_or(|fleet| own_left < fleet) {
+            caps.max_uses = Some(granted);
+            caps.used = allowance.own_uses;
+        }
+    }
+    caps
+}
+
+/// Write down, in the sale's own transaction, what its promotions gave away.
+///
+/// The same keys and the same arithmetic the centre applies when this sale's
+/// fact reaches it (`apply_sale` in `cloud::postgres::sync`): one use
+/// and the benefit against the rule, against its campaign when it has one, and
+/// against the code that unlocked it when there was one. Mirroring it exactly
+/// is what lets the centre's figure replace these rows without a gap or a
+/// double count once it has applied the sale.
+///
+/// `reported` is whether the sale fact was queued for the centre at all. A
+/// node with its stream switched off queues nothing, and its sales are counted
+/// here for good.
+///
+/// A benefit below nought is recorded as nought rather than refusing the sale:
+/// this is a brake's bookkeeping, and a customer at the counter must never be
+/// turned away because a figure beside the sale could not be written.
+pub(crate) fn record_local_usage(
+    tx: &rusqlite::Transaction<'_>,
+    event_id: &str,
+    promotions: &[PromotionOutcome],
+    reported: bool,
+    recorded_at: &str,
+) -> Result<(), EdgeError> {
+    for promotion in promotions.iter().filter(|promotion| promotion.applied) {
+        let rule_id = promotion.rule_id.trim();
+        if rule_id.is_empty() {
+            continue;
+        }
+        let mut keys: Vec<(&str, &str)> = vec![("RULE", rule_id)];
+        if let Some(campaign_id) = promotion
+            .campaign_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            keys.push(("CAMPAIGN", campaign_id));
+        }
+        if let Some(code) = promotion
+            .coupon_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|code| !code.is_empty())
+        {
+            keys.push(("COUPON", code));
+        }
+        let spent = promotion.benefit_minor.max(0);
+        for (kind, key) in keys {
+            tx.execute(
+                "INSERT INTO commercial_usage_local
+                     (event_id, kind, key, uses, spent_minor, reported, recorded_at)
+                 VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6)
+                 ON CONFLICT (event_id, kind, key) DO UPDATE SET
+                     uses = commercial_usage_local.uses + 1,
+                     spent_minor = commercial_usage_local.spent_minor + excluded.spent_minor",
+                params![event_id, kind, key, spent, i64::from(reported), recorded_at],
+            )
+            .map_err(db)?;
+        }
+    }
+    Ok(())
 }
 
 /// Overlay what has actually been spent onto the limits a publication declared.
@@ -1089,12 +1258,17 @@ pub fn store_offers(
     // forty thousand price rows to answer "what promotions are on" is the cost
     // this screen would otherwise pay every time somebody opened it.
     let usage = load_usage(connection)?;
-    let campaigns = load_campaigns(connection, &usage)?;
+    let allowances = load_allowances(connection)?;
+    let mut rules = load_rules(connection, &usage)?;
+    let mut campaigns = load_campaigns(connection, &usage)?;
+    // The board says what the counter would do, and the counter holds this
+    // shop to its allowance.
+    hold_to_allowances(&mut rules, &mut campaigns, &allowances);
     let snapshot = PricingSnapshot {
         publication_version: 0,
         entries: Vec::new(),
         markdowns: Vec::new(),
-        rules: load_rules(connection, &usage)?,
+        rules,
         coupons: load_coupons(connection, &usage)?,
         campaigns,
         // A shelf-edge reading prices nothing, so tax would change no figure it
@@ -1563,6 +1737,9 @@ pub struct QuotedCharge {
 /// `promotions` with a reason, and the sale goes through — a cashier's screen
 /// is the wrong place to discover that head office authored two contradictory
 /// offers.
+///
+/// A code the shop has never heard of is the one case that IS refused
+/// outright — see [`reject_unknown_coupon_codes`].
 pub fn quote(
     connection: &Connection,
     site_id: &str,
@@ -1573,6 +1750,7 @@ pub fn quote(
     customer_id: Option<&str>,
     charges: &[pricing_engine::Charge],
 ) -> Result<Option<Quote>, EdgeError> {
+    reject_unknown_coupon_codes(connection, coupon_codes)?;
     let snapshot = load_snapshot_for(connection, site_id, channel, Some(sku_codes))?;
     if snapshot.entries.is_empty() {
         // Narrowed to this basket, an empty result means either no price book
@@ -1630,6 +1808,30 @@ pub fn quote(
             reason: None,
         })
         .collect();
+    // Points are awarded on a separate channel from price discounts, so the
+    // engine does not put an earn rule in `applied_rules`. The sale fact is
+    // also the source for Cloud's promotion usage counters, though, and a
+    // points offer that awarded points must count as a use there (without
+    // claiming it gave away any money).
+    for award in &result.earn_awards {
+        let Some(rule) = snapshot
+            .rules
+            .iter()
+            .find(|rule| rule.rule_id == award.rule_id)
+        else {
+            continue;
+        };
+        promotions.push(PromotionOutcome {
+            rule_id: award.rule_id.clone(),
+            campaign_id: rule.campaign_id.clone(),
+            coupon_code: rule.coupon_code.clone(),
+            name: award.name.clone(),
+            applied: true,
+            benefit_minor: 0,
+            line_benefits: Vec::new(),
+            reason: None,
+        });
+    }
     promotions.extend(
         result
             .rejected_rules
@@ -1703,6 +1905,44 @@ pub fn quote(
         amount_due_minor: result.amount_due.minor,
         points_earned: result.points_earned,
     }))
+}
+
+/// Refuse a basket that names a coupon code this shop has never heard of.
+///
+/// The engine's own gate answers for codes that exist — expired, inactive,
+/// issued to somebody else each get a reason on the promotion line. A code
+/// that matches nothing was the one silent case: the pricing ran, the discount
+/// never came, and the only person who could have caught the typo was looking
+/// at a total that looked ordinary. A coupon code is a bearer instrument the
+/// shopper is standing there holding; a till that accepts a stranger's code
+/// without a word is a till that takes full price from somebody who was
+/// promised better.
+///
+/// Matched exactly as the engine matches: no case folding, no trimming beyond
+/// what the caller already sent. A code the snapshot does hold keeps its
+/// engine path and its reason.
+fn reject_unknown_coupon_codes(
+    connection: &Connection,
+    coupon_codes: &[String],
+) -> Result<(), EdgeError> {
+    for code in coupon_codes {
+        if code.trim().is_empty() {
+            continue;
+        }
+        let known: i64 = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM commercial_coupon WHERE code = ?1)",
+                params![code],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if known == 0 {
+            return Err(EdgeError::Validation(format!(
+                "unknown coupon code: {code}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Turn a pricing refusal into the shape the API already speaks.
@@ -1857,7 +2097,7 @@ mod tests {
             "campaign_id": campaign_id,
             "name": format!("Promo {rule_id}"),
             "status": "ACTIVE",
-            "scope": { "applicability": { "on": "DIVISION", "divisions": ["MENSWEAR"] } },
+            "scope": { "applicability": { "on": "DIVISION", "divisions": ["PRIA"] } },
             "conditions": {
                 "effective_from": from.map(|when| when.to_rfc3339()),
                 "effective_to": to.map(|when| when.to_rfc3339()),

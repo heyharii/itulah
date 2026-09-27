@@ -37,4 +37,21 @@ asset_class_code?: string,
  * This purchase replaces something the company reserves for. Requires
  * `asset_class_code`, which then says which reserve it comes out of.
  */
-draws_reserve: boolean, memo: string | null, };
+draws_reserve: boolean, 
+/**
+ * The five GA references (brief §8.1). At most ONE may be set on a line:
+ * a line is for one object, and `record_bill` refuses two with an example.
+ * `asset_id` names an asset this line helped buy or spend on; the other
+ * four name the GA record the cost belongs to.
+ */
+asset_id?: string, contract_id?: string, repair_id?: string, replacement_id?: string, supply_request_id?: string, 
+/**
+ * The period this cost covers. A prepaid schedule reads the LINE's own
+ * period, not the contract's window (brief §8.2).
+ */
+service_period_start?: string, service_period_end?: string, 
+/**
+ * True when the caller is choosing the account itself rather than taking
+ * the suggestion. Finance reads this to see what GA changed.
+ */
+account_overridden: boolean, memo: string | null, };

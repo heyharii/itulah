@@ -23,6 +23,8 @@ export function centreState<T>(
   },
   options: {
     loading?: string
+    /// What was being read, for the refusal sentence — "this shop's claims".
+    what?: string
     render: (data: T) => React.ReactNode
   },
 ): React.ReactNode {
@@ -36,16 +38,34 @@ export function centreState<T>(
     )
   }
   if (query.isError) {
+    // A refusal is an answer, not a failure: head office looked at who is
+    // asking and said no, or has no such thing. Asking again would get the
+    // same answer, so a refused read says why in a sentence and offers no
+    // retry — the button is for a line that dropped, which can come back.
+    const refused = isRefusal(query.error)
     return (
       <div className="mx-auto flex max-w-[28em] flex-col items-center gap-4 px-4 py-12 text-center">
-        <p className="text-meta text-bad">{describeCentre(query.error)}</p>
-        <Button variant="ghost" onClick={() => query.refetch()}>
-          Try again
-        </Button>
+        <p className={refused ? "text-meta text-body" : "text-meta text-bad"}>
+          {describeCentre(query.error, options.what)}
+        </p>
+        {!refused && (
+          <Button variant="ghost" onClick={() => query.refetch()}>
+            Try again
+          </Button>
+        )}
       </div>
     )
   }
   return options.render(query.data as T)
+}
+
+/// Whether head office *refused* rather than failed: 403 is "this sign-in may
+/// not", 404 is "there is no such thing here" — which, for a whole route, is a
+/// centre older than this screen. Neither gets better by asking again.
+export function isRefusal(error: unknown): boolean {
+  return (
+    error instanceof ApiError && (error.status === 403 || error.status === 404)
+  )
 }
 
 /// The centre's own sentence when it managed to say one, and an honest
@@ -60,7 +80,28 @@ export function centreState<T>(
 /// the month's close are held at head office and simply cannot be answered
 /// without it. An empty rota would read as "nobody is working today", which is
 /// the one thing it must never be mistaken for.
-export function describeCentre(error: unknown): string {
-  if (error instanceof ApiError) return error.message
+///
+/// A 403 and a 404 are said as what they are for a shop: the store's sign-in
+/// is not allowed that, or the centre this till reaches does not have it. Both
+/// keep the centre's own sentence after the explanation, because it usually
+/// names exactly which rule said no.
+export function describeCentre(error: unknown, what?: string): string {
+  if (error instanceof ApiError) {
+    const subject = what ?? "this"
+    // An empty or generic status text adds nothing after the explanation.
+    const detail =
+      error.message === "" || /^(forbidden|not found)$/i.test(error.message)
+        ? ""
+        : ` Head office said: "${error.message}".`
+    if (error.status === 403) {
+      return what === undefined
+        ? `Head office does not let this shop's sign-in do this. That is a permission held at the centre, not a fault of this till.${detail}`
+        : `Head office will not show ${what} to this shop's sign-in. That is a permission held at the centre, not a fault of this till.${detail}`
+    }
+    if (error.status === 404) {
+      return `Head office has no answer for ${subject} — the record is gone, or the centre this till reaches is older than this screen.${detail}`
+    }
+    return error.message
+  }
   return "Head office is not reachable from this till. These screens are answered by the centre, not by this shop's node, so there is nothing to show until the line is back — this is not an empty rota."
 }

@@ -802,6 +802,12 @@ pub struct OfficialCountSubmitResult {
 
 pub trait EdgeInventory: Send + Sync {
     fn node(&self) -> &NodeContext;
+    /// The business clock this node stamps with, as the shared handle.
+    ///
+    /// The routers hold the same `Arc` the inventory does, so the control
+    /// endpoint moves the one clock every sale, shift and count reads — two
+    /// handles would answer two different "now"s (VIRTUAL-TIME-PLAN.md §3).
+    fn clock(&self) -> std::sync::Arc<crate::clock::ClockHandle>;
     /// Queue one label per EPC of a tagging job that has already landed here.
     fn open_print_session(
         &self,
@@ -970,6 +976,37 @@ pub trait EdgeInventory: Send + Sync {
     /// Receive a whole delivery in one transaction — see [`ReceiveBatchRequest`].
     fn receive_store_batch(&self, request: ReceiveBatchRequest)
         -> Result<CommandResult, EdgeError>;
+
+    /// Deliveries head office announced to this shop — blind while in
+    /// transit. See [`super::inbound`]. `status` is `IN_TRANSIT`, `RECEIVED`
+    /// or `ALL` (the default).
+    fn store_inbound_list(
+        &self,
+        _status: Option<&str>,
+    ) -> Result<super::inbound::StoreInboundList, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "announced deliveries are only available on Store Edge".into(),
+        ))
+    }
+    fn store_inbound_detail(
+        &self,
+        _delivery_id: &str,
+    ) -> Result<super::inbound::StoreInboundDetail, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "announced deliveries are only available on Store Edge".into(),
+        ))
+    }
+    /// Receive an announced delivery from what the handheld read, in one
+    /// transaction, and answer with the comparison.
+    fn receive_store_inbound(
+        &self,
+        _delivery_id: &str,
+        _request: super::inbound::StoreInboundReceiveRequest,
+    ) -> Result<super::inbound::StoreInboundDetail, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "announced deliveries are only available on Store Edge".into(),
+        ))
+    }
     fn move_stock(&self, request: MoveRequest) -> Result<CommandResult, EdgeError>;
     /// Write down a checkout BEFORE asking anybody for money.
     ///
@@ -1011,6 +1048,13 @@ pub trait EdgeInventory: Send + Sync {
     ) -> Result<CheckoutResult, EdgeError>;
 
     fn complete_sale(&self, request: SaleRequest) -> Result<SaleResult, EdgeError>;
+    /// Write down a voucher hold head office just granted through this node's
+    /// relay. A VOUCHER tender may spend only a hold recorded here — see
+    /// `migrations/sqlite/0044`.
+    fn record_voucher_hold(&self, hold: VoucherHoldRecord) -> Result<(), EdgeError>;
+    /// A hold head office released (the basket was abandoned) or committed
+    /// directly: it can no longer be spent at this till.
+    fn close_voucher_hold(&self, code: &str, checkout_id: &str) -> Result<(), EdgeError>;
     fn list_pools(&self) -> Result<Vec<PoolBalance>, EdgeError>;
     /// Who these SKUs are, without pricing them.
     ///
@@ -1136,6 +1180,12 @@ pub trait EdgeInventory: Send + Sync {
     ) -> Result<super::till::ShiftReport, EdgeError>;
     /// The Z report for one shift, closed or still running.
     fn shift_report(&self, shift_id: &str) -> Result<super::till::ShiftReport, EdgeError>;
+    /// A supervisor's yes to a basket edit — a unit taken off, a basket
+    /// abandoned, a parked basket thrown away — with the grant spent on it.
+    fn record_till_approval(
+        &self,
+        request: super::till::TillApprovalRequest,
+    ) -> Result<super::till::TillApproval, EdgeError>;
 
     /// Undo a whole sale. Every unit still out with the customer comes home on
     /// one movement, and the sale keeps its total — a void is a reversal, not
@@ -1448,8 +1498,28 @@ pub struct PurchaseCountRequest {
     pub po_line_id: uuid::Uuid,
     /// Counted by hand, in pieces.
     pub counted_quantity: i64,
+    /// The unit the count was typed in — `KODI` — and how many, as a decimal
+    /// string ("9.5"). The node converts with the line's own factor and
+    /// refuses a count whose pieces disagree with `counted_quantity`, or that
+    /// is not a whole number of pieces. Absent means pieces.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub counted_unit_code: Option<String>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub counted_unit_quantity: Option<String>,
     pub actor_id: String,
     pub idempotency_key: String,
+}
+
+/// One unit a line may be counted in, with the pieces in one of it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseCountUnit {
+    pub code: String,
+    pub label: String,
+    /// Pieces in one, as a decimal string: "20", "12".
+    pub factor: String,
 }
 
 /// A count awaiting a verifier.
@@ -1480,6 +1550,10 @@ pub struct PurchaseWorkLine {
     /// Present only on the verifier's view of the same line.
     pub expected_stock_units: Option<i64>,
     pub received_stock_units: i64,
+    /// The unit the order was placed in (not how many — the checker counts
+    /// blind), and every unit the count may be typed in.
+    pub order_unit_code: Option<String>,
+    pub count_units: Vec<PurchaseCountUnit>,
     /// When this order landed HERE — not when the centre raised it.
     ///
     /// The bay's question is "what turned up recently", and the centre's
@@ -1622,4 +1696,27 @@ pub struct PurchaseCountAwaitingVerification {
     pub outstanding_stock_units: i64,
     /// The agreed price per piece, to check the invoice against.
     pub unit_price_minor: Option<i64>,
+    /// Who raised the order at head office — the one person who may verify
+    /// this count. Absent on orders activated before the centre sent it.
+    pub raised_by: Option<String>,
+    /// What the order was placed in — "10 KODI", factor "20" — beside the
+    /// pieces above. Absent for a line ordered in pieces.
+    pub order_unit_code: Option<String>,
+    pub order_unit_quantity: Option<String>,
+    pub unit_factor: Option<String>,
+    /// What the count was typed in — "9.5 KODI". Absent when counted in
+    /// pieces.
+    pub counted_unit_code: Option<String>,
+    pub counted_unit_quantity: Option<String>,
+}
+
+/// A voucher hold as head office granted it, recorded by the node that relayed
+/// the request.
+#[derive(Clone, Debug)]
+pub struct VoucherHoldRecord {
+    pub authorization_id: String,
+    pub code: String,
+    pub checkout_id: String,
+    pub amount_minor: i64,
+    pub expires_at: Option<DateTime<Utc>>,
 }

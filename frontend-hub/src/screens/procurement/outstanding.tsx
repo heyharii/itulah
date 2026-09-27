@@ -331,18 +331,18 @@ function ChaseSheet({
                         <td className="py-2 pr-2" colSpan={4}>
                           <span className="flex items-baseline gap-2">
                             <span className="min-w-0 flex-1">
-                              <span className="block text-[0.8125rem] text-ink">
+                              <span className="block text-[0.875rem] text-ink">
                                 {line.article_name}
                               </span>
-                              <span className="font-mono text-[0.65625rem] text-mute">
+                              <span className="font-mono text-[0.875rem] text-mute">
                                 {line.article_code}
                               </span>
                             </span>
-                            <span className="shrink-0 text-right text-[0.75rem] text-body tabular-nums">
+                            <span className="shrink-0 text-right text-[0.875rem] text-body tabular-nums">
                               {count(line.received_quantity)} of{" "}
                               {count(line.expected_stock_units)}
                             </span>
-                            <span className="w-14 shrink-0 text-right text-[0.8125rem] font-medium text-warn-fg tabular-nums">
+                            <span className="w-14 shrink-0 text-right text-[0.875rem] font-medium text-warn-fg tabular-nums">
                               {count(line.outstanding_stock_units)}
                             </span>
                           </span>

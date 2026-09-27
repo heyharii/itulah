@@ -1,14 +1,39 @@
 import { useQuery } from "@tanstack/react-query"
 
-import { CENTRAL_KEY_PREFIX, cloud, cloudAuth, cloudKey } from "@/lib/cloud"
-import { ApiError, type Identity } from "@itulah/contract/client"
+import { CENTRAL_KEY_PREFIX, cloud, relayAccess } from "@/lib/cloud"
+import { useIdentity } from "@/lib/session"
 import type {
+  ApplicantView,
+  AttendanceRangeView,
+  CalendarView,
+  ChangeProposalView,
+  CorrectionRow,
   EmployeeList,
+  EmployeeView,
+  EmploymentProfileView,
+  HireProposalView,
+  InterviewView,
+  LeaveBalanceRow,
   LeaveRequestView,
+  LeaveTypeView,
+  LifecycleTaskView,
   OvertimeOrderView,
+  PayComponentView,
+  PayrollAdjustmentRow,
+  PerformanceTemplateView,
+  PerformanceScoreView,
   PeriodView,
+  PolicyView,
+  PositionView,
+  PunchReadinessView,
   ReachView,
   RosterDayView,
+  RosterSwapView,
+  ShiftView,
+  StaffingPlanView,
+  TodayView,
+  TrainingProgramView,
+  UniformIssuanceView,
 } from "@itulah/contract"
 
 /// Everything the HR screens ask head office, and the key each answer is
@@ -77,56 +102,102 @@ export const hrKeys = {
     [CENTRAL_KEY_PREFIX, "hr", "queue", "overtime", place] as const,
   period: (place: string, period: string) =>
     [CENTRAL_KEY_PREFIX, "hr", "period", place, period] as const,
+  swaps: () => [CENTRAL_KEY_PREFIX, "hr", "swaps"] as const,
+  tasks: () => [CENTRAL_KEY_PREFIX, "hr", "tasks"] as const,
+  applicants: () => [CENTRAL_KEY_PREFIX, "hr", "applicants"] as const,
+  performance: () => [CENTRAL_KEY_PREFIX, "hr", "performance"] as const,
+  /// What a day amounted to, and everything that sits on top of one — the
+  /// corrections and the readiness counts — under one prefix, because a
+  /// decided correction changes all three.
+  attendance: () => [CENTRAL_KEY_PREFIX, "hr", "attendance"] as const,
+  attendanceToday: (place: string, date: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "attendance", "today", place, date] as const,
+  attendanceOf: (employee: string, from: string, to: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "attendance", "of", employee, from, to] as const,
+  corrections: (place: string, pending: boolean) =>
+    [
+      CENTRAL_KEY_PREFIX,
+      "hr",
+      "attendance",
+      "corrections",
+      place,
+      pending,
+    ] as const,
+  punchReadiness: (place: string, period: string) =>
+    [
+      CENTRAL_KEY_PREFIX,
+      "hr",
+      "attendance",
+      "readiness",
+      place,
+      period,
+    ] as const,
+  /// One person's leave: what they asked for, and what they have left. Under
+  /// the queue's prefix, so a decision in the queue refreshes both.
+  leaveOf: (employee: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "queue", "leave-of", employee] as const,
+  balancesOf: (employee: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "queue", "balances", employee] as const,
+  overtimeOf: (employee: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "queue", "overtime-of", employee] as const,
+  leaveTypes: () => [CENTRAL_KEY_PREFIX, "hr", "leave-types"] as const,
+  holidays: (year: number) =>
+    [CENTRAL_KEY_PREFIX, "hr", "holidays", year] as const,
+  claims: () => [CENTRAL_KEY_PREFIX, "hr", "claims"] as const,
+  claimsAt: (place: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "claims", "at", place] as const,
+  claimTypes: () => [CENTRAL_KEY_PREFIX, "hr", "claims", "types"] as const,
+  advancesOf: (employee: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "claims", "advances", employee] as const,
+  rules: (group: string) => [CENTRAL_KEY_PREFIX, "hr", "rules", group] as const,
+  uniformsOf: (employee: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "uniforms", employee] as const,
+  training: () => [CENTRAL_KEY_PREFIX, "hr", "training"] as const,
+  changes: (place: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "changes", place] as const,
+  adjustments: (place: string, period: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "adjustments", place, period] as const,
+  components: () => [CENTRAL_KEY_PREFIX, "hr", "components"] as const,
+  plans: (place: string) => [CENTRAL_KEY_PREFIX, "hr", "plans", place] as const,
+  hires: (place: string) => [CENTRAL_KEY_PREFIX, "hr", "hires", place] as const,
+  lifecycle: () => [CENTRAL_KEY_PREFIX, "hr", "lifecycle"] as const,
+  shifts: () => [CENTRAL_KEY_PREFIX, "hr", "shifts"] as const,
+  positions: () => [CENTRAL_KEY_PREFIX, "hr", "positions"] as const,
+  interviewsOf: (applicant: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "applicants", applicant, "interviews"] as const,
+  employee: (employee: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "employee", employee] as const,
+  profile: (employee: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "employee", employee, "profile"] as const,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The head-office session
+// Who head office is relaying for
 
-/// Who is signed in **at the centre**, asked of the centre rather than assumed
-/// from the presence of a token.
+/// The person signed in at this till, as far as head office is concerned.
 ///
-/// No token means "not signed in there", and asking would be a round trip whose
-/// answer is already known — plus a 401 in the console on every boot of a till
-/// whose cashier never opens HR.
+/// There is no second session any more: the node relays for whoever is signed
+/// in here (`lib/cloud.ts`). What is left to ask is whether that person is one
+/// the node CAN relay for — a head-office account projected onto this node —
+/// and that is a property of the till's own identity, already in the cache.
+/// `data` is that identity when it can be relayed for and `null` when it
+/// cannot; `access` says why not, so a gate can say it in a sentence.
 export function useCloudIdentity() {
-  return useQuery({
-    queryKey: cloudKey.me(),
-    queryFn: async ({ signal }): Promise<Identity | null> => {
-      if (!cloud.hasBearer) return null
-      try {
-        return await cloudAuth.me(signal)
-      } catch (error) {
-        if (error instanceof ApiError && error.needsSignIn) return null
-        throw error
-      }
-    },
-    retry: false,
-    staleTime: Infinity,
-  })
-}
-
-/// Which centre this till is reading, and whether that centre is running with
-/// authentication on.
-///
-/// Worth asking before a password box is drawn: a cloud node with auth
-/// **DISABLED** — a bench, a laptop rig — has nobody to sign in as and its
-/// login endpoint has nothing to check. The node says so itself in `/health`,
-/// and believing it beats guessing from a 401. A centre that cannot be reached
-/// at all resolves to `null` rather than throwing, because an unreachable head
-/// office is a fact about the line, not a failure of the till.
-export function useCentreNode() {
-  return useQuery({
-    queryKey: cloudKey.identity(),
-    queryFn: ({ signal }) => cloud.identity({ signal }).catch(() => null),
-    staleTime: Infinity,
-  })
+  const identity = useIdentity()
+  const access = relayAccess(identity.data)
+  return {
+    isPending: identity.isPending,
+    error: identity.error,
+    access,
+    data: access === "ready" ? (identity.data ?? null) : null,
+  }
 }
 
 /// How far this head-office session reaches, and where it is posted.
 ///
-/// Answered by the server rather than derived here. The rule — head office
-/// reaches everywhere, a shop reaches itself, no posting reaches nothing —
-/// is enforced on every route; a browser that re-implemented it would be a
+/// Answered by the server rather than derived here. The rule — the Admin
+/// rung reaches everywhere, any posting (head office included) reaches that
+/// one place, no posting reaches nothing — is enforced on every route; a browser that re-implemented it would be a
 /// second place it is decided, and when the two disagreed the screen would be
 /// the one that looked right.
 /// `enabled` is the gate's, not a convenience: asking before there is a
@@ -350,13 +421,13 @@ export function readMonth(period: string): string {
   return parsed.toLocaleDateString("id-ID", { month: "long", year: "numeric" })
 }
 
-/// `420` → `7j 0m`. Minutes and never hours on the wire: a fractional hour
-/// cannot round-trip, so two systems reading the same overtime disagree about
-/// it.
+/// `420` → `7h`, `450` → `7h 30m`. Minutes and never hours on the wire: a
+/// fractional hour cannot round-trip, so two systems reading the same
+/// overtime disagree about it.
 export function readMinutes(minutes: number): string {
   const hours = Math.floor(minutes / 60)
   const rest = minutes % 60
-  return `${hours}j ${rest}m`
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`
 }
 
 /// What a rostered day is, in a word. The server's three codes are
@@ -381,4 +452,922 @@ export function nameOf(
   const row = team?.rows.find((person) => person.employee_id === employeeId)
   if (row === undefined) return { name: employeeId, code: null }
   return { name: row.full_name ?? row.employee_code, code: row.employee_code }
+}
+
+// ── the next generation ─────────────────────────────────────────────────────
+//
+// Swaps, the store's checklist rows, the interviews the head conducts, the
+// scores the head records, and the overtime this shop orders. Every decision
+// route below bounds itself by the caller's posting at the centre, exactly
+// like the two queues above; the fences here are the same fence, not a scope.
+
+/// Roster swaps waiting on this shop's decision.
+/// `GET /api/v1/roster-swaps/pending`
+export function pendingSwapsAt(
+  place: string,
+  signal?: AbortSignal,
+): Promise<PlaceQueue<RosterSwapView>> {
+  return cloud
+    .get<RosterSwapView[]>("/api/v1/roster-swaps/pending", { signal })
+    .then((rows) => fence(rows, place))
+}
+
+/// Decide a swap. Approving moves both days on the rota; refusing keeps the
+/// request as the record that somebody looked.
+export function decideSwap(input: {
+  id: string
+  approved: boolean
+  reason: string
+}): Promise<RosterSwapView> {
+  return cloud.post<RosterSwapView>(
+    `/api/v1/roster-swaps/${encodeURIComponent(input.id)}/decision`,
+    { approved: input.approved, reason: input.reason },
+  )
+}
+
+/// The checklist rows this shop owns.
+/// `GET /api/v1/lifecycle/tasks?owner=STORE` — bounded by the caller's reach
+/// at the centre, so only this shop's people come back.
+export function storeTasks(signal?: AbortSignal): Promise<LifecycleTaskView[]> {
+  return cloud.get<LifecycleTaskView[]>("/api/v1/lifecycle/tasks?owner=STORE", {
+    signal,
+  })
+}
+
+/// Close a checklist row this shop owns.
+export function completeTask(input: {
+  id: string
+  reason: string
+}): Promise<LifecycleTaskView> {
+  return cloud.post<LifecycleTaskView>(
+    `/api/v1/lifecycle/tasks/${encodeURIComponent(input.id)}/completion`,
+    { reason: input.reason },
+  )
+}
+
+/// The applicants for this shop's requisitions.
+/// `GET /api/v1/recruitment/applicants` — reach-bounded at the centre; the
+/// fence here is the same honesty fence the queues use.
+export function applicantsAt(
+  place: string,
+  signal?: AbortSignal,
+): Promise<PlaceQueue<ApplicantView>> {
+  return cloud
+    .get<ApplicantView[]>("/api/v1/recruitment/applicants", { signal })
+    .then((rows) => fence(rows, place))
+}
+
+/// Put an interview on the calendar.
+export function scheduleInterview(input: {
+  applicantId: string
+  scheduledAt: string
+  interviewerEmployeeId: string
+  reason: string
+}): Promise<unknown> {
+  return cloud.post(
+    `/api/v1/recruitment/applicants/${encodeURIComponent(input.applicantId)}/interviews`,
+    {
+      scheduled_at: input.scheduledAt,
+      interviewer_employee_id: input.interviewerEmployeeId,
+      reason: input.reason,
+    },
+  )
+}
+
+/// Record how the conversation went.
+export function recordInterview(input: {
+  interviewId: string
+  result: "PASS" | "FAIL"
+  ratings: Record<string, number>
+  note: string
+  reason: string
+}): Promise<unknown> {
+  return cloud.post(
+    `/api/v1/recruitment/interviews/${encodeURIComponent(input.interviewId)}/result`,
+    {
+      result: input.result,
+      ratings: input.ratings,
+      note: input.note,
+      reason: input.reason,
+    },
+  )
+}
+
+/// The templates a position is measured on.
+export function performanceTemplates(
+  signal?: AbortSignal,
+): Promise<PerformanceTemplateView[]> {
+  return cloud.get<PerformanceTemplateView[]>("/api/v1/performance/templates", {
+    signal,
+  })
+}
+
+/// Scores recorded for one month.
+///
+/// Takes the month as `YYYY-MM` and sends the first of it: the centre reads
+/// `period` as a date ("period is a date, the first of its month") and refuses
+/// the month spelled as a month with a 400.
+export function performanceScores(
+  period: string,
+  signal?: AbortSignal,
+): Promise<PerformanceScoreView[]> {
+  const first = period.length === 7 ? `${period}-01` : period
+  return cloud.get<PerformanceScoreView[]>(
+    `/api/v1/performance/scores?period=${encodeURIComponent(first)}`,
+    { signal },
+  )
+}
+
+/// Record one person's month.
+export function recordScore(input: {
+  employeeId: string
+  period: string
+  kpiPct: number
+  managerScore: number
+  reason: string
+}): Promise<PerformanceScoreView> {
+  return cloud.put<PerformanceScoreView>(
+    `/api/v1/employees/${encodeURIComponent(input.employeeId)}/performance/${input.period}`,
+    {
+      kpi_pct: input.kpiPct,
+      manager_score: input.managerScore,
+      reason: input.reason,
+    },
+  )
+}
+
+/// Order overtime: the employer's written instruction, the half the worker's
+/// consent needs before anything is authorized.
+export function orderOvertime(input: {
+  employeeId: string
+  onDate: string
+  dayKind: "WORKING" | "REST" | "HOLIDAY"
+  plannedMinutes: number
+  reason: string
+}): Promise<OvertimeOrderView> {
+  return cloud.post<OvertimeOrderView>(
+    `/api/v1/employees/${encodeURIComponent(input.employeeId)}/overtime-orders`,
+    {
+      order_id: `ot_${crypto.randomUUID().replaceAll("-", "")}`,
+      on_date: input.onDate,
+      day_kind: input.dayKind,
+      planned_minutes: input.plannedMinutes,
+      reason: input.reason,
+    },
+  )
+}
+
+/// The conversations one applicant has had or has scheduled.
+/// `GET /api/v1/recruitment/applicants/{id}/interviews` — reach-bounded.
+export function listApplicantInterviews(
+  applicantId: string,
+  signal?: AbortSignal,
+): Promise<InterviewView[]> {
+  return cloud.get<InterviewView[]>(
+    `/api/v1/recruitment/applicants/${encodeURIComponent(applicantId)}/interviews`,
+    { signal },
+  )
+}
+
+// ── the store's face of the prototype ───────────────────────────────────────
+//
+// Everything below is what `prototypes/hr-v3/hr.html` gives *HR toko*: the
+// day's attendance and the fixes to it, leave balances and the holiday
+// calendar, every overtime order rather than only the unanswered ones, claims
+// and advances, uniforms, training, the changes a shop asks head office for,
+// and the one-off pay figures it files. Every route is bounded at the centre by
+// the caller's posting; where one takes a place, the place is this shop's and
+// nothing else, exactly as above.
+
+const enc = encodeURIComponent
+
+/// A request id minted here, for the routes that take one from the client.
+///
+/// Those routes take it because the employee app files from a phone that may be
+/// offline — the id has to exist before the centre has heard of the request.
+/// A counter filing on somebody's behalf is online, but the route does not
+/// know that, and a random id is the same answer for both.
+function mint(prefix: string): string {
+  return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`
+}
+
+// ── attendance ───────────────────────────────────────────────────────────────
+
+/// One day at this shop: every rostered person's derived day, the days the
+/// derivation would not classify, and the raw punches.
+/// `GET /api/v1/attendance/today?place=…&date=…`
+///
+/// `punch_source_connected` is the field to read FIRST. False means no station
+/// and no phone has ever reported for this shop, and every "absent" under it is
+/// an absence of evidence rather than evidence of absence.
+export function attendanceToday(
+  place: string,
+  date: string,
+  signal?: AbortSignal,
+): Promise<TodayView> {
+  const query = new URLSearchParams({ place, date })
+  return cloud.get<TodayView>(`/api/v1/attendance/today?${query.toString()}`, {
+    signal,
+  })
+}
+
+/// One person's derived days between two dates.
+/// `GET /api/v1/employees/{id}/attendance?from=…&to=…`
+export function attendanceOf(
+  employeeId: string,
+  from: string,
+  to: string,
+  signal?: AbortSignal,
+): Promise<AttendanceRangeView> {
+  const query = new URLSearchParams({ from, to })
+  return cloud.get<AttendanceRangeView>(
+    `/api/v1/employees/${enc(employeeId)}/attendance?${query.toString()}`,
+    { signal },
+  )
+}
+
+/// The two punch-derived counts a month's close waits on.
+/// `GET /api/v1/attendance/punch-readiness?place=…&period=YYYY-MM`
+///
+/// `null` is "not assessed" — no station has reported for this shop — and is
+/// never drawn as a zero.
+export function punchReadinessAt(
+  place: string,
+  period: string,
+  signal?: AbortSignal,
+): Promise<PunchReadinessView> {
+  const query = new URLSearchParams({ place, period })
+  return cloud.get<PunchReadinessView>(
+    `/api/v1/attendance/punch-readiness?${query.toString()}`,
+    { signal },
+  )
+}
+
+/// This shop's attendance corrections — the ones waiting (`pending`) or the
+/// whole history. `GET /api/v1/attendance-corrections?place=…&pending=…`
+///
+/// The route takes a place and the centre refuses one the caller does not
+/// reach, so unlike the leave queue this needs no fence.
+export function correctionsAt(
+  place: string,
+  pending: boolean,
+  signal?: AbortSignal,
+): Promise<CorrectionRow[]> {
+  const query = new URLSearchParams({ place, pending: String(pending) })
+  return cloud.get<CorrectionRow[]>(
+    `/api/v1/attendance-corrections?${query.toString()}`,
+    { signal },
+  )
+}
+
+/// What a correction claims. The server's own vocabulary: a correction states
+/// *times* and never an outcome — "late" or "present" is derived from the times
+/// by the same policy every other day is judged by.
+export type CorrectionEffect = "ARRIVAL" | "DEPARTURE" | "ARRIVAL_AND_DEPARTURE"
+
+/// Record a fix to somebody's day. The shop's act, on a colleague's day, under
+/// `people.correction.request`; **deciding it is somebody else's** — the
+/// requester and the decider must be different people, and the centre refuses
+/// the same name twice.
+///
+/// Answers with the day's whole chain.
+export function fileCorrection(input: {
+  employeeId: string
+  businessDate: string
+  effect: CorrectionEffect
+  arrival?: string
+  departure?: string
+  reason: string
+}): Promise<CorrectionRow[]> {
+  return cloud.post<CorrectionRow[]>(
+    `/api/v1/employees/${enc(input.employeeId)}/attendance-corrections`,
+    {
+      business_date: input.businessDate,
+      effect: input.effect,
+      arrival: input.arrival ?? null,
+      departure: input.departure ?? null,
+      reason: input.reason,
+    },
+  )
+}
+
+/// Approve or refuse one. A refusal is kept: a day whose correction was
+/// refused is a day somebody looked at.
+export function decideCorrection(input: {
+  id: string
+  approve: boolean
+  reason: string
+}): Promise<CorrectionRow[]> {
+  return cloud.post<CorrectionRow[]>(
+    `/api/v1/attendance-corrections/${enc(input.id)}/decision`,
+    { approve: input.approve, reason: input.reason },
+  )
+}
+
+// ── leave ───────────────────────────────────────────────────────────────────
+
+/// The kinds of leave that exist. Readable by anybody signed in.
+export function leaveTypes(signal?: AbortSignal): Promise<LeaveTypeView[]> {
+  return cloud.get<LeaveTypeView[]>("/api/v1/leave-types", { signal })
+}
+
+/// What one person has left, per kind, folded to today.
+/// `GET /api/v1/employees/{id}/leave-balances`
+///
+/// In **centidays** on the wire — 150 is a day and a half — because half days
+/// exist and a float cannot round-trip them.
+export function leaveBalancesOf(
+  employeeId: string,
+  signal?: AbortSignal,
+): Promise<LeaveBalanceRow[]> {
+  return cloud.get<LeaveBalanceRow[]>(
+    `/api/v1/employees/${enc(employeeId)}/leave-balances`,
+    { signal },
+  )
+}
+
+/// Everything one person has asked for, decided or not.
+/// `GET /api/v1/employees/{id}/leave-requests`
+export function leaveRequestsOf(
+  employeeId: string,
+  signal?: AbortSignal,
+): Promise<LeaveRequestView[]> {
+  return cloud.get<LeaveRequestView[]>(
+    `/api/v1/employees/${enc(employeeId)}/leave-requests`,
+    { signal },
+  )
+}
+
+/// Record leave on somebody's behalf — *HR toko mencatat cuti*.
+/// `POST /api/v1/employees/{id}/leave-requests`
+///
+/// The rest days are read off the rota and sent, because the centre takes them
+/// rather than deriving them: a request that counted a rostered day off as
+/// leave would charge somebody's balance for a day they were never due in.
+/// Deciding it is still a separate act, and the centre keeps the filer and the
+/// decider apart.
+export async function fileLeave(input: {
+  place: string
+  employeeId: string
+  leaveType: string
+  from: string
+  to: string
+  reason: string
+  evidence?: string
+}): Promise<LeaveRequestView> {
+  const days = await rosterAt(input.place, input.from, input.to)
+  const restDays = days
+    .filter(
+      (day) => day.employee_id === input.employeeId && day.plan !== "SCHEDULED",
+    )
+    .map((day) => day.on_date)
+  return cloud.post<LeaveRequestView>(
+    `/api/v1/employees/${enc(input.employeeId)}/leave-requests`,
+    {
+      request_id: mint("lv"),
+      leave_type: input.leaveType,
+      from_date: input.from,
+      to_date: input.to,
+      rest_days: restDays,
+      evidence:
+        input.evidence === undefined || input.evidence.trim() === ""
+          ? null
+          : input.evidence,
+      reason: input.reason,
+    },
+  )
+}
+
+/// Which days are red, for one year. Readable by anybody signed in.
+/// `GET /api/v1/holiday-calendars/{year}`
+export function holidays(
+  year: number,
+  signal?: AbortSignal,
+): Promise<CalendarView> {
+  return cloud.get<CalendarView>(`/api/v1/holiday-calendars/${year}`, {
+    signal,
+  })
+}
+
+// ── overtime ────────────────────────────────────────────────────────────────
+
+/// Every order one person has been given, answered or not.
+/// `GET /api/v1/employees/{id}/overtime-orders`
+export function overtimeOrdersOf(
+  employeeId: string,
+  signal?: AbortSignal,
+): Promise<OvertimeOrderView[]> {
+  return cloud.get<OvertimeOrderView[]>(
+    `/api/v1/employees/${enc(employeeId)}/overtime-orders`,
+    { signal },
+  )
+}
+
+/// Take an order back before it is answered — the prototype's *Batalkan
+/// perintah*. The employer's act, under the ordering key.
+export function withdrawOvertime(input: {
+  employeeId: string
+  orderId: string
+  reason: string
+}): Promise<OvertimeOrderView> {
+  return cloud.post<OvertimeOrderView>(
+    `/api/v1/employees/${enc(input.employeeId)}/overtime-orders/${enc(input.orderId)}/withdrawal`,
+    { reason: input.reason },
+  )
+}
+
+// ── claims and advances ─────────────────────────────────────────────────────
+//
+// Structural rather than generated: the claim views are not in the contract's
+// ts-rs export yet (the hub's `lib/queries/people.ts` carries the same shapes
+// for the same reason, against `postgres::claims::ClaimView`).
+
+export interface ClaimTypeRow {
+  readonly code: string
+  readonly name: string
+  readonly retired_at: string | null
+  readonly created_at: string
+}
+
+export interface ClaimLineRow {
+  readonly line_id: string
+  readonly type_code: string
+  readonly type_name: string
+  readonly description: string
+  readonly spent_on: string
+  readonly claimed_minor: number
+  /// The decider's figure. Null until decided.
+  readonly sanctioned_minor: number | null
+  readonly line_number: number
+}
+
+export interface ClaimEventRow {
+  readonly actor: string
+  readonly action: string
+  readonly reason: string | null
+  readonly at: string
+  readonly detail?: string | null
+}
+
+export interface ClaimRow {
+  readonly claim_id: string
+  readonly claim_number: string
+  readonly place_id: string
+  readonly place_name: string | null
+  readonly employee_id: string
+  readonly employee_code: string | null
+  readonly employee_name: string | null
+  readonly posted_on: string
+  /// `DRAFT`, `SUBMITTED`, `APPROVED`, `REJECTED`, `PAID` or `WITHDRAWN`.
+  readonly state: string
+  readonly claimed_minor: number
+  readonly sanctioned_minor: number | null
+  readonly claimed_by: string
+  readonly decided_by: string | null
+  readonly decided_at: string | null
+  readonly decide_reason: string | null
+  readonly paid_at: string | null
+  readonly paid_by: string | null
+  readonly lines: readonly ClaimLineRow[]
+  readonly history: readonly ClaimEventRow[]
+}
+
+/// One advance the finance lane is holding for one person.
+export interface EmployeeAdvanceRow {
+  readonly advance_id: string
+  readonly advance_number: string
+  readonly site_id: string
+  readonly purpose: string
+  readonly amount_minor: number
+  readonly settled_minor: number
+  readonly refunded_minor: number
+  readonly recovered_minor: number
+  readonly outstanding_minor: number
+  readonly status: string
+  readonly requested_at: string
+  readonly paid_at: string | null
+}
+
+/// The kinds of expense. Readable by anybody signed in.
+export function claimTypes(signal?: AbortSignal): Promise<ClaimTypeRow[]> {
+  return cloud.get<ClaimTypeRow[]>("/api/v1/expense-claim-types", { signal })
+}
+
+/// This shop's claims, every state. `GET /api/v1/expense-claims?place=…`
+///
+/// The centre ANDs the caller's reach into the query, so a shop asking for
+/// another shop's claims by name gets an empty list rather than a leak.
+export function claimsAt(
+  place: string,
+  signal?: AbortSignal,
+): Promise<ClaimRow[]> {
+  return cloud.get<ClaimRow[]>(`/api/v1/expense-claims?place=${enc(place)}`, {
+    signal,
+  })
+}
+
+/// Record a claim on a colleague's behalf, and send it in.
+///
+/// Two acts at the centre — filing makes a DRAFT, submission puts it in front
+/// of a decider — and both are the filer's, so this makes both. A draft left
+/// on the counter would be a claim nobody is waiting on and nobody decides.
+/// The one who files it cannot sanction it: the centre compares actors.
+export async function fileClaim(input: {
+  employeeId: string
+  lines: readonly {
+    typeCode: string
+    description: string
+    spentOn: string
+    amountMinor: number
+  }[]
+  reason: string
+}): Promise<ClaimRow> {
+  const draft = await cloud.post<ClaimRow>("/api/v1/expense-claims", {
+    employee_id: input.employeeId,
+    lines: input.lines.map((line) => ({
+      type_code: line.typeCode,
+      description: line.description,
+      spent_on: line.spentOn,
+      claimed_minor: line.amountMinor,
+    })),
+    reason: input.reason,
+  })
+  return cloud.post<ClaimRow>(
+    `/api/v1/expense-claims/${enc(draft.claim_id)}/submission`,
+    { reason: input.reason },
+  )
+}
+
+/// Sanction a claim, with a figure per line, or refuse it.
+///
+/// The figures travel with the decision because they *are* the decision —
+/// "Rp 120.000 of a Rp 150.000 taxi" is one fact per line, and the centre
+/// totals them itself rather than trusting a browser's arithmetic.
+export function decideClaim(input: {
+  claimId: string
+  approve: boolean
+  reason: string
+  sanctions: readonly { lineId: string; sanctionedMinor: number }[]
+}): Promise<ClaimRow> {
+  return cloud.post<ClaimRow>(
+    `/api/v1/expense-claims/${enc(input.claimId)}/decision`,
+    {
+      approve: input.approve,
+      reason: input.reason,
+      lines: input.approve
+        ? input.sanctions.map((one) => ({
+            line_id: one.lineId,
+            sanctioned_minor: one.sanctionedMinor,
+          }))
+        : [],
+    },
+  )
+}
+
+/// Send a claim back to its filer, to be corrected and sent in again. Not a
+/// refusal: it returns to DRAFT with the reason on it.
+export function returnClaim(input: {
+  claimId: string
+  reason: string
+}): Promise<ClaimRow> {
+  return cloud.post<ClaimRow>(
+    `/api/v1/expense-claims/${enc(input.claimId)}/returnal`,
+    { reason: input.reason },
+  )
+}
+
+/// The advances one person is holding. Read-only: advances are the finance
+/// lane's, and every write to one stays behind the finance routes.
+export function advancesOf(
+  employeeId: string,
+  signal?: AbortSignal,
+): Promise<EmployeeAdvanceRow[]> {
+  return cloud.get<EmployeeAdvanceRow[]>(
+    `/api/v1/employees/${enc(employeeId)}/advances`,
+    { signal },
+  )
+}
+
+// ── the rule numbers ────────────────────────────────────────────────────────
+
+/// Head office's rule numbers for one group — `claim`, `benefit`,
+/// `statutory`, `overtime`, `shift`, `leave`, `pay`. Readable by anybody
+/// signed in: a rule kept from the people it governs is a trap.
+/// `GET /api/v1/people-policy?group=…`
+export function rules(
+  group: string,
+  signal?: AbortSignal,
+): Promise<PolicyView[]> {
+  return cloud.get<PolicyView[]>(`/api/v1/people-policy?group=${enc(group)}`, {
+    signal,
+  })
+}
+
+// ── benefits ────────────────────────────────────────────────────────────────
+
+/// One person's uniform ledger. `GET /api/v1/employees/{id}/uniform-issuances`
+export function uniformsOf(
+  employeeId: string,
+  signal?: AbortSignal,
+): Promise<UniformIssuanceView[]> {
+  return cloud.get<UniformIssuanceView[]>(
+    `/api/v1/employees/${enc(employeeId)}/uniform-issuances`,
+    { signal },
+  )
+}
+
+/// Record a handover — the shop's act, because the person standing in the shop
+/// is the one who hands the uniform over.
+export function recordUniform(input: {
+  employeeId: string
+  issuedOn: string
+  sets: number
+  reason: string
+}): Promise<UniformIssuanceView[]> {
+  return cloud.post<UniformIssuanceView[]>(
+    `/api/v1/employees/${enc(input.employeeId)}/uniform-issuances`,
+    { issued_on: input.issuedOn, sets: input.sets, reason: input.reason },
+  )
+}
+
+// ── training ────────────────────────────────────────────────────────────────
+
+/// Head office's programmes. `GET /api/v1/training-programs`
+export function trainingPrograms(
+  signal?: AbortSignal,
+): Promise<TrainingProgramView[]> {
+  return cloud.get<TrainingProgramView[]>("/api/v1/training-programs", {
+    signal,
+  })
+}
+
+/// Put one of this shop's people on a programme. The centre refuses a person
+/// who is not posted here.
+export function nominate(input: {
+  programId: string
+  employeeId: string
+  reason: string
+}): Promise<TrainingProgramView> {
+  return cloud.post<TrainingProgramView>(
+    `/api/v1/training-programs/${enc(input.programId)}/participants`,
+    { employee_id: input.employeeId, reason: input.reason },
+  )
+}
+
+// ── employment changes ──────────────────────────────────────────────────────
+
+/// What a shop may ask head office to change about somebody's employment.
+export type ChangeKind = "PROMOTION" | "TRANSFER" | "SALARY" | "SEPARATION"
+
+/// The proposals filed about this shop's people, every state.
+/// `GET /api/v1/change-proposals?place_id=…`
+export function changeProposalsAt(
+  place: string,
+  signal?: AbortSignal,
+): Promise<ChangeProposalView[]> {
+  return cloud.get<ChangeProposalView[]>(
+    `/api/v1/change-proposals?place_id=${enc(place)}`,
+    { signal },
+  )
+}
+
+/// Ask head office to change somebody's employment. The shop asks; deciding
+/// it is head office's, and nothing about the person changes until it does.
+export function fileChangeProposal(input: {
+  employeeId: string
+  kind: ChangeKind
+  props: readonly { field: string; toText?: string; toMinor?: number }[]
+  effectiveOn: string
+  reason: string
+}): Promise<ChangeProposalView> {
+  return cloud.post<ChangeProposalView>(
+    `/api/v1/employees/${enc(input.employeeId)}/change-proposals`,
+    {
+      kind: input.kind,
+      props: input.props.map((prop) =>
+        prop.toMinor !== undefined
+          ? { field: prop.field, to_minor: prop.toMinor }
+          : { field: prop.field, to_text: prop.toText ?? "" },
+      ),
+      effective_on: input.effectiveOn,
+      reason: input.reason,
+    },
+  )
+}
+
+/// The pay components head office has defined. Ungated at the centre — a rate
+/// that decides what comes out of somebody's wage is owed to them — and read
+/// here for the one-off form, which may only file against a component with no
+/// standing figure of its own (`PER_OCCASION`).
+export function payComponents(
+  signal?: AbortSignal,
+): Promise<PayComponentView[]> {
+  return cloud.get<PayComponentView[]>("/api/v1/payroll/components", {
+    signal,
+  })
+}
+
+/// The one-off figures this shop has filed for one month — an incentive, a
+/// *kasbon* instalment. `GET /api/v1/payroll/adjustments?place=…&period=…`
+export function adjustmentsAt(
+  place: string,
+  period: string,
+  signal?: AbortSignal,
+): Promise<PayrollAdjustmentRow[]> {
+  const query = new URLSearchParams({ place, period })
+  return cloud.get<PayrollAdjustmentRow[]>(
+    `/api/v1/payroll/adjustments?${query.toString()}`,
+    { signal },
+  )
+}
+
+/// Propose one pay component, + or −, for one person for one month — the
+/// store's right in `menu-final.md`. The figure is always positive; which way
+/// it points is the component's kind. Head office decides it with the month's
+/// batch; there is no second approval.
+export function fileAdjustment(input: {
+  place: string
+  period: string
+  employeeId: string
+  componentCode: string
+  amountMinor: number
+  reason: string
+}): Promise<PayrollAdjustmentRow[]> {
+  return cloud.post<PayrollAdjustmentRow[]>("/api/v1/payroll/adjustments", {
+    place_id: input.place,
+    period: input.period,
+    employee_id: input.employeeId,
+    component_code: input.componentCode,
+    amount_minor: input.amountMinor,
+    reason: input.reason,
+  })
+}
+
+/// Take a one-off back while the batch is still the shop's.
+export function withdrawAdjustment(input: {
+  id: string
+  reason: string
+}): Promise<PayrollAdjustmentRow[]> {
+  return cloud.post<PayrollAdjustmentRow[]>(
+    `/api/v1/payroll/adjustments/${enc(input.id)}/withdrawal`,
+    { reason: input.reason },
+  )
+}
+
+// ── recruitment ─────────────────────────────────────────────────────────────
+
+/// The headcount head office planned for this shop.
+/// `GET /api/v1/recruitment/plans?place_id=…`
+export function staffingPlansAt(
+  place: string,
+  signal?: AbortSignal,
+): Promise<StaffingPlanView[]> {
+  return cloud.get<StaffingPlanView[]>(
+    `/api/v1/recruitment/plans?place_id=${enc(place)}`,
+    { signal },
+  )
+}
+
+/// The people this shop has asked for — *Minta karyawan baru* — and what head
+/// office answered. `GET /api/v1/hire-proposals?place_id=…`
+export function hireProposalsAt(
+  place: string,
+  signal?: AbortSignal,
+): Promise<HireProposalView[]> {
+  return cloud.get<HireProposalView[]>(
+    `/api/v1/hire-proposals?place_id=${enc(place)}`,
+    { signal },
+  )
+}
+
+/// Ask for somebody. Deciding is head office's, and "approved" is not
+/// "working here": an approval opens a candidate, and the hire is a later act.
+export function proposeHire(input: {
+  place: string
+  position: string
+  headcount: number
+  need: "REPLACEMENT" | "ADDITION"
+  candidateName: string
+  startOn: string
+  contractKind: "PKWT" | "PKWTT"
+  contractEndsOn?: string
+  basePayMinor: number
+  reason: string
+}): Promise<HireProposalView> {
+  return cloud.post<HireProposalView>("/api/v1/hire-proposals", {
+    place_id: input.place,
+    position: input.position,
+    headcount: input.headcount,
+    need: input.need,
+    candidate_name: input.candidateName,
+    start_on: input.startOn,
+    contract_kind: input.contractKind,
+    contract_ends_on:
+      input.contractKind === "PKWT" ? (input.contractEndsOn ?? null) : null,
+    base_pay_minor: input.basePayMinor,
+    reason: input.reason,
+  })
+}
+
+// ── onboarding and exit ─────────────────────────────────────────────────────
+
+/// Every checklist row for this shop's people, whoever owns it — so a joiner's
+/// progress can be counted across the rows the shop does not own as well as
+/// the ones it does. `GET /api/v1/lifecycle/tasks` — reach-bounded.
+export function lifecycleTasks(
+  signal?: AbortSignal,
+): Promise<LifecycleTaskView[]> {
+  return cloud.get<LifecycleTaskView[]>("/api/v1/lifecycle/tasks", { signal })
+}
+
+// ── reading the answers out loud, part two ──────────────────────────────────
+
+/// `150` centidays → `1.5`. A balance is carried in hundredths of a day so a
+/// half day round-trips; printing the hundredths would be printing the wire.
+export function readCentidays(centidays: number): string {
+  const days = centidays / 100
+  return Number.isInteger(days) ? String(days) : days.toFixed(1)
+}
+
+/// The first and last day of a `YYYY-MM` month, as ISO days.
+export function monthBounds(period: string): { from: string; to: string } {
+  const [year, month] = period.split("-").map(Number)
+  const last = new Date(year as number, month as number, 0).getDate()
+  return {
+    from: `${period}-01`,
+    to: `${period}-${String(last).padStart(2, "0")}`,
+  }
+}
+
+/// `2026-09-13 08:03` → `08:03`; a next-day reading keeps its `+1`. The date is
+/// the row's, so repeating it in every cell spends the width on the half that
+/// does not differ.
+export function clockOf(stamp: string | null): string {
+  if (stamp === null) return "—"
+  const space = stamp.indexOf(" ")
+  return space === -1 ? stamp : stamp.slice(space + 1)
+}
+
+// ── one person ──────────────────────────────────────────────────────────────
+
+/// One person's employment record: where they have been posted, and every
+/// transition of their employment. `GET /api/v1/employees/{id}`
+export function employeeDetail(
+  employeeId: string,
+  signal?: AbortSignal,
+): Promise<EmployeeView> {
+  return cloud.get<EmployeeView>(`/api/v1/employees/${enc(employeeId)}`, {
+    signal,
+  })
+}
+
+/// Who somebody is at work: job, grade, place, the day they joined.
+/// `GET /api/v1/employees/{id}/profile` — not their personal data, which is
+/// its own route with its own privilege and is never asked from a till.
+export function employeeProfile(
+  employeeId: string,
+  signal?: AbortSignal,
+): Promise<EmploymentProfileView> {
+  return cloud.get<EmploymentProfileView>(
+    `/api/v1/employees/${enc(employeeId)}/profile`,
+    { signal },
+  )
+}
+
+// ── building the rota ───────────────────────────────────────────────────────
+
+/// Head office's shift patterns — what a rostered day may be. A shop builds
+/// its rota out of these and cannot invent one: a shop with its own idea of a
+/// shift is a shop whose rota means nothing next to the shop beside it.
+/// `GET /api/v1/attendance-shifts`
+export function shifts(signal?: AbortSignal): Promise<ShiftView[]> {
+  return cloud.get<ShiftView[]>("/api/v1/attendance-shifts", { signal })
+}
+
+/// Plan one person's day — *Toko menyusun roster*. A day planned twice keeps
+/// both revisions, and the centre counts them: a rota changed under somebody
+/// is a governance signal, not an edit.
+/// `POST /api/v1/employees/{id}/roster`
+export function planDay(input: {
+  employeeId: string
+  onDate: string
+  plan: "SCHEDULED" | "REST_DAY" | "PUBLIC_HOLIDAY"
+  shiftId?: string
+  reason: string
+}): Promise<RosterDayView> {
+  return cloud.post<RosterDayView>(
+    `/api/v1/employees/${enc(input.employeeId)}/roster`,
+    {
+      on_date: input.onDate,
+      plan: input.plan,
+      shift_id: input.plan === "SCHEDULED" ? (input.shiftId ?? null) : null,
+      reason: input.reason,
+    },
+  )
+}
+
+/// The positions head office has defined — what a shop may ask for.
+/// `GET /api/v1/org/positions`
+export function positions(signal?: AbortSignal): Promise<PositionView[]> {
+  return cloud.get<PositionView[]>("/api/v1/org/positions", { signal })
 }

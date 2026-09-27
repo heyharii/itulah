@@ -16,7 +16,6 @@ import {
   readBasket,
   removeFromBasket,
   setBasketQuantity,
-  type CatalogPurchaseOrderReceipt,
 } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
@@ -73,15 +72,11 @@ export function BasketSheet({
   onClose: () => void
   /// Put the basket back. Raising an order closes it and the composer opens on
   /// top of nothing, so dismissing the composer has to be able to undo that —
-  /// otherwise "Raise an order" is a one-way door out of the basket, and the
-  /// receipt banner the basket draws would never be seen.
+  /// otherwise "Raise an order" is a one-way door out of the basket.
   onReopen: () => void
 }) {
   const client = useQueryClient()
   const composer = useSheet("basket")
-  const [receipt, setReceipt] = useState<CatalogPurchaseOrderReceipt | null>(
-    null
-  )
 
   const basket = useQuery({
     queryKey: procurementKeys.basket(),
@@ -161,20 +156,6 @@ export function BasketSheet({
           </div>
         }
       >
-        {receipt && (
-          <Banner tone="ok" className="mb-4" onDismiss={() => setReceipt(null)}>
-            {receipt.po_number} raised for {money(receipt.net_minor)} and sent
-            to {receipt.sent_to_origin}.{" "}
-            <LinkButton
-              to="/procurement/orders"
-              sheet={{ key: "order", value: receipt.purchase_order_id }}
-              className="ml-1 h-6 px-2 text-[0.71875rem]"
-            >
-              Open it
-            </LinkButton>
-          </Banner>
-        )}
-
         {(empty.isError || setQuantity.isError || remove.isError) && (
           <Banner tone="bad" className="mb-4">
             {
@@ -214,7 +195,7 @@ export function BasketSheet({
                       <span className="flex-1 text-card-title font-semibold text-ink">
                         {group.supplierName}
                       </span>
-                      <span className="text-[0.75rem] text-mute tabular-nums">
+                      <span className="text-[0.875rem] text-mute tabular-nums">
                         {count(group.pieces)} pieces · {money(group.value)}
                       </span>
                     </CardStrip>
@@ -226,10 +207,10 @@ export function BasketSheet({
                             className="border-t border-hairline"
                           >
                             <td className="py-2 pr-2">
-                              <span className="block text-[0.8125rem] text-ink">
+                              <span className="block text-[0.875rem] text-ink">
                                 {line.item.name}
                               </span>
-                              <span className="font-mono text-[0.65625rem] text-mute">
+                              <span className="font-mono text-[0.875rem] text-mute">
                                 {line.item.supplier_item_code}
                               </span>
                             </td>
@@ -302,8 +283,7 @@ export function BasketSheet({
           composer.close()
           onReopen()
         }}
-        onRaised={(raised) => {
-          setReceipt(raised)
+        onRaised={() => {
           composer.close()
           onReopen()
         }}

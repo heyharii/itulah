@@ -19,6 +19,7 @@ android {
     compileSdk = 34
     defaultConfig {
         applicationId = "id.itulah.pindai"
+        manifestPlaceholders["appLabel"] = "Central"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
@@ -40,6 +41,15 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
+            // `-PsideBySide` installs next to a copy signed on another machine
+            // instead of fighting its signature: a separate package, own data.
+            if (project.hasProperty("sideBySide")) applicationIdSuffix = ".central"
+            // `-Pnode=dc` / `-Pnode=store`: one handheld carries both apps, each
+            // its own package — own Setelan, own device key, own sequence.
+            (project.findProperty("node") as String?)?.let { node ->
+                applicationIdSuffix = ".$node"
+                manifestPlaceholders["appLabel"] = if (node == "dc") "Central DC" else "Central " + node.replaceFirstChar { it.uppercase() }
+            }
             // The bench: the Lab tab, the file command channel, and the EPC
             // marriages that let foreign tags stand in for products.
             buildConfigField("boolean", "BENCH", "true")

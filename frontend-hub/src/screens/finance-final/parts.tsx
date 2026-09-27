@@ -1,4 +1,5 @@
 import { money } from "@/lib/format"
+import { useStackLabels } from "@/lib/stack-table"
 import { cn } from "@/lib/utils"
 
 /// The pieces every screen in Finance final shares.
@@ -54,7 +55,7 @@ export function NumberCard({
     >
       <div
         className={cn(
-          "text-[0.6875rem]",
+          "text-[0.875rem]",
           tone === "bad"
             ? "text-bad-fg"
             : tone === "warn"
@@ -83,7 +84,7 @@ export function NumberCard({
       {note !== undefined && (
         <div
           className={cn(
-            "mt-0.5 text-[0.6875rem]",
+            "mt-0.5 text-[0.875rem]",
             tone === "bad"
               ? "text-bad-fg"
               : tone === "warn"
@@ -125,9 +126,14 @@ export function CardRow({
 
 /// A dense table, scrolling inside itself rather than widening the page.
 export function Grid({ children }: { children: React.ReactNode }) {
+  // Stacks on a phone rather than scrolling sideways (`useStackLabels`).
+  const table = useStackLabels()
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-[0.78125rem]">
+      <table
+        ref={table}
+        className="mini-stack w-full border-collapse text-[0.875rem]"
+      >
         {children}
       </table>
     </div>
@@ -147,7 +153,7 @@ export function Th({
     <th
       style={width === undefined ? undefined : { width }}
       className={cn(
-        "border-b border-hairline-2 px-2 py-1.5 text-[0.71875rem] font-medium whitespace-nowrap text-mute",
+        "border-b border-hairline-2 px-2 py-1.5 text-[0.875rem] font-medium whitespace-nowrap text-mute",
         align === "right"
           ? "text-right"
           : align === "center"
@@ -209,7 +215,7 @@ export function TotalRow({ children }: { children: React.ReactNode }) {
 /// never the widest thing in its cell.
 export function Code({ children }: { children: React.ReactNode }) {
   return (
-    <span className="font-mono text-[0.6875rem] text-mute">{children}</span>
+    <span className="font-mono text-[0.875rem] text-mute">{children}</span>
   )
 }
 
@@ -221,7 +227,7 @@ export function Code({ children }: { children: React.ReactNode }) {
 /// misleads the person deciding whether to build it.
 export function Note({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-inner border border-hairline bg-soft px-3 py-2 text-[0.71875rem] leading-relaxed text-body">
+    <p className="rounded-inner border border-hairline bg-soft px-3 py-2 text-[0.875rem] leading-relaxed text-body">
       {children}
     </p>
   )

@@ -1,29 +1,59 @@
-# systemd unit for a shop's edge node.
+# systemd unit for a shop's store server.
 #
 # The shop keeps trading when the network is down: its facts accumulate in the
-# local SQLite outbox and drain when the tunnel returns. So this service has no
-# dependency on the tailnet being up — starting without it is normal, not a
-# failure.
+# local SQLite outbox and drain when the connection returns. So this service
+# has no dependency on the tailnet being up — starting without it is normal,
+# not a failure.
+#
+# What keeps it running unattended (STORE-SERVER-PLAN §3a):
+#
+#   Restart=always      a crash is restarted in 5 s.
+#   WatchdogSec=180     a HANG is restarted too. The node proves itself alive
+#                       by taking its database lock every 10 s; its own
+#                       watchdog ends it after 120 s without proof, and this
+#                       is systemd's backstop if even that thread is stuck.
+#   StartLimitIntervalSec=0
+#                       systemd never gives up. The node keeps its own
+#                       crash-loop latch (5 starts in 10 min → hold 5 min, then
+#                       try again), because a node that gave up for good needs
+#                       a person to notice it gave up.
+#
+# Installed by deploy/edge/install-store.sh. Older hand-provisioned boxes that
+# keep their configuration in /etc/itulah/store.env still work: that file is
+# read if present, and whatever it sets wins over the data directory's
+# node.env.
 [Unit]
-Description=itulah Store Edge
+Description=itulah Store Server
 After=network-online.target tailscaled.service
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
 User=itulah
 Group=itulah
-WorkingDirectory=/var/lib/itulah
-EnvironmentFile=/etc/itulah/store.env
-ExecStart=/usr/local/bin/store
+Environment=ITULAH_DATA_DIR=/var/lib/itulah/store
+EnvironmentFile=-/etc/itulah/store.env
+WorkingDirectory=/var/lib/itulah/store
+ExecStart=/opt/itulah/store/store run
 Restart=always
 RestartSec=5
+WatchdogSec=180
+# Long enough for a large database to open after an update's migration.
+TimeoutStartSec=300
+# Long enough to finish the request in flight and fold the WAL.
+TimeoutStopSec=30
 
-StateDirectory=itulah
+StateDirectory=itulah/store
+StateDirectoryMode=0700
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
 
 [Install]
 WantedBy=multi-user.target

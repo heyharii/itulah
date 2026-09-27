@@ -56,4 +56,15 @@ matching?: BillMatchRequest,
  * royalty or the rent of a building. `domain::withholding` holds the codes
  * and 0133's CHECK holds the same list.
  */
-withholding_code?: string, };
+withholding_code?: string, 
+/**
+ * Who filed the draft: `GA` (brief §8.3) or `PAYMENT_REQUEST` (§8.4).
+ * `None` for a bill Finance keyed itself, which is the ordinary case.
+ */
+submitted_by_domain?: string, 
+/**
+ * Where the scan lives — a reference, not the bytes (0052's
+ * `document_ref`). Kept on the request so the GA "ajukan tagihan" form can
+ * say which paper it is holding.
+ */
+document_ref?: string, };

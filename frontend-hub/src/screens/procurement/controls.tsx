@@ -30,7 +30,7 @@ export function LinkButton({
       to={to}
       sheet={sheet}
       className={cn(
-        "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full border border-hairline-2 bg-canvas px-3 text-[0.78125rem] font-medium whitespace-nowrap text-text transition-colors hover:bg-soft-2",
+        "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full border border-hairline-2 bg-canvas px-3 text-[0.875rem] font-medium whitespace-nowrap text-text transition-colors hover:bg-soft-2",
         className
       )}
     >

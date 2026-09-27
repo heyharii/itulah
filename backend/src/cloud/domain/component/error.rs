@@ -1,5 +1,6 @@
 use chrono::NaiveDate;
 use thiserror::Error;
+use uuid::Uuid;
 
 /// What the component engine refuses.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -96,6 +97,51 @@ pub enum ComponentError {
         state: &'static str,
     },
 
+    // ── the recovery ─────────────────────────────────────────────────────
+    /// A recovery names the advance it repays, and the advance refuses by
+    /// name — its number where the row gave one, its id where it did not —
+    /// because a filer checking a form against a screen can only match on
+    /// names. The outstanding half is re-checked at approval: filings sit
+    /// while months move.
+    #[error("no advance {advance_id} exists to repay")]
+    RecoveryAdvanceUnknown { advance_id: Uuid },
+    #[error(
+        "advance {advance_id} is a {party_type} advance, and only an EMPLOYEE's advance \
+         can be repaid from a wage"
+    )]
+    RecoveryNotAnEmployeeAdvance {
+        advance_id: Uuid,
+        party_type: String,
+    },
+    #[error("advance {advance_number} is not {employee_id}'s, so their wage cannot repay it")]
+    RecoveryNotTheEmployees {
+        advance_number: String,
+        employee_id: String,
+    },
+    #[error(
+        "advance {advance_number} is {status}, and only a paid or partially settled advance \
+         has money out to repay"
+    )]
+    RecoveryAdvanceNotPaidOut {
+        advance_number: String,
+        status: String,
+    },
+    #[error(
+        "advance {advance_number} has {outstanding_minor} outstanding, so repaying \
+         {amount_minor} overshoots it by {over_minor}"
+    )]
+    RecoveryExceedsOutstanding {
+        advance_number: String,
+        outstanding_minor: i64,
+        amount_minor: i64,
+        over_minor: i64,
+    },
+    #[error(
+        "{code} is an EARNING, and a recovery is money coming back out of a wage — file it \
+         under a DEDUCTION component"
+    )]
+    RecoveryNeedsDeduction { code: String },
+
     // ── authority ────────────────────────────────────────────────────────
     #[error("action `{action_key}` does not authorize defining a payroll component")]
     ActionForbidsDefine { action_key: String },
@@ -131,6 +177,14 @@ impl ComponentError {
             Self::AdjustmentNeedsPerOccasion { .. } => "component_adjustment_needs_per_occasion",
             Self::AdjustmentAlreadyFiled { .. } => "component_adjustment_already_filed",
             Self::BatchNoLongerDraft { .. } => "component_batch_no_longer_draft",
+            Self::RecoveryAdvanceUnknown { .. } => "component_recovery_advance_unknown",
+            Self::RecoveryNotAnEmployeeAdvance { .. } => {
+                "component_recovery_not_an_employee_advance"
+            }
+            Self::RecoveryNotTheEmployees { .. } => "component_recovery_not_the_employees",
+            Self::RecoveryAdvanceNotPaidOut { .. } => "component_recovery_advance_not_paid_out",
+            Self::RecoveryExceedsOutstanding { .. } => "component_recovery_exceeds_outstanding",
+            Self::RecoveryNeedsDeduction { .. } => "component_recovery_needs_deduction",
             Self::ActionForbidsDefine { .. } => "component_action_forbids_define",
             Self::ActionForbidsRatify { .. } => "component_action_forbids_ratify",
             Self::ActionForbidsAdjustment { .. } => "component_action_forbids_adjustment",
@@ -143,7 +197,9 @@ impl ComponentError {
     /// The freeze is the one worth naming: a place resending a figure after it
     /// has submitted the batch has sent a perfectly good payload, and what is
     /// wrong is when. Telling them to fix their request would invite them to
-    /// look for the field that makes it work.
+    /// look for the field that makes it work. The recovery's advance is the
+    /// same class of answer: an unpaid or already-settled advance is a fact
+    /// that moved, not a field the form got wrong.
     pub const fn is_conflict(&self) -> bool {
         matches!(
             self,
@@ -152,6 +208,8 @@ impl ComponentError {
                 | Self::ComponentAlreadyRetired { .. }
                 | Self::AdjustmentAlreadyFiled { .. }
                 | Self::BatchNoLongerDraft { .. }
+                | Self::RecoveryAdvanceNotPaidOut { .. }
+                | Self::RecoveryExceedsOutstanding { .. }
         )
     }
 

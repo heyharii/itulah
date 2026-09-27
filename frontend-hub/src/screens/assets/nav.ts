@@ -54,7 +54,7 @@ import type { AppModule } from "@/lib/navigation"
 /// link — it is simply not a place anybody sets out for.
 export const assetsNav: AppModule = {
   id: "ga-assets",
-  label: "Assets",
+  label: "Aset",
   icon: Boxes,
   home: "/assets",
   sections: [
@@ -62,7 +62,7 @@ export const assetsNav: AppModule = {
       items: [
         {
           path: "/assets",
-          label: "Register",
+          label: "Daftar aset",
           icon: Boxes,
           // The build views are not under Register's path in the tree the
           // router walks — they are its siblings — so arriving at one from a
@@ -77,15 +77,50 @@ export const assetsNav: AppModule = {
             "/assets/oe",
           ],
         },
-        { path: "/assets/software", label: "Software", icon: AppWindow },
-        { path: "/assets/projects", label: "Projects", icon: HardHat },
-        { path: "/assets/property", label: "Property", icon: Building2, hidden: true },
-        { path: "/assets/technical", label: "Technical Equipment", icon: Cpu, hidden: true },
-        { path: "/assets/vehicles", label: "Vehicles", icon: Car, hidden: true },
-        { path: "/assets/ffe", label: "Furniture & Fixtures", icon: Armchair, hidden: true },
-        { path: "/assets/it", label: "IT Hardware", icon: Monitor, hidden: true },
-        { path: "/assets/audio", label: "Audio / Music", icon: Speaker, hidden: true },
-        { path: "/assets/oe", label: "Operating Equipment", icon: Box, hidden: true },
+        { path: "/assets/software", label: "Perangkat lunak", icon: AppWindow },
+        { path: "/assets/projects", label: "Proyek", icon: HardHat },
+        {
+          path: "/assets/property",
+          label: "Property",
+          icon: Building2,
+          hidden: true,
+        },
+        {
+          path: "/assets/technical",
+          label: "Technical Equipment",
+          icon: Cpu,
+          hidden: true,
+        },
+        {
+          path: "/assets/vehicles",
+          label: "Vehicles",
+          icon: Car,
+          hidden: true,
+        },
+        {
+          path: "/assets/ffe",
+          label: "Furniture & Fixtures",
+          icon: Armchair,
+          hidden: true,
+        },
+        {
+          path: "/assets/it",
+          label: "IT Hardware",
+          icon: Monitor,
+          hidden: true,
+        },
+        {
+          path: "/assets/audio",
+          label: "Audio / Music",
+          icon: Speaker,
+          hidden: true,
+        },
+        {
+          path: "/assets/oe",
+          label: "Operating Equipment",
+          icon: Box,
+          hidden: true,
+        },
       ],
     },
   ],

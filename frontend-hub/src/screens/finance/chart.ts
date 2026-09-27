@@ -97,18 +97,10 @@ export function asPresented(amountMinor: number, rootClass: string): number {
   return amountMinor === 0 ? 0 : -amountMinor
 }
 
-/// The client's `{1,3,5,7,10,12}` ladder as an indent level.
-///
-/// `depth` on the wire is the code's own length, sent so a browser can indent
-/// without measuring strings. Indenting by the raw number would step four
-/// times between a heading and its child; indenting by the rung is what makes
-/// the report look like their chart. Anything off the ladder sits at the top,
-/// which is the safe way to be wrong about six accounts that skip a rung.
-const LADDER = [1, 3, 5, 7, 10, 12]
-
+/// Convert the server's tree depth to indentation below the separately shown
+/// root row. Root accounts are depth 1; their children begin at indent 1.
 export function ladderLevel(depth: number): number {
-  const rung = LADDER.indexOf(depth)
-  return rung < 0 ? 0 : rung
+  return Math.max(0, depth - 1)
 }
 
 /// `YYYY-MM-DD` in the reader's own timezone.

@@ -73,6 +73,12 @@ class Sink(socketserver.StreamRequestHandler):
 
         print(f"\n── {started}  {len(raw)} bytes from {peer} " + "─" * 24)
 
+        if "^XA" not in text and set(text.split()) <= {"~HI", "~!T"} and text.strip():
+            # What the bench's "Test connection" sends: ask the machine who it
+            # is. Not a job.
+            print("  status probe (~HI / ~!T) — Test connection, not a job")
+            return
+
         if "^XA" not in text:
             # A TSC in its native mode answers in TSPL, and none of the above
             # will match. Show the head of it rather than reporting "0 labels",
@@ -84,7 +90,14 @@ class Sink(socketserver.StreamRequestHandler):
             self.save(raw, peer)
             return
 
-        labels = [chunk for chunk in text.split(END) if "^XA" in chunk]
+        # A format with no field in it prints nothing: it is the node setting
+        # darkness and speed (`~SD18 ^XA^PR4,4,4^XZ`) ahead of the run. Counted
+        # as a label, it read as "EPC NONE" — the one alarm this sink exists
+        # to raise, raised for a settings block.
+        formats = [chunk for chunk in text.split(END) if "^XA" in chunk]
+        labels = [chunk for chunk in formats if FIELD.search(chunk)]
+        if formats and not labels:
+            print("  printer settings only (no fields, nothing printed)")
         encoded = sum(1 for chunk in labels if RFID.search(chunk))
         trailing = text.rsplit(END, 1)[-1]
 

@@ -483,7 +483,7 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
         }}
         className="flex flex-col gap-4"
       >
-        <p className="text-[0.71875rem] text-mute">
+        <p className="text-[0.875rem] text-mute">
           Reads of the same tag by the same reader inside the burst window are
           folded into one sighting rather than counted forty times. Nothing here
           moves stock.
@@ -494,15 +494,6 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
             {send.error instanceof Error
               ? send.error.message
               : "The batch was refused."}
-          </Banner>
-        )}
-        {send.isSuccess && send.data && (
-          <Banner tone="ok">
-            {count(send.data.raw_read_count)} reads became{" "}
-            {count(send.data.consolidated_sighting_count)} sightings —{" "}
-            {count(send.data.inserted)} new,{" "}
-            {count(send.data.merged_into_burst)} folded into a burst already
-            open. Ledger movements: {send.data.inventory_effect.movement_count}.
           </Banner>
         )}
 

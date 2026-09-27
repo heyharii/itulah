@@ -60,6 +60,9 @@ export interface SaleTenderTotal {
 }
 
 export interface WindowTransaction {
+  /// The source distinguishes an interactive centre sale from the immutable
+  /// receipt facts a store sent over sync.
+  readonly source: "CENTRE" | "EDGE"
   readonly id: string
   readonly sale_number: string
   /// Which shop rang it. On every row, not only on a fleet-wide read — a

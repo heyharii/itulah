@@ -194,7 +194,7 @@ function WrittenCard({
           </div>
         </div>
         <div className="flex w-24 shrink-0 flex-col items-end gap-1.5">
-          <span className="text-[0.71875rem] text-mute tabular-nums">
+          <span className="text-[0.875rem] text-mute tabular-nums">
             {tally === undefined
               ? "—"
               : `${Math.round(portion * 100)}% of members`}
@@ -206,11 +206,11 @@ function WrittenCard({
       {/* The conditions, in the words the form would accept back. A card that
           only showed a name would make somebody open the editor to find out
           what the list actually is. */}
-      <p className="text-[0.78125rem] leading-relaxed text-body">
+      <p className="text-[0.875rem] leading-relaxed text-body">
         {describeDefinition(saved.definition, columns)}
       </p>
       {saved.purpose && (
-        <p className="text-[0.78125rem] leading-relaxed text-mute">
+        <p className="text-[0.875rem] leading-relaxed text-mute">
           {saved.purpose}
         </p>
       )}
@@ -255,11 +255,11 @@ function WrittenCard({
               Edit
             </Button>
             <Button variant="ghost" disabled={retiring} onClick={onRetire}>
-              {retiring ? "Retiring…" : "Retire"}
+              {retiring ? "Cancelling…" : "Cancel"}
             </Button>
           </>
         )}
-        <span className="ml-auto text-[0.6875rem] text-mute tabular-nums">
+        <span className="ml-auto text-[0.875rem] text-mute tabular-nums">
           v{saved.version}
         </span>
       </div>
@@ -370,7 +370,7 @@ function SegmentCard({
             a proportion. Percent is stated beside the bar because a bar alone
             is unreadable below about a tenth. */}
         <div className="flex w-24 shrink-0 flex-col items-end gap-1.5">
-          <span className="text-[0.71875rem] text-mute tabular-nums">
+          <span className="text-[0.875rem] text-mute tabular-nums">
             {book.member_count === 0
               ? "—"
               : `${Math.round(portion * 100)}% of members`}
@@ -382,7 +382,7 @@ function SegmentCard({
         </div>
       </div>
 
-      <p className="text-[0.78125rem] leading-relaxed text-body">
+      <p className="text-[0.875rem] leading-relaxed text-body">
         {described.meaning}
       </p>
 

@@ -1,31 +1,22 @@
+import { useEffect, useState } from "react"
+
 import { AppLink } from "@/components/ui/app-link"
 import type { NavItem } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 
-/// The floating squircle tab bar.
+/// The tab bar: the hub's phone bar, so the two apps a warehouse phone carries
+/// answer "where am I" the same way.
 ///
-/// Measured from `_archive-distribution-frames.html`, which is the recreation
-/// DESIGN.md's responsive model was derived from:
+/// It was five floating squircles with no labels, drawn from the
+/// distribution-frame recreation. The words came back on the owner's review
+/// (2026-09-26): Terima, Ambil, Kemas and Kirim are a truck, a checklist, a
+/// box and a paper plane, and somebody on their second day reads the word
+/// before they learn the glyph. The hub's Profile/Apps bar already had them,
+/// and a phone holding both apps should not teach two navigations.
 ///
-/// ```
-/// .tabbar { position:fixed; left:0; right:0; bottom:18px;
-///           justify-content:center; gap:14px }
-/// .tab    { width:54px; height:54px; border-radius:18px;
-///           color:#9c9da3; background:rgba(246,246,248,.9) }
-/// .tab.on { background:var(--accent); color:#fff;
-///           box-shadow:0 8px 20px rgba(60,82,240,.35) }
-/// ```
-///
-/// The thing to get right, and the thing everyone gets wrong from memory:
-/// **there is no containing bar.** These are separate squircles floating over
-/// the content with 14px of nothing between them. A pill, a card or a
-/// background behind the row would be a different design system.
-///
-/// The active one is a solid `{accent}` squircle with a white glyph — the
-/// desktop treatment (pale pill + accent icon) travelling to a phone, exactly
-/// as DESIGN.md says it should. There is no label under any of them: four
-/// destinations named by icon is what the reference draws, and a word under
-/// each would make the row a bar again.
+/// A material rather than a slab — translucent white over a strong blur — so
+/// the list scrolling beneath stays faintly present, which is the scroll cue the
+/// old gradient fade used to give. The lit tab takes the accent.
 export function TabBar({
   items,
   activePath,
@@ -37,44 +28,84 @@ export function TabBar({
   /// the counter hides this rather than stacking two navigations.
   className?: string
 }) {
+  const typing = useTyping()
+
   return (
-    <div className={className}>
-      {/* The list fades out beneath the bar rather than being cut off by it —
-          DESIGN.md calls the last card clipping under the bar a scroll cue, and
-          the gradient is what makes it read as one instead of as a bug. */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-30 h-[6.875rem] bg-gradient-to-t from-canvas from-30% to-transparent"
-      />
-      <nav
-        aria-label="Sections"
-        className="bottom-safe fixed inset-x-0 z-40 flex justify-center gap-[0.875rem]"
+    <nav
+      aria-label="Sections"
+      // Out of the way while the keyboard is up: five tabs riding on top of it
+      // take a fifth of what is left of the glass, right over the field.
+      hidden={typing}
+      className={cn(
+        "fixed inset-x-0 bottom-0 z-40 border-t border-black/[0.06] bg-canvas/80 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-xl backdrop-saturate-150",
+        className,
+      )}
+    >
+      <ul
+        className="grid h-14"
+        style={{
+          gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))`,
+        }}
       >
         {items.map((item) => {
           const on = item.path === activePath
           const Icon = item.icon
           return (
-            <AppLink
-              key={item.path}
-              to={item.path}
-              aria-label={item.label}
-              aria-current={on ? "page" : undefined}
-              className={cn(
-                "grid size-[3.375rem] place-items-center rounded-[1.125rem] transition-colors",
-                on
-                  ? // The one glow in the system, and it is the accent's own colour
-                    // rather than a literal: `shadow-accent/35` fills the
-                    // arbitrary shadow's colour slot from the token, so a
-                    // change to `--accent` reaches it.
-                    "bg-accent text-on-dark shadow-[0_8px_20px] shadow-accent/35"
-                  : "bg-soft-3/90 text-line-ico backdrop-blur-[6px]",
-              )}
-            >
-              <Icon className="size-[1.3125rem]" strokeWidth={1.6} />
-            </AppLink>
+            <li key={item.path}>
+              <AppLink
+                to={item.path}
+                aria-current={on ? "page" : undefined}
+                className={cn(
+                  "group flex h-full flex-col items-center justify-center gap-[0.1875rem] text-[0.6875rem] font-medium tracking-[0.005em] select-none",
+                  on ? "text-accent" : "text-mute",
+                )}
+              >
+                <span className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.9]">
+                  <Icon className="size-6" strokeWidth={on ? 2.1 : 1.7} />
+                </span>
+                {item.label}
+              </AppLink>
+            </li>
           )
         })}
-      </nav>
-    </div>
+      </ul>
+    </nav>
   )
+}
+
+/// Whether a text field has focus — the on-screen keyboard's stand-in, since a
+/// browser will not say whether one is up. A field with `inputmode="none"` does
+/// not count: that is the scan field waiting for a scanner, which raises no
+/// keyboard. Neither does a checkbox.
+function useTyping(): boolean {
+  const [typing, setTyping] = useState(false)
+  useEffect(() => {
+    const editable = (node: EventTarget | null) =>
+      node instanceof HTMLElement &&
+      (node.isContentEditable ||
+        node instanceof HTMLTextAreaElement ||
+        (node instanceof HTMLInputElement &&
+          node.inputMode !== "none" &&
+          ![
+            "checkbox",
+            "radio",
+            "button",
+            "submit",
+            "range",
+            "file",
+            "color",
+          ].includes(node.type)))
+    const onIn = (event: FocusEvent) => setTyping(editable(event.target))
+    const onOut = () =>
+      // The next field may take focus in the same tick; read where focus
+      // landed rather than assuming it left.
+      requestAnimationFrame(() => setTyping(editable(document.activeElement)))
+    document.addEventListener("focusin", onIn)
+    document.addEventListener("focusout", onOut)
+    return () => {
+      document.removeEventListener("focusin", onIn)
+      document.removeEventListener("focusout", onOut)
+    }
+  }, [])
+  return typing
 }

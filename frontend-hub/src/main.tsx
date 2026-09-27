@@ -1,9 +1,19 @@
+import "@/lib/random-uuid"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import {
+  MutationCache,
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query"
 
 import "./styles/index.css"
 import { App } from "@/App"
+import { cacheKey, edge, setEdgeToken } from "@/lib/api"
+import { markSignedOutElsewhere } from "@/lib/session"
+import { registerServiceWorker } from "@/lib/pwa"
+import { ApiError } from "@itulah/contract/client"
 
 /// One client for the whole surface.
 ///
@@ -11,12 +21,51 @@ import { App } from "@/App"
 /// read — an unpriced item, a missing CSRF token, a lapsed session — and
 /// retrying a 4xx only delays showing it. `ApiError.worthRetrying` names the
 /// cases where a retry is honest, and callers that want one ask for it.
+///
+/// One user, one device (2026-09-26): signing in somewhere else ends this
+/// session on the server, and the first request after that says so. Any read
+/// or write that hears it drops the session here too, so the login box comes
+/// up at once with the reason — rather than a screen of red errors that only
+/// a reload would explain.
+function pushedOut(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.needsSignIn &&
+    /another device/.test(error.message)
+  )
+}
+
+function signOutHere(error: unknown) {
+  if (!pushedOut(error)) return
+  markSignedOutElsewhere()
+  queryClient.setQueryData(cacheKey.me(), null)
+  queryClient.removeQueries({
+    predicate: (query) => query.queryKey[0] !== cacheKey.me()[0],
+  })
+}
+
 const queryClient = new QueryClient({
+  queryCache: new QueryCache({ onError: signOutHere }),
+  mutationCache: new MutationCache({ onError: signOutHere }),
   defaultOptions: {
     queries: { retry: false, refetchOnWindowFocus: false, staleTime: 30_000 },
     mutations: { retry: false },
   },
 })
+
+/// A warehouse session lapses on the node — thirty idle minutes, a restart —
+/// while the screens reading it still hold its token. The first 401 for that
+/// token drops it, and the Operations gate, seeing no DC session, exchanges
+/// the Cloud one for a fresh session. Nobody is asked for a DC password.
+edge.onBearerRejected(() => {
+  setEdgeToken(null)
+  queryClient.setQueryData(cacheKey.edgeMe(), null)
+})
+
+/// The installed-app worker: the shell, the "new version" toast and Web Push
+/// (`lib/pwa.ts`, `src/sw.ts`). Before the first render, so the browser's
+/// install offer — which fires once, early — is not missed.
+registerServiceWorker()
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

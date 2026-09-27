@@ -73,15 +73,28 @@ function clientMethods() {
   return map
 }
 
-
 /**
- * The edge binary serves BOTH roles from one router, so neither console should
- * ever reach all sixty. A till has no business opening a koli and a warehouse
- * has no till. `OTHER_ROLE` is therefore not a gap — it is the other half of a
- * shared file, and counting it as missing would make this gate cry wolf until
- * somebody stopped reading it.
+ * The Edge binary serves several surfaces from one router. Keep the DC route
+ * family in the audit (the unused DC routes belong to the opposite Edge role),
+ * but do not require this warehouse console to call Store, attendance,
+ * terminal administration, RFID-reader, catalogue-delivery, or ledger-history
+ * endpoints that belong to other screens and processes.
  */
-const OTHER_ROLE = "/api/v1/dc/"
+const OTHER_ROLE_PREFIXES = ["/api/v1/dc/"]
+const OUTSIDE_FLOOR_PREFIXES = [
+  "/api/v1/attendance/",
+  "/api/v1/auth/fingerprints",
+  "/api/v1/auth/methods",
+  "/api/v1/auth/pin/",
+  "/api/v1/auth/pins",
+  "/api/v1/auth/terminals",
+  "/api/v1/catalog/campaign-image",
+  "/api/v1/catalog/image",
+  "/api/v1/catalog/snapshot",
+  "/api/v1/inventory/movements",
+  "/api/v1/rfid/",
+  "/api/v1/store/",
+]
 
 const app = walk(join(ROOT, "src"))
   .map((file) => readFileSync(file, "utf8"))
@@ -98,22 +111,29 @@ for (const [name, paths] of methods) {
 
 const missing = []
 const otherRole = []
+const outsideFloor = []
 let covered = 0
 for (const route of routes) {
   const prefix = prefixOf(route)
   const direct = app.includes(prefix)
   const viaClient = [...reachable].some((path) => path.startsWith(prefix))
   if (direct || viaClient) covered += 1
-  else if (OTHER_ROLE && route.startsWith(OTHER_ROLE)) otherRole.push(route)
-  else missing.push(route)
+  else if (OTHER_ROLE_PREFIXES.some((outside) => route.startsWith(outside))) {
+    otherRole.push(route)
+  } else if (
+    OUTSIDE_FLOOR_PREFIXES.some((outside) => route.startsWith(outside))
+  ) {
+    outsideFloor.push(route)
+  } else missing.push(route)
 }
 
 const mine = covered + missing.length
 console.log(`endpoints: ${covered}/${mine} reached from src/`)
 if (otherRole.length > 0) {
-  console.log(
-    `(${otherRole.length} more belong to the other edge role and are not this console's)`,
-  )
+  console.log(`(${otherRole.length} belong to the other Edge role)`)
+}
+if (outsideFloor.length > 0) {
+  console.log(`(${outsideFloor.length} belong to other Edge surfaces)`)
 }
 if (missing.length > 0) {
   console.log("\nnot reached:")

@@ -51,39 +51,39 @@ RNG = random.Random(20260904)
 # "kemeja", not "shirt", and a catalogue in the wrong language makes the search
 # box untestable.
 GARMENTS = {
-    "MENSWEAR": [
+    "PRIA": [
         ("Kemeja", ["Flanel", "Oxford", "Linen", "Katun", "Denim", "Motif"]),
         ("Kaos", ["Polos", "Grafis", "Saku", "Raglan", "Oversize"]),
         ("Celana", ["Chino", "Kargo", "Bahan", "Jogger", "Pendek"]),
         ("Jaket", ["Bomber", "Parka", "Denim", "Coach", "Windbreaker"]),
         ("Sweater", ["Rajut", "Crewneck", "Zip", "Half-Zip"]),
     ],
-    "WOMENSWEAR": [
+    "WANITA": [
         ("Blus", ["Katun", "Sifon", "Lengan Balon", "Kerah V", "Motif"]),
         ("Gaun", ["Midi", "Maxi", "Wrap", "Slip", "Kemeja"]),
         ("Rok", ["Plisket", "A-Line", "Denim", "Pensil", "Wrap"]),
         ("Kardigan", ["Rajut", "Panjang", "Crop", "Oversize"]),
         ("Kulot", ["Linen", "Katun", "Denim", "Bahan"]),
     ],
-    "KIDS": [
+    "ANAK_LAKI": [
         ("Kaos Anak", ["Karakter", "Polos", "Garis", "Motif"]),
         ("Celana Anak", ["Pendek", "Jogger", "Denim", "Kargo"]),
         ("Dress Anak", ["Katun", "Motif", "Renda"]),
         ("Piyama Anak", ["Katun", "Flanel", "Motif"]),
     ],
-    "FOOTWEAR": [
+    "SANDAL_SEPATU": [
         ("Sepatu", ["Lari", "Kanvas", "Kulit", "Slip-On", "Basket"]),
         ("Sandal", ["Jepit", "Slide", "Gunung", "Kulit"]),
         ("Boot", ["Chelsea", "Hiking", "Kulit"]),
     ],
-    "ACCESSORY": [
+    "AKSESORIS": [
         ("Topi", ["Baseball", "Bucket", "Rajut"]),
         ("Tas", ["Ransel", "Selempang", "Tote", "Pinggang"]),
         ("Ikat Pinggang", ["Kulit", "Kanvas", "Anyam"]),
         ("Kaus Kaki", ["Pendek", "Panjang", "Olahraga"]),
         ("Dompet", ["Lipat", "Kartu", "Panjang"]),
     ],
-    "DIVIDED": [
+    "NON_DIVISI": [
         ("Denim", ["Straight", "Slim", "Baggy", "Mom", "Wide-Leg"]),
         ("Hoodie", ["Polos", "Grafis", "Zip", "Crop"]),
         ("Jersey", ["Retro", "Klub", "Latihan"]),
@@ -96,14 +96,14 @@ SEASONS = ["Basic", "Musim Panas", "Musim Hujan", "Lebaran", "Sekolah", "Kerja"]
 # A tag that contradicts the garment ("SEPATU" on a shirt) makes the facet
 # counts look plausible and the filter results nonsense.
 TAGS = {
-    "MENSWEAR": ["KEMEJA", "KAOS", "CELANA", "JAKET", "BASIC", "FORMAL",
+    "PRIA": ["KEMEJA", "KAOS", "CELANA", "JAKET", "BASIC", "FORMAL",
                  "LENGAN_PANJANG", "LENGAN_PENDEK", "RAJUT"],
-    "WOMENSWEAR": ["BLUS", "GAUN", "ROK", "BASIC", "FORMAL", "RAJUT",
+    "WANITA": ["BLUS", "GAUN", "ROK", "BASIC", "FORMAL", "RAJUT",
                    "LENGAN_PANJANG", "MUSIMAN"],
-    "KIDS": ["KAOS", "CELANA", "TIDUR", "BASIC", "MUSIMAN"],
-    "FOOTWEAR": ["SEPATU", "KAUS_KAKI", "BASIC"],
-    "ACCESSORY": ["AKSESORI", "KAUS_KAKI", "BASIC"],
-    "DIVIDED": ["DENIM", "CELANA", "KAOS", "CELANA_PENDEK", "MUSIMAN", "BASIC"],
+    "ANAK_LAKI": ["KAOS", "CELANA", "TIDUR", "BASIC", "MUSIMAN"],
+    "SANDAL_SEPATU": ["SEPATU", "KAUS_KAKI", "BASIC"],
+    "AKSESORIS": ["AKSESORI", "KAUS_KAKI", "BASIC"],
+    "NON_DIVISI": ["DENIM", "CELANA", "KAOS", "CELANA_PENDEK", "MUSIMAN", "BASIC"],
 }
 
 # Size codes from `size_code`, by what the garment is measured in.
@@ -118,12 +118,12 @@ COLOURS = ["BLACK", "NAVY", "WHITE", "GREY", "BEIGE", "MAROON", "OLIVE",
 # the existing rows both say so, and a seed that multiplied by a hundred would
 # put every article a hundredfold out of every filter's reach.
 BANDS = {
-    "MENSWEAR": (89_000, 399_000),
-    "WOMENSWEAR": (99_000, 459_000),
-    "KIDS": (59_000, 199_000),
-    "FOOTWEAR": (199_000, 899_000),
-    "ACCESSORY": (39_000, 299_000),
-    "DIVIDED": (149_000, 549_000),
+    "PRIA": (89_000, 399_000),
+    "WANITA": (99_000, 459_000),
+    "ANAK_LAKI": (59_000, 199_000),
+    "SANDAL_SEPATU": (199_000, 899_000),
+    "AKSESORIS": (39_000, 299_000),
+    "NON_DIVISI": (149_000, 549_000),
 }
 
 
@@ -194,7 +194,7 @@ def main():
         for tag in RNG.sample(TAGS[division], RNG.randint(1, 3)):
             tags.append(f"({quote(article_id)}, {quote(tag)})")
 
-        sizes = (SHOE_SIZES if division == "FOOTWEAR"
+        sizes = (SHOE_SIZES if division == "SANDAL_SEPATU"
                  else ONE_SIZE if family in ("Topi", "Tas", "Dompet",
                                              "Ikat Pinggang")
                  else APPAREL_SIZES)

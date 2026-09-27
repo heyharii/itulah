@@ -28,7 +28,7 @@
 //!
 //! So the class is now `asset_class(class_code)` — see
 //! `postgres::asset_classes`. What has NOT changed is how the accounts are
-//! found: the class is still the `account_map` qualifier, and the two accounts
+//! found: the class is still the `account_link` source, and the two accounts
 //! a depreciation entry needs are still resolved through the map from a
 //! meaning. Only the namespace the qualifier is drawn from is different, and
 //! it is now one that cannot be spelled two ways.
@@ -190,7 +190,7 @@ pub struct RegisterAssetRequest {
     pub name: String,
     /// One of the register's own asset classes — an `asset_class.class_code`,
     /// not an account code. The account its cost lands in follows from the
-    /// class through `account_map`, and is `1601` or `1602` for every one.
+    /// class through `account_resolution`, and is `1601` or `1602` for every one.
     pub category_code: String,
     pub site_id: String,
     pub acquired_on: NaiveDate,
@@ -333,6 +333,7 @@ const IN_FORCE: &str = "LEFT JOIN LATERAL (
 fn to_asset(row: &sqlx::postgres::PgRow) -> Result<AssetRow, AppError> {
     let cost: Option<i64> = row.try_get("capitalized_cost_minor")?;
     let accumulated: i64 = row.try_get("accumulated")?;
+    let disposed_on: Option<NaiveDate> = row.try_get("disposed_on")?;
     Ok(AssetRow {
         asset_id: row.try_get("asset_id")?,
         asset_number: row.try_get("asset_number")?,
@@ -355,10 +356,15 @@ fn to_asset(row: &sqlx::postgres::PgRow) -> Result<AssetRow, AppError> {
         opening_accumulated_minor: row.try_get("opening_accumulated_minor")?,
         opening_through: row.try_get("opening_through")?,
         accumulated_minor: accumulated,
-        book_value_minor: cost.map(|c| c - accumulated),
+        // A disposed asset has left the books: its disposal entry took the
+        // cost and the accumulated charge out, so what the books carry for it
+        // is nothing. Cost less accumulated here would keep a written-off
+        // laptop in every "at book value" total beside a balance sheet that
+        // no longer has it.
+        book_value_minor: cost.map(|c| if disposed_on.is_some() { 0 } else { c - accumulated }),
         last_depreciated_month: row.try_get("last_depreciated_month")?,
         acquired_via: row.try_get("acquired_via")?,
-        disposed_on: row.try_get("disposed_on")?,
+        disposed_on,
         disposal_method: row.try_get("disposal_method")?,
         disposal_proceeds_minor: row.try_get("disposal_proceeds_minor")?,
         disposal_journal_entry_id: row.try_get("disposal_journal_entry_id")?,
@@ -549,10 +555,12 @@ fn asset_rows() -> String {
         "SELECT {ASSET_BASE},
                 COALESCE(k.decision, 'UNASSESSED') AS decision_key,
                 COALESCE(k.capitalized_cost_minor, 0)::bigint AS cost_key,
-                (COALESCE(k.capitalized_cost_minor, 0)
-                 - COALESCE((SELECT SUM(d.amount_minor)
-                               FROM asset_depreciation_entry d
-                              WHERE d.asset_id = a.asset_id), 0))::bigint AS book_key
+                (CASE WHEN a.disposed_on IS NOT NULL THEN 0
+                      ELSE COALESCE(k.capitalized_cost_minor, 0)
+                           - COALESCE((SELECT SUM(d.amount_minor)
+                                         FROM asset_depreciation_entry d
+                                        WHERE d.asset_id = a.asset_id), 0)
+                 END)::bigint AS book_key
            FROM fixed_asset a
            JOIN asset_class c ON c.class_code = a.category_code
            {IN_FORCE}
@@ -854,7 +862,7 @@ pub async fn asset(pool: &PgPool, asset_id: Uuid) -> Result<AssetRow, AppError> 
 /// one for work still being built. Until the forty-account chart this was a
 /// list of client account families in Rust — `["10215", "10217", "1031803"]`,
 /// matched by prefix — and it is now a list of MEANINGS, resolved through
-/// `account_map` like everything else. Two things follow from that and both
+/// `account_resolution` like everything else. Two things follow from that and both
 /// were wrong before:
 ///
 ///   * the codes are wherever the map says they are, so the check cannot drift
@@ -874,8 +882,8 @@ pub(super) async fn asset_cost_accounts(
     executor: impl sqlx::PgExecutor<'_>,
 ) -> Result<Vec<String>, AppError> {
     let rows = sqlx::query(
-        "SELECT DISTINCT account_code FROM account_map
-          WHERE semantic_key = ANY($1) ORDER BY account_code",
+        "SELECT DISTINCT account_code FROM account_resolution
+          WHERE role = ANY($1) ORDER BY account_code",
     )
     .bind(ASSET_COST_KEYS.map(str::to_string).to_vec())
     .fetch_all(executor)
@@ -920,7 +928,7 @@ async fn asset_leg(
         return Err(AppError::Validation(format!(
             "the map points {semantic_key} ({qualifier}) at {} at {site_id} {}, and this charge \
              is {}. One account carries several of these now, and the category is the only thing \
-             that tells them apart — fix the row on the Account Map screen.",
+             that tells them apart — fix the link on the Account Links screen.",
             resolved.account_code,
             match resolved.category_code.as_deref() {
                 Some(found) => format!("under {found}"),
@@ -1202,8 +1210,23 @@ pub async fn assess_asset(
     // Months rather than years, because that is what the arithmetic uses and
     // because a rate that does not divide a year evenly — 33.33% — lands on 36
     // months exactly while "3 years" and "3.0003 years" do not.
+    // Neither given: the class's own default life (0467), as an ERPNext Asset
+    // Category supplies one.
+    let class_life: Option<i32> = if request.useful_life_months.is_none() && request.rate_bps.is_none() {
+        sqlx::query_scalar(
+            "SELECT c.default_useful_life_months FROM fixed_asset a
+               JOIN asset_class c ON c.class_code = a.category_code
+              WHERE a.asset_id = $1",
+        )
+        .bind(asset_id)
+        .fetch_optional(pool)
+        .await?
+        .flatten()
+    } else {
+        None
+    };
     let (useful_life_months, rate_bps) =
-        reconcile_life(request.useful_life_months, request.rate_bps)?;
+        reconcile_life(request.useful_life_months.or(class_life), request.rate_bps)?;
     let charge_kind = match request.charge_kind.as_deref().map(str::trim) {
         Some(raw) if !raw.is_empty() => {
             if ChargeKind::parse(raw).is_none() {
@@ -1506,7 +1529,7 @@ pub async fn assess_asset(
                 "capitalising this would debit and credit {progress_account} for the same asset \
                  and leave the cost exactly where it was. Finished work and work in progress are \
                  one account with two stages now — point {} and work_in_progress at different \
-                 ones on the Account Map screen.",
+                 ones on the Account Links screen.",
                 kind.cost_key()
             )));
         }
@@ -2070,7 +2093,7 @@ fn charge_is_owed(asset: &AssetRow, period: NaiveDate) -> bool {
 /// received, and its sign decides which MEANING it goes to — two since 0296,
 /// because a loss debited into the gain's revenue account was a cost filed
 /// under income. This is the one moment the sign is known, so the side is
-/// chosen here and not on the Account Map.
+/// chosen here and not on the Account Links screen.
 pub async fn dispose_asset(
     pool: &PgPool,
     asset_id: Uuid,

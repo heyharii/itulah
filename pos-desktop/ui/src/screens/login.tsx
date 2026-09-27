@@ -31,8 +31,10 @@
 import { useEffect, useState, type FormEvent } from "react"
 
 import { authMethods, pairTerminal, type StepUp } from "@/api"
+import { Icon } from "@/icons"
 import { PinPad } from "@/pinpad"
 import { useNodeConfig, useSession } from "@/session"
+import { Brand, Topbar } from "@/till"
 
 /// Sign in on this terminal.
 ///
@@ -57,7 +59,7 @@ export function LoginScreen({
   /// which is not the same as `NONE`, and is drawn the same way on purpose: see
   /// the effect below.
   const [stepUp, setStepUp] = useState<StepUp | null>(null)
-  const [methods, setMethods] = useState<string | null>(null)
+  const [mode, setMode] = useState<"password" | "pin">("password")
   const [pin, setPin] = useState("")
   const [pinNote, setPinNote] = useState<string | null>(null)
 
@@ -78,13 +80,11 @@ export function LoginScreen({
       if (!alive) return
       if (!reply.ok) {
         setStepUp(null)
-        setMethods(reply.problem)
         return
       }
       // A node that answered without naming a method accepts no step-up. It
       // said so; this is not a guess standing in for silence.
       setStepUp(reply.body?.till_step_up ?? "NONE")
-      setMethods(null)
     })()
     return () => {
       alive = false
@@ -118,17 +118,43 @@ export function LoginScreen({
     if (refusal === null) onSignedIn()
   }
 
+  // Which way in is on screen. Only offered when the node said it takes the
+  // other one; the password is always there.
+  const usePin = stepUp === "PIN" && mode === "pin"
+
   return (
     <div id="app" data-screen="sale">
       <div className="overlay">
-        <form className="overlay-card" onSubmit={(event) => void enter(event)}>
-          <span className="brand">
-            <span className="brand-mark">i.</span>itulah{" "}
-            <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
-              kasir
-            </span>
-          </span>
-          <h3>Masuk untuk membuka konter</h3>
+        <form
+          className="overlay-card login-card"
+          onSubmit={(event) => {
+            if (usePin) {
+              event.preventDefault()
+              void enterWithPin()
+            } else void enter(event)
+          }}
+        >
+          <Brand />
+          <h3>Masuk ke konter</h3>
+
+          {stepUp === "PIN" && (
+            <div className="segmented" style={{ width: "100%" }}>
+              <button
+                type="button"
+                aria-pressed={!usePin}
+                onClick={() => setMode("password")}
+              >
+                Kata sandi
+              </button>
+              <button
+                type="button"
+                aria-pressed={usePin}
+                onClick={() => setMode("pin")}
+              >
+                PIN
+              </button>
+            </div>
+          )}
 
           <label className="field" style={{ width: "100%", textAlign: "left" }}>
             Nama pengguna
@@ -143,189 +169,93 @@ export function LoginScreen({
             />
           </label>
 
-          <label className="field" style={{ width: "100%", textAlign: "left" }}>
-            Kata sandi
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="off"
-              aria-label="Kata sandi"
-            />
-          </label>
+          {usePin ? (
+            <div style={{ width: "100%" }}>
+              <PinPad
+                value={pin}
+                onChange={setPin}
+                onSubmit={() => void enterWithPin()}
+                disabled={busy || !ready}
+              />
+              {pinNote !== null && (
+                <p className="error" style={{ marginTop: 8, textAlign: "left" }}>
+                  {pinNote}
+                </p>
+              )}
+            </div>
+          ) : (
+            <label className="field" style={{ width: "100%", textAlign: "left" }}>
+              Kata sandi
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="off"
+                aria-label="Kata sandi"
+              />
+            </label>
+          )}
 
-          {problem !== null && (
+          {!usePin && problem !== null && (
             <p className="error" style={{ width: "100%", textAlign: "left" }}>
               {problem}
             </p>
           )}
 
           <button
-            className="btn primary"
+            className="btn primary lg"
             style={{ width: "100%" }}
             type="submit"
-            disabled={busy || !ready || username === "" || password === ""}
+            disabled={
+              busy ||
+              !ready ||
+              username === "" ||
+              (usePin ? pin === "" : password === "")
+            }
           >
             {busy ? "Memeriksa…" : !ready ? "Membaca setelan…" : "Masuk"}
           </button>
 
-          {/* ── the second way in, as far as the node allows one ─────────── */}
-
-          {/* Only when the node said PIN. A PIN is the STAGING method and the
-              notice says so out loud, where the cashier is standing: a till that
-              cannot tell a rehearsal from the real thing is how a rehearsal
-              reaches a customer, and the shape of this screen is the only clue
-              anybody at the counter gets.
-
-              The username is the field above rather than a second one of its
-              own. Two name boxes on one card is two chances to type the name
-              into the one that is not being sent, and the node checks the same
-              name either way. */}
-          {stepUp === "PIN" && (
-            <div style={{ width: "100%", textAlign: "left" }}>
-              <span className="label">Masuk dengan PIN</span>
-              <div className="notice warn" style={{ marginTop: 8 }}>
-                <strong>PIN hanya diterima node latihan (staging).</strong> Node
-                produksi menolak PIN dan meminta sidik jari. Jadi kalau pad ini
-                muncul, terminal ini sedang bicara dengan node latihan — apa pun
-                yang dijual di sini bukan penjualan sungguhan, dan strukmu bukan
-                struk pelanggan. Kata sandi tetap berlaku di node mana pun.
-              </div>
-              <p className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
-                PIN dipakai bersama nama pengguna di kolom paling atas.
-              </p>
-              <PinPad
-                value={pin}
-                onChange={setPin}
-                onSubmit={() => void enterWithPin()}
-                disabled={busy || !ready || username === ""}
-              />
-              <button
-                className="btn"
-                style={{ width: "100%", marginTop: 8 }}
-                type="button"
-                disabled={busy || !ready || username === "" || pin === ""}
-                onClick={() => void enterWithPin()}
-              >
-                {busy ? "Memeriksa…" : "Masuk dengan PIN"}
-              </button>
-              {pinNote !== null && (
-                <p className="error" style={{ marginTop: 6 }}>
-                  {pinNote}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* The counter signs in with a finger far more often than with a
-              keyboard — `pos-electron` does it this way and this counter will
-              too. The button is here now, and it tells the truth about why it
-              cannot work yet, because the alternative is a till that looks like
-              it supports fingerprints and silently does nothing when pressed.
-
-              Two things are missing, and they are different problems: this
-              shell has no driver bound yet (`src-tauri/src/device.rs`), and the
-              terminal must be paired with the node before it may speak in its
-              own name. Matching happens HERE, against templates the node hands
-              down, so a counter can still be opened when head office is
-              unreachable — and the pairing secret is what stops any other
-              machine on the shop wifi from claiming to be a supervisor.
-
-              Drawn only when the node said FINGERPRINT. It is the production
-              method, and on a node that takes PINs instead the press would be
-              refused there — with the refusal arriving in the words of a
-              fingerprint failure, which is a sentence about a scanner for a node
-              that never wanted one. */}
+          {/* Drawn only when the node said FINGERPRINT — on a node that takes
+              PINs instead the press would be refused there. */}
           {stepUp === "FINGERPRINT" && (
             <>
               <button
-                className="btn"
+                className="btn lg"
                 style={{ width: "100%" }}
                 type="button"
                 disabled={busy || !ready}
                 onClick={() => {
                   void (async () => {
                     setFinger("Letakkan jari pada pemindai…")
-                    // The refusal shown is whichever came first — this shell
-                    // having no scanner bound, the node having nobody enrolled,
-                    // or the finger simply not matching. They are different
-                    // problems and the cashier is told which one, because only
-                    // one of them is fixed by pressing again.
                     const refusal = await signInWithFinger()
                     setFinger(refusal)
                     if (refusal === null) onSignedIn()
                   })()
                 }}
               >
+                <Icon name="finger" />
                 Masuk dengan sidik jari
               </button>
               {finger !== null && (
-                <p
-                  className="muted"
-                  style={{ fontSize: 11.5, textAlign: "left" }}
-                >
+                <p className="muted" style={{ fontSize: 12, textAlign: "left" }}>
                   {finger}
                 </p>
               )}
             </>
           )}
 
-          {/* Three states, three different sentences, and none of them is a
-              button. `NONE` is the node's answer and is final; a null `stepUp`
-              with a refusal attached is a node that would not answer, which is
-              worth reading because the address above may be the reason; and a
-              null with no refusal is simply an answer still on its way. */}
-          {stepUp === "NONE" && (
-            <div className="notice" style={{ width: "100%", textAlign: "left" }}>
-              Node ini hanya menerima kata sandi. Tidak ada PIN dan tidak ada
-              sidik jari di sini — bukan disembunyikan oleh terminal, memang
-              ditolak oleh node-nya.
-            </div>
-          )}
-          {stepUp === null && methods !== null && (
-            <div
-              className="notice warn"
-              style={{ width: "100%", textAlign: "left" }}
-            >
-              Node belum menyebut cara masuk selain kata sandi, jadi PIN dan
-              sidik jari tidak ditawarkan di layar ini. Kata sandi tetap bisa
-              dipakai. Kata node: {methods}
-            </div>
-          )}
-          {stepUp === null && methods === null && (
-            <p
-              className="muted"
-              style={{ fontSize: 11.5, width: "100%", textAlign: "left" }}
-            >
-              Menanyakan ke node cara masuk apa yang diterima di sini…
-            </p>
-          )}
-
-          <div className="notice" style={{ width: "100%", textAlign: "left" }}>
-            {config === null ? (
-              <>
-                Terminal ini belum tahu node mana yang harus ditanya, jadi nama
-                dan sandi yang benar pun tidak akan sampai ke mana-mana.
-              </>
-            ) : (
-              <>
-                Terminal <strong>{config.terminal_id}</strong> menanyakan semua
-                hal ke node{" "}
-                <strong className="num">{config.base_url}</strong>. Kalau itu
-                bukan toko tempat Anda berdiri, sandi yang benar pun akan
-                ditolak — dan penolakannya datang dengan kata-kata toko lain.
-              </>
-            )}
+          <div className="login-foot">
+            <span className="num" title={config?.base_url}>
+              {config === null
+                ? "Terminal belum diatur"
+                : `${config.terminal_id} · ${config.base_url.replace(/^https?:\/\//, "")}`}
+            </span>
+            <button className="btn ghost" type="button" onClick={onSetup}>
+              <Icon name="settings" />
+              Setelan
+            </button>
           </div>
-
-          <button
-            className="btn ghost"
-            style={{ width: "100%" }}
-            type="button"
-            onClick={onSetup}
-          >
-            Setelan terminal — arahkan ke node lain
-          </button>
         </form>
       </div>
     </div>
@@ -384,6 +314,7 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
 
   return (
     <div id="app" data-screen="sale">
+      <Topbar />
       <main className="page">
         <form
           className="page-inner"
@@ -393,14 +324,10 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
           <div className="page-head">
             <div>
               <h1>Setelan terminal</h1>
-              <p>
-                Mengganti alamat node berarti mengarahkan kasir ini ke toko
-                lain: stok, harga, promo, nomor struk dan sesi kasnya ikut
-                pindah ke node itu. Ubah hanya kalau memang mesin ini dipindah.
-              </p>
             </div>
             <button className="btn ghost" type="button" onClick={onDone}>
-              Tutup
+              <Icon name="back" />
+              Kembali
             </button>
           </div>
 
@@ -409,7 +336,7 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
             <input
               value={baseUrl}
               onChange={(event) => setBaseUrl(event.target.value)}
-              placeholder="http://192.168.1.20:8081"
+              placeholder="http://192.168.1.20:8082"
               autoComplete="off"
               spellCheck={false}
               inputMode="url"
@@ -432,11 +359,11 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
               on the printer's LAN — so a printer only this terminal can see is
               a printer no receipt will ever come out of. */}
           <label className="field">
-            Printer struk — alamat yang dijangkau node
+            Alamat printer struk
             <input
               value={printerHost}
               onChange={(event) => setPrinterHost(event.target.value)}
-              placeholder="192.168.1.50 — kosongkan kalau konter ini tanpa printer"
+              placeholder="192.168.1.50 — kosongkan jika tanpa printer"
               autoComplete="off"
               spellCheck={false}
             />
@@ -472,21 +399,18 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
 
               The secret is handed over once and never again. It goes to the
               shell, not to this page. */}
-          <div className="notice">
+          <div className="kv">
+            <span className="muted">Pasangan dengan node</span>
             {config?.pairing_id != null ? (
-              <>
-                Terminal ini sudah dipasangkan dengan node (
-                <span className="num">{config.pairing_id}</span>), jadi sidik
-                jari bisa dipakai untuk masuk dan untuk otorisasi supervisor.
-              </>
+              <span className="badge ok">
+                Terpasang · <span className="num">{config.pairing_id}</span>
+              </span>
             ) : (
-              <>
-                Terminal ini belum dipasangkan. Sampai dipasangkan, sidik jari
-                tidak bisa dipakai — node tidak punya cara memastikan klaimnya
-                datang dari mesin ini.
-              </>
+              <span className="badge plain">Belum</span>
             )}
-            <div style={{ marginTop: 8 }}>
+          </div>
+          <div>
+            <div>
               <button
                 className="btn"
                 type="button"
@@ -510,8 +434,7 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
                       pairing_secret: paired?.secret ?? null,
                     })
                     setPairing(
-                      saved ??
-                        "Terminal dipasangkan. Kredensialnya disimpan di mesin ini dan tidak ditampilkan lagi.",
+                      saved ?? "Terminal dipasangkan.",
                     )
                   })()
                 }}
@@ -536,11 +459,11 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
               screen that cannot tell a rehearsal from the real thing is how a
               rehearsal reaches a customer. */}
           <label className="field">
-            Simulasikan sidik jari milik (hanya build pengembangan)
+            Simulasi sidik jari (build pengembangan)
             <input
               value={pretend}
               onChange={(event) => setPretend(event.target.value)}
-              placeholder="Kosongkan kalau memakai pemindai sungguhan"
+              placeholder="Nama pengguna — kosongkan untuk pemindai asli"
               autoComplete="off"
               spellCheck={false}
             />
@@ -548,9 +471,7 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
 
           {moved && (
             <div className="notice warn">
-              Alamat node berubah. Sesi yang sekarang diterbitkan oleh node yang
-              lama dan tidak berlaku di node yang baru, jadi menyimpan ini
-              sekaligus mengeluarkan terminal dari sesi — masuk lagi setelahnya.
+              Alamat node berubah — terminal akan keluar dan perlu masuk lagi.
             </div>
           )}
 
@@ -558,13 +479,6 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
             <p className="error">{shellProblem}</p>
           )}
           {problem !== null && <p className="error">{problem}</p>}
-
-          <div className="notice">
-            Setelan ini disimpan oleh aplikasi kasir di mesin ini, jadi terminal
-            tetap mengingat tokonya setelah ditutup dan dibuka lagi. Mengganti
-            alamat node berarti mengarahkan till ini ke toko lain, dan sesi yang
-            sedang berjalan ikut diputus.
-          </div>
 
           <div className="action-bar">
             <button className="btn" type="button" onClick={onDone}>
@@ -576,7 +490,7 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
               style={{ flex: 1 }}
               disabled={busy || !ready}
             >
-              {busy ? "Menyimpan…" : "Simpan setelan terminal"}
+              {busy ? "Menyimpan…" : "Simpan"}
             </button>
           </div>
         </form>

@@ -1,5 +1,6 @@
 import type { JSONContent } from "@tiptap/react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import {
   ArrowLeft,
   BookmarkPlus,
@@ -29,6 +30,7 @@ import {
   discardLetter,
   draftLetter,
   drawnFromRecord,
+  fact,
   issueLetter,
   letterKeys,
   letterKind,
@@ -72,16 +74,22 @@ import type { LetterRow, LetterSource } from "@itulah/contract"
 /// it is the thing colleagues send each other links to.
 
 const STATUSES = [
-  { value: null, label: "Any status" },
-  { value: "DRAFT", label: "Draft" },
-  { value: "ISSUED", label: "Issued" },
-  { value: "VOID", label: "Void" },
+  { value: null, label: "Semua status" },
+  { value: "DRAFT", label: "Draf" },
+  { value: "ISSUED", label: "Diterbitkan" },
+  { value: "VOID", label: "Dibatalkan" },
 ] as const
 
 const KINDS = [
-  { value: "all", label: "All" },
+  { value: "all", label: "Semua" },
   ...LETTER_KINDS.map((one) => ({ value: one.value, label: one.label })),
 ] as const
+
+const STATUS_WORDS: Readonly<Record<string, string>> = {
+  DRAFT: "Draf",
+  ISSUED: "Diterbitkan",
+  VOID: "Dibatalkan",
+}
 
 export function Letters() {
   const open = useSheet("letter")
@@ -117,19 +125,20 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <PageContent>
       <PageHeader
-        title="Letters"
-        sub="Surat terima barang and surat jalan — drawn from the record, numbered when issued, and kept."
+        crumb="Layanan pendukung"
+        title="Surat"
+        sub="Kelola surat terima barang dan surat jalan. Nomor surat ditetapkan saat diterbitkan."
         actions={
           <>
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Number, order, supplier"
+              placeholder="Nomor, pesanan, pemasok"
               className="h-8 w-56"
             />
             <Button variant="primary" onClick={() => setWriting(true)}>
               <Plus />
-              New letter
+              Buat surat
             </Button>
           </>
         }
@@ -138,7 +147,7 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
       <Toolbar>
         <Segmented options={KINDS} value={kind} onChange={setKind} />
         <ChoiceMenu
-          heading="Show"
+          heading="Status"
           icon={ListFilter}
           value={status}
           options={STATUSES}
@@ -153,14 +162,14 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
             <b className="font-medium text-ink">
               {count(letters.data.rows.length)}
             </b>{" "}
-            {letters.data.rows.length === 1 ? "letter" : "letters"}
+            surat
             {letters.data.drafts > 0 && (
               <>
                 {" · "}
                 <b className="font-medium text-ink">
                   {count(letters.data.drafts)}
                 </b>{" "}
-                waiting to be issued
+                menunggu diterbitkan
               </>
             )}
           </span>
@@ -168,31 +177,30 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
       </Toolbar>
 
       {queryState(letters, {
-        loading: "Opening the register…",
+        loading: "Membuka daftar surat…",
         render: (book) =>
           book.rows.length === 0 ? (
             <Card>
               <EmptyState
                 action={
                   <Button variant="ghost" onClick={() => setWriting(true)}>
-                    Write one
+                    Buat surat
                   </Button>
                 }
               >
-                No letter has been written yet. One is drawn from a delivery a
-                DC has counted or from an allotment going out to a shop — or
-                written from nothing, which is what most letters are.
+                Belum ada surat. Buat surat dari penerimaan barang, pengiriman
+                ke toko, atau mulai dengan surat kosong.
               </EmptyState>
             </Card>
           ) : (
             <Card className="overflow-hidden">
               <div className="grid h-10 grid-cols-[9rem_minmax(0,1fr)_9rem_5rem_6rem_6rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-                <span>Number</span>
-                <span>Letter</span>
-                <span>With</span>
-                <span className="text-right">Qty</span>
+                <span>Nomor</span>
+                <span>Surat</span>
+                <span>Penerima</span>
+                <span className="text-right">Jumlah</span>
                 <span>Status</span>
-                <span className="text-right">Issued</span>
+                <span className="text-right">Terbit</span>
               </div>
               {book.rows.map((row) => (
                 <LetterRowLine
@@ -244,7 +252,12 @@ function LetterRowLine({
           {letterKind(row.kind)}
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-pill text-mute">
-          <span className="font-mono text-id">{row.reference}</span>
+          <SubjectRef
+            kind={row.subject_kind}
+            id={row.subject_id}
+            reference={row.reference}
+            className="font-mono text-id"
+          />
           {row.place !== "" && <span>· {row.place}</span>}
         </div>
       </div>
@@ -254,13 +267,90 @@ function LetterRowLine({
       </span>
       <span>
         <Pill tone={letterTone(row.status)}>
-          {LETTER_STATUS_LABEL[row.status] ?? row.status}
+          {STATUS_WORDS[row.status] ??
+            LETTER_STATUS_LABEL[row.status] ??
+            row.status}
         </Pill>
       </span>
       <span className="text-right text-pill text-mute">
         {row.issued_at === null ? "—" : day(row.issued_at)}
       </span>
     </div>
+  )
+}
+
+/// The record a letter was drawn from, as a link where this app has a screen
+/// to open.
+///
+/// Brief §10.1: the reference column points at the record rather than only
+/// naming it. A delivery note is written against an allotment AND one of its
+/// destinations — the server spells its `subject_id` `{allotment}/{site}` —
+/// where the allotment screen knows the allotment on its own, so what travels
+/// is the id before the first slash and the sheet opens on that record.
+///
+/// A goods receipt note names a `goods_receipt`, and there is no screen of its
+/// own for one yet: a receipt is read through the letters it produces, and the
+/// stand-in that does show one reads it from the order book. So its reference
+/// stays a word rather than a link to nowhere. A blank letter names itself and
+/// links to nothing at all.
+function SubjectRef({
+  kind,
+  id,
+  reference,
+  className,
+}: {
+  kind: string
+  id: string
+  reference: string
+  className?: string
+}) {
+  const navigate = useNavigate()
+
+  if (kind === "allotment") {
+    const allotment = id.split("/")[0]
+    return (
+      <button
+        type="button"
+        title={`Open allotment ${reference}`}
+        onClick={(event) => {
+          // The register row is itself a target — it opens the letter — so the
+          // reference has to stop the click it sits inside from also firing.
+          event.stopPropagation()
+          // The route tree is generated from `lib/navigation.ts`, so Router
+          // has no literal union to check `to` against. `AppLink` carries the
+          // same cast for `<Link>`, and `finance/overview` for `navigate`.
+          void navigate({
+            to: "/allotment",
+            search: (prev: Record<string, unknown>) => ({
+              ...prev,
+              allotment,
+            }),
+          } as never)
+        }}
+        className={cn(
+          "text-left text-accent transition-colors hover:underline",
+          className
+        )}
+      >
+        {reference}
+      </button>
+    )
+  }
+
+  return (
+    <span
+      className={className}
+      // A goods receipt has no screen of its own yet — it is a warehouse
+      // document this app only reads through the letters it produces — so its
+      // reference is text rather than a link somewhere that cannot answer.
+      title={
+        kind === "receipt"
+          ? "A goods receipt has no screen of its own yet"
+          : undefined
+      }
+    >
+      {reference}
+    </span>
   )
 }
 
@@ -333,7 +423,7 @@ function SourceSheet({
           onChange={setKind}
         />
 
-        <p className="text-[0.78125rem] leading-relaxed text-body">
+        <p className="text-[0.875rem] leading-relaxed text-body">
           {chosen?.english} — written against {chosen?.source}.{" "}
           {fromRecord
             ? "The figures come from that record; the number is taken when the letter is issued."
@@ -542,7 +632,7 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
       <button
         type="button"
         onClick={onBack}
-        className="srt-noprint mb-3 inline-flex items-center gap-1.5 text-[0.75rem] font-medium text-mute transition-colors hover:text-ink"
+        className="srt-noprint mb-3 inline-flex items-center gap-1.5 text-[0.875rem] font-medium text-mute transition-colors hover:text-ink"
       >
         <ArrowLeft className="size-3.5" />
         Letters
@@ -590,7 +680,9 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
               <aside className="srt-noprint flex min-w-0 flex-col gap-4">
                 <div className="flex items-center gap-2">
                   <Pill tone={letterTone(open.status)}>
-                    {LETTER_STATUS_LABEL[open.status] ?? open.status}
+                    {STATUS_WORDS[open.status] ??
+                      LETTER_STATUS_LABEL[open.status] ??
+                      open.status}
                   </Pill>
                   {dirty && (
                     <span className="text-pill text-mute">not saved yet</span>
@@ -638,7 +730,27 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                     every part a person owns is edited in the document, at the
                     size it will print. What is left on this side is what
                     HAPPENS to the letter rather than what it says. */}
-                <div className="border-t border-hairline pt-3 text-[0.8125rem]">
+                <div className="border-t border-hairline pt-3 text-[0.875rem]">
+                  {/* The record this letter was drawn from, as the brief §10.1
+                      asks letters to point at one. The paper names it too, but
+                      a printed reference is not clickable; the side panel is
+                      where the crossing is made. */}
+                  {open.subject_kind !== "letter" && (
+                    <KeyValue
+                      term={
+                        open.subject_kind === "receipt"
+                          ? "Receipt"
+                          : "Allotment"
+                      }
+                    >
+                      <SubjectRef
+                        kind={open.subject_kind}
+                        id={open.subject_id}
+                        reference={fact(open.facts, "reference")}
+                        className="font-mono text-id"
+                      />
+                    </KeyValue>
+                  )}
                   <KeyValue term="Written by">{open.created_by}</KeyValue>
                   <KeyValue term="Written">{day(open.created_at)}</KeyValue>
                   {open.issued_by !== null && (
@@ -713,14 +825,14 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                 }
               >
                 <div className="flex flex-col gap-4">
-                  <p className="text-[0.78125rem] leading-relaxed text-body">
+                  <p className="text-[0.875rem] leading-relaxed text-body">
                     The next letter of this kind can be started from it, with
                     this wording already in place. What arrives in the goods
                     table always comes from the record, never from here.
                   </p>
                   <Field
                     label="Call it"
-                    hint="What somebody will look for in the menu."
+                    aside="What somebody will look for in the menu."
                   >
                     <Input
                       value={patternName}
@@ -751,7 +863,7 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                 }
               >
                 <div className="flex flex-col gap-4">
-                  <p className="text-[0.78125rem] leading-relaxed text-body">
+                  <p className="text-[0.875rem] leading-relaxed text-body">
                     {open.letter_number} stays in the book and is never handed
                     out again — somebody may be holding a printed copy of it.
                     Voiding puts the record back on the list of things a letter
@@ -759,7 +871,7 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                   </p>
                   <Field
                     label="Why"
-                    hint="Whoever finds this letter in a year reads this sentence."
+                    aside="Whoever finds this letter in a year reads this sentence."
                   >
                     <Textarea
                       rows={3}

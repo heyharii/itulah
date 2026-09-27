@@ -100,6 +100,9 @@ export const procurementNav: AppModule = {
           path: "/procurement/import",
           label: "Import PO",
           icon: FileUp,
+          // Hidden on the owner's instruction (2026-09-25) until the import
+          // flow is ready to be put in front of buyers. The route stays.
+          hidden: true,
         },
         {
           path: "/procurement/outstanding",

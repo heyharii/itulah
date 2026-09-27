@@ -678,6 +678,12 @@ pub async fn issue_setup_session(
     .execute(&mut *tx)
     .await?;
 
+    // The delivery was usually valued before this article existed (receipts
+    // post within a minute of acceptance), so its cost layer could not be
+    // opened then. It opens now, in this transaction, so the ledger's
+    // inventory and the FIFO queue agree from the moment the article exists.
+    super::payables_flow::cost_layer_on_setup(&mut tx, receipt_line_id).await?;
+
     // --- Mint the colourways -----------------------------------------------
     let colours = sqlx::query(
         "SELECT colour_digit, colour_code FROM article_setup_colour

@@ -63,11 +63,51 @@ pub struct Supplier {
     /// The account this party's bills usually debit. Only a non-merchandise
     /// party has one — merchandise debits inventory by rule.
     pub expense_account_code: Option<String>,
+    /// Nomor Pokok Wajib Pajak, as printed on the faktur — punctuation and
+    /// all. Stored as typed because it is copied onto documents rather than
+    /// matched on, and one company has exactly one. See migration 0302.
+    pub npwp: Option<String>,
+    /// Whether this supplier is a Pengusaha Kena Pajak, and so whether their
+    /// bills carry PPN and a faktur number.
+    ///
+    /// A separate fact from holding an NPWP, deliberately: a supplier can hold
+    /// one and not be a taxable enterprise, and a form that infers one from
+    /// the other cannot record that.
+    pub is_pkp: bool,
+    /// The `payment_terms_template` an order to this supplier is raised with
+    /// unless the buyer says otherwise.
+    ///
+    /// A DEFAULT and only that. The composer copies it onto the order the
+    /// moment a supplier is chosen; from there it is the order's own schedule.
+    pub default_payment_terms_code: Option<String>,
+    /// `PT`, `CV` or `UD` — what kind of company this is, printed after the
+    /// name ("Sepatu Sejahtera, CV"). Absent on suppliers nobody has asked.
+    /// See migration 0392.
+    pub legal_form: Option<String>,
+    /// Free text the buyer keeps on the record.
+    pub notes: Option<String>,
     pub version: i64,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_by: String,
     pub updated_at: DateTime<Utc>,
+}
+
+/// The legal forms a supplier may name. The CHECK on `supplier.legal_form`
+/// says the same; this says it before the row is written, with a sentence.
+pub const SUPPLIER_LEGAL_FORMS: [&str; 3] = ["PT", "CV", "UD"];
+
+/// A legal form as typed, uppercased and checked, or None for a blank one.
+pub fn normalize_legal_form(value: Option<String>) -> Result<Option<String>, SupplierCatalogError> {
+    let Some(text) = optional_supplier_text(value) else {
+        return Ok(None);
+    };
+    let upper = text.to_uppercase();
+    if SUPPLIER_LEGAL_FORMS.contains(&upper.as_str()) {
+        Ok(Some(upper))
+    } else {
+        Err(SupplierCatalogError::UnknownLegalForm(text))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -108,12 +148,25 @@ pub struct SupplierItem {
     /// last rather than a sort every reader has to redo.
     #[serde(default)]
     pub size_codes: Vec<String>,
+    /// This item's own pack sizes: a carton of it holds 24, a pack 6. They
+    /// override the global conversion for this item only. See migration 0399.
+    #[serde(default)]
+    pub units: Vec<SupplierItemUnit>,
     pub status: SupplierStatus,
     pub version: i64,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_by: String,
     pub updated_at: DateTime<Utc>,
+}
+
+/// One of an item's own pack sizes: pieces in one of a unit, for this item.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SupplierItemUnit {
+    pub unit_code: String,
+    /// Pieces in one, as a decimal string: "24".
+    pub factor: String,
 }
 
 /// One colour a supplier offers an item in, named from the colour master.
@@ -210,4 +263,6 @@ pub enum SupplierCatalogError {
     NegativePrice,
     #[error("Supplier Catalog V1 only supports IDR, not {0}")]
     UnsupportedCurrency(String),
+    #[error("legal form must be PT, CV or UD, not {0}")]
+    UnknownLegalForm(String),
 }

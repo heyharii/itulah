@@ -120,7 +120,7 @@ export function TrialBalance() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Reports"
+        crumb="Finance · Accounting"
         title="Trial Balance"
         sub="Opening, movement and closing for every account, proving the book balances — for the whole company or for one unit."
       />
@@ -145,7 +145,7 @@ export function TrialBalance() {
         {/* The dates the server actually read at, not the boxes'. These are the
             two moments every figure below belongs to. */}
         {closing.data && (
-          <span className="text-[0.71875rem] text-mute">
+          <span className="text-[0.875rem] text-mute">
             {day(before)} → {day(closing.data.as_of)} ·{" "}
             {closing.data.site_id === null ? (
               "every unit"
@@ -306,7 +306,7 @@ export function TrialBalance() {
                                 <span
                                   className="block"
                                   style={{
-                                    paddingLeft: `${Math.min(ladderLevel(line.code.length), 4) * 0.5}rem`,
+                                    paddingLeft: `${Math.min(ladderLevel(line.depth), 4) * 0.5}rem`,
                                   }}
                                 >
                                   <span className="text-ink">{line.name}</span>
@@ -433,6 +433,7 @@ interface Line {
   readonly code: string
   readonly name: string
   readonly rootClass: string
+  readonly depth: number
   readonly siteId: string | null
   readonly openDebit: number
   readonly openCredit: number
@@ -495,6 +496,7 @@ function lineOf(now: TrialBalanceRow, was: TrialBalanceRow | undefined): Line {
     code: now.account_code,
     name: now.name,
     rootClass: now.root_class,
+    depth: now.depth,
     siteId: now.site_id,
     openDebit: opened.debit,
     openCredit: opened.credit,
@@ -535,6 +537,7 @@ function rollUp(lines: readonly Line[]): Line[] {
       code: line.code,
       name: line.name,
       rootClass: line.rootClass,
+      depth: line.depth,
       siteId: null,
       openDebit: o.debit,
       openCredit: o.credit,
@@ -566,7 +569,7 @@ function group(
     .map(([rootClass, rows]) => ({ rootClass, lines: rows }))
 }
 
-function total(lines: readonly Line[]): Omit<Line, "key" | "code" | "name" | "rootClass" | "siteId"> {
+function total(lines: readonly Line[]): Omit<Line, "key" | "code" | "name" | "rootClass" | "depth" | "siteId"> {
   return lines.reduce(
     (sum, line) => ({
       openDebit: sum.openDebit + line.openDebit,

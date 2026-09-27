@@ -2,11 +2,18 @@
 
 export type FinancialStatementLine = { account_code: string, account_name: string, 
 /**
+ * The account's parent heading in the client's tree (0348), so a screen
+ * can group lines the way the client's own report does — BIAYA SEWA,
+ * BIAYA DEPRESIASI DAN AMORTISASI, BIAYA USAHA LAINNYA under 7000.
+ */
+group_code: string | null, group_name: string | null, 
+/**
  * The section assigned to the account in the chart.
  */
 section: string, 
 /**
  * Signed the way the section reads: an asset is positive when it is a
- * debit balance, a liability when it is a credit one.
+ * debit balance, a liability when it is a credit one; a cost is positive
+ * when it is a debit, an income when it is a credit.
  */
 amount_minor: number, };

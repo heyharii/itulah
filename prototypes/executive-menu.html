@@ -1,0 +1,1425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Executive — Wira Makmur</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Executive — a prototype of a new domain in frontend-hub.
+
+   Tokens are copied verbatim from frontend-hub/src/styles/index.css so the
+   page reads as the hub and nothing else: warm greys, one blue that only ever
+   means "selected", hairline cards at radius 12, three weights, no black veil.
+   Chart categorical order was run through the dataviz validator (all six
+   checks pass in light): blue #2563eb · orange #d9772b · violet #8a6cf0 ·
+   green #3f9463.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#ffffff; --soft:#f8f9fb; --soft-2:#f0f2f5; --soft-3:#f7f8fa;
+  --hairline:#e7eaf0; --hairline-2:#dce1e8; --hairline-strong:#c7ced8;
+  --rail:#16181d; --rail-2:#23262d; --rail-3:#2e323a; --rail-ink:#f2f4f7; --rail-text:#b4bac4; --rail-mute:#7d8491; --rail-hair:#262a31;
+  --dark:#191b20; --on-dark:#fff; --scrim:rgba(247,248,250,.72);
+  --accent:#2563eb; --accent-bg:#eff5ff; --info:#2f86d8; --info-bg:#ddebfa;
+  --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok:#36b827; --ok-bg:#d9f4d2; --ok-fg:#15803d;
+  --warn:#c9892e; --warn-bg:#faeacd; --warn-fg:#b45309;
+  --bad:#d05151; --bad-bg:#fbeaea; --bad-fg:#be123c;
+  --info-fg:#2c57bf; --new-fg:#d6447e; --new-bg:#fdeaf1;
+  --c1:#2563eb; --c2:#d9772b; --c3:#8a6cf0; --c4:#3f9463; --c-other:#c7ced8;
+  --seq-0:#f3f6fb; --seq-1:#dbe7fd; --seq-2:#b3cdfb; --seq-3:#7ba7f5; --seq-4:#4a82ee; --seq-5:#2563eb;
+  --r-card:12px; --r-inner:7px; --r-sheet:16px;
+  --ease-out:cubic-bezier(.16,1,.3,1);
+  --shadow-soft:0 1px 3px rgb(24 39 60 / 4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60 / 4%), 0 12px 32px rgb(24 39 60 / 8%);
+  --shadow-float:0 8px 24px rgb(24 39 60 / 6%), 0 24px 64px rgb(24 39 60 / 12%);
+  --font-sans:"Inter","Inter Variable",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"JetBrains Mono","JetBrains Mono Variable",ui-monospace,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box;border-color:var(--hairline)}
+html,body{height:100%;margin:0}
+body{background:var(--canvas);color:var(--ink);font-family:var(--font-sans);font-size:14px;line-height:1.45;letter-spacing:-.006em;-webkit-font-smoothing:antialiased}
+b,strong,th{font-weight:600}
+td,th,.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;padding:0}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:var(--r-inner)}
+::selection{background:var(--accent-bg)}
+a,button,tr,.hov{transition:background-color 120ms var(--ease-out),color 120ms var(--ease-out),box-shadow 120ms var(--ease-out)}
+.ico{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.ico.sm{width:15px;height:15px}
+.ico.xs{width:13px;height:13px}
+
+/* ── shell ─────────────────────────────────────────────────────────────── */
+.shell{display:flex;height:100dvh;width:100%;overflow:hidden;background:var(--soft-3)}
+.rail{width:80px;flex-shrink:0;display:flex;flex-direction:column;background:var(--rail);color:var(--rail-text)}
+.rail-top{display:flex;flex-direction:column;gap:2px;padding:8px 6px;overflow-y:auto;scrollbar-width:none;flex:1}
+.rail-top a{display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 2px 7px;border-radius:var(--r-inner);color:var(--rail-text)}
+.rail-top a .ico{width:18px;height:18px;stroke-width:1.7;color:var(--rail-mute)}
+.rail-top a:hover{background:var(--rail-2);color:var(--rail-ink)}
+.rail-top a.on{background:var(--rail-3);color:var(--rail-ink)}
+.rail-top a.on .ico{color:var(--rail-ink)}
+.rail-top a span{font-size:10.5px;line-height:1;font-weight:500;letter-spacing:-.01em;white-space:nowrap}
+.rail-top a.new-domain{position:relative}
+.rail-top a.new-domain::after{content:"";position:absolute;top:7px;right:17px;width:6px;height:6px;border-radius:50%;background:var(--new-fg);box-shadow:0 0 0 2px var(--rail)}
+.rail-top a.on.new-domain::after{box-shadow:0 0 0 2px var(--rail-3)}
+.rail-bot{display:grid;grid-template-columns:1fr 1fr;gap:2px;padding:10px 8px 12px;border-top:1px solid var(--rail-hair);justify-items:center}
+.rail-bot span{display:grid;place-items:center;width:32px;height:32px;border-radius:var(--r-inner);color:var(--rail-mute)}
+
+.sidebar{width:248px;flex-shrink:0;display:flex;flex-direction:column;background:var(--soft);border-right:1px solid var(--hairline);padding:13px 11px}
+.brand{display:flex;align-items:center;gap:10px;height:52px;margin:-13px -3px 0;padding:0 6px;border-bottom:1px solid var(--hairline)}
+.brand-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:7px;background:var(--dark);color:#fff;font-size:10px;font-weight:600;letter-spacing:.02em}
+.brand b{display:block;font-size:13px;letter-spacing:-.01em}
+.brand small{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--mute)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--ok);display:inline-block}
+.nav-title{margin:14px 0 6px;padding:0 9px;font-size:15px;font-weight:600;letter-spacing:-.01em}
+.nav{display:flex;flex-direction:column;gap:1px;overflow-y:auto;scrollbar-width:none}
+.nav-sec{padding:16px 9px 5px;font-size:13px;color:var(--mute)}
+.nav a{display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:8px;font-size:13px;font-weight:500;color:var(--text)}
+.nav a .ico{color:var(--line-ico)}
+.nav a:hover{background:var(--soft-2);color:var(--ink)}
+.nav a.on{background:var(--soft-2);color:var(--ink);font-weight:600}
+.nav a.on .ico{color:var(--ink)}
+.nav a .lbl{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.count{min-width:18px;height:18px;padding:0 5px;border-radius:9px;font-size:10.5px;font-weight:600;display:inline-grid;place-items:center}
+.count.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.count.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.side-foot{margin-top:auto;display:flex;flex-direction:column;gap:6px;padding-top:10px}
+.side-foot .help{display:flex;align-items:center;gap:10px;padding:7px 9px;font-size:12px;color:var(--body)}
+.me{display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--hairline);border-radius:10px;background:var(--canvas)}
+.avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#e8def4,#f8dde8);flex-shrink:0}
+.me b{display:block;font-size:12.5px;font-weight:500}
+.me small{font-size:11px;color:var(--mute)}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--canvas)}
+.topbar{height:52px;flex-shrink:0;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--hairline);background:var(--canvas)}
+.crumb{flex:1;min-width:0;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--body)}
+.crumb .here{display:inline-flex;align-items:center;gap:7px;color:var(--ink);font-weight:600}
+.crumb .ico{width:15px;height:15px;color:var(--line-ico)}
+.top-act{display:flex;align-items:center;gap:8px}
+.find{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--mute)}
+.kbd{border:1px solid var(--hairline-2);border-radius:5px;padding:0 6px;font-family:var(--font-mono);font-size:10.5px;color:var(--body)}
+.tbtn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:var(--r-inner);font-size:13px;font-weight:500;color:var(--body)}
+.tbtn:hover,.tbtn[aria-pressed="true"]{background:var(--soft-2);color:var(--ink)}
+.tbtn .ico{width:15px;height:15px}
+.tbtn .spark{color:var(--accent)}
+.scroll{flex:1;min-height:0;overflow-y:auto}
+
+/* ── context bar: one period, one comparison, one scope for every figure ── */
+.ctx{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;padding:10px 24px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--hairline)}
+.ctx .grow{flex:1}
+.ctx-lbl{font-size:12px;color:var(--mute)}
+.seg{display:inline-flex;background:var(--soft-2);padding:2px;border-radius:var(--r-inner)}
+.seg button{height:28px;padding:0 10px;border-radius:6px;font-size:12px;font-weight:500;color:var(--body)}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--canvas);color:var(--ink);box-shadow:var(--shadow-soft)}
+.pick{position:relative}
+.pick>button{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 10px 0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);font-size:13px;font-weight:500;color:var(--ink);background:var(--canvas)}
+.pick>button:hover{background:var(--soft)}
+.pick>button .ico{width:14px;height:14px;color:var(--line-ico)}
+.menu{position:absolute;top:36px;left:0;z-index:20;min-width:240px;max-height:360px;overflow:auto;padding:4px;background:var(--canvas);border:1px solid var(--hairline);border-radius:10px;box-shadow:var(--shadow-pop);display:none}
+.menu.open{display:block}
+.menu button{display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;padding:7px 9px;border-radius:6px;font-size:13px;color:var(--text);text-align:left}
+.menu button:hover{background:var(--soft-2);color:var(--ink)}
+.menu button.on{color:var(--ink);font-weight:600}
+.menu hr{border:0;border-top:1px solid var(--hairline);margin:4px 6px}
+.menu small{color:var(--mute);font-size:11px;font-weight:400}
+.fresh{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;font-size:12px;color:var(--body)}
+.fresh span{display:inline-flex;align-items:center;gap:6px}
+.fresh .dot.warn{background:var(--warn)}
+
+/* ── page ──────────────────────────────────────────────────────────────── */
+.page{display:none;padding:20px 24px 56px;max-width:1480px}
+.page.on{display:block;animation:page-in 180ms var(--ease-out) both}
+@keyframes page-in{from{opacity:0}to{opacity:1}}
+.ph{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:18px}
+.ph .crumb-s{margin-bottom:5px;font-size:12px;font-weight:500;color:var(--mute)}
+.ph h1{margin:0;font-size:17px;line-height:1.41;font-weight:600;letter-spacing:-.02em}
+.ph p{margin:3px 0 0;font-size:12px;color:var(--body)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:var(--r-inner);font-size:13px;font-weight:500}
+.btn .ico{width:15px;height:15px}
+.btn.ghost{border:1px solid var(--hairline-2);background:var(--canvas);color:var(--ink)}
+.btn.ghost:hover{background:var(--soft)}
+.btn.cta{background:var(--cta);color:#fff}
+.btn.cta:hover{background:var(--cta-hover)}
+.btn.cta[disabled]{background:var(--soft-2);color:var(--mute);cursor:not-allowed}
+.btn.quiet{color:var(--body)}
+.btn.quiet:hover{background:var(--soft-2);color:var(--ink)}
+
+.grid{display:grid;gap:12px;margin-bottom:12px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g-hero{grid-template-columns:minmax(0,2.2fr) minmax(0,1fr)}
+.g-73{grid-template-columns:minmax(0,1.45fr) minmax(0,1fr)}
+.g-37{grid-template-columns:minmax(0,1fr) minmax(0,1.45fr)}
+.card{position:relative;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-soft);min-width:0}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px 11px}
+.card-t{margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em}
+.card-s{font-size:12px;color:var(--mute)}
+.card-b{padding:0 16px 16px}
+.card-b.flush{padding:0}
+.card-note{padding:10px 16px 12px;border-top:1px solid var(--hairline);font-size:12px;color:var(--body)}
+.card-note b{color:var(--ink);font-weight:500}
+
+.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.kpi{display:flex;flex-direction:column;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-soft);padding:13px 16px;min-width:0}
+.kpi .l{font-size:12px;font-weight:500;color:var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .v{margin-top:auto;padding-top:7px;font-size:18px;line-height:24px;font-weight:600;letter-spacing:-.1px;white-space:nowrap}
+.kpi .d{margin-top:4px;font-size:11.5px;font-weight:600;display:flex;gap:4px;align-items:baseline;flex-wrap:wrap}
+.kpi .d small{font-weight:400;color:var(--mute);font-size:11px}
+.up{color:var(--ok-fg)} .down{color:var(--bad-fg)} .flat{color:var(--mute)}
+.nt{color:var(--mute);font-weight:500}
+
+/* hero */
+.hero{padding:16px 16px 8px}
+.hero .l{font-size:12px;font-weight:500;color:var(--body)}
+.hero .fig{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 12px;margin-top:6px}
+.hero .fig b{font-size:44px;line-height:1;font-weight:600;letter-spacing:-.035em;font-variant-numeric:normal}
+.hero .fig span{font-size:13px;font-weight:600}
+.hero .fig small{font-size:12px;color:var(--mute);font-weight:400}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--body)}
+.legend i{display:inline-block;width:14px;height:2px;border-radius:2px;vertical-align:middle;margin-right:6px}
+.legend i.sw{width:9px;height:9px;border-radius:3px}
+
+/* today */
+.today{display:flex;flex-direction:column;height:100%;padding:16px}
+.today .v{font-size:28px;line-height:1.1;font-weight:600;letter-spacing:-.02em;margin:8px 0 4px}
+.today .rows{margin-top:auto;border-top:1px solid var(--hairline);padding-top:10px;display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--body)}
+.today .rows div{display:flex;justify-content:space-between;gap:10px}
+.today .rows b{color:var(--ink);font-weight:500}
+
+/* exception queue */
+.exq .row{display:flex;align-items:center;gap:12px;padding:11px 16px;border-top:1px solid var(--hairline);cursor:pointer}
+.exq .row:hover{background:var(--soft)}
+.exq .sq{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;flex-shrink:0}
+.exq .sq.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.exq .sq.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.exq .sq.info{background:var(--info-bg);color:var(--info-fg)}
+.exq .t{flex:1;min-width:0}
+.exq .t b{display:block;font-size:13px;font-weight:500;color:var(--ink)}
+.exq .t span{display:block;font-size:12px;color:var(--body);margin-top:1px}
+.exq .v{font-size:13px;font-weight:600;white-space:nowrap}
+.exq .chev{color:var(--faint)}
+
+.pill{display:inline-flex;align-items:center;gap:6px;height:25px;padding:0 9px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);font-size:11px;font-weight:500;white-space:nowrap;color:var(--body)}
+.pill i{width:5px;height:5px;border-radius:50%;background:var(--mute)}
+.pill.ok{border-color:rgb(21 128 61 / 30%);color:var(--ok-fg)} .pill.ok i{background:var(--ok)}
+.pill.warn{border-color:rgb(180 83 9 / 30%);color:var(--warn-fg)} .pill.warn i{background:var(--warn)}
+.pill.bad{border-color:rgb(190 18 60 / 30%);color:var(--bad-fg)} .pill.bad i{background:var(--bad)}
+.pill.info{border-color:rgb(44 87 191 / 30%);color:var(--info-fg)} .pill.info i{background:var(--info)}
+.tag{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:6px;font-family:var(--font-mono);font-size:10px;font-weight:600;white-space:nowrap;background:var(--soft-2);color:var(--body)}
+.tag.ok{background:var(--ok-bg);color:var(--ok-fg)} .tag.new{background:var(--new-bg);color:var(--new-fg)} .tag.bad{background:var(--bad-bg);color:var(--bad-fg)} .tag.warn{background:var(--warn-bg);color:var(--warn-fg)} .tag.acc{background:var(--accent-bg);color:var(--accent)}
+
+/* tables */
+.tbl-wrap{overflow-x:auto}
+table.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{height:38px;padding:0 12px;font-size:12px;font-weight:500;color:var(--body);text-align:left;white-space:nowrap;border-bottom:1px solid var(--hairline);background:var(--soft)}
+.tbl th:first-child,.tbl td:first-child{padding-left:16px}
+.tbl th:last-child,.tbl td:last-child{padding-right:16px}
+.tbl td{height:46px;padding:0 12px;color:var(--text);border-bottom:1px solid var(--hairline);white-space:nowrap}
+.tbl tr:last-child td{border-bottom:0}
+.tbl .r{text-align:right}
+.tbl td.name{color:var(--ink);font-weight:500}
+.tbl td.name small{display:block;font-weight:400;color:var(--mute);font-size:11.5px;margin-top:1px}
+.tbl tbody tr.click{cursor:pointer}
+.tbl tbody tr.click:hover td{background:var(--soft)}
+.tbl tbody tr.sel td{background:var(--accent-bg)}
+.tbl tfoot td{height:44px;font-weight:600;color:var(--ink);border-top:1px solid var(--hairline-2);border-bottom:0;background:var(--soft)}
+.tbl th.sorted::after{content:" ↓";color:var(--accent)}
+.tbl.compact td{height:40px}
+.mini-bar{display:inline-block;height:6px;border-radius:3px;background:var(--c1);vertical-align:middle}
+.track{display:inline-block;width:88px;height:6px;border-radius:3px;background:var(--soft-2);vertical-align:middle;overflow:hidden}
+.track i{display:block;height:100%;border-radius:3px;background:var(--c1)}
+.track i.warn{background:var(--warn)} .track i.bad{background:var(--bad)} .track i.ok{background:var(--ok)}
+.mute{color:var(--mute)} .ink{color:var(--ink)} .body{color:var(--body)}
+
+/* P&L */
+.pl td{height:40px}
+.pl tr.sub td{color:var(--body)}
+.pl tr.sub td:first-child{padding-left:34px}
+.pl tr.grp td:first-child{cursor:pointer}
+.pl tr.grp td:first-child .ico{transition:transform 160ms var(--ease-out);color:var(--line-ico);margin-right:4px;vertical-align:-3px}
+.pl tr.grp.open td:first-child .ico{transform:rotate(90deg)}
+.pl tr.tot td{color:var(--ink);font-weight:600;background:var(--soft)}
+.pl tr.final td{color:var(--ink);font-weight:600;border-top:1px solid var(--hairline-strong);background:var(--canvas)}
+.pl tr.hidden{display:none}
+.pl .code{font-family:var(--font-mono);font-size:10.5px;color:var(--mute);margin-left:6px}
+
+/* ladder (TotalsLadder) */
+.ladder{display:flex;flex-direction:column}
+.ladder div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:7px 0;font-size:13px;color:var(--text);border-bottom:1px dashed transparent}
+.ladder div span:last-child{font-variant-numeric:tabular-nums;white-space:nowrap}
+.ladder div em{font-style:normal;color:var(--mute);font-size:11.5px;margin-left:8px;display:inline-block;min-width:44px;text-align:right}
+.ladder .t{color:var(--ink);font-weight:500;border-top:1px solid var(--hairline);margin-top:2px;padding-top:9px}
+.ladder .f{color:var(--ink);font-weight:600;border-top:1px solid var(--hairline-strong);margin-top:4px;padding-top:10px}
+.ladder .s{padding-left:14px;color:var(--body)}
+
+/* list bars */
+.hbars{display:flex;flex-direction:column}
+.hbars .hb{display:grid;grid-template-columns:minmax(84px,120px) minmax(0,1fr) 92px 64px;align-items:center;gap:10px;padding:6px 0;font-size:12.5px;cursor:default}
+.hbars .hb.click{cursor:pointer}
+.hbars .hb.click:hover .nm{color:var(--accent)}
+.hbars .nm{color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hbars .bar{position:relative;height:14px}
+.hbars .bar i{position:absolute;left:0;top:3px;height:8px;border-radius:0 4px 4px 0;background:var(--c1)}
+.hbars .bar i.ghost{background:none;border-right:2px solid var(--ink);border-radius:0;top:0;height:14px;opacity:.55}
+.hbars .bar i.neg{background:var(--bad)}
+.hbars .val{text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}
+.hbars .dl{text-align:right;font-weight:600;font-size:11.5px;font-variant-numeric:tabular-nums}
+
+/* banner */
+.banner{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border-radius:10px;font-size:12.5px;margin-bottom:12px;border:1px solid}
+.banner .ico{margin-top:1px}
+.banner.info{background:var(--accent-bg);border-color:rgb(37 99 235 / 18%);color:var(--info-fg)}
+.banner.warn{background:#fdf6ea;border-color:rgb(180 83 9 / 20%);color:var(--warn-fg)}
+.banner.gap{background:var(--soft);border-color:var(--hairline-2);color:var(--body)}
+.banner b{font-weight:600}
+
+/* charts */
+.chart{position:relative;width:100%}
+.chart svg{display:block;overflow:visible}
+.chart text{font-family:var(--font-sans);font-size:11px;fill:var(--mute)}
+.chart .gl{stroke:var(--hairline);stroke-width:1}
+.chart .axis{stroke:var(--hairline-2);stroke-width:1}
+.chart .hit{fill:transparent}
+.chart .xh{stroke:var(--hairline-strong);stroke-width:1}
+.tip{position:fixed;z-index:60;pointer-events:none;min-width:150px;padding:8px 10px;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-inner);box-shadow:var(--shadow-pop);font-size:11px;color:var(--body);opacity:0;transition:opacity 100ms}
+.tip.on{opacity:1}
+.tip .tt{font-weight:500;color:var(--ink);margin-bottom:3px}
+.tip .tr{display:flex;align-items:center;gap:6px}
+.tip .tr i{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.tip .tr b{margin-left:auto;padding-left:14px;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
+
+.heat{display:grid;grid-template-columns:34px repeat(12,minmax(0,1fr));gap:2px;font-size:11px;color:var(--mute)}
+.heat .c{height:26px;border-radius:4px}
+.heat .c:hover{outline:2px solid var(--ink);outline-offset:-1px}
+.heat .hl{display:flex;align-items:center}
+.heat .hh{text-align:center;padding-top:4px}
+.scale{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--mute);margin-top:10px}
+.scale i{width:18px;height:8px;border-radius:2px;display:inline-block}
+
+.stack{display:flex;height:12px;gap:2px;margin:6px 0 12px}
+.stack i{height:100%;border-radius:2px}
+.stack i:first-child{border-radius:4px 2px 2px 4px}
+.stack i:last-child{border-radius:2px 4px 4px 2px}
+.mixlist{display:flex;flex-direction:column}
+.mixlist div{display:grid;grid-template-columns:14px 1fr 70px 74px;gap:8px;align-items:center;padding:7px 0;font-size:12.5px;border-top:1px solid var(--hairline)}
+.mixlist i{width:9px;height:9px;border-radius:3px}
+.mixlist .r{text-align:right;font-variant-numeric:tabular-nums}
+
+/* sources: which reader fills each block — hidden until asked */
+.src{display:none;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:9px 16px 11px;border-top:1px dashed var(--hairline-2);background:repeating-linear-gradient(135deg,var(--soft) 0 6px,var(--canvas) 6px 12px);font-size:11px;color:var(--body);border-radius:0 0 var(--r-card) var(--r-card)}
+.show-src .src{display:flex}
+.src code{font-family:var(--font-mono);font-size:10.5px;color:var(--text)}
+.src .sep{color:var(--faint)}
+.kpis .src,.kpi .src{display:none}
+.src-strip{display:none;margin:-4px 0 12px}
+.show-src .src-strip{display:flex;border:1px dashed var(--hairline-2);border-radius:10px}
+
+/* scope banner */
+.scope-note{display:none}
+.scoped .scope-note{display:flex}
+
+/* sheet (record panel) */
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;width:472px;max-width:calc(100vw - 24px);z-index:40;display:flex;flex-direction:column;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-sheet);box-shadow:var(--shadow-float);transform:translateX(calc(100% + 24px));transition:transform 280ms var(--ease-out)}
+.sheet.open{transform:none}
+.sheet-h{display:flex;align-items:flex-start;gap:10px;padding:16px 16px 12px;border-bottom:1px solid var(--hairline)}
+.sheet-h h2{margin:0;font-size:17px;font-weight:600;letter-spacing:-.02em}
+.sheet-h p{margin:2px 0 0;font-size:12px;color:var(--body)}
+.sheet-b{flex:1;overflow-y:auto;padding:14px 16px 24px}
+.sheet-b h3{margin:18px 0 8px;font-size:12px;font-weight:600;color:var(--body);text-transform:uppercase;letter-spacing:.04em}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 14px}
+.facts div{min-width:0}
+.facts small{display:block;font-size:11.5px;color:var(--mute)}
+.facts b{display:block;font-size:14px;font-weight:600;margin-top:2px;white-space:nowrap}
+.facts em{font-style:normal;font-size:11px;font-weight:600}
+.linkrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;border-top:1px solid var(--hairline);font-size:12.5px;color:var(--accent);font-weight:500}
+.linkrow:hover{color:var(--cta-hover)}
+
+/* pack */
+.months .m{display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--hairline);cursor:pointer}
+.months .m:hover{background:var(--soft)}
+.months .m.sel{background:var(--accent-bg)}
+.months .m b{display:block;font-size:13px;font-weight:500}
+.months .m small{display:block;font-size:12px;color:var(--body)}
+.months .m .grow{flex:1;min-width:0}
+.check{display:flex;flex-direction:column}
+.check div{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--hairline);font-size:12.5px;color:var(--text)}
+.check .ico{margin-top:1px}
+.check .y{color:var(--ok-fg)} .check .n{color:var(--bad-fg)}
+.check small{display:block;color:var(--mute);font-size:11.5px}
+.cover{border:1px solid var(--hairline);border-radius:10px;padding:18px;background:var(--soft)}
+.cover .eyebrow{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--mute)}
+.cover h2{margin:4px 0 12px;font-size:22px;font-weight:600;letter-spacing:-.02em}
+.cover h2 span{color:var(--mute);font-weight:500}
+.cover .nums{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.cover .nums div{background:var(--canvas);border:1px solid var(--hairline);border-radius:8px;padding:9px 10px}
+.cover .nums small{display:block;font-size:11px;color:var(--mute)}
+.cover .nums b{font-size:15px;font-weight:600}
+.cover p{margin:0;font-size:13px;line-height:1.6;color:var(--text)}
+.prov{margin-top:10px;font-size:11px;color:var(--mute);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+
+@media (max-width:1280px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:1100px){.g2,.g-hero,.g-73,.g-37{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:1024px){.sidebar{display:none}}
+@media (max-width:720px){.rail{display:none}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.page{padding:16px 16px 48px}.ctx{padding:10px 16px}.topbar{padding:0 12px}.find{display:none}.hero .fig b{font-size:36px}.cover .nums{grid-template-columns:repeat(2,minmax(0,1fr))}.facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:120ms!important}.sheet{transition:none}}
+</style>
+</head>
+<body>
+
+<!-- icon sprite: lucide paths, 24×24, stroked -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-house" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-pres" viewBox="0 0 24 24"><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></symbol>
+  <symbol id="i-shirt" viewBox="0 0 24 24"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/></symbol>
+  <symbol id="i-pkg" viewBox="0 0 24 24"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="m7.5 4.27 9 5.15"/></symbol>
+  <symbol id="i-truck" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></symbol>
+  <symbol id="i-mega" viewBox="0 0 24 24"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></symbol>
+  <symbol id="i-cart" viewBox="0 0 24 24"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></symbol>
+  <symbol id="i-store" viewBox="0 0 24 24"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/><path d="M22 7v3a2 2 0 0 1-2 2 2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/></symbol>
+  <symbol id="i-bank" viewBox="0 0 24 24"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></symbol>
+  <symbol id="i-cols" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></symbol>
+  <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></symbol>
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></symbol>
+  <symbol id="i-files" viewBox="0 0 24 24"><path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></symbol>
+</svg>
+
+<div class="shell">
+  <!-- ── rail: the parts of the business. Executive is a new domain, directly under Home ── -->
+  <nav class="rail" aria-label="Domains">
+    <div class="rail-top">
+      <a href="#" title="Home"><svg class="ico"><use href="#i-house"/></svg><span>Home</span></a>
+      <a href="#/pulse" class="on new-domain" title="Executive — new"><svg class="ico"><use href="#i-pres"/></svg><span>Executive</span></a>
+      <a href="#" title="Merchandise"><svg class="ico"><use href="#i-shirt"/></svg><span>Merchandise</span></a>
+      <a href="#" title="Inventory"><svg class="ico"><use href="#i-pkg"/></svg><span>Inventory</span></a>
+      <a href="#" title="Ops"><svg class="ico"><use href="#i-truck"/></svg><span>Ops</span></a>
+      <a href="#" title="Marketing"><svg class="ico"><use href="#i-mega"/></svg><span>Marketing</span></a>
+      <a href="#" title="Buying"><svg class="ico"><use href="#i-cart"/></svg><span>Buying</span></a>
+      <a href="#" title="Selling"><svg class="ico"><use href="#i-store"/></svg><span>Selling</span></a>
+      <a href="#" title="Finance"><svg class="ico"><use href="#i-bank"/></svg><span>Finance</span></a>
+      <a href="#" title="Finance New"><svg class="ico"><use href="#i-wallet"/></svg><span>Finance New</span></a>
+      <a href="#" title="HR"><svg class="ico"><use href="#i-users"/></svg><span>HR</span></a>
+      <a href="#" title="GA"><svg class="ico"><use href="#i-msg"/></svg><span>GA</span></a>
+    </div>
+    <div class="rail-bot">
+      <span><svg class="ico sm"><use href="#i-bell"/></svg></span>
+      <span><svg class="ico sm"><use href="#i-msg"/></svg></span>
+      <span><svg class="ico sm"><use href="#i-cols"/></svg></span>
+      <span><svg class="ico sm"><use href="#i-files"/></svg></span>
+      <span><svg class="ico sm"><use href="#i-sliders"/></svg></span>
+      <span><svg class="ico sm"><use href="#i-panel"/></svg></span>
+    </div>
+  </nav>
+
+  <!-- ── sidebar: the Executive module, grouped by the question each screen answers ── -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">WM</span>
+      <div><b>Wira Makmur</b><small><i class="dot"></i>cloud-primary</small></div>
+    </div>
+    <div class="nav-title">Executive</div>
+    <nav class="nav" id="nav">
+      <a href="#/pulse" data-page="pulse"><svg class="ico"><use href="#i-gauge"/></svg><span class="lbl">Pulse</span><span class="count bad">5</span></a>
+      <div class="nav-sec">Performance</div>
+      <a href="#/sales" data-page="sales"><svg class="ico"><use href="#i-trend"/></svg><span class="lbl">Sales</span></a>
+      <a href="#/stores" data-page="stores"><svg class="ico"><use href="#i-store"/></svg><span class="lbl">Stores</span><span class="count bad">2</span></a>
+      <a href="#/pl" data-page="pl"><svg class="ico"><use href="#i-cols"/></svg><span class="lbl">Profit &amp; loss</span></a>
+      <div class="nav-sec">Position</div>
+      <a href="#/cash" data-page="cash"><svg class="ico"><use href="#i-wallet"/></svg><span class="lbl">Cash &amp; liquidity</span><span class="count warn">2</span></a>
+      <a href="#/stock" data-page="stock"><svg class="ico"><use href="#i-pkg"/></svg><span class="lbl">Stock &amp; buying</span><span class="count warn">1</span></a>
+      <div class="nav-sec">People</div>
+      <a href="#/people" data-page="people"><svg class="ico"><use href="#i-users"/></svg><span class="lbl">Workforce</span></a>
+      <a href="#/members" data-page="members"><svg class="ico"><use href="#i-user"/></svg><span class="lbl">Members</span></a>
+      <div class="nav-sec">Board</div>
+      <a href="#/pack" data-page="pack"><svg class="ico"><use href="#i-file"/></svg><span class="lbl">Monthly pack</span><span class="count warn">3</span></a>
+    </nav>
+    <div class="side-foot">
+      <div class="help"><svg class="ico sm"><use href="#i-help"/></svg>Help &amp; resources</div>
+      <div class="me"><span class="avatar"></span><div style="flex:1;min-width:0"><b>Direksi</b><small>Admin · all units</small></div><svg class="ico sm" style="color:var(--line-ico)"><use href="#i-logout"/></svg></div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="crumb"><span>Executive</span><span class="mute">/</span><span class="here"><svg class="ico"><use href="#i-gauge" id="crumb-ico"/></svg><span id="crumb-here">Pulse</span></span></div>
+      <div class="top-act">
+        <button class="tbtn" id="src-toggle" aria-pressed="false" title="Show which reader fills each block"><svg class="ico"><use href="#i-db"/></svg>Sources</button>
+        <span class="find"><svg class="ico sm"><use href="#i-search"/></svg>Find anything <span class="kbd">⌘K</span></span>
+        <button class="tbtn"><svg class="ico spark"><use href="#i-spark"/></svg>Ask</button>
+        <span class="avatar" style="width:28px;height:28px"></span>
+      </div>
+    </header>
+
+    <div class="scroll" id="scroll">
+      <!-- ── one context for every figure on every Executive screen ── -->
+      <div class="ctx">
+        <div class="seg" id="period" role="group" aria-label="Period">
+          <button>Today</button><button class="on">Month to date</button><button>Month</button><button>Quarter</button><button>Year to date</button>
+        </div>
+        <span class="ctx-lbl num" id="period-lbl">1–24 Sep 2026</span>
+        <div class="seg" id="compare" role="group" aria-label="Compare with">
+          <button data-cmp="prior" class="on">vs prior period</button><button data-cmp="ly">vs last year</button><button data-cmp="budget">vs budget</button>
+        </div>
+        <div class="pick" id="scope">
+          <button aria-haspopup="menu"><svg class="ico"><use href="#i-bank"/></svg><span id="scope-lbl">All units · consolidated</span><svg class="ico"><use href="#i-down"/></svg></button>
+          <div class="menu" role="menu" id="scope-menu"></div>
+        </div>
+        <span class="grow"></span>
+        <div class="fresh">
+          <span><i class="dot"></i>Sales live · 14:05 WIB</span>
+          <span><i class="dot warn"></i>Books posted to 24 Sep</span>
+        </div>
+      </div>
+
+      <!-- ═════════════════════════════ PULSE ═════════════════════════════ -->
+      <section class="page" id="p-pulse">
+        <div class="ph">
+          <div><div class="crumb-s">Executive</div><h1>Pulse</h1><p>The whole business month to date — what moved, and what needs a decision.</p></div>
+          <div style="display:flex;gap:8px"><button class="btn ghost"><svg class="ico"><use href="#i-dl"/></svg>Export PDF</button></div>
+        </div>
+        <div class="banner info scope-note"><svg class="ico sm"><use href="#i-alert"/></svg><div>Scope is <b class="scope-name">Store 07</b>. In the build, every figure on this page re-reads with <code>site=</code> that unit; the prototype keeps consolidated numbers. <a href="#/stores" class="scope-link" style="text-decoration:underline">Open its scorecard</a></div></div>
+
+        <div class="card exq" style="margin-bottom:12px">
+          <div class="card-h"><h2 class="card-t">Needs a decision</h2><span class="card-s">5 · worst first</span></div>
+          <div id="exq"></div>
+          <div class="src"><span class="tag new">NEW</span><code>GET /api/v1/executive/attention</code><span class="sep">←</span><code>/finance/reports/unit-results</code><code>/finance/payables-aging</code><code>/finance/valuation</code><code>/store-money/sites/{site}/position</code><code>ga_contract.ends_on</code></div>
+        </div>
+
+        <div class="grid g-hero">
+          <div class="card">
+            <div class="hero">
+              <div class="l">Net sales · all units · 1–24 Sep</div>
+              <div class="fig"><b id="hero-v">Rp 14,59 M</b><span id="hero-d" class="up">+7,7%</span><small id="hero-c">vs 1–24 Aug (Rp 13,55 M)</small></div>
+            </div>
+            <div class="card-b">
+              <div class="legend" id="hero-legend" style="margin:6px 0 4px"></div>
+              <div class="chart" id="ch-hero" style="height:210px"></div>
+            </div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>GET /api/v1/reports/sales/series?bucket=day&amp;from&amp;to</code><span class="sep">·</span>net_minor, COMPLETED only, sale ∪ edge_sale</div>
+          </div>
+          <div class="card">
+            <div class="today">
+              <div class="card-s" style="display:flex;justify-content:space-between"><span>Today so far</span><span class="num">Fri 25 Sep · 14:05</span></div>
+              <div class="v">Rp 312 jt</div>
+              <div style="font-size:12px"><span class="up" style="font-weight:600">+8,7%</span> <span class="mute">vs last Friday at 14:05</span></div>
+              <div class="rows">
+                <div><span>Transactions</span><b class="num">384</b></div>
+                <div><span>Stores trading</span><b>13 of 13</b></div>
+                <div><span>Last store to sync</span><b style="color:var(--warn-fg)">Store 12 · 13:22</b></div>
+                <div><span>Tills open</span><b class="num">31</b></div>
+              </div>
+            </div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/assistant/brief</code><code>/sync/fleet</code></div>
+          </div>
+        </div>
+
+        <div class="kpis" id="kpi-pulse"></div>
+        <div class="src-strip src"><span class="tag ok">EXISTS</span><code>/finance/reports/profit-and-loss</code><code>/finance/money</code><code>/finance/valuation</code><code>/finance/payables-aging</code><span class="sep">·</span><span class="tag new">NEW</span> consolidation elimination (4016↔7032, 1057–1059↔2028–2031)</div>
+
+        <div class="grid g-73">
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Stores</h2><span class="card-s" id="league-s">net sales · bar = this period, tick = comparison</span></div>
+            <div class="card-b"><div class="hbars" id="league"></div></div>
+            <div class="card-note">Red bar = store is losing money after its own rent and staff. <a href="#/stores" style="color:var(--accent);font-weight:500">Open the scorecard →</a></div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/reports/sales/series</code><code>/finance/reports/unit-results</code></div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Profit, month to date</h2><span class="card-s">consolidated · % of net sales</span></div>
+            <div class="card-b"><div class="ladder" id="pulse-ladder"></div></div>
+            <div class="card-note">Management fee <b>Rp 431 jt</b> and inter-unit balances are eliminated. Income tax is accrued at year end.</div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/finance/reports/profit-and-loss?from&amp;to</code><span class="sep">·</span><span class="tag new">NEW</span> elimination rows</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═════════════════════════════ SALES ═════════════════════════════ -->
+      <section class="page" id="p-sales">
+        <div class="ph"><div><div class="crumb-s">Executive · Performance</div><h1>Sales</h1><p>What the estate sold, what it sold, and how people paid.</p></div></div>
+        <div class="kpis" id="kpi-sales"></div>
+        <div class="src-strip src"><span class="tag ok">EXISTS</span><code>POST /api/v1/reports/run</code> datasets <code>sale</code> · <code>sale_line</code> (measures gross, net, sales, units, UPT, average_sale)</div>
+
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-h"><h2 class="card-t">Net sales by day</h2><div class="legend" id="sales-legend"></div></div>
+          <div class="card-b"><div class="chart" id="ch-sales-day" style="height:240px"></div></div>
+          <div class="src"><span class="tag ok">EXISTS</span><code>GET /api/v1/reports/sales/series?bucket=day</code></div>
+        </div>
+
+        <div class="grid g-73">
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Divisions</h2><span class="card-s">the client's nine · sorted by net sales</span></div>
+            <div class="tbl-wrap"><table class="tbl compact" id="tbl-div"></table></div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/reports/run</code> sale_line × <code>division</code><span class="sep">·</span><span class="tag bad">GAP</span> GM% per division needs COGS per SKU from <code>stock_ledger_entry(SALE)</code> — empty today</div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">How people paid</h2><span class="card-s">share of net sales</span></div>
+            <div class="card-b"><div class="stack" id="tender-stack"></div><div class="mixlist" id="tender-list"></div></div>
+            <div class="card-note">Members paid for <b>45,6%</b> of sales (prior 44,9%). Discounts were <b>6,2%</b> of gross.</div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/reports/run</code> sale_payment × <code>method</code></div>
+          </div>
+        </div>
+
+        <div class="grid g2">
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">When the estate sells</h2><span class="card-s">transactions · weekday × hour, WIB</span></div>
+            <div class="card-b"><div class="heat" id="heat"></div><div class="scale" id="heat-scale"></div></div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/reports/run</code> sale × <code>weekday</code>, <code>hour</code></div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Month by month</h2><div class="legend"><span><i style="background:var(--c1)"></i>2026</span><span><i style="background:var(--hairline-strong)"></i>2025</span></div></div>
+            <div class="card-b"><div class="chart" id="ch-months" style="height:230px"></div></div>
+            <div class="card-note">September is month to date against the same 24 days of September 2025.</div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/reports/sales/series?bucket=month</code></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═════════════════════════════ STORES ════════════════════════════ -->
+      <section class="page" id="p-stores">
+        <div class="ph"><div><div class="crumb-s">Executive · Performance</div><h1>Stores</h1><p>Every shop as a small business: what it sold, and what it kept after its own rent and staff.</p></div></div>
+        <div class="kpis" id="kpi-stores"></div>
+
+        <div class="grid g-37">
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Growth against profit</h2><span class="card-s">one dot per store</span></div>
+            <div class="card-b"><div class="chart" id="ch-scatter" style="height:300px"></div></div>
+            <div class="card-note">Right = growing against the comparison. Up = keeps more of each rupiah. The dashed line is the fleet's contribution margin.</div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/finance/reports/unit-results</code><code>/reports/sales/series</code></div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Scorecard</h2><span class="card-s">weakest contribution first · click a store</span></div>
+            <div class="tbl-wrap"><table class="tbl" id="tbl-stores"></table></div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>unit-results</code> (P&amp;L layers per site)<span class="sep">·</span><span class="tag new">NEW</span> <code>ga_location_detail.floor_area_sqm</code> in the read · cover per site<span class="sep">·</span><code>/store-money/sites/{site}/position</code></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═════════════════════════════ P&L ═══════════════════════════════ -->
+      <section class="page" id="p-pl">
+        <div class="ph">
+          <div><div class="crumb-s">Executive · Performance</div><h1>Profit &amp; loss</h1><p>Consolidated, inter-unit eliminated, in the client's own layers. Every figure traces to its journal.</p></div>
+          <button class="btn ghost"><svg class="ico"><use href="#i-out"/></svg>Open in Finance</button>
+        </div>
+        <div class="kpis" id="kpi-pl"></div>
+        <div class="banner gap" id="pl-budget-note" style="display:none"><svg class="ico sm"><use href="#i-alert"/></svg><div><b>Only costs have a budget.</b> The <code>budget</code> table holds spending per unit × account × month. There is no sales target anywhere in the schema, so revenue and profit lines have nothing to compare against.</div></div>
+
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-h"><h2 class="card-t">From sales to profit</h2><div class="legend"><span><i class="sw" style="background:var(--c1)"></i>Subtotal</span><span><i class="sw" style="background:var(--hairline-strong)"></i>Cost</span><span><i class="sw" style="background:var(--c4)"></i>Income</span></div></div>
+          <div class="card-b"><div class="chart" id="ch-bridge" style="height:260px"></div></div>
+          <div class="src"><span class="tag ok">EXISTS</span><code>/finance/reports/profit-and-loss</code> layers: revenue → cost_of_sales → gross_profit → operating_expenses → GOP → other_operating → NOP → non_operating → PBT</div>
+        </div>
+
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-h"><h2 class="card-t">Statement</h2><span class="card-s">click a group to open it · click a line to trace</span></div>
+          <div class="tbl-wrap"><table class="tbl pl" id="tbl-pl"></table></div>
+          <div class="card-note">Eliminated in consolidation: management fee <b>Rp 431 jt</b> (HO 4016 ↔ units 7032) and inter-unit families PEMBIAYAAN, BARANG, LAIN (1057–1059 ↔ 2028–2031), which net to zero.</div>
+          <div class="src"><span class="tag ok">EXISTS</span><code>/finance/reports/profit-and-loss</code><code>/finance/reports/trace?account&amp;from&amp;to</code><span class="sep">·</span><span class="tag new">NEW</span> budget comparison (reads <code>budget</code>) · elimination rows</div>
+        </div>
+
+        <div class="grid g2">
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Gross margin</h2><span class="card-s">% of net sales · by month</span></div>
+            <div class="card-b"><div class="chart" id="ch-gm" style="height:170px"></div></div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Gross operating profit</h2><span class="card-s">% of net sales · by month</span></div>
+            <div class="card-b"><div class="chart" id="ch-gop" style="height:170px"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═════════════════════════════ CASH ══════════════════════════════ -->
+      <section class="page" id="p-cash">
+        <div class="ph"><div><div class="crumb-s">Executive · Position</div><h1>Cash &amp; liquidity</h1><p>What we hold, what is on its way to us, and what is already promised away.</p></div></div>
+        <div class="kpis" id="kpi-cash"></div>
+
+        <div class="grid g-37">
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Headroom, next 30 days</h2><span class="card-s">as at 25 Sep</span></div>
+            <div class="card-b"><div class="ladder" id="cash-ladder"></div></div>
+            <div class="card-note">Known obligations only — not a forecast. If the <b>27 draft bills (Rp 1,11 M)</b> fall due inside 30 days, headroom drops to <b>Rp 3,24 M</b>.</div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/finance/money</code><code>/finance/acquirer-receivable-aging</code><code>/finance/payables-aging</code><code>/payroll/runs</code><span class="sep">·</span><span class="tag new">NEW</span> <code>GET /executive/obligations</code></div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Known outflows by week</h2><div class="legend" id="out-legend"></div></div>
+            <div class="card-b"><div class="chart" id="ch-out" style="height:250px"></div></div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>payment_ledger_entry.due_date</code> (AP) · <code>giro.due_date</code> · <code>tax_period</code> · <code>payroll_run</code><span class="sep">·</span><span class="tag new">NEW</span> bucketing by week</div>
+          </div>
+        </div>
+
+        <div class="grid g2">
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Bank accounts</h2><span class="card-s">head office only — units never hold a bank</span></div>
+            <div class="tbl-wrap"><table class="tbl compact" id="tbl-bank"></table></div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/finance/money</code><code>bank_statement.closing_minor</code></div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Supplier payables by age</h2><span class="card-s">Rp 7,90 M outstanding</span></div>
+            <div class="card-b"><div class="chart" id="ch-aging" style="height:150px"></div>
+              <div class="hbars" id="ap-top" style="margin-top:6px"></div></div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/finance/payables-aging?as_of</code></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h2 class="card-t">Cash in the stores</h2><span class="card-s">till, petty cash and deposits on their way to HO</span></div>
+          <div class="tbl-wrap"><table class="tbl compact" id="tbl-storecash"></table></div>
+          <div class="src"><span class="tag ok">EXISTS</span><code>/store-money/sites/{site}/position</code> per site<span class="sep">·</span><span class="tag new">NEW</span> fleet roll-up in one call</div>
+        </div>
+      </section>
+
+      <!-- ═════════════════════════════ STOCK ═════════════════════════════ -->
+      <section class="page" id="p-stock">
+        <div class="ph"><div><div class="crumb-s">Executive · Position</div><h1>Stock &amp; buying</h1><p>What we hold at cost, how fast it turns, and what is already on order.</p></div></div>
+        <div class="kpis" id="kpi-stock"></div>
+        <div class="banner gap"><svg class="ico sm"><use href="#i-alert"/></svg><div><b>Stock age is not computed yet.</b> It can be derived from <code>cost_layer.economic_date</code> (provenance per receipt), which is the next reader to write before this screen can show aged stock.</div></div>
+
+        <div class="grid g2">
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Divisions</h2><span class="card-s">at cost · weeks of cover · sell-through of the last 90 days' receipts</span></div>
+            <div class="tbl-wrap"><table class="tbl compact" id="tbl-stockdiv"></table></div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/finance/valuation</code> (by article)<span class="sep">·</span><span class="tag new">NEW</span> cover = value ÷ weekly COGS · sell-through generalised from <code>performance.rs</code></div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Where it sits</h2><span class="card-s">at cost · weeks of cover at that site</span></div>
+            <div class="card-b"><div class="hbars" id="stock-sites"></div></div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/finance/valuation</code> by_site · GL 1029 per site</div>
+          </div>
+        </div>
+
+        <div class="grid g2">
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Already on order</h2><span class="card-s">open purchase orders at cost, by promised date</span></div>
+            <div class="card-b"><div class="chart" id="ch-po" style="height:190px"></div></div>
+            <div class="card-note">18 open orders · 31.050 pieces · fill rate <b>94,1%</b> and on-time <b>81%</b> over the last 90 days.</div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>purchase_order_line.promised_date</code>, <code>cancelled_quantity</code>, <code>closed_short_units</code><span class="sep">·</span><span class="tag new">NEW</span> aggregate read</div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Missing this month</h2><span class="card-s">pieces the fleet expected and did not see</span></div>
+            <div class="card-b"><div class="hbars" id="shrink"></div></div>
+            <div class="card-note">Four stores have not counted this month: <b>04, 07, 08, 12</b>.</div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/inventory/missing</code><code>/inventory/counts</code></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═════════════════════════════ PEOPLE ════════════════════════════ -->
+      <section class="page" id="p-people">
+        <div class="ph"><div><div class="crumb-s">Executive · People</div><h1>Workforce</h1><p>How many people, what they cost, and what they sell.</p></div></div>
+        <div class="kpis" id="kpi-people"></div>
+        <div class="grid g2">
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Headcount against plan</h2><div class="legend"><span><i class="sw" style="background:var(--c1)"></i>In post</span><span><i style="background:var(--ink);width:2px;height:10px"></i>Plan</span></div></div>
+            <div class="card-b"><div class="hbars" id="hc"></div></div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/employees</code> facets by place<span class="sep">·</span><code>staffing_plan.headcount</code> <span class="tag new">NEW</span> read</div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Payroll by month</h2><div class="legend" id="pay-legend"></div></div>
+            <div class="card-b"><div class="chart" id="ch-pay" style="height:240px"></div></div>
+            <div class="card-note">Approved runs only. September's run closes on 30 Sep.</div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/payroll/runs</code><code>/payroll/runs/{id}/reconciliation</code> · <code>payroll_slip_line</code> by component</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h2 class="card-t">Productivity by store</h2><span class="card-s">month to date</span></div>
+          <div class="tbl-wrap"><table class="tbl compact" id="tbl-prod"></table></div>
+          <div class="src"><span class="tag ok">EXISTS</span><code>/attendance/today</code><code>overtime_order</code><code>unit-results</code> (staff cost)</div>
+        </div>
+      </section>
+
+      <!-- ═════════════════════════════ MEMBERS ═══════════════════════════ -->
+      <section class="page" id="p-members">
+        <div class="ph"><div><div class="crumb-s">Executive · People</div><h1>Members</h1><p>Who comes back, what they are worth, and what we owe them.</p></div></div>
+        <div class="kpis" id="kpi-members"></div>
+        <div class="grid g2">
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">Member share of sales</h2><span class="card-s">by month</span></div>
+            <div class="card-b"><div class="chart" id="ch-member" style="height:200px"></div></div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/reports/run</code> sale × customer present</div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">What we owe members</h2><span class="card-s">as at 25 Sep</span></div>
+            <div class="card-b">
+              <div class="ladder" id="liab"></div>
+              <div class="banner gap" style="margin:12px 0 0"><svg class="ico sm"><use href="#i-alert"/></svg><div><b>38,4 jt points are outstanding and carry no value.</b> No account is decided for member points (Finance rule T3), so nothing is posted and this is not a liability in the books yet.</div></div>
+            </div>
+            <div class="src"><span class="tag ok">EXISTS</span><code>/commercial/vouchers</code><code>/members/points</code><code>/finance/controls</code> (GL 2033 vs voucher subledger)</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h2 class="card-t">Segments</h2><span class="card-s">share of member sales this period</span></div>
+          <div class="tbl-wrap"><table class="tbl compact" id="tbl-seg"></table></div>
+          <div class="src"><span class="tag ok">EXISTS</span><code>/members/segments</code></div>
+        </div>
+      </section>
+
+      <!-- ═════════════════════════════ PACK ══════════════════════════════ -->
+      <section class="page" id="p-pack">
+        <div class="ph"><div><div class="crumb-s">Executive · Board</div><h1>Monthly pack</h1><p>The month as it was reported — frozen when published, never recalculated. A late correction publishes a new version.</p></div></div>
+        <div class="grid g-37">
+          <div class="card months">
+            <div class="card-h"><h2 class="card-t">Months</h2><span class="card-s">newest first</span></div>
+            <div class="m" data-m="sep"><svg class="ico" style="color:var(--line-ico)"><use href="#i-clock"/></svg><div class="grow"><b>September 2026</b><small>Month open · preview recalculates each time</small></div><span class="pill info"><i></i>In progress</span></div>
+            <div class="m sel" data-m="aug"><svg class="ico" style="color:var(--line-ico)"><use href="#i-file"/></svg><div class="grow"><b>August 2026</b><small>Draft · 3 checks outstanding</small></div><span class="pill warn"><i></i>Blocked</span></div>
+            <div class="m" data-m="jul"><svg class="ico" style="color:var(--line-ico)"><use href="#i-lock"/></svg><div class="grow"><b>July 2026</b><small>Published 6 Aug, 10:12 · Finance HO · v1</small></div><span class="pill ok"><i></i>Published</span></div>
+            <div class="m" data-m="jun"><svg class="ico" style="color:var(--line-ico)"><use href="#i-lock"/></svg><div class="grow"><b>June 2026</b><small>Published 9 Jul · v2 — late return re-issued</small></div><span class="pill ok"><i></i>Published</span></div>
+            <div class="m" data-m="may"><svg class="ico" style="color:var(--line-ico)"><use href="#i-lock"/></svg><div class="grow"><b>May 2026</b><small>Published 5 Jun · v1</small></div><span class="pill ok"><i></i>Published</span></div>
+            <div class="src"><span class="tag new">NEW</span> table <code>executive_report</code> (append-only, like <code>report_version</code> in 0089)</div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2 class="card-t">August 2026</h2>
+              <div style="display:flex;gap:8px"><button class="btn ghost"><svg class="ico"><use href="#i-dl"/></svg>Preview PDF</button><button class="btn cta" disabled title="3 checks outstanding">Publish August</button></div>
+            </div>
+            <div class="card-b">
+              <div class="cover">
+                <div class="eyebrow">Monthly pack · Wira Makmur</div>
+                <h2>August 2026 <span>· 13 stores, head office</span></h2>
+                <div class="nums">
+                  <div><small>Net sales</small><b>Rp 17,62 M</b><div class="up" style="font-size:11px;font-weight:600">+7,4% vs Jul</div></div>
+                  <div><small>Gross margin</small><b>49,4%</b><div class="up" style="font-size:11px;font-weight:600">+0,5 pp</div></div>
+                  <div><small>Gross operating profit</small><b>Rp 2,84 M</b><div class="up" style="font-size:11px;font-weight:600">16,1% of sales</div></div>
+                  <div><small>Cash &amp; bank, 31 Aug</small><b>Rp 9,74 M</b><div class="down" style="font-size:11px;font-weight:600">−Rp 0,62 M</div></div>
+                </div>
+                <p>August closed at Rp 17,62 M net sales, 7,4% above July and 12,2% above August 2025, with every store trading all 31 days. Gross margin recovered to 49,4% as the mid-year sale ended, lifting gross operating profit to Rp 2,84 M. Store 13 and Store 09 made 30% of sales and 42% of store contribution, while Store 07 slipped into a loss for the first time. Stock at cost rose Rp 1,1 M to Rp 22,84 M, most of it in Sandal dan Sepatu. Overdue payables grew to Rp 2,31 M while cash and bank ended at Rp 9,74 M.</p>
+                <div class="prov"><span class="tag acc">DRAFT NARRATIVE</span>written once, at publish, from the frozen figures · stored with its prompt and model · figures never re-read</div>
+              </div>
+              <h3 style="margin:16px 0 4px;font-size:12px;font-weight:600;color:var(--body);text-transform:uppercase;letter-spacing:.04em">Before it can be published</h3>
+              <div class="check">
+                <div><svg class="ico sm y"><use href="#i-check"/></svg><span>All 403 store-days posted (13 × 31)<small><code>sales_posting</code> · POSTED</small></span></div>
+                <div><svg class="ico sm y"><use href="#i-check"/></svg><span>Depreciation run for August<small>14 units · Rp 238 jt</small></span></div>
+                <div><svg class="ico sm y"><use href="#i-check"/></svg><span>Payroll approved and posted<small>14 places · Rp 2,31 M</small></span></div>
+                <div><svg class="ico sm n"><use href="#i-x"/></svg><span>27 supplier bills are still draft<small>Rp 1,11 M of August deliveries not yet in payables</small></span></div>
+                <div><svg class="ico sm n"><use href="#i-x"/></svg><span>BRI Giro statement missing 28–31 Aug<small>bank cannot be reconciled to month end</small></span></div>
+                <div><svg class="ico sm n"><use href="#i-x"/></svg><span>August is still OPEN<small>soft-close it in Finance → Period close first</small></span></div>
+              </div>
+            </div>
+            <div class="src"><span class="tag new">NEW</span><code>GET /api/v1/reports/executive?month=2026-08</code> (preview) · <code>POST …/executive/2026-08/publish</code> (freeze)<span class="sep">·</span><span class="tag ok">EXISTS</span><code>/finance/close/readiness?year&amp;month</code></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- the store record — a sheet in the URL (?store=07), not component state -->
+<aside class="sheet" id="sheet" aria-label="Store">
+  <div class="sheet-h">
+    <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px"><h2 id="sh-title">Store 07</h2><span id="sh-pill"></span></div><p id="sh-sub"></p></div>
+    <button class="tbtn" id="sh-close" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="sheet-b" id="sh-body"></div>
+</aside>
+
+<div class="tip" id="tip"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   DATA. Shapes come from the schema; magnitudes are illustrative.
+   The dev databases hold structure but not a trading month (no COGS layers,
+   no budget rows, one posted sales day), so figures are set to a plausible
+   13-store chain and kept arithmetically consistent: the store rows sum to
+   the consolidated P&L, the P&L feeds the Pulse, the cash ladder adds up.
+   Proportions taken from inventory_e2e: store ranking and ATV, tender mix
+   34/33/30/4, discount 6,2% of gross, member share 45,6%.
+   ═══════════════════════════════════════════════════════════════════════ */
+const C1='#2563eb',C2='#d9772b',C3='#8a6cf0',C4='#3f9463',CO='#c7ced8',GHOST='#aab2bd',BAD='#d05151',WARN='#c9892e';
+const F=24/30; // month-to-date share of a month's fixed costs
+
+// id, MTD net, growth vs prior, vs LY, ATV, m², GM, staff, plan, rent/m²/month (rb), store cover wks, missing pcs, over/short, lease end, overtime h, in today
+const RAW=[
+ ['01', 766,.06, .09, 517, 620,.492,18,19,175, 6.9, 84, -42,'Jun 2027',128,18],
+ ['02', 970,.11, .14, 622, 700,.498,19,20,180, 6.4, 92,  18,'Nov 2028',141,18],
+ ['03',1145,.09, .12, 759, 780,.501,20,20,185, 6.2,101,  -7,'Feb 2029',150,19],
+ ['04', 665,-.04,.02, 794, 650,.473,17,18,190, 9.6, 77,-134,'31 Dec 2026',96,16],
+ ['05', 853,.13, .19, 945, 720,.504,18,19,170, 7.2, 69,  66,'Aug 2028',118,17],
+ ['06',1060,.075,.10, 560, 820,.489,21,22,165, 6.5,118, -12,'Apr 2027',162,20],
+ ['07', 497,-.18,-.11,488, 560,.458,16,16,205,12.5,164,-118,'Mar 2028',88,14],
+ ['08', 680,.02, .04, 555, 600,.481,17,18,175, 8.1, 71,   9,'Jan 2027',104,16],
+ ['09',1978,.13, .17,1152,1250,.511,26,27,160, 5.6,142, -23,'Sep 2029',221,25],
+ ['10',1270,.06, .08, 740, 900,.495,22,23,170, 6.3, 96,  31,'May 2028',176,21],
+ ['11',1539,.15, .217,1297,1050,.507,24,25,165, 5.8, 88,  -4,'Jul 2029',204,23],
+ ['12', 759,.05, .07, 578, 640,.486,18,19,180, 7.5, 79, -61,'Oct 2027',122,17],
+ ['13',2411,.102,.135,1471,1400,.514,28,30,155, 5.7,103,  12,'Dec 2030',250,27],
+];
+const TRANSIT={ '07':[38e6,4], '04':[41e6,3], '12':[57e6,2], '01':[62e6,1], '06':[94e6,1], '10':[116e6,1] };
+const NOCOUNT=new Set(['04','07','08','12']);
+const STORES=RAW.map(r=>{
+  const [id,netM,g,lyg,atvK,area,gm,hc,plan,rentK,cover,miss,osK,lease,ot,inToday]=r;
+  const net=netM*1e6, gp=net*gm, staff=hc*6.8e6*F, rent=area*rentK*1250*F, util=area*38e3*F,
+        run=net*.032+9e6*F, dep=area*22e3*F, contrib=gp-staff-rent-util-run-dep;
+  const stock=cover*(net-gp)/24*7;
+  return {id,name:'Store '+id,net,prior:net/(1+g),ly:net/(1+lyg),atv:atvK*1e3,tx:Math.round(net/(atvK*1e3)),
+    area,gm,gp,cogs:net-gp,staff,rent,util,run,dep,contrib,cm:contrib/net,hc,plan,cover,stock,miss,os:osK*1e3,
+    lease,ot,inToday,transit:TRANSIT[id]||null};
+});
+const TOT=k=>STORES.reduce((a,s)=>a+s[k],0);
+const NET=TOT('net'), CONTRIB=TOT('contrib'), AREA=TOT('area');
+const STOCK_TOTAL=23.90e9, DC_STOCK=STOCK_TOTAL-TOT('stock');
+const CASH_IN_STORES=392e6; STORES.forEach(s=>s.cash=CASH_IN_STORES*s.net/NET);
+
+// fleet daily net sales — weekday rhythm, a payday lift from the 25th to the 3rd
+const WF=[1.28,.85,.82,.86,.90,1.02,1.32]; // Sun..Sat
+function shape(y,m,n,seed){const o=[];for(let d=1;d<=n;d++){const w=WF[new Date(Date.UTC(y,m-1,d)).getUTCDay()];const pay=(d>=25||d<=3)?1.10:1;o.push(w*pay*(1+.05*Math.sin(d*2.1+seed)+.03*Math.cos(d*5.3+seed*2)))}return o}
+function scaleTo(a,sum,from=0,to=a.length){const s=a.slice(from,to).reduce((x,y)=>x+y,0);return a.map((v,i)=>i>=from&&i<to?v*sum/s:v)}
+const SEP=scaleTo(shape(2026,9,24,2),NET);
+let AUG=shape(2026,8,31,1); AUG=scaleTo(AUG,TOT('prior'),0,24); AUG=scaleTo(AUG,4.067e9,24,31);
+const SEP25=scaleTo(shape(2025,9,24,3),TOT('ly'));
+const DAYNAME=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+const KPI={
+ pulse:[
+  {l:'Gross margin',cur:49.88,prior:49.40,ly:48.59,bud:null,kind:'pct',good:'up'},
+  {l:'Gross operating profit',cur:2598e6,prior:2176e6,ly:2133e6,bud:null,kind:'rp',good:'up',sub:'17,8% of net sales'},
+  {l:'Net operating profit',cur:1715e6,prior:1315e6,ly:1329e6,bud:null,kind:'rp',good:'up',sub:'11,8% of net sales'},
+  {l:'Cash & bank',cur:10.89e9,prior:9.74e9,ly:7.92e9,kind:'rp',good:'up',pos:true},
+  {l:'Stock at cost',cur:STOCK_TOTAL,prior:22.84e9,ly:21.30e9,kind:'rp',good:'none',pos:true,sub:'11,2 weeks of cover'},
+  {l:'Payables overdue',cur:2.72e9,prior:2.31e9,ly:1.94e9,kind:'rp',good:'down',pos:true,sub:'34% of supplier payables'}],
+ sales:[
+  {l:'Net sales',cur:NET,prior:TOT('prior'),ly:TOT('ly'),bud:null,kind:'rp',good:'up'},
+  {l:'Transactions',cur:17999,prior:17012,ly:16890,kind:'n',good:'up'},
+  {l:'Average sale',cur:NET/17999,prior:TOT('prior')/17012,ly:TOT('ly')/16890,kind:'rp',good:'up'},
+  {l:'Units per sale',cur:1.62,prior:1.60,ly:1.57,kind:'dec',good:'up'},
+  {l:'Discount rate',cur:6.2,prior:5.8,ly:6.9,kind:'pct',good:'down',sub:'of gross sales'},
+  {l:'Member share',cur:45.6,prior:44.9,ly:38.4,kind:'pct',good:'up',sub:'of net sales'}],
+ stores:[
+  {l:'Store contribution',cur:CONTRIB,prior:2468e6,ly:2390e6,kind:'rp',good:'up',sub:'20,1% of sales, after own rent & staff'},
+  {l:'Sales per m²',cur:NET/AREA,prior:TOT('prior')/AREA,ly:TOT('ly')/AREA,kind:'rpjt',good:'up'},
+  {l:'Stores growing',kind:'growing'},
+  {l:'Losing money',cur:1,prior:0,ly:1,kind:'n',good:'down',sub:'Store 07'},
+  {l:'Missing pieces',cur:1284,prior:1107,ly:1390,kind:'n',good:'down',sub:'Rp 212 jt at cost'},
+  {l:'Till over / short',cur:TOT('os'),prior:-412e3,ly:-380e3,kind:'rp',good:'none',sub:'13 stores, month to date'}],
+ pl:[
+  {l:'Net sales',cur:14593e6,prior:13553e6,ly:13086e6,bud:null,kind:'rp',good:'up'},
+  {l:'Gross margin',cur:49.88,prior:49.40,ly:48.59,bud:null,kind:'pct',good:'up'},
+  {l:'Operating expenses',cur:4681e6,prior:4519e6,ly:4226e6,bud:4556e6,kind:'rp',good:'down',sub:'6xxx · 32,1% of sales'},
+  {l:'Gross operating profit',cur:2598e6,prior:2176e6,ly:2133e6,bud:null,kind:'rp',good:'up'},
+  {l:'Net operating profit',cur:1715e6,prior:1315e6,ly:1329e6,bud:null,kind:'rp',good:'up'},
+  {l:'Profit before tax',cur:1748e6,prior:1359e6,ly:1357e6,bud:null,kind:'rp',good:'up',sub:'12,0% of net sales'}],
+ cash:[
+  {l:'Cash & bank',cur:10.89e9,prior:9.74e9,ly:7.92e9,kind:'rp',good:'up',pos:true,sub:'4 accounts, head office'},
+  {l:'Cash in the stores',cur:.495e9,prior:.471e9,ly:.402e9,kind:'rp',good:'none',pos:true},
+  {l:'On the way to HO',cur:.408e9,prior:.286e9,ly:.350e9,kind:'rp',good:'down',pos:true,sub:'oldest 4 days'},
+  {l:'Card & QRIS to settle',cur:.618e9,prior:.574e9,ly:.510e9,kind:'rp',good:'none',pos:true},
+  {l:'Payables overdue',cur:2.72e9,prior:2.31e9,ly:1.94e9,kind:'rp',good:'down',pos:true},
+  {l:'Covers 30-day outflows',cur:1.54,prior:1.71,ly:1.62,kind:'x',good:'up',pos:true}],
+ stock:[
+  {l:'Stock at cost',cur:STOCK_TOTAL,prior:22.84e9,ly:21.30e9,kind:'rp',good:'none',pos:true,sub:'131.960 pieces'},
+  {l:'Weeks of cover',cur:11.2,prior:11.6,ly:12.4,kind:'wk',good:'down',pos:true},
+  {l:'Sell-through, 90 days',cur:41,prior:39,ly:37,kind:'pct',good:'up'},
+  {l:'Missing this month',cur:1284,prior:1107,ly:1390,kind:'n',good:'down',sub:'Rp 212 jt at cost'},
+  {l:'Open orders',cur:5.62e9,prior:4.90e9,ly:5.10e9,kind:'rp',good:'none',pos:true,sub:'18 purchase orders'},
+  {l:'Supplier fill rate',cur:94.1,prior:93.2,ly:91.8,kind:'pct',good:'up',sub:'last 90 days'}],
+ people:[
+  {l:'Headcount',cur:322,prior:318,ly:296,kind:'n',good:'none',pos:true,sub:'plan 338 · 16 open'},
+  {l:'Staff cost of sales',cur:12.7,prior:13.4,ly:13.9,kind:'pct',good:'down',sub:'stores + head office'},
+  {l:'Payroll, last run',cur:2.31e9,prior:2.28e9,ly:2.05e9,kind:'rp',good:'none',pos:true,sub:'August · approved'},
+  {l:'Overtime hours',cur:2140,prior:1980,ly:2310,kind:'n',good:'down'},
+  {l:'At work today',cur:95.1,prior:94.4,ly:null,kind:'pct',good:'up',pos:true,sub:'251 of 264 in stores'},
+  {l:'Contracts ending',cur:14,kind:'static',sub:'within 60 days'}],
+ members:[
+  {l:'Members',cur:48260,prior:46448,ly:39120,kind:'n',good:'up',pos:true},
+  {l:'Active, 90 days',cur:37.2,prior:36.8,ly:34.1,kind:'pct',good:'up',pos:true,sub:'17.940 members'},
+  {l:'New this period',cur:1812,prior:1690,ly:1405,kind:'n',good:'up'},
+  {l:'Member share of sales',cur:45.6,prior:44.9,ly:38.4,kind:'pct',good:'up'},
+  {l:'Member average sale',cur:948e3,prior:931e3,ly:902e3,kind:'rp',good:'up',sub:'non-member Rp 713 rb'},
+  {l:'Vouchers outstanding',cur:186e6,prior:174e6,ly:131e6,kind:'rp',good:'none',pos:true,sub:'GL 2033 agrees'}],
+};
+
+const PL=[
+ {n:'Net sales',code:'4xxx',v:[14593,13553,13086,null],kind:'rev'},
+ {n:'Cost of goods sold',code:'5002',v:[-7314,-6858,-6727,null]},
+ {n:'Gross profit',v:[7279,6695,6359,null],tot:1},
+ {n:'Operating expenses',code:'6xxx',v:[-4681,-4519,-4226,-4556],grp:'opex',kids:[
+   ['Store staff','6012–6038',[-1436,-1398,-1290,-1420],'staff'],
+   ['Rent',null,[-1838,-1838,-1702,-1838],'rent'],
+   ['Electricity, water & phone','6045',[-325,-318,-297,-310],'util'],
+   ['Store running costs',null,[-561,-534,-502,-540],'run'],
+   ['Store depreciation',null,[-188,-186,-160,-188],'dep'],
+   ['Marketing & promotion',null,[-262,-178,-221,-190]],
+   ['Card & QRIS fees (MDR)',null,[-71,-67,-54,-70]]]},
+ {n:'Gross operating profit',v:[2598,2176,2133,null],tot:1},
+ {n:'Other operating expenses',code:'7xxx',v:[-883,-861,-804,-894],grp:'oopex',kids:[
+   ['Head office staff',null,[-412,-405,-371,-420]],
+   ['Administration & general',null,[-236,-229,-214,-240]],
+   ['Office & DC rent',null,[-148,-148,-140,-148]],
+   ['Head office depreciation',null,[-46,-46,-41,-46]],
+   ['Other',null,[-41,-33,-38,-40]]]},
+ {n:'Net operating profit',v:[1715,1315,1329,null],tot:1},
+ {n:'Non-operating',code:'8xxx',v:[33,44,28,null],grp:'nonop',kids:[
+   ['Rent income','8005',[74,74,66,null]],['Bank interest','8002',[9,8,7,null]],
+   ['Stock loss','8007',[-38,-29,-35,null]],['Other','8008',[-12,-9,-10,null]]]},
+ {n:'Profit before tax',v:[1748,1359,1357,null],final:1},
+];
+
+const DIVS=[
+ ['Pria',29.8,9.1,13,51.2,46,10.4,6.52e9],['Wanita',25.6,6.4,9,50.4,44,10.9,5.61e9],
+ ['Anak Perempuan',10.9,12.2,16,49.1,49,9.6,2.18e9],['Anak Laki-laki',9.8,10.5,14,48.8,47,9.9,2.03e9],
+ ['Sandal dan Sepatu',8.4,-3.8,-2,44.9,21,27.4,3.62e9],['Tas',6.1,4.9,8,52.6,38,11.6,1.52e9],
+ ['Aksesoris',4.3,2.1,6,57.8,35,13.8,1.21e9],['Perlengkapan Bayi',4.2,7.7,12,46.3,42,10.2,.87e9],
+ ['Non Divisi',.9,0,0,38.0,null,null,.34e9]];
+const TENDER=[['Cash',34.0,35.1,C1],['Card',32.8,32.9,C2],['QRIS',29.5,28.1,C3],['Voucher',3.7,3.9,C4]];
+const MONTHS=['Apr','May','Jun','Jul','Aug','Sep'];
+const M_CUR=[15.12,15.84,17.26,16.41,17.62,14.59].map(v=>v*1e9), M_LY=[13.40,14.10,15.20,14.60,15.70,13.09].map(v=>v*1e9);
+const GM_M=[50.3,50.1,48.7,48.9,49.4,49.9], GOP_M=[17.1,17.6,17.9,15.8,16.1,17.8], MEM_M=[41.2,42.0,43.1,44.0,44.9,45.6];
+
+/* ═══════════════════════════ formatting ═══════════════════════════ */
+const NF={};const nf=d=>NF[d]||(NF[d]=new Intl.NumberFormat('id-ID',{minimumFractionDigits:d,maximumFractionDigits:d}));
+const MINUS='−';
+function rp(v){const a=Math.abs(v),s=v<0?MINUS:'';if(a>=1e9)return s+'Rp '+nf(2).format(a/1e9)+' M';if(a>=1e6)return s+'Rp '+nf(0).format(a/1e6)+' jt';if(a>=1e3)return s+'Rp '+nf(0).format(a/1e3)+' rb';return s+'Rp '+nf(0).format(a)}
+const rpJt=v=>'Rp '+nf(2).format(v/1e6)+' jt';
+function axisRp(v){const a=Math.abs(v),s=v<0?MINUS:'';if(a>=1e9)return s+nf(a%1e9?1:0).format(a/1e9)+' M';if(a>=1e6)return s+nf(0).format(a/1e6)+' jt';return s+nf(0).format(a)}
+const pct=(v,d=1)=>nf(d).format(v)+'%';
+const sgn=d=>d>0.0001?'+':d<-0.0001?MINUS:'±';
+const spct=(d,dd=1)=>sgn(d)+nf(dd).format(Math.abs(d))+'%';
+
+/* ═══════════════════════════ state ═══════════════════════════ */
+const state={cmp:'prior',page:'pulse'};
+const CMP_IDX={prior:1,ly:2,budget:3};
+function cmpLabel(pos){if(state.cmp==='prior')return pos?'vs 31 Aug':'vs 1–24 Aug';if(state.cmp==='ly')return pos?'vs 25 Sep 2025':'vs 1–24 Sep 2025';return 'vs budget'}
+function cmpOf(k){return state.cmp==='prior'?k.prior:state.cmp==='ly'?k.ly:(k.pos?null:k.bud)}
+function storeCmp(s){return state.cmp==='ly'?s.ly:s.prior} // no sales target exists: budget falls back to prior
+
+function deltaOf(k,c){
+  if(c==null||c===undefined)return {txt:state.cmp==='budget'?'no target':'no comparison',cls:'nt'};
+  let d,txt;
+  if(k.kind==='pct'){d=k.cur-c;txt=sgn(d)+nf(1).format(Math.abs(d))+' pp'}
+  else if(k.kind==='x'){d=k.cur-c;txt=sgn(d)+nf(2).format(Math.abs(d))+'×'}
+  else if(k.kind==='wk'){d=k.cur-c;txt=sgn(d)+nf(1).format(Math.abs(d))+' wk'}
+  else if(k.kind==='n'&&Math.abs(c)<10){d=k.cur-c;txt=sgn(d)+nf(0).format(Math.abs(d))}
+  else{d=(k.cur-c)/Math.abs(c)*100;txt=spct(d)}
+  const cls=k.good==='none'||Math.abs(d)<.05?'flat':((d>0)===(k.good==='up')?'up':'down');
+  return {txt,cls};
+}
+function fmtK(k){switch(k.kind){case'rp':return rp(k.cur);case'rpjt':return rpJt(k.cur);case'pct':return pct(k.cur);case'n':case'static':return nf(0).format(k.cur);case'dec':return nf(2).format(k.cur);case'x':return nf(2).format(k.cur)+'×';case'wk':return nf(1).format(k.cur)+' wk'}return k.cur}
+function renderKpis(id,list){
+  document.getElementById(id).innerHTML=list.map(k=>{
+    if(k.kind==='growing'){
+      if(state.cmp==='budget')return tile(k.l,'—','<span class="nt">no sales target</span>','');
+      const n=STORES.filter(s=>s.net>storeCmp(s)).length;
+      return tile(k.l,n+' of 13',`<span class="flat">${cmpLabel(false)}</span>`,'');
+    }
+    if(k.kind==='static')return tile(k.l,fmtK(k),'',k.sub?`<div class="d"><small>${k.sub}</small></div>`:'');
+    const d=deltaOf(k,cmpOf(k));
+    return tile(k.l,fmtK(k),`<span class="${d.cls}">${d.txt}</span>${d.cls!=='nt'?`<small>${cmpLabel(k.pos)}</small>`:''}`,k.sub?`<div class="d"><small>${k.sub}</small></div>`:'');
+  }).join('');
+  function tile(l,v,d,sub){return `<div class="kpi"><div class="l" title="${l}">${l}</div><div class="v">${v}</div>${d?`<div class="d">${d}</div>`:''}${sub}</div>`}
+}
+
+/* ═══════════════════════════ tooltip ═══════════════════════════ */
+const tip=document.getElementById('tip');
+function showTip(e,html){tip.innerHTML=html;tip.classList.add('on');const r=tip.getBoundingClientRect();let x=e.clientX+14,y=e.clientY+14;if(x+r.width>innerWidth-8)x=e.clientX-r.width-14;if(y+r.height>innerHeight-8)y=e.clientY-r.height-14;tip.style.left=x+'px';tip.style.top=y+'px'}
+function hideTip(){tip.classList.remove('on')}
+const trow=(c,n,v)=>`<div class="tr"><i style="background:${c}"></i>${n}<b>${v}</b></div>`;
+
+/* ═══════════════════════════ charts ═══════════════════════════ */
+function niceTicks(lo,hi,n=4){const span=(hi-lo)||1,raw=span/n,p=10**Math.floor(Math.log10(raw)),f=raw/p,step=(f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*p;const a=Math.floor(lo/step)*step,b=Math.ceil(hi/step)*step,t=[];for(let v=a;v<=b+step/2;v+=step)t.push(+v.toFixed(8));return{lo:a,hi:b,ticks:t}}
+function barPath(x,y,w,h,r=4){if(h<=.5)return'';r=Math.min(r,w/2,h);return`M${x},${y+h}V${y+r}Q${x},${y} ${x+r},${y}H${x+w-r}Q${x+w},${y} ${x+w},${y+r}V${y+h}Z`}
+function size(el){return[el.clientWidth,el.clientHeight]}
+
+// line: series [{name,vals,color,fill,end}] — first series draws on top
+function lineChart(el,o){
+  const [W,H]=size(el);if(!W)return;
+  const P={l:o.padL??46,r:o.padR??14,t:12,b:24},n=o.labels.length;
+  let lo=o.min,hi=o.max,ticks=o.ticks;
+  if(ticks==null){const all=o.series.flatMap(s=>s.vals).filter(v=>v!=null);const nt=niceTicks(o.min??0,Math.max(...all));lo=nt.lo;hi=nt.hi;ticks=nt.ticks}
+  const X=i=>P.l+(n<=1?0:i*(W-P.l-P.r)/(n-1)),Y=v=>P.t+(1-(v-lo)/(hi-lo))*(H-P.t-P.b);
+  let s=`<svg width="${W}" height="${H}" role="img" aria-label="${o.aria||''}">`;
+  ticks.forEach(t=>{s+=`<line class="gl" x1="${P.l}" x2="${W-P.r}" y1="${Y(t)}" y2="${Y(t)}"/><text x="${P.l-8}" y="${Y(t)+4}" text-anchor="end">${o.tick(t)}</text>`});
+  o.labels.forEach((lb,i)=>{if(o.showX(i))s+=`<text x="${X(i)}" y="${H-5}" text-anchor="middle">${lb}</text>`});
+  [...o.series].reverse().forEach(se=>{
+    const pts=se.vals.map((v,i)=>v==null?null:[X(i),Y(v)]).filter(Boolean);if(!pts.length)return;
+    const d='M'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join('L');
+    if(se.fill)s+=`<path d="${d}L${pts[pts.length-1][0]},${Y(lo)}L${pts[0][0]},${Y(lo)}Z" fill="${se.color}" opacity=".09"/>`;
+    s+=`<path d="${d}" fill="none" stroke="${se.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    if(se.end){const p=pts[pts.length-1];s+=`<circle cx="${p[0]}" cy="${p[1]}" r="4" fill="${se.color}" stroke="#fff" stroke-width="2"/>`;if(se.endLabel)s+=`<text x="${p[0]}" y="${p[1]-10}" text-anchor="end" style="fill:var(--ink);font-weight:500">${se.endLabel}</text>`}
+  });
+  s+=`<g class="hv" style="display:none"><line class="xh" y1="${P.t}" y2="${H-P.b}"/>${o.series.map(se=>`<circle r="4.5" fill="${se.color}" stroke="#fff" stroke-width="2"/>`).join('')}</g>`;
+  s+=`<rect class="hit" x="${P.l-10}" y="0" width="${W-P.l-P.r+20}" height="${H}"/></svg>`;
+  el.innerHTML=s;
+  const svg=el.firstChild,g=svg.querySelector('.hv'),ln=g.querySelector('line'),dots=g.querySelectorAll('circle'),hit=svg.querySelector('.hit');
+  hit.addEventListener('mousemove',e=>{
+    const r=svg.getBoundingClientRect();let i=Math.round((e.clientX-r.left-P.l)/((W-P.l-P.r)/Math.max(1,n-1)));i=Math.max(0,Math.min(n-1,i));
+    g.style.display='';ln.setAttribute('x1',X(i));ln.setAttribute('x2',X(i));
+    o.series.forEach((se,k)=>{const v=se.vals[i];dots[k].style.display=v==null?'none':'';if(v!=null){dots[k].setAttribute('cx',X(i));dots[k].setAttribute('cy',Y(v))}});
+    showTip(e,`<div class="tt">${o.title(i)}</div>`+o.series.map(se=>se.vals[i]==null?'':trow(se.color,se.name,o.fmt(se.vals[i]))).join('')+(o.extra?o.extra(i):''));
+  });
+  hit.addEventListener('mouseleave',()=>{g.style.display='none';hideTip()});
+}
+
+// columns: grouped (series side by side, 2px apart) or stacked (2px surface gap)
+function colChart(el,o){
+  const [W,H]=size(el);if(!W)return;
+  const P={l:46,r:8,t:o.valueLabel?20:12,b:o.twoLine?36:24},n=o.labels.length,band=(W-P.l-P.r)/n;
+  const tops=o.stacked?o.labels.map((_,i)=>o.series.reduce((a,s)=>a+(s.vals[i]||0),0)):o.series.flatMap(s=>s.vals);
+  const {hi,ticks}=niceTicks(0,Math.max(...tops));const Y=v=>P.t+(1-v/hi)*(H-P.t-P.b),base=Y(0);
+  let s=`<svg width="${W}" height="${H}">`;
+  ticks.forEach(t=>{s+=`<line class="${t===0?'axis':'gl'}" x1="${P.l}" x2="${W-P.r}" y1="${Y(t)}" y2="${Y(t)}"/><text x="${P.l-8}" y="${Y(t)+4}" text-anchor="end">${o.tick(t)}</text>`});
+  o.labels.forEach((lb,i)=>{
+    const cx=P.l+band*(i+.5);
+    if(o.stacked){
+      const bw=Math.min(28,band*.5),x=cx-bw/2;let acc=0;const last=o.series.map(s=>s.vals[i]||0).reduce((li,v,k)=>v?k:li,-1);
+      o.series.forEach((se,k)=>{const v=se.vals[i]||0;if(!v)return;const y1=Y(acc+v),h=Y(acc)-y1-(acc>0?2:0);
+        s+=k===last?`<path d="${barPath(x,y1,bw,h)}" fill="${se.color}"/>`:`<rect x="${x}" y="${y1}" width="${bw}" height="${Math.max(0,h)}" fill="${se.color}"/>`;acc+=v});
+      if(o.valueLabel)s+=`<text x="${cx}" y="${Y(acc)-6}" text-anchor="middle" style="fill:var(--ink);font-weight:500">${o.valueLabel(i,acc)}</text>`;
+    }else{
+      const m=o.series.length,bw=Math.max(6,Math.min(24,(band*.72-(m-1)*2)/m)),tw=m*bw+(m-1)*2;
+      o.series.forEach((se,k)=>{const v=se.vals[i];if(v==null)return;const x=cx-tw/2+k*(bw+2),c=o.colorOf?o.colorOf(i,k):se.color;s+=`<path d="${barPath(x,Y(v),bw,base-Y(v))}" fill="${c}"/>`;
+        if(o.valueLabel&&k===0)s+=`<text x="${x+bw/2}" y="${Y(v)-6}" text-anchor="middle" style="fill:var(--ink);font-weight:500">${o.valueLabel(i,v)}</text>`});
+    }
+    const parts=String(lb).split('\n');s+=`<text x="${cx}" y="${H-(parts.length>1?20:5)}" text-anchor="middle">${parts.map((p,j)=>`<tspan x="${cx}" dy="${j?13:0}">${p}</tspan>`).join('')}</text>`;
+    s+=`<rect class="hit" data-i="${i}" x="${P.l+band*i}" y="${P.t}" width="${band}" height="${H-P.t-P.b}"/>`;
+  });
+  el.innerHTML=s+'</svg>';
+  el.querySelectorAll('.hit').forEach(r=>{const i=+r.dataset.i;
+    r.addEventListener('mousemove',e=>{const rows=o.series.map((se,k)=>se.vals[i]==null?'':trow(o.colorOf?o.colorOf(i,k):se.color,se.name,o.fmt(se.vals[i]))).join('');
+      const tot=o.stacked&&o.series.length>1?`<div class="tr" style="margin-top:3px;border-top:1px solid var(--hairline);padding-top:3px">Total<b>${o.fmt(o.series.reduce((a,se)=>a+(se.vals[i]||0),0))}</b></div>`:'';
+      showTip(e,`<div class="tt">${o.title(i)}</div>${rows}${tot}${o.extra?o.extra(i):''}`)});
+    r.addEventListener('mouseleave',hideTip)});
+}
+
+// waterfall — subtotals stand on the baseline, costs and income float from the running total
+function bridge(el,steps){
+  const [W,H]=size(el);if(!W)return;
+  const P={l:50,r:8,t:22,b:36},n=steps.length,band=(W-P.l-P.r)/n,bw=Math.min(56,band*.56);
+  let run=0;const bars=steps.map(st=>{let a,b;if(st.kind==='total'){a=0;b=st.v;run=st.v}else{a=run;b=run+st.v;run=b}return{...st,lo:Math.min(a,b),hi:Math.max(a,b),end:run}});
+  const {hi,ticks}=niceTicks(0,Math.max(...bars.map(b=>b.hi)));const Y=v=>P.t+(1-v/hi)*(H-P.t-P.b);
+  let s=`<svg width="${W}" height="${H}">`;
+  ticks.forEach(t=>{s+=`<line class="${t===0?'axis':'gl'}" x1="${P.l}" x2="${W-P.r}" y1="${Y(t)}" y2="${Y(t)}"/><text x="${P.l-8}" y="${Y(t)+4}" text-anchor="end">${axisRp(t)}</text>`});
+  bars.forEach((b,i)=>{
+    const cx=P.l+band*(i+.5),x=cx-bw/2,c=b.kind==='total'?C1:b.kind==='income'?C4:CO;
+    if(i<n-1){const nx=P.l+band*(i+1.5)-bw/2;s+=`<line x1="${x+bw}" x2="${nx}" y1="${Y(b.end)}" y2="${Y(b.end)}" stroke="${CO}" stroke-width="1"/>`}
+    const h=Math.max(1.5,Y(b.lo)-Y(b.hi));
+    s+=b.kind==='total'?`<path d="${barPath(x,Y(b.hi),bw,h)}" fill="${c}"/>`:`<rect x="${x}" y="${Y(b.hi)}" width="${bw}" height="${h}" rx="3" fill="${c}"/>`;
+    s+=`<text x="${cx}" y="${Y(b.hi)-6}" text-anchor="middle" style="fill:var(--ink);font-weight:${b.kind==='total'?600:500}">${b.kind==='total'?axisRp(b.v):(b.v<0?MINUS:'+')+axisRp(Math.abs(b.v))}</text>`;
+    const parts=b.name.split('\n');s+=`<text x="${cx}" y="${H-20}" text-anchor="middle">${parts.map((p,j)=>`<tspan x="${cx}" dy="${j?13:0}">${p}</tspan>`).join('')}</text>`;
+    s+=`<rect class="hit" data-i="${i}" x="${P.l+band*i}" y="${P.t}" width="${band}" height="${H-P.t-P.b}"/>`;
+  });
+  el.innerHTML=s+'</svg>';
+  el.querySelectorAll('.hit').forEach(r=>{const b=bars[+r.dataset.i];r.addEventListener('mousemove',e=>showTip(e,`<div class="tt">${b.name.replace('\n',' ')}</div>${trow(b.kind==='total'?C1:b.kind==='income'?C4:CO,b.kind==='total'?'Amount':'Change',rp(b.v))}<div class="tr">Share of net sales<b>${pct(Math.abs(b.v)/steps[0].v*100)}</b></div>`));r.addEventListener('mouseleave',hideTip)});
+}
+
+// stores as dots: growth against contribution margin
+function scatter(el){
+  const [W,H]=size(el);if(!W)return;
+  const P={l:44,r:16,t:14,b:30},x0=-25,x1=25,y0=-10,y1=35;
+  const X=v=>P.l+(v-x0)/(x1-x0)*(W-P.l-P.r),Y=v=>P.t+(1-(v-y0)/(y1-y0))*(H-P.t-P.b);
+  const fleet=CONTRIB/NET*100;
+  let s=`<svg width="${W}" height="${H}">`;
+  [-10,0,10,20,30].forEach(t=>{s+=`<line class="${t===0?'axis':'gl'}" x1="${P.l}" x2="${W-P.r}" y1="${Y(t)}" y2="${Y(t)}"/><text x="${P.l-8}" y="${Y(t)+4}" text-anchor="end">${t}%</text>`});
+  [-20,-10,0,10,20].forEach(t=>{s+=`<line class="${t===0?'axis':'gl'}" y1="${P.t}" y2="${H-P.b}" x1="${X(t)}" x2="${X(t)}"/><text x="${X(t)}" y="${H-12}" text-anchor="middle">${t>0?'+':t<0?MINUS:''}${Math.abs(t)}%</text>`});
+  s+=`<text x="${W-P.r}" y="${H-1}" text-anchor="end">growth ${cmpLabel(false).replace('vs budget','vs 1–24 Aug')} →</text>`;
+  s+=`<line x1="${P.l}" x2="${W-P.r}" y1="${Y(fleet)}" y2="${Y(fleet)}" stroke="${GHOST}" stroke-dasharray="4 3"/><text x="${P.l+6}" y="${Y(fleet)-5}">fleet ${pct(fleet)}</text>`;
+  const pts=STORES.map(st=>({st,x:(st.net/storeCmp(st)-1)*100,y:st.cm*100}));
+  pts.forEach(p=>{const cx=X(p.x),cy=Y(p.y),c=p.y<0?BAD:C1;
+    s+=`<circle cx="${cx}" cy="${cy}" r="6" fill="${c}" stroke="#fff" stroke-width="2"/><text x="${cx}" y="${cy-10}" text-anchor="middle" style="fill:var(--text);font-weight:500">${p.st.id}</text>
+        <circle class="hit" data-id="${p.st.id}" cx="${cx}" cy="${cy}" r="13" style="cursor:pointer"/>`});
+  el.innerHTML=s+'</svg>';
+  el.querySelectorAll('.hit').forEach(h=>{const p=pts.find(q=>q.st.id===h.dataset.id);
+    h.addEventListener('mousemove',e=>showTip(e,`<div class="tt">${p.st.name}</div><div class="tr">Net sales<b>${rp(p.st.net)}</b></div><div class="tr">Growth<b>${spct(p.x)}</b></div><div class="tr">Contribution<b>${pct(p.y)}</b></div>`));
+    h.addEventListener('mouseleave',hideTip);h.addEventListener('click',()=>{hideTip();go('stores',p.st.id)})});
+  if(state.cmp==='budget')el.insertAdjacentHTML('beforeend',`<div style="position:absolute;top:6px;right:10px" class="tag">no sales target · growth shown vs 1–24 Aug</div>`);
+}
+
+// horizontal bars with an optional comparison tick
+function hbars(el,rows,o={}){
+  const max=Math.max(...rows.map(r=>Math.max(Math.abs(r.v),r.c??0)))||1;
+  el.innerHTML=rows.map((r,i)=>`<div class="hb${o.click?' click':''}" data-i="${i}">
+    <span class="nm" title="${r.n}">${r.n}</span>
+    <span class="bar"><i class="${r.cls||''}" style="width:${Math.abs(r.v)/max*100}%${r.color?';background:'+r.color:''}"></i>${r.c!=null?`<i class="ghost" style="width:${r.c/max*100}%"></i>`:''}</span>
+    <span class="val">${r.vt}</span><span class="dl ${r.dc||'mute'}">${r.dt||''}</span></div>`).join('');
+  el.querySelectorAll('.hb').forEach(d=>{const r=rows[+d.dataset.i];
+    if(r.tip){d.addEventListener('mousemove',e=>showTip(e,r.tip));d.addEventListener('mouseleave',hideTip)}
+    if(o.click)d.addEventListener('click',()=>{hideTip();o.click(r)})});
+}
+
+/* ═══════════════════════════ pages ═══════════════════════════ */
+function dClass(cur,c,good='up'){const d=(cur-c)/Math.abs(c)*100;return Math.abs(d)<.05?'flat':((d>0)===(good==='up')?'up':'down')}
+
+const EXQ=[
+ {tone:'bad',ico:'i-store',t:'Store 07 is losing money this month',s:'Contribution −Rp 24 jt after its own rent and staff; sales −18,0% on 1–24 Aug. Rent is 23% of its sales.',v:'−4,9%',p:['bad','High'],go:['stores','07']},
+ {tone:'warn',ico:'i-cal',t:'Store 04’s lease ends 31 Dec 2026',s:'Contribution 5,8% and sales −4,0%. A 90-day notice means the renewal decision is due by 2 Oct.',v:'7 days',p:['warn','Medium'],go:['stores','04']},
+ {tone:'warn',ico:'i-receipt',t:'Rp 2,72 M of supplier bills are overdue',s:'34% of payables. Another 27 bills (Rp 1,11 M) are still draft and not in payables yet.',v:'Rp 2,72 M',p:['warn','Medium'],go:['cash']},
+ {tone:'warn',ico:'i-pkg',t:'Sandal dan Sepatu covers 27 weeks',s:'Rp 3,62 M at cost against a fleet average of 11,2 weeks, while its sales fell 3,8%.',v:'27,4 wk',p:['warn','Medium'],go:['stock']},
+ {tone:'info',ico:'i-wallet',t:'Rp 408 jt banked by stores, not yet confirmed by HO',s:'Six stores. The oldest deposit, Store 07’s, is four days old.',v:'Rp 408 jt',p:['',"Low"],go:['cash']},
+];
+
+function renderPulse(){
+  document.getElementById('exq').innerHTML=EXQ.map((x,i)=>`<div class="row" data-i="${i}"><span class="sq ${x.tone}"><svg class="ico sm"><use href="#${x.ico}"/></svg></span><div class="t"><b>${x.t}</b><span>${x.s}</span></div><span class="v">${x.v}</span><span class="pill ${x.p[0]}"><i></i>${x.p[1]}</span><svg class="ico sm chev"><use href="#i-chev"/></svg></div>`).join('');
+  document.querySelectorAll('#exq .row').forEach(r=>r.addEventListener('click',()=>go(...EXQ[+r.dataset.i].go)));
+  const cmp=state.cmp==='ly'?SEP25:state.cmp==='prior'?AUG.slice(0,24):null;
+  const cT=cmp?cmp.reduce((a,b)=>a+b,0):null;
+  const hd=document.getElementById('hero-d');
+  if(cT){const d=(NET/cT-1)*100;hd.textContent=spct(d);hd.className=d>=0?'up':'down';document.getElementById('hero-c').textContent=`${cmpLabel(false)} (${rp(cT)})`}
+  else{hd.textContent='no sales target';hd.className='nt';document.getElementById('hero-c').textContent='the budget holds costs only'}
+  const cname=state.cmp==='ly'?'1–24 Sep 2025':'1–24 Aug';
+  document.getElementById('hero-legend').innerHTML=`<span><i style="background:${C1}"></i>1–24 Sep 2026</span>`+(cmp?`<span><i style="background:${GHOST}"></i>${cname}</span>`:'');
+  const series=[{name:'Sep 2026',vals:SEP,color:C1,fill:1,end:1}];if(cmp)series.push({name:cname,vals:cmp,color:GHOST});
+  lineChart(document.getElementById('ch-hero'),{labels:SEP.map((_,i)=>i+1),series,tick:axisRp,fmt:rp,showX:i=>i===0||(i+1)%5===0||i===23,
+    title:i=>`${DAYNAME[new Date(Date.UTC(2026,8,i+1)).getUTCDay()]} ${i+1} Sep`,aria:'Daily net sales'});
+  renderKpis('kpi-pulse',KPI.pulse);
+  const rows=[...STORES].sort((a,b)=>b.net-a.net).map(s=>{const c=storeCmp(s),d=(s.net/c-1)*100;return{n:s.name,v:s.net,c,vt:rp(s.net),dt:spct(d),dc:d>=0?'up':'down',cls:s.contrib<0?'neg':'',id:s.id,
+    tip:`<div class="tt">${s.name}</div><div class="tr">Net sales<b>${rp(s.net)}</b></div><div class="tr">${cmpLabel(false).replace('vs budget','vs 1–24 Aug')}<b>${rp(c)}</b></div><div class="tr">Contribution<b>${pct(s.cm*100)}</b></div>`}});
+  document.getElementById('league-s').textContent=`net sales · tick = ${state.cmp==='ly'?'1–24 Sep 2025':'1–24 Aug'}`;
+  hbars(document.getElementById('league'),rows,{click:r=>go('stores',r.id)});
+  document.getElementById('pulse-ladder').innerHTML=ladder([
+    ['','Net sales',rp(14593e6),''],['s','Cost of goods sold',rp(-7314e6),'50,1%'],['t','Gross profit',rp(7279e6),'49,9%'],
+    ['s','Operating expenses',rp(-4681e6),'32,1%'],['t','Gross operating profit',rp(2598e6),'17,8%'],
+    ['s','Other operating expenses',rp(-883e6),'6,1%'],['t','Net operating profit',rp(1715e6),'11,8%'],
+    ['s','Non-operating',rp(33e6),'0,2%'],['f','Profit before tax',rp(1748e6),'12,0%']]);
+}
+function ladder(rows){return rows.map(([c,n,v,p])=>`<div class="${c}"><span>${n}</span><span>${v}${p!==undefined?`<em>${p}</em>`:''}</span></div>`).join('')}
+
+function renderSales(){
+  renderKpis('kpi-sales',KPI.sales);
+  const cmp=state.cmp==='ly'?SEP25:state.cmp==='prior'?AUG.slice(0,24):null,cname=state.cmp==='ly'?'1–24 Sep 2025':'1–24 Aug';
+  document.getElementById('sales-legend').innerHTML=`<span><i class="sw" style="background:${C1}"></i>1–24 Sep 2026</span>`+(cmp?`<span><i class="sw" style="background:${CO}"></i>${cname}</span>`:'<span class="tag">no sales target</span>');
+  const series=[{name:'Sep 2026',vals:SEP,color:C1}];if(cmp)series.push({name:cname,vals:cmp,color:CO});
+  colChart(document.getElementById('ch-sales-day'),{labels:SEP.map((_,i)=>String(i+1)),series,tick:axisRp,fmt:rp,
+    colorOf:(i,k)=>k===0?C1:CO,title:i=>`${DAYNAME[new Date(Date.UTC(2026,8,i+1)).getUTCDay()]} ${i+1} Sep`});
+  // divisions
+  const gi=state.cmp==='ly'?3:2;
+  document.getElementById('tbl-div').innerHTML=`<thead><tr><th>Division</th><th class="r sorted">Net sales</th><th>Share</th><th class="r">${state.cmp==='budget'?'Target':'Δ '+cmpLabel(false).replace('vs ','')}</th><th class="r">Gross margin</th><th class="r">Sell-through</th></tr></thead><tbody>`+
+    DIVS.map(d=>{const g=d[gi];return`<tr><td class="name">${d[0]}</td><td class="r">${rp(d[1]/100*NET)}</td><td><span class="track"><i style="width:${d[1]/30*100}%"></i></span> <span class="mute" style="font-size:12px">${pct(d[1])}</span></td>
+      <td class="r">${state.cmp==='budget'?'<span class="mute">—</span>':`<span class="${g>0?'up':g<0?'down':'flat'}" style="font-weight:600">${spct(g)}</span>`}</td><td class="r">${pct(d[4])}</td><td class="r">${d[5]==null?'<span class="mute">—</span>':pct(d[5],0)}</td></tr>`}).join('')+`</tbody>`;
+  // tender
+  document.getElementById('tender-stack').innerHTML=TENDER.map(t=>`<i style="width:${t[1]}%;background:${t[3]}" title="${t[0]} ${pct(t[1])}"></i>`).join('');
+  document.getElementById('tender-list').innerHTML=TENDER.map(t=>`<div><i style="background:${t[3]}"></i><span class="ink">${t[0]}</span><span class="r">${rp(t[1]/100*NET)}</span><span class="r"><b style="font-weight:500">${pct(t[1])}</b> <span class="mute" style="font-size:11px">${sgn(t[1]-t[2])}${nf(1).format(Math.abs(t[1]-t[2]))} pp</span></span></div>`).join('');
+  // heatmap
+  const HRS=[10,11,12,13,14,15,16,17,18,19,20,21],HW=[.35,.6,.9,1,.85,.75,.8,.95,1.1,1.15,.95,.5],DW=[.85,.82,.86,.90,1.02,1.32,1.28],DN=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  let cells=[],tot=0;DW.forEach((w,d)=>HW.forEach((h,j)=>{const v=w*h*(1+.05*Math.sin(d*3+j));cells.push([d,j,v]);tot+=v}));
+  cells=cells.map(([d,j,v])=>[d,j,Math.round(v/tot*17999)]);const mx=Math.max(...cells.map(c=>c[2]));
+  const ramp=['--seq-0','--seq-1','--seq-2','--seq-3','--seq-4','--seq-5'];
+  let h='<div></div>'+HRS.map(x=>`<div class="hh">${x}</div>`).join('');
+  DN.forEach((dn,d)=>{h+=`<div class="hl">${dn}</div>`+cells.filter(c=>c[0]===d).map(c=>`<div class="c" data-t="${dn} ${HRS[c[1]]}:00–${HRS[c[1]]+1}:00|${c[2]}" style="background:var(${ramp[Math.min(5,Math.floor(c[2]/mx*5.999))]})"></div>`).join('')});
+  const heat=document.getElementById('heat');heat.innerHTML=h;
+  heat.querySelectorAll('.c').forEach(c=>{const [t,v]=c.dataset.t.split('|');c.addEventListener('mousemove',e=>showTip(e,`<div class="tt">${t}</div><div class="tr">Transactions<b>${nf(0).format(+v)}</b></div>`));c.addEventListener('mouseleave',hideTip)});
+  document.getElementById('heat-scale').innerHTML='fewer '+ramp.map(r=>`<i style="background:var(${r})"></i>`).join('')+' more';
+  colChart(document.getElementById('ch-months'),{labels:MONTHS.map((m,i)=>i===5?'Sep\nto 24th':m),twoLine:1,series:[{name:'2026',vals:M_CUR,color:C1},{name:'2025',vals:M_LY,color:CO}],tick:axisRp,fmt:rp,
+    title:i=>MONTHS[i]+(i===5?' (1–24)':''),extra:i=>`<div class="tr">Growth<b>${spct((M_CUR[i]/M_LY[i]-1)*100)}</b></div>`});
+}
+
+let selStore=null;
+function renderStores(){
+  renderKpis('kpi-stores',KPI.stores);
+  scatter(document.getElementById('ch-scatter'));
+  const rows=[...STORES].sort((a,b)=>a.cm-b.cm),lbl=state.cmp==='ly'?'vs LY':'vs prior';
+  const medCover=6.5;
+  document.getElementById('tbl-stores').innerHTML=`<thead><tr><th>Store</th><th class="r">Net sales</th><th class="r">${state.cmp==='budget'?'vs prior*':lbl}</th><th class="r">Per m²</th><th class="r">Avg sale</th><th class="r">Gross margin</th><th class="r">Staff</th><th class="r">Rent</th><th class="r">Contribution</th><th class="r sorted">Margin</th><th class="r">Cover</th><th></th></tr></thead><tbody>`+
+   rows.map(s=>{const d=(s.net/storeCmp(s)-1)*100,st=s.cm<0?['bad','Losing money']:s.cm<.10?['warn','Watch']:['ok','Healthy'];
+    return `<tr class="click${selStore===s.id?' sel':''}" data-id="${s.id}"><td class="name">${s.name}<small>${nf(0).format(s.area)} m² · ${s.hc} staff</small></td><td class="r">${rp(s.net)}</td><td class="r"><span class="${d>=0?'up':'down'}" style="font-weight:600">${spct(d)}</span></td>
+      <td class="r">${rpJt(s.net/s.area)}</td><td class="r">${rp(s.atv)}</td><td class="r">${pct(s.gm*100)}</td><td class="r">${pct(s.staff/s.net*100)}</td><td class="r ${s.rent/s.net>.18?'down':''}">${pct(s.rent/s.net*100)}</td>
+      <td class="r ink">${rp(s.contrib)}</td><td class="r"><b style="font-weight:600;color:${s.cm<0?'var(--bad-fg)':'var(--ink)'}">${pct(s.cm*100)}</b></td><td class="r ${s.cover>medCover*1.5?'down':''}">${nf(1).format(s.cover)} wk</td><td><span class="pill ${st[0]}"><i></i>${st[1]}</span></td></tr>`}).join('')+
+   `</tbody><tfoot><tr><td>13 stores</td><td class="r">${rp(NET)}</td><td class="r">${state.cmp==='ly'?spct((NET/TOT('ly')-1)*100):spct((NET/TOT('prior')-1)*100)}</td><td class="r">${rpJt(NET/AREA)}</td><td class="r">${rp(NET/17999)}</td><td class="r">${pct(TOT('gp')/NET*100)}</td><td class="r">${pct(TOT('staff')/NET*100)}</td><td class="r">${pct(TOT('rent')/NET*100)}</td><td class="r">${rp(CONTRIB)}</td><td class="r">${pct(CONTRIB/NET*100)}</td><td class="r">6,5 wk</td><td></td></tr></tfoot>`;
+  document.querySelectorAll('#tbl-stores tbody tr').forEach(tr=>tr.addEventListener('click',()=>go('stores',tr.dataset.id)));
+}
+
+function renderPL(){
+  renderKpis('kpi-pl',KPI.pl);
+  document.getElementById('pl-budget-note').style.display=state.cmp==='budget'?'flex':'none';
+  bridge(document.getElementById('ch-bridge'),[
+    {name:'Net sales',v:14593e6,kind:'total'},{name:'Cost of\ngoods',v:-7314e6,kind:'cost'},{name:'Gross\nprofit',v:7279e6,kind:'total'},
+    {name:'Operating\nexpenses',v:-4681e6,kind:'cost'},{name:'Gross op.\nprofit',v:2598e6,kind:'total'},{name:'Other\nop. exp.',v:-883e6,kind:'cost'},
+    {name:'Net op.\nprofit',v:1715e6,kind:'total'},{name:'Non-\noperating',v:33e6,kind:'income'},{name:'Profit\nbefore tax',v:1748e6,kind:'total'}]);
+  const ci=CMP_IDX[state.cmp],head=state.cmp==='budget'?'Budget':state.cmp==='ly'?'1–24 Sep 2025':'1–24 Aug',ns=14593;
+  const cell=(v,isCost,isRev)=>{const c=v[ci],cur=v[0];if(c==null)return`<td class="r mute">${state.cmp==='budget'?(isRev?'no target':'—'):'—'}</td><td class="r"></td>`;
+    const d=cur-c,good=(d>=0)!==(isCost);const dp=c?d/Math.abs(c)*100:0;
+    return`<td class="r">${rp(c*1e6)}</td><td class="r"><span class="${Math.abs(dp)<.05?'flat':good?'up':'down'}" style="font-weight:600">${sgn(d)}${rp(Math.abs(d)*1e6).replace('Rp ','')}</span></td>`};
+  let h=`<thead><tr><th>Line</th><th class="r">1–24 Sep 2026</th><th class="r">% of sales</th><th class="r">${head}</th><th class="r">${state.cmp==='budget'?'Under / over':'Change'}</th></tr></thead><tbody>`;
+  PL.forEach((r,ri)=>{
+    const cls=r.final?'final':r.tot?'tot':r.grp?'grp':'';const isCost=r.v[0]<0;
+    h+=`<tr class="${cls}" ${r.grp?`data-g="${r.grp}"`:''}><td>${r.grp?'<svg class="ico xs"><use href="#i-chev"/></svg>':''}${r.n}${r.code?`<span class="code">${r.code}</span>`:''}</td><td class="r">${rp(r.v[0]*1e6)}</td><td class="r mute">${pct(Math.abs(r.v[0])/ns*100)}</td>${cell(r.v,isCost,r.kind==='rev'||r.tot||r.final)}</tr>`;
+    (r.kids||[]).forEach(k=>{const kc=k[2][0]<0;h+=`<tr class="sub hidden click" data-p="${r.grp}" data-trace="${k[0]}|${k[3]||''}|${k[2][0]}"><td>${k[0]}${k[1]?`<span class="code">${k[1]}</span>`:''}</td><td class="r">${rp(k[2][0]*1e6)}</td><td class="r mute">${pct(Math.abs(k[2][0])/ns*100)}</td>${cell(k[2],kc,false)}</tr>`});
+  });
+  const t=document.getElementById('tbl-pl');t.innerHTML=h+'</tbody>';
+  t.querySelectorAll('tr.grp').forEach(g=>g.addEventListener('click',()=>{g.classList.toggle('open');t.querySelectorAll(`tr[data-p="${g.dataset.g}"]`).forEach(x=>x.classList.toggle('hidden'))}));
+  t.querySelector('tr.grp').click();
+  t.querySelectorAll('tr.sub').forEach(x=>x.addEventListener('click',()=>{const [n,key,v]=x.dataset.trace.split('|');openTrace(n,key,+v)}));
+  lineChart(document.getElementById('ch-gm'),{labels:MONTHS,series:[{name:'Gross margin',vals:GM_M,color:C1,end:1,endLabel:pct(GM_M[5])}],min:46,max:52,ticks:[46,48,50,52],tick:v=>v+'%',fmt:v=>pct(v),showX:()=>true,title:i=>MONTHS[i]+' 2026'+(i===5?' (to 24th)':''),padL:40});
+  lineChart(document.getElementById('ch-gop'),{labels:MONTHS,series:[{name:'GOP',vals:GOP_M,color:C1,end:1,endLabel:pct(GOP_M[5])}],min:14,max:20,ticks:[14,16,18,20],tick:v=>v+'%',fmt:v=>pct(v),showX:()=>true,title:i=>MONTHS[i]+' 2026'+(i===5?' (to 24th)':''),padL:40});
+}
+
+function renderCash(){
+  renderKpis('kpi-cash',KPI.cash);
+  document.getElementById('cash-ladder').innerHTML=ladder([
+    ['','Cash & bank, head office',rp(10.89e9)],['','Cash in the stores',rp(.495e9)],['','Deposits on the way to HO',rp(.408e9)],['','Card & QRIS still to settle',rp(.618e9)],
+    ['t','Available',rp(12.411e9)],['s','Supplier bills due ≤ 30 days',rp(-5.03e9)],['s','Payroll, 30 Sep',rp(-2.20e9)],['s','Rent & leases',rp(-.62e9)],['s','Tax — PPh 21, 23, 4(2)',rp(-.21e9)],
+    ['f','Headroom',rp(4.351e9)]]);
+  const cats=[['Suppliers',C1,[2.10,1.12,.96,.85]],['Payroll',C2,[2.20,0,0,0]],['Rent',C3,[.31,0,.18,.13]],['Tax',C4,[0,.14,.07,0]]];
+  document.getElementById('out-legend').innerHTML=cats.map(c=>`<span><i class="sw" style="background:${c[1]}"></i>${c[0]}</span>`).join('');
+  colChart(document.getElementById('ch-out'),{labels:['28 Sep – 4 Oct','5 – 11 Oct','12 – 18 Oct','19 – 25 Oct'],stacked:1,series:cats.map(c=>({name:c[0],color:c[1],vals:c[2].map(v=>v*1e9)})),tick:axisRp,fmt:rp,valueLabel:(i,t)=>axisRp(t),title:i=>'Week of '+['28 Sep','5 Oct','12 Oct','19 Oct'][i]});
+  document.getElementById('tbl-bank').innerHTML=`<thead><tr><th>Account</th><th class="r">Balance</th><th>Statement to</th><th></th></tr></thead><tbody>
+   <tr><td class="name">BCA · Giro<small>operating · 1011</small></td><td class="r">${rp(6.12e9)}</td><td>24 Sep</td><td><span class="pill ok"><i></i>Current</span></td></tr>
+   <tr><td class="name">Mandiri · Giro<small>collections</small></td><td class="r">${rp(2.41e9)}</td><td>24 Sep</td><td><span class="pill ok"><i></i>Current</span></td></tr>
+   <tr><td class="name">BRI · Giro<small>payroll</small></td><td class="r">${rp(.86e9)}</td><td>19 Sep</td><td><span class="pill warn"><i></i>6 days behind</span></td></tr>
+   <tr><td class="name">BCA · Deposito<small>matures 12 Oct</small></td><td class="r">${rp(1.50e9)}</td><td>—</td><td><span class="pill info"><i></i>Term</span></td></tr></tbody>
+   <tfoot><tr><td>Head office</td><td class="r">${rp(10.89e9)}</td><td></td><td></td></tr></tfoot>`;
+  const AG=[['Not due',5.18,CO],['1–30',1.46,'#efb77a'],['31–60',.58,'#e39750'],['61–90',.21,'#d9772b'],['> 90',.47,'#b3541a']];
+  colChart(document.getElementById('ch-aging'),{labels:AG.map(a=>a[0]+(a[0]==='Not due'?'':' days')),series:[{name:'Outstanding',vals:AG.map(a=>a[1]*1e9),color:C1}],colorOf:i=>AG[i][2],tick:axisRp,fmt:rp,valueLabel:(i,v)=>axisRp(v),title:i=>AG[i][0]+(i?' days overdue':'')});
+  hbars(document.getElementById('ap-top'),[['SUP-0142 · denim, Bandung',.68,.31],['SUP-0087 · footwear',.52,.12],['SUP-0215 · kidswear',.41,0],['SUP-0033 · bags',.29,.04],['22 other suppliers',.82,0]]
+    .map(r=>({n:r[0],v:r[1]*1e9,vt:rp(r[1]*1e9),dt:r[2]?'>90: '+axisRp(r[2]*1e9):'',dc:'down',color:'#e39750'})));
+  document.getElementById('tbl-storecash').innerHTML=`<thead><tr><th>Store</th><th class="r">In the till</th><th class="r">On the way to HO</th><th>Oldest deposit</th><th class="r">Over / short</th><th>Last cash count</th></tr></thead><tbody>`+
+    STORES.map(s=>`<tr class="click" data-id="${s.id}"><td class="name">${s.name}</td><td class="r">${rp(s.cash)}</td><td class="r">${s.transit?rp(s.transit[0]):'<span class="mute">—</span>'}</td><td>${s.transit?`<span class="pill ${s.transit[1]>=3?'warn':''}"><i></i>${s.transit[1]} day${s.transit[1]>1?'s':''}</span>`:'<span class="mute">—</span>'}</td>
+      <td class="r ${Math.abs(s.os)>=100e3?'down':''}">${s.os>0?'+':''}${rp(s.os)}</td><td class="mute">${['22 Sep','22 Sep','21 Sep','15 Sep','22 Sep','22 Sep','12 Sep','21 Sep','22 Sep','22 Sep','22 Sep','18 Sep','22 Sep'][+s.id-1]}</td></tr>`).join('')+
+    `</tbody><tfoot><tr><td>13 stores</td><td class="r">${rp(CASH_IN_STORES)}</td><td class="r">${rp(408e6)}</td><td></td><td class="r">${rp(TOT('os'))}</td><td></td></tr></tfoot>`;
+  document.querySelectorAll('#tbl-storecash tbody tr').forEach(tr=>tr.addEventListener('click',()=>go('stores',tr.dataset.id)));
+}
+
+function renderStock(){
+  renderKpis('kpi-stock',KPI.stock);
+  document.getElementById('tbl-stockdiv').innerHTML=`<thead><tr><th>Division</th><th class="r">At cost</th><th class="r sorted">Cover</th><th>Sell-through</th></tr></thead><tbody>`+
+    [...DIVS].filter(d=>d[6]!=null).sort((a,b)=>b[6]-a[6]).map(d=>`<tr><td class="name">${d[0]}</td><td class="r">${rp(d[7])}</td><td class="r"><b style="font-weight:600;color:${d[6]>20?'var(--bad-fg)':d[6]>13?'var(--warn-fg)':'var(--ink)'}">${nf(1).format(d[6])} wk</b></td>
+      <td><span class="track"><i class="${d[5]<30?'warn':''}" style="width:${d[5]}%"></i></span> <span class="mute" style="font-size:12px">${d[5]}%</span></td></tr>`).join('')+`</tbody><tfoot><tr><td>All divisions</td><td class="r">${rp(STOCK_TOTAL)}</td><td class="r">11,2 wk</td><td>41%</td></tr></tfoot>`;
+  const rows=[{n:'Head office / DC',v:DC_STOCK,vt:rp(DC_STOCK),dt:'feeds 13',dc:'mute',color:C3,tip:`<div class="tt">Head office / DC</div><div class="tr">At cost<b>${rp(DC_STOCK)}</b></div><div class="tr">Allotted, in transit<b>4.820 pcs</b></div>`}]
+    .concat([...STORES].sort((a,b)=>b.stock-a.stock).map(s=>({n:s.name,v:s.stock,vt:rp(s.stock),dt:nf(1).format(s.cover)+' wk',dc:s.cover>9.75?'down':'mute',id:s.id,
+      tip:`<div class="tt">${s.name}</div><div class="tr">At cost<b>${rp(s.stock)}</b></div><div class="tr">Cover<b>${nf(1).format(s.cover)} weeks</b></div>`})));
+  hbars(document.getElementById('stock-sites'),rows,{click:r=>r.id&&go('stores',r.id)});
+  colChart(document.getElementById('ch-po'),{labels:['Late','Next 30 days','31–60 days','61–90 days'],series:[{name:'At cost',vals:[.41e9,3.10e9,1.49e9,.62e9],color:C1}],colorOf:i=>i===0?WARN:C1,tick:axisRp,fmt:rp,valueLabel:(i,v)=>axisRp(v),
+    title:i=>['Promised date passed · 3 orders','Due in the next 30 days · 9 orders','Due in 31–60 days · 4 orders','Due in 61–90 days · 2 orders'][i]});
+  hbars(document.getElementById('shrink'),[...STORES].sort((a,b)=>b.miss-a.miss).map(s=>({n:s.name,v:s.miss,vt:nf(0).format(s.miss)+' pcs',dt:NOCOUNT.has(s.id)?'no count':'',dc:'down',color:NOCOUNT.has(s.id)?WARN:C1,id:s.id,
+    tip:`<div class="tt">${s.name}</div><div class="tr">Missing<b>${s.miss} pcs</b></div><div class="tr">Counted this month<b>${NOCOUNT.has(s.id)?'no':'yes'}</b></div>`})),{click:r=>go('stores',r.id)});
+}
+
+function renderPeople(){
+  renderKpis('kpi-people',KPI.people);
+  hbars(document.getElementById('hc'),[{n:'Head office',v:58,c:62,vt:'58 / 62',dt:'4 open',dc:'mute'}].concat(STORES.map(s=>({n:s.name,v:s.hc,c:s.plan,vt:`${s.hc} / ${s.plan}`,dt:s.plan>s.hc?(s.plan-s.hc)+' open':'full',dc:s.plan>s.hc?'mute':'up'}))));
+  const comp=[['Base pay',C1,[1.52,1.53,1.55,1.56,1.58]],['Overtime',C2,[.10,.11,.14,.12,.12]],['Meal & transport',C3,[.25,.25,.26,.26,.26]],['BPJS (company)',C4,[.18,.18,.18,.19,.19]],['Other allowances',CO,[.14,.15,.15,.15,.16]]];
+  document.getElementById('pay-legend').innerHTML=comp.map(c=>`<span><i class="sw" style="background:${c[1]}"></i>${c[0]}</span>`).join('');
+  const ms=['Apr','May','Jun','Jul','Aug'],sales=[15.12,15.84,17.26,16.41,17.62];
+  colChart(document.getElementById('ch-pay'),{labels:ms,stacked:1,series:comp.map(c=>({name:c[0],color:c[1],vals:c[2].map(v=>v*1e9)})),tick:axisRp,fmt:rp,valueLabel:(i,t)=>axisRp(t),title:i=>ms[i]+' 2026 run',
+    extra:i=>{const t=comp.reduce((a,c)=>a+c[2][i],0);return`<div class="tr">Of net sales<b>${pct(t/sales[i]*100)}</b></div>`}});
+  document.getElementById('tbl-prod').innerHTML=`<thead><tr><th>Store</th><th class="r">In post</th><th class="r sorted">Sales per person</th><th class="r">Staff cost of sales</th><th class="r">Overtime</th><th class="r">At work today</th></tr></thead><tbody>`+
+    [...STORES].sort((a,b)=>b.net/b.hc-a.net/a.hc).map(s=>`<tr class="click" data-id="${s.id}"><td class="name">${s.name}</td><td class="r">${s.hc}</td><td class="r ink">${rp(s.net/s.hc)}</td><td class="r ${s.staff/s.net>.15?'down':''}">${pct(s.staff/s.net*100)}</td><td class="r">${s.ot} h</td><td class="r">${s.inToday} / ${s.hc}</td></tr>`).join('')+'</tbody>';
+  document.querySelectorAll('#tbl-prod tbody tr').forEach(tr=>tr.addEventListener('click',()=>go('stores',tr.dataset.id)));
+}
+
+function renderMembers(){
+  renderKpis('kpi-members',KPI.members);
+  lineChart(document.getElementById('ch-member'),{labels:MONTHS,series:[{name:'Member share',vals:MEM_M,color:C1,fill:1,end:1,endLabel:pct(MEM_M[5])}],min:38,max:48,ticks:[38,40,42,44,46,48],tick:v=>v+'%',fmt:v=>pct(v),showX:()=>true,title:i=>MONTHS[i]+' 2026',padL:40});
+  document.getElementById('liab').innerHTML=ladder([['','Gift cards · 212 active',rp(92e6)],['','Refund vouchers · 58',rp(71e6)],['','Goodwill vouchers · 41',rp(23e6)],['f','Vouchers outstanding',rp(186e6)],['s','GL 2033 Uang muka – penjualan',rp(186e6)+' ✓']]);
+  document.getElementById('tbl-seg').innerHTML=`<thead><tr><th>Segment</th><th class="r">Members</th><th class="r sorted">Share of member sales</th><th class="r">Average sale</th><th class="r">Visits a year</th></tr></thead><tbody>`+
+    [['Loyal · 6+ visits a year',4120,39,1.12e6,8.4],['Regular',9860,44,.94e6,3.1],['New · joined ≤ 90 days',3960,17,.86e6,1.4],['Lapsing · 91–180 days',7340,null,.81e6,1.1],['Dormant · > 180 days',22980,null,.77e6,.3]]
+    .map(r=>`<tr><td class="name">${r[0]}</td><td class="r">${nf(0).format(r[1])}</td><td class="r">${r[2]==null?'<span class="mute">—</span>':`<span class="track" style="width:60px"><i style="width:${r[2]/44*100}%"></i></span> ${r[2]}%`}</td><td class="r">${rp(r[3])}</td><td class="r">${nf(1).format(r[4])}</td></tr>`).join('')+
+    `</tbody><tfoot><tr><td>All members</td><td class="r">48.260</td><td class="r">100%</td><td class="r">${rp(948e3)}</td><td class="r">1,9</td></tr></tfoot>`;
+}
+
+const RENDER={pulse:renderPulse,sales:renderSales,stores:renderStores,pl:renderPL,cash:renderCash,stock:renderStock,people:renderPeople,members:renderMembers,pack:()=>{}};
+const PAGES={pulse:['Pulse','i-gauge'],sales:['Sales','i-trend'],stores:['Stores','i-store'],pl:['Profit & loss','i-cols'],cash:['Cash & liquidity','i-wallet'],stock:['Stock & buying','i-pkg'],people:['Workforce','i-users'],members:['Members','i-user'],pack:['Monthly pack','i-file']};
+
+/* ═══════════════════════════ sheet — the store record ═══════════════════════════ */
+const sheet=document.getElementById('sheet');
+function openStore(id){
+  const s=STORES.find(x=>x.id===id);if(!s)return;selStore=id;
+  const st=s.cm<0?['bad','Losing money']:s.cm<.10?['warn','Watch']:['ok','Healthy'],c=storeCmp(s),d=(s.net/c-1)*100;
+  document.getElementById('sh-title').textContent=s.name;
+  document.getElementById('sh-pill').innerHTML=`<span class="pill ${st[0]}"><i></i>${st[1]}</span>`;
+  document.getElementById('sh-sub').textContent=`${nf(0).format(s.area)} m² · ${s.hc} staff · lease to ${s.lease}`;
+  const f=(l,v,e='')=>`<div><small>${l}</small><b>${v}</b>${e}</div>`;
+  document.getElementById('sh-body').innerHTML=`
+    <div class="facts">${f('Net sales',rp(s.net),`<em class="${d>=0?'up':'down'}">${spct(d)} ${state.cmp==='ly'?'vs LY':'vs prior'}</em>`)}${f('Contribution',rp(s.contrib),`<em class="${s.cm<0?'down':'mute'}">${pct(s.cm*100)} of sales</em>`)}${f('Sales per m²',rpJt(s.net/s.area))}
+      ${f('Transactions',nf(0).format(s.tx))}${f('Average sale',rp(s.atv))}${f('Gross margin',pct(s.gm*100))}</div>
+    <h3>Net sales by day</h3><div class="legend" style="margin-bottom:4px"><span><i style="background:${C1}"></i>1–24 Sep</span><span><i style="background:${GHOST}"></i>${state.cmp==='ly'?'1–24 Sep 2025':'1–24 Aug'}</span></div>
+    <div class="chart" id="ch-store" style="height:150px"></div>
+    <h3>The store's own P&amp;L · 1–24 Sep</h3>
+    <div class="ladder">${ladder([['','Net sales',rp(s.net),''],['s','Cost of goods sold',rp(-s.cogs),pct(s.cogs/s.net*100)],['t','Gross profit',rp(s.gp),pct(s.gm*100)],
+      ['s','Staff',rp(-s.staff),pct(s.staff/s.net*100)],['s','Rent',rp(-s.rent),pct(s.rent/s.net*100)],['s','Electricity, water & phone',rp(-s.util),pct(s.util/s.net*100)],
+      ['s','Running costs',rp(-s.run),pct(s.run/s.net*100)],['s','Depreciation',rp(-s.dep),pct(s.dep/s.net*100)],['f','Contribution',rp(s.contrib),pct(s.cm*100)]])}</div>
+    <h3>Stock &amp; cash</h3>
+    <div class="facts">${f('Stock at cost',rp(s.stock))}${f('Cover',nf(1).format(s.cover)+' wk',s.cover>9.75?'<em class="down">fleet store avg 6,5</em>':'')}${f('Missing this month',s.miss+' pcs',NOCOUNT.has(s.id)?'<em class="down">not counted yet</em>':'')}
+      ${f('In the till',rp(s.cash))}${f('On the way to HO',s.transit?rp(s.transit[0]):'—',s.transit?`<em class="${s.transit[1]>=3?'down':'mute'}">${s.transit[1]} day${s.transit[1]>1?'s':''} old</em>`:'')}${f('Over / short',(s.os>0?'+':'')+rp(s.os))}</div>
+    <h3>Go further</h3>
+    <a class="linkrow" href="#/stores?store=${s.id}" onclick="return false">Open this unit's P&amp;L in Finance<svg class="ico sm"><use href="#i-out"/></svg></a>
+    <a class="linkrow" href="#/stores?store=${s.id}" onclick="return false">Trace rent to its journal lines<svg class="ico sm"><use href="#i-out"/></svg></a>
+    <a class="linkrow" href="#/stores?store=${s.id}" onclick="return false">This store's sales in Selling<svg class="ico sm"><use href="#i-out"/></svg></a>
+    <a class="linkrow" href="#/stores?store=${s.id}" onclick="return false">Lease contract in GA<svg class="ico sm"><use href="#i-out"/></svg></a>
+    <div class="src" style="margin:14px -16px 0;border-radius:0"><span class="tag ok">EXISTS</span><code>/finance/reports/unit-results</code><code>/reports/sales/window?site_id</code><code>/store-money/sites/${'store-'+s.id}/position</code><code>ga_contract</code></div>`;
+  sheet.classList.add('open');
+  requestAnimationFrame(()=>{const share=s.net/NET,cshare=storeCmp(s)/(state.cmp==='ly'?TOT('ly'):TOT('prior'));const cmp=(state.cmp==='ly'?SEP25:AUG.slice(0,24)).map((v,i)=>v*cshare*(1+.04*Math.sin(i*1.7+ +s.id)));
+    lineChart(document.getElementById('ch-store'),{labels:SEP.map((_,i)=>i+1),series:[{name:'Sep 2026',vals:SEP.map((v,i)=>v*share*(1+.05*Math.cos(i*1.3+ +s.id))),color:C1,fill:1,end:1},{name:state.cmp==='ly'?'Sep 2025':'Aug',vals:cmp,color:GHOST}],
+      tick:axisRp,fmt:rp,showX:i=>i===0||(i+1)%5===0,title:i=>`${i+1} Sep`,padL:44})});
+  document.querySelectorAll('#tbl-stores tbody tr').forEach(tr=>tr.classList.toggle('sel',tr.dataset.id===id));
+}
+function openTrace(name,key,v){
+  selStore=null;
+  document.getElementById('sh-title').textContent=name;
+  document.getElementById('sh-pill').innerHTML='<span class="pill"><i></i>Trace</span>';
+  document.getElementById('sh-sub').textContent=`${rp(v*1e6)} · 1–24 Sep · where the figure comes from`;
+  const lines=key?STORES.map(s=>[s.name,-s[key],'Store accrual']).sort((a,b)=>a[1]-b[1]):[['Head office',v*1e6,'HO journal']];
+  document.getElementById('sh-body').innerHTML=`<div class="banner gap" style="margin:0 0 12px"><svg class="ico sm"><use href="#i-alert"/></svg><div>Figure → the lines that make it → their journal → the document that caused it. Nothing on this screen is typed by hand.</div></div>
+    <table class="tbl compact" style="margin:0 -16px;width:calc(100% + 32px)"><thead><tr><th>Unit</th><th class="r">Amount</th><th>Journal</th></tr></thead><tbody>`+
+    lines.map(l=>`<tr><td class="name">${l[0]}</td><td class="r">${rp(l[1])}</td><td class="mute">${l[2]}</td></tr>`).join('')+
+    `</tbody><tfoot><tr><td>${lines.length} line${lines.length>1?'s':''}</td><td class="r">${rp(v*1e6)}</td><td></td></tr></tfoot></table>
+    <div class="src" style="margin:14px -16px 0;border-radius:0"><span class="tag ok">EXISTS</span><code>GET /api/v1/finance/reports/trace?account&amp;from&amp;to&amp;site</code></div>`;
+  sheet.classList.add('open');
+}
+function closeSheet(){sheet.classList.remove('open');selStore=null;document.querySelectorAll('#tbl-stores tbody tr.sel').forEach(t=>t.classList.remove('sel'))}
+document.getElementById('sh-close').addEventListener('click',()=>{if(state.page==='stores'&&selStore)history.replaceState(null,'','#/stores');closeSheet()});
+addEventListener('keydown',e=>{if(e.key==='Escape'&&sheet.classList.contains('open'))document.getElementById('sh-close').click()});
+
+/* ═══════════════════════════ routing ═══════════════════════════ */
+function go(page,store){location.hash='#/'+page+(store?'?store='+store:'')}
+function route(){
+  const h=location.hash.replace(/^#\/?/,''),[pg,q]=h.split('?'),page=PAGES[pg]?pg:'pulse';
+  const changed=page!==state.page||!document.querySelector('.page.on');state.page=page;
+  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('on',p.id==='p-'+page));
+  document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('on',a.dataset.page===page));
+  document.getElementById('crumb-here').textContent=PAGES[page][0];
+  document.getElementById('crumb-ico').setAttribute('href','#'+PAGES[page][1]);
+  document.title=PAGES[page][0]+' · Executive — Wira Makmur';
+  if(changed)document.getElementById('scroll').scrollTop=0;
+  RENDER[page]();
+  const store=new URLSearchParams(q||'').get('store');
+  if(store)openStore(store);else closeSheet();
+}
+addEventListener('hashchange',route);
+let rz;addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{RENDER[state.page]();if(selStore)openStore(selStore)},120)});
+
+/* ═══════════════════════════ context bar ═══════════════════════════ */
+document.querySelectorAll('#compare button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#compare button').forEach(x=>x.classList.toggle('on',x===b));state.cmp=b.dataset.cmp;RENDER[state.page]();if(selStore)openStore(selStore)}));
+const PERIOD_LBL=['Fri 25 Sep 2026 · to 14:05','1–24 Sep 2026','August 2026','Q3 · 1 Jul – 24 Sep 2026','1 Jan – 24 Sep 2026'];
+document.querySelectorAll('#period button').forEach((b,i)=>b.addEventListener('click',()=>{document.querySelectorAll('#period button').forEach(x=>x.classList.toggle('on',x===b));document.getElementById('period-lbl').textContent=PERIOD_LBL[i]+(i===1?'':' · prototype keeps MTD figures')}));
+const menu=document.getElementById('scope-menu');
+menu.innerHTML=`<button class="on" data-s=""><span>All units</span><small>consolidated</small></button><button data-s="HO"><span>Head office</span><small>HO · DC</small></button><hr>`+STORES.map(s=>`<button data-s="${s.id}"><span>${s.name}</span><small>${rp(s.net)}</small></button>`).join('');
+document.querySelector('#scope>button').addEventListener('click',e=>{e.stopPropagation();menu.classList.toggle('open')});
+addEventListener('click',()=>menu.classList.remove('open'));
+menu.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
+  menu.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));const v=b.dataset.s;
+  document.getElementById('scope-lbl').textContent=v?(v==='HO'?'Head office':'Store '+v):'All units · consolidated';
+  document.body.classList.toggle('scoped',!!v);
+  document.querySelectorAll('.scope-name').forEach(n=>n.textContent=v==='HO'?'Head office':'Store '+v);
+  document.querySelectorAll('.scope-link').forEach(n=>{n.style.display=v&&v!=='HO'?'':'none';n.setAttribute('href','#/stores?store='+v)});
+}));
+document.getElementById('src-toggle').addEventListener('click',e=>{const on=document.body.classList.toggle('show-src');e.currentTarget.setAttribute('aria-pressed',on)});
+document.querySelectorAll('.months .m').forEach(m=>m.addEventListener('click',()=>document.querySelectorAll('.months .m').forEach(x=>x.classList.toggle('sel',x===m))));
+
+route();
+</script>
+</body>
+</html>

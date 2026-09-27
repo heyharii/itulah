@@ -114,7 +114,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     header: "Request",
     size: 380,
     cell: ({ row }) => (
-      <span className="font-mono text-[0.6875rem] text-mute">
+      <span className="font-mono text-[0.875rem] text-mute">
         {row.original.method} {row.original.path}
       </span>
     ),

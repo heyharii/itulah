@@ -1,3 +1,6 @@
+import { useRouterState } from "@tanstack/react-router"
+
+import { screenForPath } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 
 /// Every screen opens the same way: an optional crumb, the title, an optional
@@ -11,6 +14,19 @@ import { cn } from "@/lib/utils"
 /// They are a search box and a CTA on most screens, and 375px cannot hold
 /// those plus a 22px heading in one row — the version that tries puts the
 /// heading in two words per line with a search field lying across it.
+/// Whether the title only repeats what the phone's top bar already says.
+///
+/// On a phone the top bar names the screen (`PhoneTitle`), and a page that
+/// opened with the same name in 22px under it — "Purchase orders" twice,
+/// with a sentence of description between it and the first row — spent a
+/// third of the glass saying where you are. So there the echo is dropped;
+/// a title that says something the bar does not (a supplier's name on its
+/// own page) stays. From 48rem up nothing changes.
+function useEchoesTopBar(title: React.ReactNode): boolean {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  return typeof title === "string" && screenForPath(pathname)?.label === title
+}
+
 export function PageHeader({
   crumb,
   title,
@@ -24,6 +40,7 @@ export function PageHeader({
   actions?: React.ReactNode
   className?: string
 }) {
+  const echo = useEchoesTopBar(title)
   return (
     <div
       className={cn(
@@ -31,22 +48,29 @@ export function PageHeader({
         // The actions stand level with the title rather than hanging off its
         // first line: a 17px heading and a 32px button centre on each other.
         "md:flex-row md:items-center md:justify-between md:gap-5",
+        echo && (actions ? "max-md:mb-3" : "max-md:hidden"),
         className
       )}
     >
-      <div className="min-w-0">
+      <div className={cn("min-w-0", echo && "max-md:hidden")}>
         {crumb && (
-          <div className="mb-[0.3125rem] text-[0.75rem] font-medium text-mute">
+          <div className="mb-[0.3125rem] text-[0.875rem] font-medium text-mute">
             {crumb}
           </div>
         )}
         <h1 className="text-hero font-semibold text-ink">{title}</h1>
         {sub && (
-          <p className="mt-[0.1875rem] text-[0.75rem] text-body">{sub}</p>
+          <p className="mt-[0.1875rem] text-[0.875rem] text-body">{sub}</p>
         )}
       </div>
       {actions && (
-        <div className="flex items-center gap-2 md:shrink-0">{actions}</div>
+        // On a phone the actions wrap onto a second line rather than pushing
+        // the page sideways — "Upload statement", "Record a movement" and a
+        // third button do not fit beside each other in 343px. Screens that
+        // hand over their buttons in a row of their own get the same rule.
+        <div className="flex flex-wrap items-center gap-2 md:shrink-0 md:flex-nowrap max-md:[&>div]:flex-wrap">
+          {actions}
+        </div>
       )}
     </div>
   )

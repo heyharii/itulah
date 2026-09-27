@@ -115,7 +115,7 @@ fn order_for(site: &str) -> NewPurchaseOrder {
             article_code: "KEMEJA-MERAH".into(),
             article_name: "Kemeja Lengan Panjang Merah".into(),
             image_url: Some("https://cdn.itulah.co.id/kemeja-merah.jpg".into()),
-            division_code: Some("MENSWEAR".into()),
+            division_code: Some("PRIA".into()),
             tags: vec!["KEMEJA".into(), "LENGAN_PANJANG".into()],
             ordered_quantity: 120,
             unit_price_minor: 300_000,
@@ -217,6 +217,8 @@ async fn a_delivery_becomes_stock_only_when_a_second_person_accepts_the_count(po
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 118,
+            counted_unit_code: None,
+            counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
             idempotency_key: "count-1".into(),
         })
@@ -345,6 +347,8 @@ async fn a_recount_leaves_the_goods_where_they_were_and_says_why(pool: PgPool) {
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 60,
+            counted_unit_code: None,
+            counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
             idempotency_key: "count-1".into(),
         })
@@ -389,6 +393,8 @@ async fn a_recount_leaves_the_goods_where_they_were_and_says_why(pool: PgPool) {
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 120,
+            counted_unit_code: None,
+            counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
             idempotency_key: "count-2".into(),
         })
@@ -434,6 +440,8 @@ async fn a_short_delivery_keeps_the_order_open_for_the_rest(pool: PgPool) {
                 receipt_id: delivery(&dc),
                 po_line_id,
                 counted_quantity: quantity,
+                counted_unit_code: None,
+                counted_unit_quantity: None,
                 actor_id: checker.into(),
                 idempotency_key: format!("count-{index}"),
             })
@@ -496,10 +504,19 @@ async fn an_order_for_a_site_nobody_owns_is_refused_at_the_desk(pool: PgPool) {
 async fn a_dc_cannot_count_against_an_order_it_was_never_given(pool: PgPool) {
     enrol_dc(&pool).await;
     let dc = distribution_centre();
+    // A real order from this supplier, so the delivery can be opened at all —
+    // the bay refuses a delivery nobody ordered. What is refused below is the
+    // LINE: one this DC was never sent.
+    cloud::create_purchase_order(&pool, &order_for(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise: {e}"));
+    sync(&dc, &pool).await;
     let refused = dc.count_purchase(PurchaseCountRequest {
         receipt_id: delivery(&dc),
         po_line_id: Uuid::new_v4(),
         counted_quantity: 5,
+        counted_unit_code: None,
+        counted_unit_quantity: None,
         actor_id: "penerima-1".into(),
         idempotency_key: "orphan".into(),
     });
@@ -535,6 +552,8 @@ async fn accepting_reports_a_price_difference_without_holding_the_goods(pool: Pg
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 120,
+            counted_unit_code: None,
+            counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
             idempotency_key: "count-1".into(),
         })
@@ -607,10 +626,15 @@ async fn accepting_reports_a_price_difference_without_holding_the_goods(pool: Pg
     .fetch_one(&pool)
     .await
     .unwrap_or_else(|e| panic!("line: {e}"));
-    assert_eq!(price, 310_000);
+    // `Delivery` reach settles this acceptance at 310 000 and leaves the ORDER
+    // at the price it was raised at; moving the order is `Remaining`'s job.
+    assert_eq!(
+        price, 300_000,
+        "a delivery-only approval must not reprice the order"
+    );
     assert_eq!(
         amount,
-        310_000 * 120,
+        300_000 * 120,
         "a price and a total that disagree are worse than either being wrong"
     );
 
@@ -647,6 +671,8 @@ async fn a_matching_invoice_raises_no_query(pool: PgPool) {
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 120,
+            counted_unit_code: None,
+            counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
             idempotency_key: "count-1".into(),
         })
@@ -692,6 +718,8 @@ async fn a_refused_price_query_leaves_the_order_alone_but_stays_on_record(pool: 
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 120,
+            counted_unit_code: None,
+            counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
             idempotency_key: "count-1".into(),
         })
@@ -787,6 +815,8 @@ async fn the_checker_is_shown_nothing_to_confirm_and_the_verifier_everything_to_
         receipt_id: delivery(&dc),
         po_line_id,
         counted_quantity: 118,
+        counted_unit_code: None,
+        counted_unit_quantity: None,
         actor_id: "penerima-1".into(),
         idempotency_key: "count-1".into(),
     })
@@ -852,6 +882,8 @@ async fn the_verifier_keeps_the_invoice_against_the_delivery_the_count_names(poo
         receipt_id,
         po_line_id,
         counted_quantity: 120,
+        counted_unit_code: None,
+        counted_unit_quantity: None,
         actor_id: "penerima-1".into(),
         idempotency_key: "count-1".into(),
     })
@@ -939,6 +971,8 @@ async fn a_buyer_can_stop_waiting_and_the_shortfall_is_recorded_as_one(pool: PgP
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 100,
+            counted_unit_code: None,
+            counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
             idempotency_key: "count-1".into(),
         })
@@ -1037,6 +1071,8 @@ async fn a_fully_received_line_cannot_be_closed_short(pool: PgPool) {
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 120,
+            counted_unit_code: None,
+            counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
             idempotency_key: "count-1".into(),
         })
@@ -1089,6 +1125,8 @@ fn count_of(dc: &SqliteEdge, po_line_id: Uuid, quantity: i64, key: &str) -> Uuid
         receipt_id: delivery(dc),
         po_line_id,
         counted_quantity: quantity,
+        counted_unit_code: None,
+        counted_unit_quantity: None,
         actor_id: "penerima-1".into(),
         idempotency_key: key.into(),
     })
@@ -1214,6 +1252,8 @@ async fn a_lorry_from_one_supplier_cannot_answer_another_suppliers_order(pool: P
         receipt_id: from_the_second_supplier,
         po_line_id: line_of(&pool, first).await,
         counted_quantity: 10,
+        counted_unit_code: None,
+        counted_unit_quantity: None,
         actor_id: "penerima-1".into(),
         idempotency_key: "count-wrong-supplier".into(),
     });

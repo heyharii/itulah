@@ -21,38 +21,36 @@ export { poImportDraftFromWire }
 /// Reads and writes for the PO import pipeline, and the keys they are held
 /// under.
 ///
-/// This surface is NOT the cloud node and not the DC edge — it is the small
-/// ingest service (`services/po-import`) that stands between uploaded
-/// documents and PO drafts. It is proxied same-origin under `/po-import` (see
-/// `vite.config.ts`) for the same reason every other backend here is: the
-/// session cookie is `SameSite=Strict`, and keys live on the server, never in
-/// the browser.
-
+/// This surface is the cloud's intake kernel (`backend/src/cloud/intake/po`)
+/// over the same-origin `/api`, exactly like every other read and write the
+/// hub makes: the session cookie is `SameSite=Strict`, and the extraction
+/// keys live on the node, never in the browser.
 export const poImportKeys = {
   all: ["po-import"] as const,
   health: () => ["po-import", "health"] as const,
 }
 
 async function poImportFetch<T>(path: string, init: RequestInit): Promise<T> {
-  const response = await fetch(`/po-import${path}`, init)
-  const body = await response.json().catch(() => null)
+  const response = await fetch(`/api/v1/purchase-orders/import${path}`, init)
+  const body: unknown = await response.json().catch(() => null)
   if (!response.ok) {
-    const message =
-      body !== null &&
-      body !== undefined &&
-      typeof body === "object" &&
-      "error" in body
-        ? String((body as { error: unknown }).error)
-        : `po-import answered ${response.status}`
+    // The error envelope is the kernel's: `{ error: string }`. Narrowed, not
+    // cast — a body without the shape keeps the status-line message.
+    let message = `po-import answered ${response.status}`
+    if (body !== null && typeof body === "object" && "error" in body) {
+      const error = body.error
+      if (typeof error === "string" && error !== "") message = error
+    }
     throw new Error(message)
   }
+  // Typed boundary: every caller names the kernel type it expects.
   return body as T
 }
 
 /// Whether Jev / OpenParser / LiteParse are configured. The screen shows an
 /// honest banner about what each upload will and will not get.
 export function poImportHealth(signal?: AbortSignal) {
-  return poImportFetch<PoImportHealth>("/healthz", { signal })
+  return poImportFetch<PoImportHealth>("/health", { signal })
 }
 
 /// Every picked file in one request: the service answers with per-file
@@ -60,7 +58,7 @@ export function poImportHealth(signal?: AbortSignal) {
 export function ingestPoFiles(files: readonly File[], signal?: AbortSignal) {
   const form = new FormData()
   for (const file of files) form.append("file", file, file.name)
-  return poImportFetch<PoImportIngestResponse>("/v1/ingest", {
+  return poImportFetch<PoImportIngestResponse>("", {
     method: "POST",
     body: form,
     signal,
@@ -78,7 +76,7 @@ export function validatePoDraft(
   answers: Readonly<Record<string, { value: string; label?: string | null }>>,
   signal?: AbortSignal
 ) {
-  return poImportFetch<{ draft: PoImportDraft }>("/v1/validate", {
+  return poImportFetch<{ draft: PoImportDraft }>("/validate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ draft, answers }),

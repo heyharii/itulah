@@ -84,6 +84,34 @@ matched_by: string | null, matched_at: string | null,
  */
 withholding_code: string | null, 
 /**
+ * Held so that nothing pays it (brief §8.4). A held bill is still a real
+ * document — posting one is allowed, paying one is not — which is why it
+ * is a flag and not a status: DRAFT/POSTED says where the paper is, this
+ * says whether Finance wants money to move yet.
+ */
+on_hold: boolean, 
+/**
+ * Why. Required while `on_hold`, by a CHECK and by the writer, because a
+ * bill that vanished from the ready-to-pay list with no reason is the
+ * thing the column exists to prevent.
+ */
+hold_reason: string | null, 
+/**
+ * The day somebody plans to lift the hold; `None` means "until somebody
+ * decides", which is a real answer.
+ */
+release_date: string | null, 
+/**
+ * Where the draft came from: `GA` (brief §8.3) or `PAYMENT_REQUEST`
+ * (brief §8.4). `None` for a bill Finance keyed itself.
+ */
+submitted_by_domain: string | null, 
+/**
+ * Why Finance sent the draft back to GA (§8.3). The id and this mark stay
+ * put, so GA reads the sentence on the same bill it will file again.
+ */
+returned_reason: string | null, 
+/**
  * What an expense bill was for, account by account.
  *
  * `None` on a list read, where it is not fetched — one query per row to

@@ -8,7 +8,7 @@ use crate::security;
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
-    routing::{get, patch, post, put},
+    routing::{delete, get, patch, post, put},
     Extension, Json, Router,
 };
 use chrono::{Duration, Utc};
@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 // lane-H
 pub mod acquirer;
+pub mod allocations;
 pub mod articles;
 pub mod asset_classes;
 pub mod assets;
@@ -44,6 +45,8 @@ pub mod customer;
 pub mod discussion;
 pub mod documents;
 pub mod employment;
+pub mod enrolment;
+pub mod fleet;
 /// The end of employment, on the wire: exit interviews and the Full & Final
 /// statement. See `domain::exit`.
 pub mod exit;
@@ -73,10 +76,12 @@ pub mod payables_flow;
 /// People's next generation, on the wire. See `domain::people`.
 pub mod people;
 pub mod payment_ledger;
+pub mod payment_terms;
 pub mod payments_lane;
 pub mod performance;
 pub mod po_import;
 pub mod punch;
+pub mod push;
 pub mod records;
 pub mod reports;
 pub mod roster;
@@ -98,6 +103,7 @@ pub mod sync_generation;
 pub mod sync_health;
 pub mod tax;
 pub mod terminal;
+pub mod units;
 pub mod vocabulary;
 pub mod vouchers;
 
@@ -229,6 +235,12 @@ pub fn router(state: AppState) -> Router {
     // whose sync had stalled looked exactly like one that was up to date.
     .route("/api/v1/commercial/activation", get(commercial_activation))
     .route("/api/v1/commercial/usage", get(commercial_usage))
+    // The hard cap: a promotion's or campaign's limit split into allowances
+    // each shop enforces against its own sales. Migration 0387.
+    .route(
+        "/api/v1/commercial/allocations/{kind}/{key}",
+        get(allocations::cap_allocation).put(allocations::set_cap_allocation),
+    )
     .route(
         "/api/v1/commercial/usage/publish",
         post(publish_commercial_usage),
@@ -307,6 +319,12 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/suppliers",
         get(suppliers::list_suppliers).post(suppliers::create_supplier),
     )
+    // Every live contact of every supplier, for the list's CSV export. A
+    // static segment, so it is matched before `{id}` below.
+    .route(
+        "/api/v1/suppliers/contacts",
+        get(supplier_contacts::list_all_supplier_contacts),
+    )
     .route(
         "/api/v1/suppliers/{id}",
         get(suppliers::supplier_detail).patch(suppliers::update_supplier),
@@ -361,6 +379,20 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/vocabulary/{kind}/{code}",
         patch(vocabulary::update_term).delete(vocabulary::delete_term),
+    )
+    // Units of measure and what each is worth in another — one LUSIN is
+    // twelve PCS. One read for both, because a picker offering a unit is
+    // useless without its factor. No delete on either: a unit a document
+    // used is part of what that document said, so it is retired instead.
+    .route("/api/v1/units", get(units::list_units).post(units::create_unit))
+    .route("/api/v1/units/{code}", patch(units::update_unit))
+    .route(
+        "/api/v1/unit-conversions",
+        post(units::create_unit_conversion),
+    )
+    .route(
+        "/api/v1/unit-conversions/{id}",
+        patch(units::update_unit_conversion),
     )
     // The drawer. Upload goes past this process to the bucket; everything
     // else is small enough to come through it.
@@ -581,6 +613,33 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/sync/origins",
         get(sync_list_origins).post(sync_register_origin),
     )
+    // Enrolling a shop machine: an Admin issues and decides, the machine
+    // claims and waits. See `http/enrolment.rs`.
+    .route(
+        "/api/v1/sync/enrollments",
+        get(enrolment::list).post(enrolment::issue),
+    )
+    .route(
+        "/api/v1/sync/enrollments/{id}/approve",
+        post(enrolment::approve),
+    )
+    .route(
+        "/api/v1/sync/enrollments/{id}/refuse",
+        post(enrolment::refuse),
+    )
+    .route(
+        "/api/v1/sync/origins/{origin_id}/bootstrap",
+        post(enrolment::bootstrap),
+    )
+    // Shop servers reporting in, and the Fleet page reading them.
+    .route("/api/v1/sync/heartbeat", post(fleet::heartbeat))
+    .route("/api/v1/sync/nodes", get(fleet::nodes))
+    .route(
+        "/api/v1/sync/nodes/{origin_id}/incidents",
+        get(fleet::incidents),
+    )
+    .route("/api/v1/sync/enroll/claim", post(enrolment::claim))
+    .route("/api/v1/sync/enroll/status", post(enrolment::status))
     .route("/api/v1/sync/commands", post(sync_issue_command))
     .route("/api/v1/sync/commands/{id}", get(sync_command_reach))
     .route(
@@ -601,7 +660,14 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/purchase-destinations",
         get(suppliers::list_purchase_destinations),
     )
-    .route("/api/v1/purchase-orders/{id}", get(purchase_order_detail))
+    .route(
+        "/api/v1/purchase-orders/{id}",
+        get(purchase_order_detail).put(suppliers::revise_catalog_purchase_order),
+    )
+    .route(
+        "/api/v1/purchase-orders/{id}/cancel",
+        post(suppliers::cancel_purchase_order),
+    )
     // PO intake: uploads become drafts; the order book is only touched by
     // the order route, pressed by a buyer in the review summary. The body
     // limit is raised on the upload route alone, like `/api/v1/files`: a
@@ -847,8 +913,100 @@ pub fn router(state: AppState) -> Router {
         post(finance::book_bank_line),
     )
     .route(
-        "/api/v1/finance/account-map",
-        get(finance::account_map).post(finance::set_account_map),
+        "/api/v1/finance/account-links",
+        get(finance::account_links).post(finance::set_account_link),
+    )
+    .route(
+        "/api/v1/finance/account-links/{link_id}",
+        delete(finance::remove_account_link),
+    )
+    .route(
+        "/api/v1/finance/account-link-history",
+        get(finance::account_link_history),
+    )
+    .route(
+        "/api/v1/finance/posting-readiness",
+        get(finance::posting_readiness),
+    )
+    .route(
+        "/api/v1/finance/chart-changes",
+        get(finance::chart_changes).post(finance::change_chart),
+    )
+    .route(
+        "/api/v1/finance/expense-categories",
+        get(finance::expense_categories).post(finance::save_expense_category),
+    )
+    .route(
+        "/api/v1/finance/pay-components",
+        get(finance::pay_component_postings),
+    )
+    .route(
+        "/api/v1/finance/pay-components/{code}",
+        put(finance::set_pay_component_posting),
+    )
+    .route(
+        "/api/v1/finance/payment-methods",
+        get(finance::payment_methods).post(finance::save_payment_method),
+    )
+    .route(
+        "/api/v1/finance/tax-templates",
+        get(finance::tax_templates).post(finance::save_tax_template),
+    )
+    .route(
+        "/api/v1/finance/dimensions",
+        get(finance::accounting_dimensions).post(finance::save_accounting_dimension),
+    )
+    .route(
+        "/api/v1/finance/dimensions/{code}/values",
+        post(finance::save_dimension_value),
+    )
+    .route(
+        "/api/v1/finance/policies/source-rules",
+        get(finance::account_source_rules)
+            .post(finance::set_account_source_rule)
+            .delete(finance::remove_account_source_rule),
+    )
+    .route(
+        "/api/v1/finance/policies/head-office-accounts",
+        get(finance::head_office_accounts).post(finance::set_head_office_account),
+    )
+    .route(
+        "/api/v1/finance/policies/head-office-accounts/{code}",
+        delete(finance::remove_head_office_account),
+    )
+    .route(
+        "/api/v1/finance/policies/posting",
+        get(finance::posting_switches).put(finance::set_automatic_posting),
+    )
+    .route(
+        "/api/v1/finance/policies/posting/sources",
+        post(finance::set_posting_switch),
+    )
+    .route(
+        "/api/v1/finance/permissions",
+        get(finance::role_permissions)
+            .post(finance::set_role_permission)
+            .delete(finance::remove_role_permission),
+    )
+    .route(
+        "/api/v1/finance/journal-templates",
+        get(finance::journal_templates).post(finance::save_journal_template),
+    )
+    .route(
+        "/api/v1/finance/journal-repeats",
+        get(finance::journal_repeats).post(finance::save_journal_repeat),
+    )
+    .route(
+        "/api/v1/finance/journal-repeats/run",
+        post(finance::run_journal_repeats),
+    )
+    .route(
+        "/api/v1/finance/period-closing-vouchers",
+        get(finance::period_closings).post(finance::post_period_closing),
+    )
+    .route(
+        "/api/v1/finance/period-closing-vouchers/{voucher_id}/cancel",
+        post(finance::cancel_period_closing),
     )
     .route(
         "/api/v1/finance/periods",
@@ -1192,6 +1350,14 @@ pub fn router(state: AppState) -> Router {
     )
     .route("/api/v1/employees/{id}/payslips", get(pay::payslips))
     .route("/api/v1/notifications", get(notifications::list))
+    // The list as it changes, for the hub's bell and the desktop shell; and
+    // this browser saying yes or no to being woken for it (`cloud::push`).
+    .route("/api/v1/notifications/stream", get(notifications::stream))
+    .route("/api/v1/push/public-key", get(push::public_key))
+    .route(
+        "/api/v1/push/subscriptions",
+        post(push::subscribe).delete(push::unsubscribe),
+    )
     .route(
         "/api/v1/notifications/read-all",
         post(notifications::mark_all_read),
@@ -1471,6 +1637,25 @@ pub fn router(state: AppState) -> Router {
     // composer, which carried these four arrangements in a `const` until
     // 0201 gave them a table.
     .route("/api/v1/payment-terms", get(suppliers::payment_terms_book))
+    // The payment terms master. Maintained on its own screen now that
+    // neither the supplier form nor the order composer chooses terms.
+    // Retire, never delete — see `postgres::payment_terms`.
+    .route(
+        "/api/v1/payment-terms/terms",
+        post(payment_terms::create_payment_term),
+    )
+    .route(
+        "/api/v1/payment-terms/terms/{code}",
+        patch(payment_terms::update_payment_term),
+    )
+    .route(
+        "/api/v1/payment-terms/templates",
+        post(payment_terms::create_payment_terms_template),
+    )
+    .route(
+        "/api/v1/payment-terms/templates/{code}",
+        patch(payment_terms::update_payment_terms_template),
+    )
     // What an edit to this article would do to the promotions around it.
     // A POST that writes nothing: the question carries a proposed division
     // and a set of tags, and it is asked before the save rather than after,
@@ -2571,7 +2756,7 @@ async fn publish_commercial_publication(
 /// A typed query struct rather than `Query<Vec<(String, String)>>`, unlike the
 /// two beside it: nothing this route takes repeats — `divisions` and `tags`
 /// have always arrived as comma lists — so a struct loses nothing and gains
-/// `deny_unknown_fields`, which refuses `?divisionss=KIDS` instead of quietly
+/// `deny_unknown_fields`, which refuses `?divisionss=ANAK_LAKI` instead of quietly
 /// pricing the whole catalogue under a filter the caller believes is applied.
 async fn article_prices(
     State(s): State<AppState>,
@@ -2606,8 +2791,22 @@ async fn commercial_products(
     State(s): State<AppState>,
     Query(q): Query<CommercialProductQuery>,
 ) -> Result<Json<Value>, AppError> {
+    let article_codes: Option<Vec<String>> = q.article_codes.as_deref().map(|codes| {
+        codes
+            .split(',')
+            .map(str::trim)
+            .filter(|code| !code.is_empty())
+            .map(str::to_owned)
+            .collect()
+    });
     Ok(Json(
-        infrastructure::commercial_products(&s.db, q.q.as_deref(), q.limit.unwrap_or(50)).await?,
+        infrastructure::commercial_products_matching(
+            &s.db,
+            q.q.as_deref(),
+            article_codes.as_deref(),
+            q.limit.unwrap_or(50),
+        )
+        .await?,
     ))
 }
 
@@ -3088,11 +3287,11 @@ async fn sync_status(State(s): State<AppState>) -> Result<Json<Value>, AppError>
 /// acknowledgement out. Guarded by a shared key when one is configured.
 /// Who a machine credential says it is: the origin it proved, and the shop that
 /// origin is registered for.
-struct MachineOrigin {
-    origin_id: String,
+pub(super) struct MachineOrigin {
+    pub(super) origin_id: String,
     /// The site the register holds for this origin. `None` on an unregistered
     /// origin in development, where there is nothing to check against.
-    site_id: Option<String>,
+    pub(super) site_id: Option<String>,
 }
 
 /// Prove an origin's `x-sync-key`, and answer which shop it is.
@@ -3100,11 +3299,12 @@ struct MachineOrigin {
 /// Extracted from `sync_ingest` rather than written a second time: the voucher
 /// relay is the same kind of caller as an upload — a node, not a person — and
 /// two spellings of "is this really store-07" is exactly the drift this
-/// codebase keeps refusing. A registered origin is accepted ONLY with its own
+/// codebase keeps refusing. The store node's HR relay proves its node here too,
+/// from `auth::relayed_principal`, before it names a person. A registered origin is accepted ONLY with its own
 /// key, so no store can act for another; an authenticated Cloud rejects
 /// unregistered origins, because its master key is a provisioning credential;
 /// dev keeps the master-key fallback.
-async fn authenticate_origin(
+pub(super) async fn authenticate_origin(
     state: &AppState,
     headers: &HeaderMap,
     origin_id: &str,
@@ -3923,7 +4123,7 @@ async fn close_purchase_line_short(
 ///
 /// Repeated keys AND comma-separated values, both, because the two halves of
 /// this repository already disagree: `supplier-items` reads
-/// `division=KIDS,DIVIDED` while the shared spec for this module says to
+/// `division=ANAK_LAKI,NON_DIVISI` while the shared spec for this module says to
 /// repeat the key. Accepting one and rejecting the other would work perfectly
 /// in a browser and fail for whoever wrote the other form by hand, with an
 /// empty list rather than an error — a filter that silently matches everything

@@ -4,9 +4,9 @@
 //! `edge_sale` — facts the shops already reported and the centre already
 //! accepted — so there is no second place where a member's points could be
 //! computed and disagree with the takings they came from. Nothing in this
-//! module writes, and there is no redemption ledger yet: see
-//! `CustomerSummary::points_earned_total` for why the number is named what it
-//! is rather than "balance".
+//! module writes. The spendable balance is the points ledger's
+//! (`loyalty.rs`); see `CustomerSummary::points_earned_total` for why the
+//! number here is named what it is rather than "balance".
 //!
 //! Every query is scoped by `customer_id` in its WHERE clause, including the
 //! one that fetches a single receipt by its id. That is not belt-and-braces: a
@@ -25,13 +25,13 @@ use uuid::Uuid;
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CustomerSummary {
     pub customer_id: String,
-    /// Points this member has earned, ever.
+    /// Points this member has earned, ever, on sales that still stand.
     ///
-    /// NOT a balance. Redemption happens at the till and is not yet recorded
-    /// anywhere the centre can see, so subtracting nothing and calling the
-    /// result a balance would be a number that goes stale the first time
-    /// somebody spends points. When a redemption ledger exists, a
-    /// `points_balance` can join this; it cannot replace it.
+    /// NOT a balance: redemptions are debited in `points_ledger`, and
+    /// `GET /api/v1/member/points` is the figure a member can spend. A voided
+    /// sale is left out of this and of every other total here, because the
+    /// ledger has already taken its points back and the takings no longer
+    /// include it.
     pub points_earned_total: i64,
     pub transaction_count: i64,
     /// What they have spent, after promotions — the sum of what was charged.
@@ -53,6 +53,13 @@ pub struct CustomerTransaction {
     pub sale_id: Uuid,
     pub occurred_at: DateTime<Utc>,
     pub site_id: String,
+    /// The shop's own name, for a shopper who knows "Store 01" and not
+    /// `store-01`. `None` for a site the centre has no row for.
+    pub site_name: Option<String>,
+    /// `COMPLETED`, or `VOIDED` once the shop cancelled it. A voided sale stays
+    /// in the history — the shopper was there and may ask about it — but it
+    /// earned nothing and counts toward no total.
+    pub status: String,
     pub currency: String,
     pub total_minor: i64,
     pub discount_total_minor: i64,
@@ -67,6 +74,9 @@ pub struct CustomerTransaction {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CustomerTransactionLine {
     pub sku_code: String,
+    /// What the garment is called, when the centre knows the SKU. A shopper
+    /// reading a receipt recognises a name, not an eleven-digit code.
+    pub name: Option<String>,
     pub quantity: i64,
     /// The shelf-edge price of one unit, before any promotion.
     pub unit_price_minor: i64,
@@ -145,11 +155,11 @@ pub async fn customer_summary(
                 MIN(occurred_at)                                 AS first_purchase_at,
                 MAX(occurred_at)                                 AS last_purchase_at,
                 (SELECT currency FROM edge_sale
-                  WHERE customer_id = $1
+                  WHERE customer_id = $1 AND status <> 'VOIDED'
                   ORDER BY occurred_at DESC, sale_id DESC
                   LIMIT 1)                                       AS currency
            FROM edge_sale
-          WHERE customer_id = $1",
+          WHERE customer_id = $1 AND status <> 'VOIDED'",
     )
     .bind(&customer_id)
     .fetch_one(pool)
@@ -172,6 +182,8 @@ fn transaction_from_row(row: &sqlx::postgres::PgRow) -> Result<CustomerTransacti
         sale_id: row.try_get("sale_id")?,
         occurred_at: row.try_get("occurred_at")?,
         site_id: row.try_get("site_id")?,
+        site_name: row.try_get("site_name")?,
+        status: row.try_get("status")?,
         currency: row.try_get("currency")?,
         total_minor: row.try_get("total_minor")?,
         discount_total_minor: row.try_get("discount_total_minor")?,
@@ -199,6 +211,8 @@ pub async fn customer_transactions(
         "SELECT s.sale_id,
                 s.occurred_at,
                 s.site_id,
+                site.name AS site_name,
+                s.status,
                 s.currency,
                 s.total_minor,
                 s.discount_total_minor,
@@ -206,6 +220,7 @@ pub async fn customer_transactions(
                 COALESCE((SELECT SUM(l.quantity) FROM edge_sale_line l
                            WHERE l.sale_id = s.sale_id), 0)::bigint AS item_count
            FROM edge_sale s
+           LEFT JOIN site ON site.id = s.site_id
           WHERE s.customer_id = $1
             AND ($2::timestamptz IS NULL
                  OR (s.occurred_at, s.sale_id) < ($2::timestamptz, $3::uuid))
@@ -253,6 +268,8 @@ pub async fn customer_transaction(
         "SELECT s.sale_id,
                 s.occurred_at,
                 s.site_id,
+                site.name AS site_name,
+                s.status,
                 s.currency,
                 s.total_minor,
                 s.discount_total_minor,
@@ -260,6 +277,7 @@ pub async fn customer_transaction(
                 COALESCE((SELECT SUM(l.quantity) FROM edge_sale_line l
                            WHERE l.sale_id = s.sale_id), 0)::bigint AS item_count
            FROM edge_sale s
+           LEFT JOIN site ON site.id = s.site_id
           WHERE s.customer_id = $1 AND s.sale_id = $2",
     )
     .bind(&customer_id)
@@ -269,13 +287,16 @@ pub async fn customer_transaction(
     .ok_or_else(|| AppError::NotFound("transaction".into()))?;
 
     let lines = sqlx::query(
-        "SELECT sku_code,
-                quantity,
-                unit_price_minor,
-                COALESCE(line_total_minor, unit_price_minor * quantity)::bigint AS line_total_minor
-           FROM edge_sale_line
-          WHERE sale_id = $1
-          ORDER BY sku_code, subject_id",
+        "SELECT l.sku_code,
+                a.name,
+                l.quantity,
+                l.unit_price_minor,
+                COALESCE(l.line_total_minor, l.unit_price_minor * l.quantity)::bigint AS line_total_minor
+           FROM edge_sale_line l
+           LEFT JOIN sku ON sku.sku_code = l.sku_code
+           LEFT JOIN article a ON a.id = sku.article_id
+          WHERE l.sale_id = $1
+          ORDER BY l.sku_code, l.subject_id",
     )
     .bind(sale_id)
     .fetch_all(pool)
@@ -284,6 +305,7 @@ pub async fn customer_transaction(
     .map(|line| {
         Ok(CustomerTransactionLine {
             sku_code: line.try_get("sku_code")?,
+            name: line.try_get("name")?,
             quantity: line.try_get("quantity")?,
             unit_price_minor: line.try_get("unit_price_minor")?,
             line_total_minor: line.try_get("line_total_minor")?,

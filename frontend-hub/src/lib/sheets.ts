@@ -112,6 +112,10 @@ export const SHEET_PARAMS = {
   /// How a browsable list is ordered. In the URL because an order is half of
   /// what somebody is looking at — "the newest ones" is a link worth sending.
   sort: oneOf(["newest", "price_low", "price_high"] as const),
+  /// The article master has a server-side oldest-first order beside its
+  /// default newest-first order. Kept separate from `sort`, whose values serve
+  /// sourcing and other lists with different order vocabularies.
+  articleOrder: oneOf(["newest", "oldest"] as const),
   /// What was typed into a search box, when that box filters a whole screen
   /// rather than a card. In the URL so a filtered catalogue can be sent to a
   /// colleague and survives the back button — the two things a `useState`
@@ -180,6 +184,17 @@ export const SHEET_PARAMS = {
   /// which is the same composer reached from the goods rather than from the
   /// paperwork — two ways in, and a URL that says which.
   "new-order": flag,
+  /// An issued purchase order being rewritten, by its id. The same composer
+  /// as `new-order`, seeded from the order; the server refuses the save once
+  /// anything has been received, billed or queried against it.
+  "edit-order": id,
+  /// Documents being turned into purchase orders, over the same order book.
+  ///
+  /// A flag for the same reason `new-order` is one: the drafts exist only in
+  /// the browser until somebody presses Create, so there is nothing yet to
+  /// link to. What the URL buys is the reload — a buyer halfway through a
+  /// morning of supplier PDFs keeps the sheet they were in.
+  import: flag,
   // articles
   /// One master article, keyed by its eight-digit code rather than a uuid.
   /// The code is the identifier every other system already speaks — it is on
@@ -219,6 +234,37 @@ export const SHEET_PARAMS = {
   /// One supplier payment, and what it settled.
   payment: id,
   asset: id,
+  /// One contract: the deal behind the bills — the rent, the PLN account, the
+  /// cleaning service. A record people send each other ("look at what the
+  /// C007 unit is costing us"), and the Overview's expiring rows open it
+  /// directly, so it lives here like every other record's key.
+  contract: id,
+  /// One repair — a breakdown someone filed, with its estimate, budget and
+  /// stage. Its own key rather than a second meaning for `asset`, which names
+  /// the register's record: a repair is worked in the Perbaikan screen, and
+  /// the Overview's open-repair rows and the asset hub both send people here.
+  repair: id,
+  /// One replacement — the swap of one asset for another, proposed from the
+  /// asset hub and worked to INSTALLED in Maintenance › Replacement. The
+  /// sheet it opens reads both ends, so a link to it is the whole story.
+  replacement: id,
+  /// One disposal request — GA's half of taking an asset out of service. The
+  /// request is filed from the asset hub; Finance's posting of the gain or
+  /// loss is tahap 6, and until then this sheet is where the request is read
+  /// and decided.
+  disposal: id,
+  /// One place GA looks after, keyed by the site id the books already use.
+  ///
+  /// A place rather than a GA record of its own (brief §2.5): the site table
+  /// is the company's list of locations, and this sheet adds the facilities
+  /// detail beside it and reads everything that points back at it. Keyed by
+  /// `site_id` because that is the word every other row already carries — a
+  /// link to a location is a link to a shop somebody can type from a shelf.
+  location: id,
+  /// One supply request — what a place asked for, and how far it has got.
+  /// Filed from the Supplies list and opened by the Overview's own rows, so
+  /// the address is a thing people send each other.
+  supply: id,
   /// "2026-09" — the fiscal month whose close panel is open. A period is a
   /// record people send each other ("seal 412 entries in 2026-08"), not
   /// transient UI.
@@ -229,8 +275,17 @@ export const SHEET_PARAMS = {
   /// case is a thing people send each other — "look at this one, store-04 on
   /// Tuesday" — while somebody is on the phone to the bank about it.
   charge: id,
-  /// One semantic posting key in the account map.
+  /// One posting role on the Account links screen — its links, what each site
+  /// resolves to, and who changed them.
   mapping: id,
+  /// Which master record the Account links screen is narrowed to, as
+  /// `SOURCE_TYPE:source_id` — `EXPENSE_CATEGORY:MEDICAL`,
+  /// `PARTY:SUPPLIER:SUP-0012`. Split at the first colon only, because a party's
+  /// own id carries one. Set by every master screen's "Link accounts".
+  linkSource: id,
+  /// A journal template to start a new entry from, by template id. Journal
+  /// Entries opens its composer prefilled from it.
+  journalTemplate: id,
   // commercial
   book: id,
   price: id,
@@ -338,10 +393,29 @@ export const SHEET_PARAMS = {
   /// claims — one key cannot mean two records, and the screen that lost the
   /// argument would open somebody else's sheet.
   payrollRun: id,
+  /// Which expense claim is open, by claim id. A claim is decided, paid and
+  /// read from three places — the queue, the list, the Directory's Claims
+  /// tab — and the record does not change when the way in does, so one key
+  /// serves all three.
+  claim: id,
   /// Which request for a new employee is open. Not `hire`: the record is a
   /// *proposal*, and approving one does not hire anybody — the employment
   /// record is opened afterwards and starts as a candidate.
   hireProposal: id,
+  /// Which pipeline applicant is open. A stage move, an interview and an
+  /// offer all act on one candidate, so the candidate is what the URL names.
+  applicant: id,
+  /// Which grievance is open, by grievance id. The queue, the lists and the
+  /// filer's own view all open the same sheet — the confidential channel's
+  /// one record does not change when the way in does.
+  grievance: id,
+  /// Which exit interview is open. One per leaver, so the id is the person's
+  /// as much as the interview's — but the interview is the record, and the
+  /// sheet carries it.
+  exitInterview: id,
+  /// Which full & final statement is open, by statement id. The list, the
+  /// leaver's Directory tab and a settlement link all name the same sheet.
+  fnf: id,
   /// Whose attendance is open, as an employee id. A day on its own cannot be
   /// the key: the screen shows one person across a range, and which day the
   /// reader cares about is a scroll position rather than a record.
@@ -406,6 +480,11 @@ export const SHEET_PARAMS = {
   cmp: oneOf(["prev", "year", "custom"] as const),
   cmpFrom: isoDay,
   cmpTo: isoDay,
+  /// Which stretch the executive report reads: this month so far, the last
+  /// whole month, this quarter so far, or this year so far. Named rather than
+  /// two dates because a board reads a report by the period it is FOR, and
+  /// "this month" pasted tomorrow should still mean this month.
+  term: oneOf(["month", "last-month", "quarter", "year"] as const),
   /// One cell of the sales matrix, as `site~from~to`.
   ///
   /// One parameter carrying three things because they are one thing: a cell is
@@ -538,6 +617,20 @@ const SHEET_SUBJECT: Partial<Record<SheetKey, RecordKind>> = {
   account: "account",
   bill: "bill",
   asset: "asset",
+  contract: "contract",
+  // Tahap 4's records. The kinds are spelled by the server's `record_kind`
+  // (migration: the five maintenance rows), and like every entry here they
+  // were read off the wire vocabulary rather than invented — `repair` and
+  // not `repairs`, because the audit path is singular `/api/v1/ga/repairs/{id}`.
+  repair: "repair",
+  replacement: "replacement",
+  disposal: "disposal",
+  // Tahap 5's two records. `supply_request` is the spelling the Overview's
+  // own `GaAttention` kind uses; a location is filed under `location`, the
+  // word the endpoint's path (`/api/v1/ga/locations/{site_id}`) singularises
+  // to. Both are new to the server's vocabulary with this stage.
+  location: "location",
+  supply: "supply_request",
   statement: "bank_statement",
   book: "publication",
   campaign: "campaign",

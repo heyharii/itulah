@@ -134,7 +134,7 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
     size: 90,
     meta: { align: "right" },
     cell: ({ row }) => (
-      <span className="text-[0.8125rem] text-text tabular-nums">
+      <span className="text-[0.875rem] text-text tabular-nums">
         {row.original.order}
       </span>
     ),
@@ -159,8 +159,8 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
       <span
         className={
           row.original.term.in_use === 0
-            ? "text-[0.8125rem] text-mute tabular-nums"
-            : "text-[0.8125rem] text-text tabular-nums"
+            ? "text-[0.875rem] text-mute tabular-nums"
+            : "text-[0.875rem] text-text tabular-nums"
         }
       >
         {count(row.original.term.in_use)}
@@ -192,9 +192,9 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
         // answer the curator is looking for.
         options: [
           { value: "ACTIVE", label: "Active" },
-          { value: "RETIRED", label: "Retired" },
+          { value: "RETIRED", label: "Cancelled" },
         ],
-        format: (value) => (value === "ACTIVE" ? "Active" : "Retired"),
+        format: (value) => (value === "ACTIVE" ? "Active" : "Cancelled"),
       },
     },
     // Active and Retired, not Offered and Retired. "Offered" made the reader
@@ -206,7 +206,7 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
       row.original.active ? (
         <Pill tone="ok">Active</Pill>
       ) : (
-        <Pill tone="neutral">Retired</Pill>
+        <Pill tone="neutral">Cancelled</Pill>
       ),
   },
 ]
@@ -291,7 +291,7 @@ export function Colours() {
           2026-09-13 so the lists an article is described with are read with the
           same chrome as the article itself. Below that width the panel is the
           omnibox above the table, which is the same model drawn as a line. */}
-      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
           {/* One line, the width of the table, carrying everything that
               acts on it — the same line the order book wears, in the same
@@ -305,17 +305,17 @@ export function Colours() {
             {/* The plain box, where the panel beside it is carrying the
                 filters. Below 1440 the panel is gone and the omnibox below
                 takes both jobs, so only one of the two is ever on screen. */}
-            <span className="relative mr-auto hidden min-[1440px]:block">
+            <span className="relative mr-auto hidden dock:block">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search colours"
                 aria-label="Search the colour master"
-                className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+                className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
             </span>
-            <span className="mr-auto text-[0.84375rem] text-body min-[1440px]:mr-0">
+            <span className="mr-auto text-[0.875rem] text-body dock:mr-0">
               <b className="font-medium text-ink">{count(all.length)}</b>{" "}
               colours · {count(retired)} retired
               {unswatched > 0 && ` · ${count(unswatched)} with no swatch yet`}
@@ -337,7 +337,7 @@ export function Colours() {
             text={query === "" ? undefined : query}
             onText={(next) => setQuery(next ?? "")}
             placeholder="Search colours, or filter"
-            className="mb-3 min-[1440px]:hidden"
+            className="mb-3 dock:hidden"
           />
 
           <Card className="overflow-hidden">
@@ -386,7 +386,7 @@ export function Colours() {
               note: "Named, but nobody has said which pixel value they mean.",
             },
           ]}
-          className="hidden min-[1440px]:flex"
+          className="hidden dock:flex"
         />
       </div>
 
@@ -628,11 +628,7 @@ function ColourForm({
           <>
             <form.Field name="label">
               {(field) => (
-                <Field
-                  label="Label"
-                  hint="What everybody reads. Two colours may not share one."
-                  problem={problems.label}
-                >
+                <Field label="Label" problem={problems.label}>
                   <Input
                     value={field.state.value}
                     onBlur={field.handleBlur}
@@ -650,15 +646,7 @@ function ColourForm({
 
             <form.Field name="code">
               {(field) => (
-                <Field
-                  label="Code"
-                  hint={
-                    colour === null
-                      ? "Permanent once an article uses it, so it is set here and never again."
-                      : "Article colourways point at this, so it cannot be changed. Rename the label instead."
-                  }
-                  problem={problems.code}
-                >
+                <Field label="Code" problem={problems.code}>
                   <Input
                     value={field.state.value}
                     disabled={colour !== null}
@@ -676,12 +664,7 @@ function ColourForm({
             <div className="grid grid-cols-2 gap-3">
               <form.Field name="hex">
                 {(field) => (
-                  <Field
-                    label="Hex"
-                    hint="Optional. Pick it off the swatch, or paste one."
-                    problem={problems.hex}
-                    className="min-w-0"
-                  >
+                  <Field label="Hex" problem={problems.hex} className="min-w-0">
                     <ColourField
                       value={field.state.value}
                       onBlur={field.handleBlur}
@@ -695,7 +678,6 @@ function ColourForm({
                 {(field) => (
                   <Field
                     label="Order"
-                    hint="Where it sits in the picker."
                     problem={problems.order}
                     className="min-w-0"
                   >
@@ -745,11 +727,6 @@ function ColourForm({
                         }
                         code={values.code.trim()}
                       />
-                      <span className="text-[0.71875rem] text-mute">
-                        {agreed
-                          ? "How it reads in the picker."
-                          : "No swatch until a hex is agreed."}
-                      </span>
                     </div>
 
                     {/* A caution, never a refusal. A company really can carry
@@ -764,7 +741,7 @@ function ColourForm({
                           label={twin.label}
                           code={twin.code}
                         />
-                        <span className="text-[0.71875rem] leading-relaxed text-warn-fg">
+                        <span className="text-[0.875rem] leading-relaxed text-warn-fg">
                           Reads the same as this at a glance. Two colours a
                           person cannot tell apart split every report that
                           groups by colour — pick a different one, or be sure
@@ -831,7 +808,6 @@ function ColourLifecycle({
   return (
     <MasterLifecycle
       subject="colour"
-      label={colour.term.label}
       active={colour.active}
       usage={usage}
       onSetActive={async (active) => {

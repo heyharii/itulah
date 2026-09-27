@@ -112,51 +112,6 @@ pub struct TrialBalance {
     pub facets: TrialBalanceFacets,
 }
 
-/// A meaning, and the client account that carries it here.
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
-pub struct AccountMapping {
-    pub semantic_key: String,
-    pub site_id: String,
-    /// Which bank, which card scheme. Empty when the meaning needs no
-    /// narrowing.
-    pub qualifier: String,
-    pub account_code: String,
-    /// The client's name for that account, so the screen can be read without
-    /// looking every code up.
-    pub account_name: String,
-    /// Which category the map chose alongside the account, on the accounts that
-    /// declare a family.
-    ///
-    /// Half of a mapping now, not a decoration: the chart of forty has one
-    /// account for every expense a shop pays and tells them apart by this. A
-    /// map row that names `6301` and no category is a row that cannot post.
-    pub category_code: Option<String>,
-    pub set_by: String,
-    pub set_at: DateTime<Utc>,
-    pub note: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
-pub struct SetAccountMappingRequest {
-    pub semantic_key: String,
-    pub site_id: String,
-    #[serde(default)]
-    pub qualifier: String,
-    pub account_code: String,
-    /// The category to store with the account. Required when the account
-    /// declares a family, refused when it does not — [`set_account_mapping`]
-    /// says which and lists the codes that would have worked.
-    ///
-    /// Optional in the wire shape rather than in the rule: an old client that
-    /// omits it still reaches a refusal that explains itself, where a missing
-    /// field would have reached a deserialisation error that does not.
-    #[serde(default)]
-    pub category_code: Option<String>,
-    pub note: Option<String>,
-}
-
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct FiscalPeriod {
@@ -291,10 +246,9 @@ pub async fn finance_attention_counts(
     // pair, which is why it is not counted here.
     let mapped_pairs: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM (
-             SELECT DISTINCT m.semantic_key, m.site_id
-               FROM account_map m
-               JOIN site s ON s.id = m.site_id
-              WHERE m.semantic_key = ANY($1)
+             SELECT DISTINCT r.role, r.site_id
+               FROM account_resolution r
+              WHERE r.role = ANY($1)
          ) pair",
     )
     .bind(&required)
@@ -829,7 +783,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "affiliate_receivable",
             "Inter-unit receivable",
-            "1057/1058/1059 Piutang Affiliasi, per kind:counterparty",
+            "1057/1058/1059 Piutang Affiliasi at HO; 2028/2029/2030 at a unit (0380), per kind:counterparty",
             true,
             "Receivables",
             None,
@@ -837,7 +791,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         key(
             "affiliate_payable",
             "Inter-unit payable",
-            "2028 Pembiayaan / 2029 Atas Barang / 1059 Lain-lain (two-way), per kind:counterparty",
+            "2028 Pembiayaan / 2029 Atas Barang / 2030 Lain-lain Principal at a unit; 1057/1058/1059 at HO (0380), per kind:counterparty",
             true,
             "Payables",
             None,
@@ -1271,14 +1225,6 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         // claim leaf. No category family: the account's identity is answered
         // by the qualifier, the way the bank meanings are answered by
         // `bank_account_id`.
-        key(
-            "employee_expense",
-            "Employee expense claims",
-            "6076 Biaya Klaim Karyawan, or 6016/6030/6047/6048/6041/6044 by claim type",
-            true,
-            "Expenses",
-            None,
-        ),
         // And what the company owes the employee between the sanction and the
         // petty-cash payout that clears it. The client 267 chart had no claim
         // payable leaf — 0371 had to borrow `Hutang Lain - Lain` — so 0372
@@ -1297,78 +1243,6 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         // means a real receipt eventually has nowhere to go, and the shop pays
         // for it out of the drawer instead — which is the exact behaviour this
         // lane exists to end.
-        key(
-            "expense_electricity",
-            "Electricity",
-            "6045 Biaya Pemakaian Listrik",
-            false,
-            "Store cash",
-            None,
-        ),
-        key(
-            "expense_water",
-            "Water",
-            "6046 Biaya Pemakaian Air Bersih (PDAM)",
-            false,
-            "Store cash",
-            None,
-        ),
-        key(
-            "expense_telephone",
-            "Telephone and internet",
-            "6044 Biaya Telephone, Facsimile, Modem",
-            false,
-            "Store cash",
-            None,
-        ),
-        key(
-            "expense_household",
-            "Household",
-            "6042 Biaya Rumah Tangga",
-            false,
-            "Store cash",
-            None,
-        ),
-        key(
-            "expense_stationery",
-            "Stationery and printing",
-            "6041 Alat Tulis Kantor & Barang Cetakan",
-            false,
-            "Store cash",
-            None,
-        ),
-        key(
-            "expense_repairs",
-            "Repairs and maintenance",
-            "6069 Biaya Perbaikan dan Perawatan Bangunan",
-            false,
-            "Store cash",
-            None,
-        ),
-        key(
-            "expense_transport",
-            "Local transport",
-            "6048 Biaya Lokal Transport",
-            false,
-            "Store cash",
-            None,
-        ),
-        key(
-            "expense_cleaning",
-            "Cleaning",
-            "6040 Biaya Kebersihan (Cleaning)",
-            false,
-            "Store cash",
-            None,
-        ),
-        key(
-            "expense_misc",
-            "Miscellaneous",
-            "6064 Miscellaneous Expences",
-            false,
-            "Store cash",
-            None,
-        ),
         // ── end lane-B ───────────────────────────────────────────────────
     ]
 }
@@ -2247,335 +2121,6 @@ async fn trial_proof(
 // this client and was being sent whole — 165 KB — to a screen showing thirty
 // of them.
 
-/// How many mappings the list returns when the caller does not say.
-const DEFAULT_MAPPING_LIMIT: i64 = 200;
-/// And the most it will return however loudly a caller asks.
-const MAX_MAPPING_LIMIT: i64 = 1000;
-
-/// What a caller is asking the account map for.
-#[derive(Clone, Debug, Default)]
-pub struct AccountMapScope {
-    /// Free text, tried against the meaning, the qualifier, the account code
-    /// and the client's own name for that account.
-    ///
-    /// The account name matters most: somebody looking for where the BCA giro
-    /// is pointed knows the bank's name and not the meaning `bank_giro`.
-    pub needle: Option<String>,
-    /// Locations to keep. Empty means every location — an empty filter and no
-    /// filter are the same request.
-    ///
-    /// Plural where `site` was single; a caller sending exactly one is
-    /// unaffected.
-    pub sites: Vec<String>,
-    /// Meanings to keep, as the posting rules spell them.
-    pub keys: Vec<String>,
-    /// `key`, `account`, `site` or `set`. Anything else is the house order —
-    /// meaning, then location, then qualifier, which is the order somebody
-    /// reads a map in.
-    pub sort: Option<String>,
-    pub desc: bool,
-    pub cursor: Option<String>,
-    /// Absent means [`DEFAULT_MAPPING_LIMIT`], not "everything".
-    pub limit: Option<i64>,
-}
-
-/// One value a filter can take, and how many mappings would still be there.
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
-pub struct AccountMapFacet {
-    pub value: String,
-    /// The site's own name for a location; absent for a meaning, whose label
-    /// is already in `required_keys` and would be a second copy here.
-    pub label: Option<String>,
-    pub count: i64,
-}
-
-/// The two things the map can be narrowed by.
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
-pub struct AccountMapFacets {
-    pub sites: Vec<AccountMapFacet>,
-    pub keys: Vec<AccountMapFacet>,
-}
-
-/// The account map, a page at a time, with the two lists it cannot be read
-/// without.
-///
-/// `locations` and `required_keys` travel with the page rather than being
-/// fetched separately because the screen's only real question — which pairs
-/// are still unset — cannot be asked without all three parts, and a screen
-/// that asked for them in three requests would draw two of them against a
-/// third that had not arrived.
-///
-/// They are NOT paged. Both are small and closed: fourteen locations and the
-/// meanings the posting rules name, which is a list generated from the Rust.
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
-pub struct AccountMapPage {
-    pub rows: Vec<AccountMapping>,
-    pub next_cursor: Option<String>,
-    /// Every mapping the search and the filters match, not just this page.
-    pub total: i64,
-    /// How many (meaning, location) pairs the posting rules need and nobody
-    /// has set — counted over EVERY location and EVERY required meaning, never
-    /// over the page and never narrowed by the search.
-    ///
-    /// A gap is a gap whether or not you are currently looking at it: a
-    /// filtered view that showed "0 unmapped" because the filter hid them
-    /// would be the screen reporting the problem solved. It is the same number
-    /// the sidebar's badge draws, computed the same way — a pair is set when
-    /// the meaning has ANY account at that location, because the qualifier
-    /// splits one meaning across banks and does not make a second pair.
-    pub unmapped_pairs: i64,
-    pub locations: Vec<BookLocation>,
-    pub required_keys: Vec<SemanticKeyDoc>,
-    pub facets: AccountMapFacets,
-}
-
-/// Where the previous page stopped — as a ROW, not as a position.
-///
-/// The natural key of `account_map`: the meaning, the qualifier and the
-/// location. Not an offset — somebody is editing this map on the same screen
-/// that is paging through it.
-#[derive(Serialize, Deserialize)]
-struct MappingCursor {
-    semantic_key: String,
-    qualifier: String,
-    site_id: String,
-}
-
-impl MappingCursor {
-    fn encode(&self) -> Result<String, AppError> {
-        Ok(hex::encode(serde_json::to_vec(self)?))
-    }
-
-    fn decode(raw: &str) -> Result<Self, AppError> {
-        let bytes = hex::decode(raw).map_err(|_| {
-            AppError::Validation("cursor is not a cursor this server issued".into())
-        })?;
-        serde_json::from_slice(&bytes)
-            .map_err(|_| AppError::Validation("cursor is not a cursor this server issued".into()))
-    }
-}
-
-/// One mapping row, defined once, so the facets count exactly what the page
-/// can show.
-///
-/// Binds: `$1` the search pattern or NULL.
-const MAPPING_ROWS: &str = "
-    SELECT m.semantic_key, m.site_id, m.qualifier, m.account_code, m.category_code,
-           a.name AS account_name, m.set_by, m.set_at, m.note
-      FROM account_map m JOIN ledger_account a ON a.account_code = m.account_code
-     WHERE $1::text IS NULL
-        OR m.semantic_key ILIKE $1
-        OR m.qualifier ILIKE $1
-        OR m.account_code ILIKE $1
-        -- Searchable, because with forty accounts the category is what tells
-        -- two mappings apart: `6301` appears on a dozen rows and PLN on one.
-        OR m.category_code ILIKE $1
-        OR a.name ILIKE $1
-";
-
-fn to_mapping(row: &sqlx::postgres::PgRow) -> Result<AccountMapping, AppError> {
-    Ok(AccountMapping {
-        semantic_key: row.try_get("semantic_key")?,
-        site_id: row.try_get("site_id")?,
-        qualifier: row.try_get("qualifier")?,
-        account_code: row.try_get("account_code")?,
-        account_name: row.try_get("account_name")?,
-        category_code: row.try_get("category_code")?,
-        set_by: row.try_get("set_by")?,
-        set_at: row.try_get("set_at")?,
-        note: row.try_get("note")?,
-    })
-}
-
-/// The map, one page at a time, with the two lists it is read against.
-pub async fn account_map_page(
-    pool: &PgPool,
-    scope: AccountMapScope,
-) -> Result<AccountMapPage, AppError> {
-    // A blank search is not a search.
-    let needle = scope
-        .needle
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(|text| format!("%{text}%"));
-    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
-    let keys = (!scope.keys.is_empty()).then(|| scope.keys.clone());
-
-    // The sort, and the tie-break that makes it total. Every order ends in the
-    // natural key of `account_map`, so no two rows can compare equal.
-    //
-    // TWO spellings of the same thing, and they are not interchangeable:
-    // `ORDER BY` takes directions, a ROW EXPRESSION does not.
-    let (lead, descending): (&str, bool) = match scope.sort.as_deref() {
-        Some("account") => ("account_code", scope.desc),
-        Some("site") => ("site_id", scope.desc),
-        // When somebody last decided it. What you sort by to find the mapping
-        // that changed under a posting rule last week.
-        Some("set") => ("set_at", scope.desc),
-        // The house order, and the one this endpoint has always answered in.
-        // `key` names it explicitly so a screen can ask for it back after
-        // sorting by something else.
-        _ => ("semantic_key", scope.desc),
-    };
-    let cols = format!("{lead}, semantic_key, site_id, qualifier");
-    let dir = if descending { "DESC" } else { "ASC" };
-    let order = format!("{lead} {dir}, semantic_key {dir}, site_id {dir}, qualifier {dir}");
-    let seek = if descending { "<" } else { ">" };
-
-    let cursor = scope
-        .cursor
-        .as_deref()
-        .map(MappingCursor::decode)
-        .transpose()?;
-    let limit = scope
-        .limit
-        .unwrap_or(DEFAULT_MAPPING_LIMIT)
-        .clamp(1, MAX_MAPPING_LIMIT);
-
-    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
-    // inside the seek — and two references makes PostgreSQL materialise a
-    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
-    // pushed through. Materialised, this reads the whole table and sorts it
-    // to hand back one page; inlined, it seeks the index. See
-    // `postgres::audit::list_audit`, where the difference was measured.
-    let sql = format!(
-        "WITH searched AS NOT MATERIALIZED ({MAPPING_ROWS}),
-              kept AS NOT MATERIALIZED (
-             SELECT * FROM searched
-              WHERE ($2::text[] IS NULL OR site_id = ANY($2))
-                AND ($3::text[] IS NULL OR semantic_key = ANY($3))
-         )
-         SELECT * FROM kept
-          WHERE $4::text IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept
-                                  WHERE semantic_key = $4 AND site_id = $5
-                                    AND qualifier = $6)
-          ORDER BY {order}
-          LIMIT $7"
-    );
-    let rows = sqlx::query(&sql)
-        .bind(&needle)
-        .bind(&sites)
-        .bind(&keys)
-        .bind(cursor.as_ref().map(|c| c.semantic_key.clone()))
-        .bind(cursor.as_ref().map(|c| c.site_id.clone()))
-        .bind(cursor.as_ref().map(|c| c.qualifier.clone()))
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
-
-    let next_cursor = match rows.last() {
-        Some(row) if rows.len() as i64 == limit => Some(
-            MappingCursor {
-                semantic_key: row.try_get("semantic_key")?,
-                qualifier: row.try_get("qualifier")?,
-                site_id: row.try_get("site_id")?,
-            }
-            .encode()?,
-        ),
-        _ => None,
-    };
-
-    let out = rows.iter().map(to_mapping).collect::<Result<Vec<_>, _>>()?;
-    let (total, facets) = mapping_facets(pool, &scope, needle.as_deref()).await?;
-    let required_keys = required_semantic_keys();
-    let locations = book_locations(pool).await?;
-
-    // The gap, over the whole map. Never narrowed — see `unmapped_pairs`.
-    let required: Vec<String> = required_keys.iter().map(|doc| doc.key.clone()).collect();
-    let mapped_pairs: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::bigint FROM (
-             SELECT DISTINCT m.semantic_key, m.site_id
-               FROM account_map m
-               JOIN site s ON s.id = m.site_id
-              WHERE m.semantic_key = ANY($1)
-         ) pair",
-    )
-    .bind(&required)
-    .fetch_one(pool)
-    .await?;
-    let unmapped_pairs = (required.len() as i64 * locations.len() as i64 - mapped_pairs).max(0);
-
-    Ok(AccountMapPage {
-        rows: out,
-        next_cursor,
-        total,
-        unmapped_pairs,
-        locations,
-        required_keys,
-        facets,
-    })
-}
-
-/// How many mappings there are, and how they split.
-///
-/// Per-value counts read the SEARCHED set and the total reads the FILTERED
-/// one, for the reason every other facet query here gives.
-async fn mapping_facets(
-    pool: &PgPool,
-    scope: &AccountMapScope,
-    needle: Option<&str>,
-) -> Result<(i64, AccountMapFacets), AppError> {
-    let sql = format!(
-        "WITH searched AS ({MAPPING_ROWS}), kept AS (
-             SELECT * FROM searched
-              WHERE ($2::text[] IS NULL OR site_id = ANY($2))
-                AND ($3::text[] IS NULL OR semantic_key = ANY($3))
-         )
-         SELECT 'site' AS kind, s.site_id AS value,
-                (SELECT p.name FROM site p WHERE p.id = s.site_id) AS label,
-                COUNT(*)::bigint AS n
-           FROM searched s GROUP BY s.site_id
-          UNION ALL
-         SELECT 'key', s.semantic_key, NULL::text, COUNT(*)::bigint
-           FROM searched s GROUP BY s.semantic_key
-          UNION ALL
-         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
-    );
-    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
-    let keys = (!scope.keys.is_empty()).then(|| scope.keys.clone());
-    let rows = sqlx::query(&sql)
-        .bind(needle)
-        .bind(&sites)
-        .bind(&keys)
-        .fetch_all(pool)
-        .await?;
-
-    let mut total = 0i64;
-    let mut sites_out = Vec::new();
-    let mut keys_out = Vec::new();
-    for row in &rows {
-        let kind: String = row.try_get("kind")?;
-        let value: String = row.try_get("value")?;
-        let label: Option<String> = row.try_get("label")?;
-        let n: i64 = row.try_get("n")?;
-        let facet = AccountMapFacet {
-            value,
-            label,
-            count: n,
-        };
-        match kind.as_str() {
-            "site" => sites_out.push(facet),
-            "key" => keys_out.push(facet),
-            _ => total = n,
-        }
-    }
-    for list in [&mut sites_out, &mut keys_out] {
-        list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
-    }
-    Ok((
-        total,
-        AccountMapFacets {
-            sites: sites_out,
-            keys: keys_out,
-        },
-    ))
-}
-
 /// What somebody is trying to do with the account, so the refusal can say what
 /// it actually cost them rather than describing the chart at them.
 ///
@@ -3097,9 +2642,9 @@ const POLICY_SELECT: &str = "
       -- as far as this estate is concerned, and posts as it always did.
       LEFT JOIN LATERAL (
           SELECT COUNT(*) > 0 AS is_bank
-            FROM account_map m
-           WHERE m.account_code = a.account_code AND m.site_id = $2
-             AND m.semantic_key = ANY($3)
+            FROM account_resolution r
+           WHERE r.account_code = a.account_code AND r.site_id = $2
+             AND r.role = ANY($3)
       ) meant ON true
       LEFT JOIN LATERAL (
           SELECT COALESCE(ARRAY_AGG(c.account_id
@@ -3465,80 +3010,6 @@ pub async fn validate_account_posting(
     }
 }
 
-/// Point a meaning at an account, or move it.
-///
-/// Upsert rather than insert: remapping is an ordinary act — a bank changes, a
-/// location opens — and making somebody delete first would leave a window in
-/// which posting fails for a reason nobody intended.
-pub async fn set_account_mapping(
-    pool: &PgPool,
-    request: &SetAccountMappingRequest,
-    actor: &str,
-) -> Result<AccountMapping, AppError> {
-    let key = request.semantic_key.trim().to_ascii_lowercase();
-    if key.is_empty() {
-        return Err(AppError::Validation("semantic_key is required".into()));
-    }
-
-    // Checked here as well as by the composite foreign key below, for the same
-    // reason the poster checks balance before the trigger does: the constraint
-    // is the guarantee, this is the explanation.
-    let code = request.account_code.trim();
-    assert_postable(pool, code, Intent::Map).await?;
-
-    // Half a mapping is the account and half is the category, and both are
-    // checked before either is written. A row that names `6301` without an
-    // `expense_category` is not a mapping somebody can finish later: it is a
-    // mapping every posting through it will be refused by, weeks from now, in
-    // front of somebody who did not make it.
-    let category = request
-        .category_code
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    assert_category_for_account(pool, code, category, Intent::Map).await?;
-
-    sqlx::query(
-        "INSERT INTO account_map
-           (semantic_key, site_id, qualifier, account_code, category_code, set_by, note)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         ON CONFLICT (semantic_key, site_id, qualifier)
-         DO UPDATE SET account_code = EXCLUDED.account_code,
-                       category_code = EXCLUDED.category_code,
-                       set_by = EXCLUDED.set_by,
-                       set_at = now(),
-                       note = EXCLUDED.note",
-    )
-    .bind(&key)
-    .bind(&request.site_id)
-    .bind(request.qualifier.trim())
-    .bind(code)
-    .bind(category)
-    .bind(actor)
-    .bind(request.note.as_deref())
-    .execute(pool)
-    .await?;
-
-    // Read the row back rather than assembling one from what was sent: the
-    // account's NAME comes from the chart, and the `set_at` is the database's.
-    // One row by its natural key, not a page of the map filtered in Rust —
-    // which is what this did before `account_map_page` existed and is a
-    // fourteenth of the work.
-    let row = sqlx::query(
-        "SELECT m.semantic_key, m.site_id, m.qualifier, m.account_code, m.category_code,
-                a.name AS account_name, m.set_by, m.set_at, m.note
-           FROM account_map m JOIN ledger_account a ON a.account_code = m.account_code
-          WHERE m.semantic_key = $1 AND m.site_id = $2 AND m.qualifier = $3",
-    )
-    .bind(&key)
-    .bind(&request.site_id)
-    .bind(request.qualifier.trim())
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("account mapping".into()))?;
-    to_mapping(&row)
-}
-
 /// An account and the category the map chose with it.
 ///
 /// Two halves of one answer, and they travel together on purpose. With forty
@@ -3557,41 +3028,73 @@ pub struct Resolved {
     pub category_code: Option<String>,
 }
 
-/// Resolve a meaning to an account and its category, refusing rather than
-/// guessing.
-///
-/// The error names the key, the location and the qualifier, because that is
-/// exactly what somebody has to go and fill in on the Account Map screen. An
-/// error saying "posting failed" would send them to read code.
+/// Resolve a role to an account and its category, refusing rather than
+/// guessing — from the company's defaults, with `source_id` the bank, pay class
+/// or asset class the rule narrows by.
 pub async fn resolve_account(
     executor: impl sqlx::PgExecutor<'_>,
-    semantic_key: &str,
+    role: &str,
     site_id: &str,
-    qualifier: &str,
+    source_id: &str,
 ) -> Result<Resolved, AppError> {
-    // Every qualifier this meaning has at this place, not just the one asked
-    // for. The extra rows are free — the primary key is
-    // (semantic_key, site_id, qualifier), so this is the same index walk — and
-    // they turn the commonest failure from a dead end into a diagnosis.
-    //
-    // That failure is a posting that names NO acquirer meeting a map that is
-    // kept per acquirer: the refusal read "no account is mapped for
-    // 'revenue_debit' at store-01", the reader opened the Account Map screen,
-    // saw `revenue_debit` sitting there under BCA and MANDIRI, and concluded
-    // the error was lying. It was not — an unqualified lookup does not match a
-    // qualified row — but nothing in it said so.
-    let rows = sqlx::query(
-        "SELECT qualifier, account_code, category_code FROM account_map
-          WHERE semantic_key = $1 AND site_id = $2
-          ORDER BY qualifier",
+    resolve_account_from(executor, role, site_id, "COMPANY", source_id).await
+}
+
+/// The account a role resolves to from one source at one site, if any link
+/// answers. Reads `account_resolution`, where the most specific scope has
+/// already won (0460).
+pub async fn resolve_linked(
+    executor: impl sqlx::PgExecutor<'_>,
+    role: &str,
+    site_id: &str,
+    source_type: &str,
+    source_id: &str,
+) -> Result<Option<Resolved>, AppError> {
+    let row = sqlx::query(
+        "SELECT account_code, category_code FROM account_resolution
+          WHERE role = $1 AND site_id = $2 AND source_type = $3 AND source_id = $4",
     )
-    .bind(semantic_key)
+    .bind(role)
     .bind(site_id)
+    .bind(source_type)
+    .bind(source_id)
+    .fetch_optional(executor)
+    .await?;
+    Ok(row.map(|row| Resolved {
+        account_code: row.get::<String, _>("account_code"),
+        category_code: row.get::<Option<String>, _>("category_code"),
+    }))
+}
+
+/// Resolve a role from a source — the company's defaults or a master record
+/// (expense category, pay component, payment method, …) — refusing rather
+/// than guessing.
+///
+/// The refusal names the role, the source and the site, says which scopes
+/// were looked at, and lists the records the role IS linked under at that
+/// site, because that is exactly what somebody has to go and fill in. An error
+/// saying "posting failed" would send them to read code.
+pub async fn resolve_account_from(
+    executor: impl sqlx::PgExecutor<'_>,
+    role: &str,
+    site_id: &str,
+    source_type: &str,
+    source_id: &str,
+) -> Result<Resolved, AppError> {
+    let rows = sqlx::query(
+        "SELECT r.source_id, r.account_code, r.category_code
+           FROM account_resolution r
+          WHERE r.role = $1 AND r.site_id = $2 AND r.source_type = $3
+          ORDER BY r.source_id",
+    )
+    .bind(role)
+    .bind(site_id)
+    .bind(source_type)
     .fetch_all(executor)
     .await?;
     if let Some(row) = rows
         .iter()
-        .find(|row| row.get::<String, _>("qualifier") == qualifier)
+        .find(|row| row.get::<String, _>("source_id") == source_id)
     {
         return Ok(Resolved {
             account_code: row.get::<String, _>("account_code"),
@@ -3601,27 +3104,28 @@ pub async fn resolve_account(
 
     let known: Vec<String> = rows
         .iter()
-        .map(|row| row.get::<String, _>("qualifier"))
+        .map(|row| row.get::<String, _>("source_id"))
         .filter(|q| !q.is_empty())
         .collect();
-    let asked = if qualifier.is_empty() {
-        String::new()
-    } else {
-        format!(" ({qualifier})")
+    let from = match (source_type, source_id.is_empty()) {
+        ("COMPANY", true) => String::new(),
+        ("COMPANY", false) => format!(" ({source_id})"),
+        (kind, _) => format!(" for {} {source_id}", kind.to_lowercase().replace('_', " ")),
     };
     let hint = if known.is_empty() {
         String::new()
-    } else if qualifier.is_empty() {
+    } else if source_id.is_empty() {
         format!(
-            " — the map has it under {}, and this posting named none of them",
+            " — it is linked under {}, and this posting named none of them",
             known.join(", ")
         )
     } else {
-        format!(" — the map has it under {}", known.join(", "))
+        format!(" — it is linked under {}", known.join(", "))
     };
     Err(AppError::Validation(format!(
-        "no account is mapped for '{semantic_key}' at {site_id}{asked}{hint}; \
-         set it on the Account Map screen before posting"
+        "no account is linked for '{role}'{from} at {site_id} (looked for a link for \
+         {site_id}, for its kind of site, and for every site){hint}; link it on the \
+         Account Links screen before posting"
     )))
 }
 

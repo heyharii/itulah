@@ -172,9 +172,9 @@ pekerjaan HO, dan menu ini mengakuinya.
   bukan layar buku besar (COA §5).
 - *Modul "Store finance" terpisah* — HR tidak melakukannya untuk manajer tempat; ia
   hanya melakukannya untuk **karyawan** (`frontend-employee`), dan kasir sudah punya
-  aplikasinya sendiri (tablet till, `frontend-floor`).
+  aplikasinya sendiri (tablet till di toko).
 - *Baris "Inventory & transfers" di Finance* — pekerjaan gudang; ada di modul Inventory
-  dan di `frontend-floor`. Finance hanya membaca nilainya (baris 30 `Stock value`).
+  dan di layar Operations hub (`frontend-floor` dipensiunkan 2026-09-26). Finance hanya membaca nilainya (baris 30 `Stock value`).
 
 ---
 

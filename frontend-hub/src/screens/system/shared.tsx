@@ -17,7 +17,7 @@ export function Secret({
       autoComplete="new-password"
       spellCheck={false}
       className={cn(
-        "h-9 w-full rounded-full border border-transparent bg-soft-2 px-3.5 text-[0.84375rem] text-ink transition-colors outline-none",
+        "h-9 w-full rounded-full border border-transparent bg-soft-2 px-3.5 text-[0.875rem] text-ink transition-colors outline-none",
         "placeholder:text-mute hover:border-hairline-2 hover:bg-soft-3 disabled:opacity-50",
         className
       )}

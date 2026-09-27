@@ -1,11 +1,10 @@
 import { Link } from "@tanstack/react-router"
 
-import { Async, Empty, Panel } from "@/components/bits"
+import { Async, Empty, List, Panel } from "@/components/bits"
 import { StatusPill } from "@/components/status-pill"
-import { Button, buttonVariants } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
+import { Button } from "@/components/ui/button"
+import { button } from "@/components/ui/button-style"
 import { dateRange, dateTime } from "@/lib/format"
-import { cn } from "@/lib/utils"
 import {
   useLeaveEntitlements,
   useLeaveRequests,
@@ -25,39 +24,38 @@ export function Leave() {
   return (
     <div className="flex flex-col gap-4">
       <Panel title="Your balance">
-        <Async
-          query={entitlements}
-          empty="No kind of leave is defined yet."
-        >
+        <Async query={entitlements} empty="No kind of leave is defined yet.">
           {(list) => (
-            <div className="flex flex-col gap-3">
+            <List>
               {list.map((kind) => (
                 <div key={kind.code} className="flex items-baseline gap-3">
                   <div className="min-w-0">
-                    <p className="truncate text-[13px] font-medium">
+                    <p className="truncate text-cell font-medium text-ink">
                       {kind.name}
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-meta text-body">
                       {/* Sick leave and maternity leave draw on nothing: UU
                           13/2003 gives them for as long as the certificate
                           says. "0 left" beside one would be telling somebody
                           they had run out of something that cannot run out. */}
-                      {!kind.drawsOnBalance
-                        ? "No balance — granted as certified"
-                        : (kind.pendingCentidays ?? 0) > 0
-                          ? `${readDays(kind.pendingCentidays ?? 0)} waiting on a decision`
-                          : "Nothing pending"}
+                      {kind.perOccurrenceCentidays !== null
+                        ? `Up to ${readDays(kind.perOccurrenceCentidays)} each time`
+                        : !kind.drawsOnBalance
+                          ? "No balance — granted as certified"
+                          : (kind.pendingCentidays ?? 0) > 0
+                            ? `${readDays(kind.pendingCentidays ?? 0)} waiting on a decision`
+                            : "Nothing pending"}
                       {kind.requiresEvidence && " · needs a document"}
                     </p>
                   </div>
                   {kind.drawsOnBalance && (
-                    <p className="ml-auto shrink-0 text-lg font-semibold tabular-nums">
+                    <p className="num ml-auto shrink-0 text-kpi font-semibold text-ink">
                       {readDays(kind.remainingCentidays ?? 0)}
                     </p>
                   )}
                 </div>
               ))}
-            </div>
+            </List>
           )}
         </Async>
       </Panel>
@@ -67,10 +65,11 @@ export function Leave() {
           holding the device. */}
       <Link
         to="/leave/new"
-        className={cn(
-          buttonVariants({ size: "lg" }),
-          "h-11 w-full md:w-auto md:self-start"
-        )}
+        className={button({
+          variant: "primary",
+          size: "tap",
+          className: "w-full md:h-control md:w-auto md:self-start",
+        })}
       >
         Apply for leave
       </Link>
@@ -78,17 +77,16 @@ export function Leave() {
       <Panel title="Your requests">
         <Async query={requests} empty="You have not asked for leave yet.">
           {(list) => (
-            <div className="flex flex-col">
-              {list.map((request, index) => (
+            <List>
+              {list.map((request) => (
                 <div key={request.id}>
-                  {index > 0 && <Separator className="my-3" />}
                   <div className="flex flex-col gap-1.5">
                     <div className="flex items-start gap-2">
                       <div className="min-w-0">
-                        <p className="text-[13px] font-medium">
+                        <p className="text-cell font-medium text-ink">
                           {dateRange(request.from_date, request.to_date)}
                         </p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-meta text-body">
                           {/* The days actually charged, settled by the server
                               against the holiday calendar on the day this was
                               filed. A holiday inside the span is not one of
@@ -101,13 +99,13 @@ export function Leave() {
                       </div>
                       <StatusPill status={request.state} className="ml-auto" />
                     </div>
-                    <p className="text-[13px]">{request.reason}</p>
+                    <p className="text-cell text-text">{request.reason}</p>
                     {request.decision_reason !== null && (
-                      <p className="text-xs text-muted-foreground italic">
+                      <p className="text-meta text-body italic">
                         {request.decided_by}: {request.decision_reason}
                       </p>
                     )}
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-meta text-mute">
                       Asked {dateTime(request.created_at)}
                     </p>
                     {/* Only a request nobody has decided on can be withdrawn.
@@ -116,8 +114,6 @@ export function Leave() {
                         a button. */}
                     {request.state === "PENDING" && (
                       <Button
-                        variant="outline"
-                        size="sm"
                         className="mt-1 self-start"
                         disabled={withdraw.isPending}
                         onClick={() =>
@@ -137,7 +133,7 @@ export function Leave() {
                   </div>
                 </div>
               ))}
-            </div>
+            </List>
           )}
         </Async>
         {withdraw.error !== null && (

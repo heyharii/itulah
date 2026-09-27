@@ -11,6 +11,7 @@ import { InventoryOverview } from "@/screens/inventory/overview"
 import { Pools } from "@/screens/inventory/pools"
 import { Reconciliations } from "@/screens/inventory/reconciliations"
 import { TimeMachine } from "@/screens/inventory/time-machine"
+import { Units } from "@/screens/inventory/units"
 
 /// Screens this module has written. Keys must be paths declared in
 /// `lib/navigation.ts`; anything not listed here renders `Placeholder`.
@@ -29,4 +30,5 @@ export const screens: ScreenMap = {
   "/inventory/as-of": AsOf,
   "/inventory/control": Control,
   "/inventory/time-machine": TimeMachine,
+  "/inventory/units": Units,
 }

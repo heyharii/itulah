@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import * as api from "@/api"
+import { Icon } from "@/icons"
 import { PinPad } from "@/pinpad"
 import { supervisorByFinger, supervisorByPin } from "@/session"
 import { Topbar } from "@/till"
@@ -446,10 +447,10 @@ function useSupervisor() {
   async function ask(): Promise<void> {
     // Started before the call rather than after it: see `GRANT_MS`.
     const pressed = Date.now()
-    setAsking(true)
+    setAsking("FINGER")
     setRefused(null)
     const answer = await supervisorByFinger()
-    setAsking(false)
+    setAsking(null)
     take(pressed, answer, "FINGER")
   }
 
@@ -477,10 +478,10 @@ function useSupervisor() {
       })
       return
     }
-    setAsking(true)
+    setAsking("PIN")
     setRefused(null)
     const answer = await supervisorByPin(who, typed)
-    setAsking(false)
+    setAsking(null)
     // Gone the moment the node has answered, refusal included. It bought a grant
     // or it bought nothing, and there is no second thing to buy with it either
     // way — a PIN still in the ref is a PIN the next person at this counter can
@@ -585,46 +586,28 @@ function Authorisation({ hold }: { hold: Supervision }) {
   return (
     <>
       <span className="label">Otorisasi supervisor</span>
-      <div className="notice">
-        Supervisor mengotorisasi sendiri di sini, dengan kasir tetap masuk —
-        mengetik sandinya
-        {hold.stepUp === "PIN"
-          ? ", atau menekan PIN-nya di pad di bawah"
-          : ", atau menempelkan jarinya pada pemindai konter ini"}
-        . Terminal tidak menyimpan apa pun: begitu node menjawab, kolomnya
-        dikosongkan, PIN-nya dihapus dan otorisasinya dilepas.
-      </div>
-
       {granted !== null && left !== null ? (
         <>
           {/* Who, before anything else. A cashier has to be able to see that a
               real person was recognised, and the name is the node's answer —
               it is also the name that will be written on the row. */}
           <div className="notice">
-            Diotorisasi oleh <strong>{granted.who}</strong>, lewat{" "}
-            {granted.how === "PIN" ? "PIN" : "sidik jari"} di konter ini. Nama
-            itu datang dari node — bukan dari kolom di layar ini — dan itulah
-            nama yang tercatat pada tindakan ini. Kata sandi tidak dikirim.
+            Diotorisasi oleh <strong>{granted.who}</strong> (
+            {granted.how === "PIN" ? "PIN" : "sidik jari"})
           </div>
           {left > GRANT_WARNING_MS ? (
             <p className="muted">
-              Sekali pakai, dan berlaku{" "}
-              <span className="num">{countdown(left)}</span> lagi.
+              Berlaku <span className="num">{countdown(left)}</span> lagi
             </p>
           ) : (
             <div className="notice warn">
-              Otorisasi ini tinggal{" "}
-              <strong className="num">{countdown(left)}</strong>. Lewat dari itu
-              node menolaknya dan tindakan ini tidak tercatat — kirim sekarang,
-              atau minta supervisor{" "}
-              {granted.how === "PIN"
-                ? "menekan PIN-nya lagi"
-                : "menekan jarinya lagi"}
-              .
+              Otorisasi tinggal{" "}
+              <strong className="num">{countdown(left)}</strong> — kirim
+              sekarang.
             </div>
           )}
           <button className="btn ghost" type="button" onClick={hold.release}>
-            Lepas otorisasi dan ketik manual
+            Lepas otorisasi
           </button>
         </>
       ) : (
@@ -642,7 +625,7 @@ function Authorisation({ hold }: { hold: Supervision }) {
               ref={hold.username}
               autoComplete="off"
               spellCheck={false}
-              placeholder="Nama pengguna di node toko"
+              placeholder="Nama pengguna"
             />
           </label>
           <label className="field">
@@ -657,31 +640,21 @@ function Authorisation({ hold }: { hold: Supervision }) {
               node nobody is meant to be selling from. */}
           {hold.stepUp === "PIN" && (
             <div>
-              <span className="label">Otorisasi dengan PIN</span>
-              <div className="notice warn" style={{ marginTop: 8 }}>
-                <strong>PIN hanya diterima node latihan (staging).</strong> Node
-                produksi menolak PIN dan meminta sidik jari. Jadi kalau pad ini
-                muncul, konter ini terhubung ke node latihan — retur dan void di
-                sini adalah latihan, bukan uang pelanggan. Kata sandi tetap
-                berlaku di node mana pun.
-              </div>
-              <p className="muted" style={{ marginTop: 6 }}>
-                PIN dipakai bersama nama pengguna supervisor di kolom di atas.
-              </p>
+              <span className="label">Atau PIN supervisor</span>
               <PinPad
                 value={hold.pinValue}
                 onChange={hold.setPin}
                 onSubmit={() => void hold.askPin()}
-                disabled={hold.asking}
+                disabled={hold.asking !== null}
               />
               <button
                 className="btn"
                 type="button"
                 style={{ marginTop: 8 }}
-                disabled={hold.asking || hold.pinValue === ""}
+                disabled={hold.asking !== null || hold.pinValue === ""}
                 onClick={() => void hold.askPin()}
               >
-                {hold.asking
+                {hold.asking === "PIN"
                   ? "Menanyakan ke node…"
                   : "Otorisasi dengan PIN ini"}
               </button>
@@ -690,41 +663,24 @@ function Authorisation({ hold }: { hold: Supervision }) {
         </>
       )}
 
+      {(hold.stepUp === "FINGERPRINT" || granted !== null) && (
       <button
         className="btn"
         type="button"
-        disabled={hold.asking}
+        disabled={hold.asking !== null}
         onClick={() => void hold.ask()}
       >
-        {hold.asking
+        {hold.asking === "FINGER"
           ? "Menunggu jari pada pemindai…"
           : granted === null
             ? "Otorisasi dengan sidik jari"
             : "Tekan sidik jari lagi"}
       </button>
+      )}
 
       {hold.refused !== null && (
         <>
           <p className="error">{hold.refused.text}</p>
-          {/* Three different problems come through that one sentence, and only
-              one of them is answered by pressing again. Flattened into "coba
-              lagi" it would send a cashier pressing at a counter that has no
-              reader attached at all, while a queue waits. */}
-          {hold.refused.fromPress && (
-            <div className="notice warn">
-              Kalimatnya milik pihak yang menolak, dan tiga hal yang berbeda
-              bisa berakhir di situ. <strong>Pemindainya tidak terpasang</strong>{" "}
-              di mesin ini: ditekan berapa kali pun hasilnya sama sampai
-              pembacanya dipasang, jadi sekarang pakai kata sandi.{" "}
-              <strong>
-                Belum ada supervisor yang sidik jarinya terdaftar
-              </strong>{" "}
-              di toko ini: mendaftarkannya lewat akun admin, bukan dari layar
-              ini. <strong>Jarinya tidak cocok</strong>: hanya yang ini yang
-              selesai dengan menekan lagi — tempelkan lebih rata, lalu coba
-              sekali lagi.
-            </div>
-          )}
         </>
       )}
     </>
@@ -785,7 +741,7 @@ function SaleFinder({
   hint,
 }: {
   hold: ReturnType<typeof useSaleLookup>
-  hint: string
+  hint: string | null
 }) {
   return (
     <form
@@ -806,7 +762,7 @@ function SaleFinder({
           autoFocus
         />
       </label>
-      <p className="muted">{hint}</p>
+      {hint !== null && <p className="muted">{hint}</p>}
       <button className="btn" type="submit" disabled={hold.looking}>
         {hold.looking ? "Mencari…" : "Buka penjualan"}
       </button>
@@ -1112,10 +1068,6 @@ export function ReturnScreen({
                 <h1 className="num">
                   {done.refundMinor === null ? "—" : money(done.refundMinor)}
                 </h1>
-                <p>
-                  Angka ini milik node: yang dikembalikan adalah yang tercatat
-                  pada baris penjualannya, bukan hitungan layar ini.
-                </p>
               </div>
               <button className="btn primary" onClick={onBack}>
                 Selesai
@@ -1137,13 +1089,6 @@ export function ReturnScreen({
                 </span>
               </div>
             </div>
-            {done.remaining === 0 && (
-              <div className="notice">
-                Seluruh keranjang sudah kembali. Penjualannya sendiri tetap ada
-                dan tidak menjadi void — void adalah penjualan yang seharusnya
-                tidak pernah terjadi.
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -1158,14 +1103,11 @@ export function ReturnScreen({
           <div className="page-head">
             <div>
               <span className="label">Retur</span>
-              <h1>Barang kembali</h1>
-              <p>
-                Penjualannya tetap berlaku. Yang kembali dipindai satu per satu,
-                dan setiap tag harus diberi tujuan sebelum retur dikirim.
-              </p>
+              <h1>Retur barang</h1>
             </div>
             <button className="btn ghost" onClick={onBack}>
-              ← Konter
+              <Icon name="back" />
+              Kembali ke konter
             </button>
           </div>
 
@@ -1194,17 +1136,13 @@ export function ReturnScreen({
 
           <SaleFinder
             hold={lookup}
-            hint="ID penjualan, bukan nomor struk. Nomor di kertas hanya memuat enam karakter terakhirnya, dan node mencari dengan ID penuh."
+            hint={null}
           />
           {lookup.trouble !== null && <p className="error">{lookup.trouble}</p>}
 
           {sale === null ? (
             <div className="empty">
               <h3>Belum ada penjualan dibuka</h3>
-              <p>
-                Retur selalu melawan satu penjualan: node menolak tag yang tidak
-                pernah terjual di struk itu.
-              </p>
             </div>
           ) : (
             <>
@@ -1213,11 +1151,6 @@ export function ReturnScreen({
 
               <div className="divider" />
               <span className="label">Barang yang kembali</span>
-              <div className="notice">
-                Struk tidak menyebut tag: barisnya hanya nama, SKU dan uang.
-                Jadi barang mana yang pulang ditentukan oleh tag yang dipindai
-                di sini, bukan oleh baris struk di atas.
-              </div>
               <form
                 onSubmit={(event) => {
                   event.preventDefault()
@@ -1233,7 +1166,7 @@ export function ReturnScreen({
                     ref={scan}
                     autoComplete="off"
                     spellCheck={false}
-                    placeholder="Dekatkan tag RFID, atau ketik EPC-nya…"
+                    placeholder="Pindai tag atau ketik EPC"
                   />
                 </label>
               </form>
@@ -1242,7 +1175,6 @@ export function ReturnScreen({
               {coming.length === 0 ? (
                 <div className="empty">
                   <h3>Belum ada tag dipindai</h3>
-                  <p>Satu tag adalah satu garmen yang pulang.</p>
                 </div>
               ) : (
                 <div className="rows">
@@ -1310,9 +1242,7 @@ export function ReturnScreen({
 
               {undecided > 0 && (
                 <div className="notice warn">
-                  {undecided} tag belum diberi tujuan. Tidak ada yang dipilihkan
-                  di sini: barang rusak yang diam-diam kembali ke lantai jual
-                  adalah barang yang dijual dua kali.
+                  {undecided} tag belum diberi tujuan.
                 </div>
               )}
               {overscanned.length > 0 && (
@@ -1345,10 +1275,6 @@ export function ReturnScreen({
                   </button>
                 ))}
               </div>
-              <p className="muted">
-                Tidak diambil dari cara bayarnya dulu — penjualan kartu yang
-                dikembalikan tunai terjadi setiap hari.
-              </p>
 
               {method !== null && method !== "CASH" && (
                 <label className="field">
@@ -1501,26 +1427,12 @@ export function VoidScreen({
           <div className="page-head">
             <div>
               <span className="label">Void</span>
-              <h1>Penjualan dibatalkan seluruhnya</h1>
-              <p>
-                Void bukan retur. Void berarti penjualan ini seharusnya tidak
-                pernah terjadi.
-              </p>
+              <h1>Void penjualan</h1>
             </div>
             <button className="btn ghost" onClick={onBack}>
-              ← Konter
+              <Icon name="back" />
+              Kembali ke konter
             </button>
-          </div>
-
-          <div className="notice warn">
-            <strong>Bedanya dengan retur.</strong> Retur mengakui penjualan yang
-            memang terjadi: barangnya dipindai satu per satu dan tiap tag diberi
-            tujuan. Void menghapus seluruh penjualannya — salah tekan, salah
-            pelanggan, transaksi latihan — seluruh isi keranjang kembali ke
-            lantai jual dalam satu gerakan dan seluruh uangnya keluar. Tidak ada
-            tujuan yang dipilih di sini, karena tidak ada yang pernah
-            dipertanyakan tentang barangnya. Kalau barangnya memang dibeli lalu
-            dikembalikan, yang benar adalah retur.
           </div>
 
           <div className="steps">
@@ -1537,27 +1449,18 @@ export function VoidScreen({
 
           <SaleFinder
             hold={lookup}
-            hint="ID penjualan, bukan nomor struk. Node hanya bisa membatalkan penjualan yang masih berstatus selesai."
+            hint={null}
           />
           {lookup.trouble !== null && <p className="error">{lookup.trouble}</p>}
 
           {sale === null ? (
             <div className="empty">
               <h3>Belum ada penjualan dibuka</h3>
-              <p>
-                Yang dibatalkan harus dilihat dulu: void mengeluarkan seluruh
-                uangnya sekaligus.
-              </p>
             </div>
           ) : (
             <>
               <div className="divider" />
               <SaleSummary sale={sale} />
-              <div className="notice">
-                Unit yang sudah diretur tidak ikut terbawa — masing-masing sudah
-                pulang lewat pergerakannya sendiri, dan node hanya membawa yang
-                masih di tangan pelanggan.
-              </div>
 
               <div className="divider" />
               <label className="field">
@@ -1565,7 +1468,7 @@ export function VoidScreen({
                 <input
                   value={reason}
                   onChange={(event) => setReason(event.target.value)}
-                  placeholder="Misalnya: salah tekan, keranjang milik pelanggan lain"
+                  placeholder="Misalnya: salah tekan"
                   autoComplete="off"
                 />
               </label>

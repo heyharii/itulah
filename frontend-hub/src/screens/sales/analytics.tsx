@@ -249,7 +249,7 @@ export function SalesAnalytics() {
                   <span className="text-card-title font-semibold text-ink">
                     Sales by store
                   </span>
-                  <span className="text-[0.71875rem] text-mute">
+                  <span className="text-[0.875rem] text-mute">
                     {spanText} · {count(trading.length)} of{" "}
                     {count(rows.length)} stores trading · faint bars are the{" "}
                     {period.buckets} {period.bucket}
@@ -279,7 +279,7 @@ export function SalesAnalytics() {
                         )}
                       </span>
                       {before === undefined ? (
-                        <span className="text-[0.65625rem] text-faint">
+                        <span className="text-[0.875rem] text-faint">
                           {option.hint}
                         </span>
                       ) : (

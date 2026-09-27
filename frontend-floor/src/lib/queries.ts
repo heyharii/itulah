@@ -31,6 +31,9 @@ export const keys = {
 
   // ── Tag ──────────────────────────────────────────────────────────────────
   taggingJobs: () => ["dc", "tagging-jobs"] as const,
+  /// The print run a job has, if any — under `dc` so a settled job refreshes it.
+  jobRun: (jobId: string) =>
+    ["dc", "tagging-jobs", jobId, "print-session"] as const,
 
   // ── Ambil ────────────────────────────────────────────────────────────────
   /// What is still owed, by SKU. Recomputed on every read — nobody authors it,
@@ -48,7 +51,8 @@ export const keys = {
   // ── Kirim ────────────────────────────────────────────────────────────────
   shipments: (filter: ListFilter = {}) => ["dc", "shipments", filter] as const,
   shipment: (id: string) => ["dc", "shipment", id] as const,
-  dispatches: (filter: ListFilter = {}) => ["dc", "dispatches", filter] as const,
+  dispatches: (filter: ListFilter = {}) =>
+    ["dc", "dispatches", filter] as const,
   dispatch: (id: string) => ["dc", "dispatch", id] as const,
 
   // ── Opname ───────────────────────────────────────────────────────────────
@@ -91,6 +95,11 @@ export const reads = {
     queryOptions({
       queryKey: keys.taggingJobs(),
       queryFn: ({ signal }) => dc.taggingJobs(signal),
+    }),
+  jobRun: (jobId: string) =>
+    queryOptions({
+      queryKey: keys.jobRun(jobId),
+      queryFn: ({ signal }) => dc.jobPrintSession(jobId, signal),
     }),
   picklist: () =>
     queryOptions({

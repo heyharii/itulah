@@ -132,6 +132,34 @@ pub async fn unit_results(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DimensionQuery {
+    pub dimension: String,
+    pub from: chrono::NaiveDate,
+    pub to: chrono::NaiveDate,
+    pub site: Option<String>,
+}
+
+/// The profit and loss cut by one accounting dimension (0470): one row per
+/// value, and one for the lines that carry none, so the rows add up.
+pub async fn dimension_results(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<DimensionQuery>,
+) -> Result<Json<Vec<infrastructure::DimensionResult>>, AppError> {
+    allowed(&principal, Role::Supervisor, "read the dimension results")?;
+    Ok(Json(
+        infrastructure::dimension_results(
+            &state.db,
+            &query.dimension,
+            query.from,
+            query.to,
+            query.site.as_deref(),
+        )
+        .await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CloseRequest {
     pub year: i32,
     pub month: u32,
@@ -206,4 +234,5 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
             get(profit_and_loss),
         )
         .route("/api/v1/finance/reports/unit-results", get(unit_results))
+        .route("/api/v1/finance/reports/dimension-results", get(dimension_results))
 }

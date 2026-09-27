@@ -25,8 +25,10 @@
 //! not here, and it is the giro print step's to add: an account that was
 //! default in March is not evidence about what a March giro said.
 
+use super::destinations::{destination_key, fingerprint};
 use super::{begin_idempotent, complete_idempotent, NullablePatch};
 use crate::cloud::application::AppError;
+use crate::cloud::domain::payment_account_mask;
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, PgPool, Row};
 use uuid::Uuid;
@@ -58,6 +60,13 @@ pub struct SupplierBankAccount {
     /// reason every master here does it: a retirement nobody can find is a
     /// retirement nobody can undo.
     pub retired: bool,
+    /// `UNVERIFIED`, `VERIFIED` or `REJECTED` (0308). Read-only here on
+    /// purpose: verifying a number is Finance's act, done on the payment it
+    /// is about to fund — a supplier master that could verify its own
+    /// account would be the fraud control signing itself off. Carried so a
+    /// register reading the same book can show the state without asking a
+    /// second endpoint.
+    pub verification_status: Option<String>,
     pub note: Option<String>,
     /// What a PATCH must quote in `If-Match`.
     pub version: i32,
@@ -118,9 +127,17 @@ pub struct UpdateSupplierBankAccountRequest {
     pub retired: Option<bool>,
 }
 
-const ACCOUNT_COLUMNS: &str = "account_id, supplier_id, bank_name, account_no, account_holder, \
-                               branch, is_default, (retired_at IS NOT NULL) AS retired, note, \
-                               version";
+// The merged table carries the party as `(party_type, party_id)` text and the
+// bank as an institution row, so the screen's columns are assembled: the
+// supplier id back from the text party id, the bank's name from the JOIN.
+// There is no version counter on `bank_account`; the second-granularity stamp
+// of the last write stands in for one, which is what `If-Match` quotes.
+const ACCOUNT_FROM: &str = "FROM bank_account b JOIN bank bk ON bk.bank_id = b.bank_id";
+const ACCOUNT_COLUMNS: &str = "b.account_id, b.party_id::uuid AS supplier_id, \
+                               bk.name AS bank_name, b.account_no, b.account_holder, \
+                               branch, is_default, (b.retired_at IS NOT NULL) AS retired, \
+                               verification_status, \
+                               note, (extract(epoch FROM b.updated_at))::bigint AS version";
 
 fn account_from_row(row: &PgRow) -> Result<SupplierBankAccount, AppError> {
     Ok(SupplierBankAccount {
@@ -132,8 +149,11 @@ fn account_from_row(row: &PgRow) -> Result<SupplierBankAccount, AppError> {
         branch: row.try_get("branch")?,
         is_default: row.try_get("is_default")?,
         retired: row.try_get("retired")?,
+        verification_status: row.try_get("verification_status")?,
         note: row.try_get("note")?,
-        version: row.try_get("version")?,
+        // Epoch seconds fit an i32 until 2038; the wire field predates the
+        // merged table and keeps its name.
+        version: row.try_get::<i64, _>("version")? as i32,
     })
 }
 
@@ -173,9 +193,9 @@ pub(crate) fn normalize_bank(value: &str) -> Result<(String, String), AppError> 
 /// What was typed, and the digits it comes down to.
 ///
 /// `123-456-789` and `123456789` are the same account. The bounds match the
-/// `CHECK` in 0221 so that a number too short to be one is refused here, with a
-/// sentence, rather than by SQLSTATE 23514 arriving as "database operation
-/// failed".
+/// `CHECK` on `bank_account.account_no_digits` (0302) so that a number too
+/// short to be one is refused here, with a sentence, rather than by SQLSTATE
+/// 23514 arriving as "database operation failed".
 pub(crate) fn normalize_account_no(value: &str) -> Result<(String, String), AppError> {
     let display = value.trim().to_owned();
     let digits: String = display.chars().filter(char::is_ascii_digit).collect();
@@ -209,10 +229,14 @@ fn map_write_error(error: sqlx::Error) -> AppError {
     if let sqlx::Error::Database(database) = &error {
         return match database.code().as_deref() {
             Some("23505") => AppError::Conflict(
-                "this supplier already has that account number at that bank".to_owned(),
+                // The identity index (0302) spans every party and our own
+                // accounts alike: a number lives at one bank once, whoever
+                // owns it.
+                "that account number is already recorded at that bank".to_owned(),
             ),
-            // The supplier in the path does not exist. A 404 rather than a 500,
-            // because the caller asked about somebody who is not there.
+            // The institution foreign key. The supplier side is text and
+            // checked in the code above, so this can only be a `bank_id`
+            // that lost its row mid-flight — a 404 rather than a 500.
             Some("23503") => AppError::NotFound("Supplier".to_owned()),
             Some("23514") | Some("23502") => AppError::Validation(database.message().to_owned()),
             _ => AppError::Database(error),
@@ -233,12 +257,12 @@ pub async fn supplier_bank_accounts(
 ) -> Result<Vec<SupplierBankAccount>, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT {ACCOUNT_COLUMNS}
-           FROM supplier_bank_account
-          WHERE supplier_id = $1
-            AND ($2 OR retired_at IS NULL)
-          ORDER BY (retired_at IS NOT NULL), is_default DESC, bank_name, account_no"
+           {ACCOUNT_FROM}
+          WHERE b.party_type = 'SUPPLIER' AND b.party_id = $1
+            AND ($2 OR b.retired_at IS NULL)
+          ORDER BY (b.retired_at IS NOT NULL), b.is_default DESC, bank_name, b.account_no"
     ))
-    .bind(supplier_id)
+    .bind(supplier_id.to_string())
     .bind(include_retired)
     .fetch_all(pool)
     .await?;
@@ -248,7 +272,8 @@ pub async fn supplier_bank_accounts(
 
 async fn read_account(pool: &PgPool, account_id: Uuid) -> Result<SupplierBankAccount, AppError> {
     let row = sqlx::query(&format!(
-        "SELECT {ACCOUNT_COLUMNS} FROM supplier_bank_account WHERE account_id = $1"
+        "SELECT {ACCOUNT_COLUMNS} {ACCOUNT_FROM}
+          WHERE b.account_id = $1 AND b.party_type = 'SUPPLIER'"
     ))
     .bind(account_id)
     .fetch_optional(pool)
@@ -281,6 +306,18 @@ pub async fn create_supplier_bank_account(
     let (bank_name, bank_normalized) = normalize_bank(&request.bank_name)?;
     let (account_no, account_digits) = normalize_account_no(&request.account_no)?;
     let account_holder = required(&request.account_holder, "account holder")?;
+    // The number is encrypted at rest on a PARTY row, and 0308's
+    // `bank_account_check6` enforces it: a row that is not ours must carry
+    // `account_number_enc`. That rule came over from `payment_destination`
+    // (0151) with the merge, and it is the same rule for the same reason — a
+    // recipient's account number is the one field on this table that a dump
+    // must not hand over in the clear.
+    //
+    // So the key, the mask and the fingerprint are the ones `destinations.rs`
+    // computes, reused rather than restated: two definitions of "the same
+    // account" is how a duplicate gets in, and two definitions of the key is
+    // how a row becomes unreadable.
+    let key = destination_key()?;
     let branch = optional(request.branch.as_deref());
     let note = optional(request.note.as_deref());
 
@@ -296,6 +333,39 @@ pub async fn create_supplier_bank_account(
         return Ok(serde_json::from_value(response)?);
     }
 
+    // The merged table carries the party as free text, so "no such supplier"
+    // is no longer a foreign key's answer — it is asked here, where it can
+    // still be a 404 instead of an account pointing at nobody.
+    let supplier_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM supplier WHERE supplier_id = $1)")
+            .bind(supplier_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+    if !supplier_exists {
+        return Err(AppError::NotFound("Supplier".to_owned()));
+    }
+
+    // The institution is a row now; the name typed resolves to it or the
+    // account is refused, rather than naming a bank that does not exist.
+    let bank_id: Uuid = sqlx::query_scalar("SELECT bank_id FROM bank WHERE normalized_name = $1")
+        .bind(&bank_normalized)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| {
+            AppError::Validation(format!(
+                "bank '{bank_name}' does not exist as an institution"
+            ))
+        })?;
+
+    // The register's name is the better party_name; the text id is what a row
+    // carries when the register has nothing better. Same fill the migration
+    // backfill did, done here so rows written today never need the fill-in.
+    let party_name: String = sqlx::query_scalar("SELECT name FROM supplier WHERE supplier_id = $1")
+        .bind(supplier_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .unwrap_or_else(|| supplier_id.to_string());
+
     // Absent means "the first one is the default". Asked for explicitly, it
     // takes the flag from whoever holds it — the same act ERPNext performs in
     // application code on save, done here inside the transaction so two
@@ -304,10 +374,10 @@ pub async fn create_supplier_bank_account(
         Some(asked) => asked,
         None => {
             let live: i64 = sqlx::query_scalar(
-                "SELECT count(*) FROM supplier_bank_account
-                  WHERE supplier_id = $1 AND retired_at IS NULL",
+                "SELECT count(*) FROM bank_account
+                  WHERE party_type = 'SUPPLIER' AND party_id = $1 AND retired_at IS NULL",
             )
-            .bind(supplier_id)
+            .bind(supplier_id.to_string())
             .fetch_one(&mut *transaction)
             .await?;
             live == 0
@@ -315,31 +385,40 @@ pub async fn create_supplier_bank_account(
     };
     if wants_default {
         sqlx::query(
-            "UPDATE supplier_bank_account SET is_default = false
-              WHERE supplier_id = $1 AND is_default",
+            "UPDATE bank_account SET is_default = false
+              WHERE party_type = 'SUPPLIER' AND party_id = $1 AND is_default",
         )
-        .bind(supplier_id)
+        .bind(supplier_id.to_string())
         .execute(&mut *transaction)
         .await?;
     }
 
     let account_id = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO supplier_bank_account
-             (account_id, supplier_id, bank_name, bank_name_normalized, account_no,
-              account_no_digits, account_holder, branch, is_default, note,
-              created_by, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)",
+        "INSERT INTO bank_account
+             (account_id, bank_id, is_company_account, party_type, party_id, party_name,
+              account_holder, branch, is_default, account_no, account_no_digits,
+              account_number_enc, account_number_mask, account_number_fingerprint,
+              owner_domain, verification_status,
+              note, active, created_by, updated_by)
+         VALUES ($1, $2, false, 'SUPPLIER', $3, $4, $5, $6, $7, $8, $9,
+                 pgp_sym_encrypt($10, $11), $12, $13,
+                 'SUPPLIER_MASTER', 'UNVERIFIED',
+                 $14, true, $15, $15)",
     )
     .bind(account_id)
-    .bind(supplier_id)
-    .bind(&bank_name)
-    .bind(&bank_normalized)
-    .bind(&account_no)
-    .bind(&account_digits)
+    .bind(bank_id)
+    .bind(supplier_id.to_string())
+    .bind(&party_name)
     .bind(&account_holder)
     .bind(&branch)
     .bind(wants_default)
+    .bind(&account_no)
+    .bind(&account_digits)
+    .bind(&account_digits)
+    .bind(&key)
+    .bind(payment_account_mask(&account_digits))
+    .bind(fingerprint(&account_digits))
     .bind(&note)
     .bind(actor)
     .execute(&mut *transaction)
@@ -350,7 +429,8 @@ pub async fn create_supplier_bank_account(
     // the next list shows cannot disagree about a default.
     let account = account_from_row(
         &sqlx::query(&format!(
-            "SELECT {ACCOUNT_COLUMNS} FROM supplier_bank_account WHERE account_id = $1"
+            "SELECT {ACCOUNT_COLUMNS} {ACCOUNT_FROM}
+              WHERE b.account_id = $1 AND b.party_type = 'SUPPLIER'"
         ))
         .bind(account_id)
         .fetch_one(&mut *transaction)
@@ -425,65 +505,90 @@ pub async fn update_supplier_bank_account(
     }
 
     let current = sqlx::query(
-        "SELECT supplier_id, version FROM supplier_bank_account WHERE account_id = $1 FOR UPDATE",
+        "SELECT party_id, (extract(epoch FROM updated_at))::bigint AS version
+           FROM bank_account WHERE account_id = $1 AND party_type = 'SUPPLIER' FOR UPDATE",
     )
     .bind(account_id)
     .fetch_optional(&mut *transaction)
     .await?
     .ok_or_else(|| AppError::NotFound("Supplier bank account".to_owned()))?;
-    let supplier_id: Uuid = current.try_get("supplier_id")?;
-    let actual_version: i32 = current.try_get("version")?;
-    if actual_version != expected_version {
+    let supplier_id: Uuid = current
+        .try_get::<String, _>("party_id")?
+        .parse()
+        .map_err(|error: uuid::Error| AppError::Validation(error.to_string()))?;
+    let actual_version: i64 = current.try_get("version")?;
+    if actual_version != i64::from(expected_version) {
         return Err(AppError::Conflict(format!(
             "Supplier bank account has moved on: If-Match said {expected_version}, it is now \
              {actual_version}"
         )));
     }
 
-    // Retiring takes the default with it. The index in 0221 only counts live
-    // rows, so a retired row could keep the flag and nothing would complain —
+    // Retiring takes the default with it. The party-default index (0302) only
+    // counts live rows, so a retired row could keep the flag and nothing would complain —
     // and the next screen to read "the default" would name an account the
     // supplier has closed.
     let retiring = request.retired == Some(true);
     let becoming_default = request.is_default == Some(true) && !retiring;
     if becoming_default {
         sqlx::query(
-            "UPDATE supplier_bank_account SET is_default = false
-              WHERE supplier_id = $1 AND account_id <> $2 AND is_default",
+            "UPDATE bank_account SET is_default = false
+              WHERE party_type = 'SUPPLIER' AND party_id = $1
+                AND account_id <> $2 AND is_default",
         )
-        .bind(supplier_id)
+        .bind(supplier_id.to_string())
         .bind(account_id)
         .execute(&mut *transaction)
         .await?;
     }
 
+    // A changed bank name re-points at the institution row, or the account is
+    // refused: the merged table carries no name to hide a spelling behind.
+    let bank_id = match bank.as_ref().map(|(_, normalized)| normalized) {
+        Some(normalized) => Some(
+            sqlx::query_scalar::<_, Uuid>("SELECT bank_id FROM bank WHERE normalized_name = $1")
+                .bind(normalized)
+                .fetch_optional(&mut *transaction)
+                .await?
+                .ok_or_else(|| {
+                    AppError::Validation(format!(
+                        "bank '{}' does not exist as an institution",
+                        bank.as_ref().unwrap().0
+                    ))
+                })?,
+        ),
+        None => None,
+    };
+
     sqlx::query(
-        "UPDATE supplier_bank_account
-            SET bank_name            = COALESCE($2, bank_name),
-                bank_name_normalized = COALESCE($3, bank_name_normalized),
-                account_no           = COALESCE($4, account_no),
-                account_no_digits    = COALESCE($5, account_no_digits),
-                account_holder       = COALESCE($6, account_holder),
-                branch               = CASE WHEN $7 THEN $8 ELSE branch END,
-                note                 = CASE WHEN $9 THEN $10 ELSE note END,
-                is_default           = CASE
-                                           WHEN $11 THEN false
-                                           WHEN $12 IS NULL THEN is_default
-                                           ELSE $12
+        "UPDATE bank_account
+            SET bank_id               = COALESCE($2, bank_id),
+                account_no            = COALESCE($3, account_no),
+                account_no_digits     = COALESCE($4, account_no_digits),
+                account_holder        = COALESCE($5, account_holder),
+                branch                = CASE WHEN $6 THEN $7 ELSE branch END,
+                note                  = CASE WHEN $8 THEN $9 ELSE note END,
+                is_default            = CASE
+                                           WHEN $10 THEN false
+                                           WHEN $11 IS NULL THEN is_default
+                                           ELSE $11
                                        END,
-                retired_at           = CASE
-                                           WHEN $13 IS NULL THEN retired_at
-                                           WHEN $13 THEN COALESCE(retired_at, now())
+                retired_at            = CASE
+                                           WHEN $12 IS NULL THEN retired_at
+                                           WHEN $12 THEN COALESCE(retired_at, now())
                                            ELSE NULL
                                        END,
-                version              = version + 1,
-                updated_by           = $14,
-                updated_at           = now()
+                active                = CASE
+                                           WHEN $12 IS NULL THEN active
+                                           WHEN $12 THEN false
+                                           ELSE true
+                                       END,
+                updated_by            = $13,
+                updated_at            = now()
           WHERE account_id = $1",
     )
     .bind(account_id)
-    .bind(bank.as_ref().map(|(display, _)| display))
-    .bind(bank.as_ref().map(|(_, normalized)| normalized))
+    .bind(bank_id)
     .bind(number.as_ref().map(|(display, _)| display))
     .bind(number.as_ref().map(|(_, digits)| digits))
     .bind(holder.as_ref())
@@ -507,7 +612,8 @@ pub async fn update_supplier_bank_account(
 
     let account = account_from_row(
         &sqlx::query(&format!(
-            "SELECT {ACCOUNT_COLUMNS} FROM supplier_bank_account WHERE account_id = $1"
+            "SELECT {ACCOUNT_COLUMNS} {ACCOUNT_FROM}
+              WHERE b.account_id = $1 AND b.party_type = 'SUPPLIER'"
         ))
         .bind(account_id)
         .fetch_one(&mut *transaction)

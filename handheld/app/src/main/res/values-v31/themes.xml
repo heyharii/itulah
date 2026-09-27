@@ -1,0 +1,15 @@
+<resources>
+    <!-- Android 12+ draws its own splash before the first frame, and on a cold
+         debug start that is seconds. It shows the breathing mark from the first
+         touch; `Splash` takes over with the same tile in the same place. -->
+    <style name="Theme.Itulah" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:statusBarColor">#FFFFFF</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowSplashScreenBackground">@android:color/white</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_mark_blink</item>
+        <item name="android:windowSplashScreenAnimationDuration">1000</item>
+    </style>
+</resources>

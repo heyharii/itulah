@@ -241,7 +241,7 @@ export function SupplierName({
 /// beside four `<Input>`s, and a control that is a different colour and two
 /// pixels shorter than the box above it reads as a different kind of thing.
 const PICKER_FIELD =
-  "flex h-9 w-full items-center gap-2 rounded-full border border-transparent bg-soft-2 px-3.5 text-[0.84375rem] text-ink transition-colors hover:border-hairline-2 hover:bg-soft-3 has-[input:focus-visible]:border-line"
+  "flex h-9 w-full items-center gap-2 rounded-full border border-transparent bg-soft-2 px-3.5 text-[0.875rem] text-ink transition-colors hover:border-hairline-2 hover:bg-soft-3 has-[input:focus-visible]:border-line"
 
 /// Choose one of the client's suppliers, by name or by code.
 ///
@@ -488,7 +488,7 @@ export function RankedBars({
   const peak = Math.max(...ranked.map((row) => Math.abs(row.value)), 0)
 
   if (peak === 0) {
-    return <p className="text-[0.71875rem] text-mute">{empty}</p>
+    return <p className="text-[0.875rem] text-mute">{empty}</p>
   }
 
   return (
@@ -496,7 +496,7 @@ export function RankedBars({
       {ranked.map((row) => (
         <div
           key={row.key}
-          className="flex items-center gap-2.5 text-[0.71875rem]"
+          className="flex items-center gap-2.5 text-[0.875rem]"
         >
           <span className="w-44 shrink-0 truncate text-mute" title={row.title}>
             {row.label}
@@ -520,7 +520,7 @@ export function RankedBars({
 
 export function AsOfControl({ asOf }: { asOf: AsOf }) {
   return (
-    <label className="flex items-center gap-1.5 text-[0.71875rem] text-mute">
+    <label className="flex items-center gap-1.5 text-[0.875rem] text-mute">
       As at
       <Day
         value={asOf.value}
@@ -544,7 +544,7 @@ export function WindowControl({ range }: { range: DateWindow }) {
         className="h-8 w-40"
         label="From"
       />
-      <span className="text-[0.71875rem] text-mute">to</span>
+      <span className="text-[0.875rem] text-mute">to</span>
       <Day
         value={range.to}
         onChange={range.setTo}
@@ -606,9 +606,14 @@ export function AccountPicker({
   const ready = trimmed.length >= 2
 
   const results = useQuery({
-    queryKey: financeKeys.accountSearch(trimmed, false),
+    queryKey: financeKeys.accountSearch(trimmed, true),
     queryFn: ({ signal }) =>
-      searchAccounts(trimmed, { limit: 50 }, signal).then((page) => page.rows),
+      // Include retired accounts so the picker can explain why an exact
+      // account is unavailable instead of saying it does not exist. The
+      // refusal below keeps inactive accounts out of new postings/mappings.
+      searchAccounts(trimmed, { inactive: true, limit: 50 }, signal).then(
+        (page) => page.rows
+      ),
     enabled: ready,
     // The chart is imported once and then sits for months.
     staleTime: 60_000,
@@ -622,7 +627,7 @@ export function AccountPicker({
         placeholder={placeholder}
       />
       {!ready ? (
-        <p className="text-[0.71875rem] text-mute">
+        <p className="text-[0.875rem] text-mute">
           Two characters to search. Codes match from the start, names match
           anywhere.
         </p>
@@ -632,7 +637,7 @@ export function AccountPicker({
             loading: "Searching the chart…",
             render: (accounts) =>
               accounts.length === 0 ? (
-                <p className="px-3 py-4 text-center text-[0.71875rem] text-body">
+                <p className="px-3 py-4 text-center text-[0.875rem] text-body">
                   No account matches “{trimmed}”.
                 </p>
               ) : (
@@ -643,6 +648,7 @@ export function AccountPicker({
                   // click that will not happen.
                   const refusal =
                     (account.is_group && !allowGroups ? "heading" : null) ??
+                    (!account.is_active ? "inactive account" : null) ??
                     (accept ? accept(account) : null)
                   return (
                     <button
@@ -659,11 +665,11 @@ export function AccountPicker({
                       className="flex w-full items-center gap-2 border-b border-hairline px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-soft disabled:cursor-not-allowed disabled:opacity-55"
                     >
                       <Tag>{account.account_code}</Tag>
-                      <span className="min-w-0 flex-1 truncate text-[0.78125rem] text-ink">
+                      <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
                         {account.name}
                       </span>
                       {refusal !== null && (
-                        <span className="shrink-0 text-[0.65625rem] text-mute">
+                        <span className="shrink-0 text-[0.875rem] text-mute">
                           {refusal}
                         </span>
                       )}
@@ -966,7 +972,7 @@ export function AccountAndCategory({
     <div className="flex min-w-0 flex-col gap-1.5">
       <span className="flex min-w-0 items-center gap-2">
         <Tag>{value.account_code}</Tag>
-        <span className="min-w-0 flex-1 truncate text-[0.78125rem] text-ink">
+        <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
           {value.name}
         </span>
         <Button size="sm" variant="quiet" onClick={() => onChange(null)}>
@@ -983,7 +989,7 @@ export function AccountAndCategory({
             onPick={(code) => onChange({ ...value, category_code: code })}
           />
           {explain && value.category_code === null && (
-            <span className="text-[0.71875rem] text-warn-fg">
+            <span className="text-[0.875rem] text-warn-fg">
               {value.account_code} is one line of the statement; the category is
               what it was for. The database refuses the entry without it.
             </span>

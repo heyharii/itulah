@@ -3,7 +3,6 @@ import { FinanceNav } from "@/components/finance/finance-nav"
 import type { FinanceRoute } from "@/components/finance/finance-nav"
 import { Nav } from "@/components/nav"
 import {
-  accountMap,
   financeKeys,
   listAccounts,
   listJournal,
@@ -36,10 +35,6 @@ export function FinanceOverview() {
     queryFn: ({ signal }) => listAccounts({}, signal).then((page) => page.rows),
     staleTime: 10 * 60 * 1000,
   })
-  const map = useQuery({
-    queryKey: financeKeys.accountMap(),
-    queryFn: ({ signal }) => accountMap(undefined, signal),
-  })
   const periods = useQuery({
     queryKey: financeKeys.periods(),
     queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
@@ -55,9 +50,6 @@ export function FinanceOverview() {
   })
 
   const roots = chart.data?.length ?? 0
-  const locations = map.data?.locations.length ?? 0
-  const needed = (map.data?.required_keys.length ?? 0) * locations
-  const mapped = map.data?.rows.length ?? 0
   const openPeriods = (periods.data ?? []).filter((p) => p.status === "OPEN").length
   const entries = journal.data?.length ?? 0
 
@@ -67,7 +59,7 @@ export function FinanceOverview() {
       <ScreenBody card={false} className="flex flex-col">
         <p className="mb-4 max-w-2xl text-[0.75rem] text-[var(--os-body,#74747b)]">
           The books stand on the client's own chart of accounts. Nothing posts until a
-          meaning has an account and a month is open — both refusals come from the
+          role is linked to an account (in the hub's Account Links) and a month is open — both refusals come from the
           database, and both name what is missing rather than guessing.
         </p>
 
@@ -84,22 +76,6 @@ export function FinanceOverview() {
             to="/finance/accounts"
             action="Browse the chart"
             loading={chart.isPending}
-          />
-
-          <Tile
-            title="Account map"
-            state={needed === 0 ? "waiting" : mapped >= needed ? "done" : "blocked"}
-            figure={needed === 0 ? "—" : `${mapped} of ${needed} set`}
-            detail={
-              needed === 0
-                ? "Waiting for the chart and the locations."
-                : mapped >= needed
-                  ? `Every meaning has an account at all ${locations} locations.`
-                  : `${needed - mapped} still unset. A posting that needs one refuses and names the key.`
-            }
-            to="/finance/account-map"
-            action="Set the mappings"
-            loading={map.isPending}
           />
 
           <Tile
@@ -158,15 +134,6 @@ export function FinanceOverview() {
             loading={balance.isPending}
           />
 
-          <Tile
-            title="Locations"
-            state={locations === 0 ? "waiting" : "done"}
-            figure={locations === 0 ? "—" : `${locations} sets of books`}
-            detail="One DC and thirteen stores, matching the fourteen in the client's chart."
-            to="/finance/account-map"
-            action="See the locations"
-            loading={map.isPending}
-          />
         </div>
       </ScreenBody>
     </AppShell>

@@ -1,7 +1,9 @@
 import { Combobox } from "@base-ui/react/combobox"
-import { Check, ChevronDown, X } from "lucide-react"
+import { Check, ChevronDown, Plus, X } from "lucide-react"
 import { useMemo, useState } from "react"
 
+import { PickerSheet } from "@/components/ui/picker-sheet"
+import { usePickerSheet } from "@/lib/layout"
 import { Tag } from "@/components/ui/tag"
 import { ITEM, POPUP } from "@/lib/filter-chrome"
 import { cn } from "@/lib/utils"
@@ -37,7 +39,7 @@ export interface Choice {
 /// `min-h-9` rather than `h-9`: `<PickMany>` grows as chips wrap, and a fixed
 /// height would clip the second row. A caller in a table or a toolbar
 /// compacts it the way `<Day>` is compacted — `min-h-8 px-2.5
-/// text-[0.71875rem]` — and twMerge lets those win.
+/// text-[0.875rem]` — and twMerge lets those win.
 const FIELD =
   "flex min-h-10 w-full items-center gap-1.5 rounded-inner border border-hairline-2 bg-canvas px-3 py-1 text-left text-[0.875rem] transition-colors hover:border-hairline-strong has-[input:focus-visible]:border-accent"
 
@@ -63,6 +65,7 @@ export function PickOne({
   placeholder = "Unclassified",
   className,
   label,
+  action,
 }: {
   choices: readonly Choice[]
   value: string | null
@@ -72,15 +75,88 @@ export function PickOne({
   /// For the screen reader. The visible label is usually a table header, which
   /// no assistive technology associates with a control on its own.
   label?: string
+  /// A way out of the list, standing at the foot of it: "Create a new
+  /// supplier" under the suppliers, for the buyer who has just searched for
+  /// one that is not there.
+  ///
+  /// **In the panel, not beside the field.** A + button next to the box is a
+  /// second control somebody has to notice while they are looking somewhere
+  /// else — at the list, reading it for a name that is not in it. The moment
+  /// the answer is "it is not here" happens INSIDE the panel, and that is
+  /// where the way out belongs. It also survives an empty search, which is
+  /// exactly when it is wanted.
+  ///
+  /// Outside `<Combobox.List>`, so a query that matches nothing does not
+  /// filter away the one row that answers it.
+  action?: {
+    readonly label: string
+    readonly onSelect: () => void
+  }
 }) {
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
   const rows = useMemo(() => match(choices, query), [choices, query])
   const chosen = choices.find((one) => one.value === value) ?? null
+  const sheet = usePickerSheet()
+
+  // A phone: the field is a button, and the list comes up from the bottom.
+  // See `picker-sheet.tsx` for why.
+  if (sheet) {
+    return (
+      <>
+        <div className={cn(FIELD, "relative", className)}>
+          {/* The whole field is the target, not just the words in it: the
+              button's hit area is stretched over the box (`after:inset-0`),
+              so a tap on the padding or the chevron opens the list too. It
+              was the text alone, and a thumb landing a few pixels off it did
+              nothing — the "tap it twice" division picker. */}
+          <button
+            type="button"
+            aria-label={label}
+            aria-haspopup="dialog"
+            onClick={() => setOpen(true)}
+            className={cn(
+              "min-h-9 min-w-0 flex-1 truncate text-left after:absolute after:inset-0 after:content-['']",
+              chosen === null ? "text-mute" : "text-ink"
+            )}
+          >
+            {chosen?.label ?? placeholder}
+          </button>
+          {chosen !== null && (
+            <button
+              type="button"
+              aria-label="Clear"
+              onClick={() => onChange(null)}
+              className="relative z-10 -mr-1 grid size-9 shrink-0 place-items-center rounded-full text-line-ico"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+          <ChevronDown
+            aria-hidden
+            className="size-3.5 shrink-0 text-line-ico"
+          />
+        </div>
+        <PickerSheet
+          open={open}
+          onOpenChange={setOpen}
+          title={label ?? placeholder}
+          options={choices}
+          selected={value === null ? [] : [value]}
+          onPick={(next) => onChange(next)}
+          action={action}
+          searchable
+        />
+      </>
+    )
+  }
 
   return (
     <Combobox.Root
       items={rows as Choice[]}
+      // The first match is lit as you type, so Enter takes it — typing a
+      // name and pressing Enter is how a keyboard user finishes a pick.
+      autoHighlight
       // Already filtered above, against the code as well as the label — the
       // built-in matcher only sees what `itemToStringLabel` returns.
       filter={null}
@@ -162,6 +238,30 @@ export function PickOne({
                 </Combobox.Item>
               ))}
             </Combobox.List>
+
+            {action !== undefined && (
+              <>
+                {/* A rule above it, because this is not one more of the
+                    things being chosen between — it is what to do when none
+                    of them is the answer. */}
+                <div className="mx-1 my-1 border-t border-hairline" />
+                <button
+                  type="button"
+                  className={cn(ITEM, "font-medium hover:bg-soft-2")}
+                  // The input keeps the caret: a mousedown that blurs it
+                  // closes the panel before the click ever lands.
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setOpen(false)
+                    setQuery("")
+                    action.onSelect()
+                  }}
+                >
+                  <Plus className="size-3.5 text-line-ico" />
+                  {action.label}
+                </button>
+              </>
+            )}
           </Combobox.Popup>
         </Combobox.Positioner>
       </Combobox.Portal>
@@ -211,12 +311,63 @@ export function PickMany({
         ? values.filter((one) => one !== value)
         : [...values, value]
     )
+  const sheet = usePickerSheet()
+
+  if (sheet) {
+    return (
+      <>
+        <button
+          type="button"
+          aria-label={label}
+          aria-haspopup="dialog"
+          onClick={() => setOpen(true)}
+          className={cn(FIELD, "flex-wrap", className)}
+        >
+          {values.length === 0 && (
+            <span className="min-h-9 flex-1 content-center text-mute">
+              {placeholder}
+            </span>
+          )}
+          {values.map((value) => {
+            const one = choices.find((c) => c.value === value)
+            return (
+              <Tag key={value} className="gap-1">
+                {leading?.(value)}
+                {one?.label ?? value}
+              </Tag>
+            )
+          })}
+          <ChevronDown
+            aria-hidden
+            className="ml-auto size-3.5 shrink-0 text-line-ico"
+          />
+        </button>
+        <PickerSheet
+          open={open}
+          onOpenChange={setOpen}
+          title={label ?? placeholder}
+          options={choices.map((one) => ({
+            ...one,
+            leading: leading?.(one.value),
+          }))}
+          selected={values}
+          multiple
+          onPick={toggle}
+          searchable
+        />
+      </>
+    )
+  }
 
   return (
     <Combobox.Root
       items={rows as Choice[]}
       filter={null}
       multiple
+      // Type "basic", press Enter, it is on: the first match is lit as the
+      // query changes, and Enter takes what is lit. Without it nothing was
+      // highlighted until an arrow key, and Enter did nothing at all.
+      autoHighlight
       value={chosen.filter((one) => one !== null) as Choice[]}
       onValueChange={(next) => {
         onChange((next as Choice[]).map((one) => one.value))

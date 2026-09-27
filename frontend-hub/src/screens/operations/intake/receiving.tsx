@@ -9,7 +9,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Checkbox, Field, Input, Money } from "@/components/ui/field"
+import { Checkbox, Field, Input, Money, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
@@ -18,6 +18,7 @@ import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, Problem, Receipt } from "@/components/ui/states"
 import { dc } from "@/lib/api"
+import { wholeProduct } from "@/lib/decimal"
 import { useFilters } from "@/lib/filters"
 import { clock, count, money, variance } from "@/lib/format"
 import { keys } from "@/lib/operations/keys"
@@ -27,6 +28,11 @@ import { useEdgeActor, useEdgeNodeIdentity } from "@/lib/edge-session"
 import { setBenchActor, useBenchActor } from "@/lib/operations/bench"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import {
+  closeLineShort,
+  purchaseOrderDetail,
+  purchaseOrderPage,
+} from "@/lib/queries/procurement"
 import { idempotencyKey } from "@itulah/contract/client"
 import type {
   InvoiceDocumentView,
@@ -162,7 +168,7 @@ export function Receiving() {
             <span className="block truncate font-medium text-ink">
               {row.original.supplier_name ?? row.original.supplier_id}
             </span>
-            <span className="block truncate font-mono text-[0.65625rem] text-mute">
+            <span className="block truncate font-mono text-[0.875rem] text-mute">
               {row.original.supplier_id}
             </span>
           </span>
@@ -357,6 +363,9 @@ function CountSheet({
   const actor = useEdgeActor()
   const client = useQueryClient()
   const [quantities, setQuantities] = useState<Record<string, string>>({})
+  /// The unit each line is being counted in. Unset is the unit the order was
+  /// placed in, or pieces — the counter may switch (owner, 2026-09-26).
+  const [countUnits, setCountUnits] = useState<Record<string, string>>({})
 
   const receipts = useQuery({
     queryKey: keys.receipts(),
@@ -377,7 +386,14 @@ function CountSheet({
   }
 
   const record = useMutation({
-    mutationFn: async (entries: { line: string; quantity: number }[]) => {
+    mutationFn: async (
+      entries: {
+        line: string
+        quantity: number
+        unit: string | null
+        unitQuantity: string | null
+      }[]
+    ) => {
       const supplier = order!.supplier_id
       const existing = (receipts.data ?? (await dc.goodsReceipts())).find(
         (row) => row.supplier_id === supplier
@@ -402,6 +418,8 @@ function CountSheet({
           receipt_id: receiptId,
           po_line_id: entry.line,
           counted_quantity: entry.quantity,
+          counted_unit_code: entry.unit,
+          counted_unit_quantity: entry.unitQuantity,
           actor_id: actor,
           idempotency_key: keyFor(`count:${entry.line}`),
         })
@@ -410,6 +428,7 @@ function CountSheet({
     },
     onSuccess: () => {
       setQuantities({})
+      setCountUnits({})
       minted.current.clear()
       void client.invalidateQueries({ queryKey: keys.verifyQueue() })
       void client.invalidateQueries({ queryKey: keys.receipts() })
@@ -417,12 +436,38 @@ function CountSheet({
     },
   })
 
+  /// The unit a line is being counted in, and pieces in one of it.
+  const unitOf = (line: OrderRow["lines"][number]) => {
+    const units = line.count_units ?? []
+    const code =
+      countUnits[line.po_line_id] ??
+      line.order_unit_code ??
+      units[0]?.code ??
+      "PCS"
+    const factor = units.find((one) => one.code === code)?.factor ?? "1"
+    return { code, factor, units }
+  }
+  /// What a typed count comes to in pieces — exactly, so 9.5 KODI is 190.
+  const piecesTyped = (line: OrderRow["lines"][number]) => {
+    const typed = (quantities[line.po_line_id] ?? "").trim()
+    if (typed === "") return null
+    return wholeProduct(typed, unitOf(line).factor)
+  }
   const entries = (order?.lines ?? []).flatMap((line) => {
     const typed = (quantities[line.po_line_id] ?? "").trim()
     if (typed === "") return []
-    const quantity = Number(typed)
-    if (!Number.isInteger(quantity) || quantity < 0) return []
-    return [{ line: line.po_line_id, quantity }]
+    const quantity = piecesTyped(line)
+    if (quantity === null || quantity <= 0) return []
+    const unit = unitOf(line)
+    const inUnit = unit.factor !== "1"
+    return [
+      {
+        line: line.po_line_id,
+        quantity,
+        unit: inUnit ? unit.code : null,
+        unitQuantity: inUnit ? typed.replace(",", ".") : null,
+      },
+    ]
   })
 
   return (
@@ -434,7 +479,7 @@ function CountSheet({
       footer={
         order !== null && (
           <div className="flex items-center gap-3">
-            <span className="text-[0.75rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               {entries.length === 0
                 ? "Nothing written down yet"
                 : `${count(entries.length)} of ${count(order.lines.length)} lines`}
@@ -472,7 +517,7 @@ function CountSheet({
                   <span className="block truncate font-medium text-ink">
                     {line.article_name}
                   </span>
-                  <span className="block truncate font-mono text-[0.65625rem] text-mute">
+                  <span className="block truncate font-mono text-[0.875rem] text-mute">
                     {line.article_code} · line {line.line_number}
                   </span>
                 </span>
@@ -481,10 +526,10 @@ function CountSheet({
                 )}
                 <Input
                   className="w-24 text-center text-[1.0625rem] font-semibold"
-                  inputMode="numeric"
+                  inputMode="decimal"
                   autoComplete="off"
                   placeholder="0"
-                  aria-label={`Counted pieces of ${line.article_code}`}
+                  aria-label={`Counted ${unitOf(line).code} of ${line.article_code}`}
                   value={quantities[line.po_line_id] ?? ""}
                   onChange={(event) =>
                     setQuantities((current) => ({
@@ -493,6 +538,43 @@ function CountSheet({
                     }))
                   }
                 />
+                {/* Any unit the item can be counted in; the pieces it comes
+                    to are shown beside it, and a count that is not a whole
+                    number of pieces is refused before it is sent. */}
+                {unitOf(line).units.length > 1 ? (
+                  <Select
+                    aria-label={`Unit counted for ${line.article_code}`}
+                    value={unitOf(line).code}
+                    onChange={(code) =>
+                      setCountUnits((current) => ({
+                        ...current,
+                        [line.po_line_id]: code,
+                      }))
+                    }
+                    className="w-32"
+                  >
+                    {unitOf(line).units.map((one) => (
+                      <option key={one.code} value={one.code}>
+                        {one.label}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <span className="w-12 text-[0.875rem] text-body">pcs</span>
+                )}
+                {unitOf(line).factor !== "1" &&
+                  (quantities[line.po_line_id] ?? "").trim() !== "" && (
+                    <span
+                      className={cn(
+                        "w-24 text-right text-[0.875rem] tabular-nums",
+                        piecesTyped(line) === null ? "text-bad" : "text-body"
+                      )}
+                    >
+                      {piecesTyped(line) === null
+                        ? "not whole pcs"
+                        : `= ${count(piecesTyped(line) ?? 0)} pcs`}
+                    </span>
+                  )}
               </div>
             ))}
           </div>
@@ -600,14 +682,20 @@ function InvoiceBlock({
   )
   const invoicedMinor = receipt?.invoice_total_minor ?? null
   const difference = invoicedMinor === null ? null : invoicedMinor - agreedMinor
+  // The node files an invoice only against goods somebody has already
+  // accepted (`record_receipt_invoice`: an invoice fact queued ahead of the
+  // first line fact is one the centre can never apply). So the paper is typed
+  // while comparing, and recorded once the first line is in — refusing the
+  // press here, with the reason, instead of letting the node refuse it.
+  const nothingAccepted = (receipt?.accepted_lines ?? 0) === 0
 
   return (
     <div className="rounded-inner border border-hairline p-3.5">
       <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h3 className="text-[0.84375rem] font-semibold text-ink">
+        <h3 className="text-[0.875rem] font-semibold text-ink">
           Supplier invoice
         </h3>
-        <span className="font-mono text-[0.65625rem] text-mute">
+        <span className="font-mono text-[0.875rem] text-mute">
           {receipt?.receipt_number}
         </span>
       </div>
@@ -655,7 +743,7 @@ function InvoiceBlock({
               form.handleSubmit()
             }}
           >
-            <p className="text-[0.71875rem] text-mute">
+            <p className="text-[0.875rem] text-mute">
               At the agreed price, what has been counted on this delivery is
               worth {money(agreedMinor)}. Type what the paper asks for and the
               two are compared.
@@ -693,11 +781,14 @@ function InvoiceBlock({
               )}
             </form.Field>
             <div className="flex items-center gap-3">
-              <div className="flex-1" />
+              <p className="flex-1 text-[0.875rem] text-mute">
+                {nothingAccepted &&
+                  "Accept the goods first — the invoice is filed against what is in."}
+              </p>
               <Button
                 variant="primary"
                 type="submit"
-                disabled={record.isPending}
+                disabled={record.isPending || nothingAccepted}
               >
                 {record.isPending ? "Recording…" : "Record the invoice"}
               </Button>
@@ -781,7 +872,7 @@ function InvoicePage({
           />
         ))}
 
-      <label className="flex min-h-tap cursor-pointer items-center justify-center gap-2 rounded-full border border-dashed border-hairline-2 px-3.5 text-[0.78125rem] text-body transition-colors hover:border-hairline-strong hover:bg-soft">
+      <label className="flex min-h-tap cursor-pointer items-center justify-center gap-2 rounded-full border border-dashed border-hairline-2 px-3.5 text-[0.875rem] text-body transition-colors hover:border-hairline-strong hover:bg-soft">
         <Upload className="size-4 text-line-ico" />
         {uploading
           ? "Uploading…"
@@ -822,7 +913,7 @@ function NameTheVerifier() {
         if (name.trim() !== "") setBenchActor(name)
       }}
     >
-      <span className="min-w-[16rem] flex-1 text-[0.78125rem] text-body">
+      <span className="min-w-[16rem] flex-1 text-[0.875rem] text-body">
         Sign-in is off on this node, so it writes the name this browser gives
         it. A count cannot be accepted under the name that took it — say who is
         verifying and the decisions below work.
@@ -854,7 +945,7 @@ const CELL = "px-3 py-2.5 align-middle"
 
 /// Figures line up on the right in tabular digits, because the reason they are
 /// beside each other is to be compared.
-const NUM = "text-right text-[0.8125rem] text-body tabular-nums"
+const NUM = "text-right text-[0.875rem] text-body tabular-nums"
 
 /// The verifier's grid — everything the checker was not shown, on one screen.
 ///
@@ -912,10 +1003,23 @@ function VerifySheet({
   // verifier's ticks are on somebody else's goods is the one frame this screen
   // cannot afford.
   const [showing, setShowing] = useState(order?.po_number)
-  if (showing !== order?.po_number) {
-    setShowing(order?.po_number)
+  // What this sheet has accepted, kept after the order leaves the queue.
+  //
+  // Accepting the last line takes the order off the list of what the DC is
+  // owed, so `order` goes to null in the same refetch — and with it the only
+  // place the supplier's invoice could be recorded. The node will not take the
+  // invoice before a line is accepted, so it has to be possible after.
+  const [settled, setSettled] = useState<{
+    readonly order: OrderRow
+    readonly rows: readonly PurchaseCountAwaitingVerification[]
+  } | null>(null)
+  // Only a *different* order resets the sheet. The order vanishing because
+  // it was just fully accepted is not a different order.
+  if (order !== null && showing !== order.po_number) {
+    setShowing(order.po_number)
     setPicked(new Set())
     setNote("")
+    setSettled(null)
   }
 
   // Minted once per count and per verb, and kept across a retry. The batch
@@ -938,6 +1042,9 @@ function VerifySheet({
       decision: "Accept" | "Recount"
       rows: readonly PurchaseCountAwaitingVerification[]
       note: string
+      /// Close what is still owed on these lines once they are accepted —
+      /// the raiser deciding the rest is not coming.
+      closeShort?: boolean
     }) => {
       // Sequential, for the same reason the counts are: these writes land in
       // the same delivery's movement group, and a handful of them racing is a
@@ -954,9 +1061,21 @@ function VerifySheet({
           idempotency_key: keyFor(`${input.decision}:${row.count_id}`),
         })
       }
+      if (input.closeShort === true && input.decision === "Accept") {
+        await closeRestShort(input.rows, actor, input.note)
+      }
       return input.rows.length
     },
-    onSuccess: () => {
+    onSuccess: (_, input) => {
+      if (input.decision === "Accept" && order !== null) {
+        setSettled((was) => ({
+          order,
+          rows: [
+            ...(was?.order.po_number === order.po_number ? was.rows : []),
+            ...input.rows,
+          ],
+        }))
+      }
       setPicked(new Set())
       setNote("")
       minted.current.clear()
@@ -974,7 +1093,16 @@ function VerifySheet({
   // A lorry is one arrival with one invoice, and the counts on it all hang
   // off the one delivery document. They agree in every case the bay produces,
   // so the first one names the document the paper belongs to.
-  const receiptId = waiting[0]?.receipt_id ?? null
+  // The invoice is compared against everything counted on the delivery —
+  // what is still waiting and what this sheet has already accepted.
+  const shown = order ?? settled?.order ?? null
+  const invoiced = [
+    ...(settled?.rows ?? []).filter(
+      (row) => !waiting.some((other) => other.count_id === row.count_id)
+    ),
+    ...waiting,
+  ]
+  const receiptId = invoiced[0]?.receipt_id ?? null
 
   // The two answers that repeat down every line, said once above the table.
   const counters = [...new Set(waiting.map((row) => row.counted_by))]
@@ -990,7 +1118,31 @@ function VerifySheet({
   // the counter.
   const mineToo = (row: PurchaseCountAwaitingVerification) =>
     !unnamed && row.counted_by === actor
-  const decidable = waiting.filter((row) => !mineToo(row))
+  /// Somebody else's order. The person who raised a PO verifies its counts
+  /// (owner, 2026-09-26); an order sent before the raiser travelled with it
+  /// names nobody and stays open to any second person.
+  const notMine = (row: PurchaseCountAwaitingVerification) =>
+    !unnamed &&
+    row.raised_by !== null &&
+    row.raised_by !== undefined &&
+    row.raised_by !== actor
+  const locked = (row: PurchaseCountAwaitingVerification) =>
+    mineToo(row) || notMine(row)
+  const decidable = waiting.filter((row) => !locked(row))
+  const raisers = [
+    ...new Set(
+      waiting
+        .map((row) => row.raised_by)
+        .filter((who): who is string => typeof who === "string")
+    ),
+  ]
+  /// Lines on the ticked set still short after this count: what "close
+  /// short" would settle.
+  const shortOnPicked = waiting.filter(
+    (row) =>
+      picked.has(row.count_id) &&
+      row.counted_quantity < row.outstanding_stock_units
+  ).length
   const chosen = waiting.filter((row) => picked.has(row.count_id))
 
   const toggle = (countId: string) =>
@@ -1020,12 +1172,12 @@ function VerifySheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="table"
-      id={order?.po_number}
-      title={order?.supplier_name ?? order?.supplier_id ?? "Order"}
+      id={shown?.po_number}
+      title={shown?.supplier_name ?? shown?.supplier_id ?? "Order"}
       footer={
         waiting.length > 0 && (
           <div className="flex flex-wrap items-center gap-2.5">
-            <span className="text-[0.75rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               {unnamed
                 ? "Say who is verifying, above"
                 : chosen.length === 0
@@ -1053,6 +1205,24 @@ function VerifySheet({
             >
               Send back to count
             </Button>
+            {/* Accept what came and stop waiting for the rest. Offered only
+                when a ticked line is short. */}
+            {shortOnPicked > 0 && (
+              <Button
+                variant="soft"
+                disabled={unnamed || decide.isPending || chosen.length === 0}
+                onClick={() =>
+                  decide.mutate({
+                    decision: "Accept",
+                    rows: chosen,
+                    note,
+                    closeShort: true,
+                  })
+                }
+              >
+                Accept & close short
+              </Button>
+            )}
             <Button
               variant="primary"
               disabled={unnamed || decide.isPending || chosen.length === 0}
@@ -1063,199 +1233,274 @@ function VerifySheet({
               {decide.isPending
                 ? "Deciding…"
                 : chosen.length === 0
-                  ? "Accept into stock"
-                  : `Accept ${count(chosen.length)} into stock`}
+                  ? "Accept"
+                  : shortOnPicked > 0
+                    ? `Accept ${count(chosen.length)} (partial)`
+                    : `Accept ${count(chosen.length)}`}
             </Button>
           </div>
         )
       }
     >
-      {order === null || waiting.length === 0 ? (
+      {shown === null || (waiting.length === 0 && receiptId === null) ? (
         <EmptyState>
           Nothing on this order is waiting for a verifier. Every count has been
           decided.
         </EmptyState>
       ) : (
         <div className="flex flex-col gap-5">
-          {/* No banner counting the differences, and none naming your own
+          {/* One slot for the comparison, one for the invoice, so the invoice
+              keeps what was typed into it when the last line is accepted and
+              the comparison above it empties. */}
+          {waiting.length === 0 ? (
+            <p className="text-[0.875rem] text-body">
+              Every line on this order is decided. The supplier&rsquo;s invoice
+              is recorded against the delivery below.
+            </p>
+          ) : (
+            <>
+              {/* No banner counting the differences, and none naming your own
               counts. The Diff column says which lines disagree, on the lines
               that disagree, and the totals row says what that comes to — a
               paragraph at the top saying "4 of 4" is the same fact a fourth
               time, and it pushed the grid it describes off the screen. */}
-          {unnamed && <NameTheVerifier />}
+              {unnamed && <NameTheVerifier />}
 
-          {/* Who counted, and when. Above the table because they are one
+              {/* Who counted, and when. Above the table because they are one
               answer for the whole delivery: down a column they were the same
               two facts written five times, in the two widest cells on the
               row. */}
-          <Facts className="grid-cols-2 sm:grid-cols-4">
-            <Fact term="Counted by">
-              {counters.length === 1
-                ? counters[0]
-                : `${count(counters.length)} people`}
-            </Fact>
-            <Fact term="Counted at">{clock(latest)}</Fact>
-            <Fact term="Lines waiting">{count(waiting.length)}</Fact>
-            <Fact term="Pieces counted">{count(totalCounted)}</Fact>
-          </Facts>
+              <Facts className="grid-cols-2 sm:grid-cols-4">
+                <Fact term="Counted by">
+                  {counters.length === 1
+                    ? counters[0]
+                    : `${count(counters.length)} people`}
+                </Fact>
+                <Fact term="Counted at">{clock(latest)}</Fact>
+                <Fact term="Raised by">
+                  {raisers.length === 0
+                    ? "—"
+                    : raisers.length === 1
+                      ? raisers[0]
+                      : `${count(raisers.length)} people`}
+                </Fact>
+                <Fact term="Pieces counted">{count(totalCounted)}</Fact>
+              </Facts>
+              {waiting.some(notMine) && (
+                <Banner tone="info">
+                  Only the person who raised a purchase order verifies its
+                  counts. Lines on orders raised by somebody else are shown
+                  but cannot be decided here.
+                </Banner>
+              )}
 
-          {/* The comparison, as a grid. Ordered and Counted are adjacent
+              {/* The comparison, as a grid. Ordered and Counted are adjacent
               because the difference between them is the whole question, and
               Diff is beside them rather than derived in somebody's head. */}
-          <div className="overflow-hidden rounded-inner border border-hairline">
-            {/* Scrolls sideways inside its own box rather than squeezing: six
+              <div className="overflow-hidden rounded-inner border border-hairline">
+                {/* Scrolls sideways inside its own box rather than squeezing: six
                 columns of figures have a floor under their width, and the
                 only column that can give is the one holding the garment's
                 name — the one column a person actually reads. */}
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[43rem] table-fixed border-collapse">
-                <colgroup>
-                  <col className="w-[2.5rem]" />
-                  <col />
-                  <col className="w-[5rem]" />
-                  <col className="w-[5rem]" />
-                  <col className="w-[5.5rem]" />
-                  <col className="w-[7.5rem]" />
-                  <col className="w-[8.5rem]" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th className={cn(HEAD, "text-center")}>
-                      <Checkbox
-                        label={<span className="sr-only">Tick every line</span>}
-                        checked={
-                          decidable.length > 0 &&
-                          decidable.every((row) => picked.has(row.count_id))
-                        }
-                        disabled={decidable.length === 0}
-                        onChange={(next) =>
-                          setPicked(
-                            next
-                              ? new Set(decidable.map((row) => row.count_id))
-                              : new Set()
-                          )
-                        }
-                      />
-                    </th>
-                    <th className={HEAD}>Item</th>
-                    <th className={cn(HEAD, "text-right")}>Ordered</th>
-                    <th className={cn(HEAD, "text-right")}>Counted</th>
-                    <th className={cn(HEAD, "text-right")}>Diff</th>
-                    <th className={cn(HEAD, "text-right")}>Price</th>
-                    <th className={cn(HEAD, "text-right")}>Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {waiting.map((row) => {
-                    const own = mineToo(row)
-                    return (
-                      // The whole row is the tick's hit area. A 14px box in
-                      // the first column is the smallest target on the sheet,
-                      // and it is the one thing a verifier presses five times
-                      // in a row — the box still shows the state, it is just
-                      // not the only place you can aim.
-                      <tr
-                        key={row.count_id}
-                        onClick={() => !own && toggle(row.count_id)}
-                        className={cn(
-                          "border-t border-hairline transition-colors",
-                          own ? "opacity-70" : "cursor-pointer hover:bg-soft"
-                        )}
-                      >
-                        <td
-                          className={cn(CELL, "text-center")}
-                          onClick={(event) => event.stopPropagation()}
-                        >
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[43rem] table-fixed border-collapse">
+                    <colgroup>
+                      <col className="w-[2.5rem]" />
+                      <col />
+                      <col className="w-[5rem]" />
+                      <col className="w-[5rem]" />
+                      <col className="w-[5.5rem]" />
+                      <col className="w-[7.5rem]" />
+                      <col className="w-[8.5rem]" />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th className={cn(HEAD, "text-center")}>
                           <Checkbox
                             label={
-                              <span className="sr-only">
-                                {`Decide ${row.article_code}`}
-                              </span>
+                              <span className="sr-only">Tick every line</span>
                             }
-                            checked={picked.has(row.count_id)}
-                            disabled={own}
-                            onChange={() => toggle(row.count_id)}
+                            checked={
+                              decidable.length > 0 &&
+                              decidable.every((row) => picked.has(row.count_id))
+                            }
+                            disabled={decidable.length === 0}
+                            onChange={(next) =>
+                              setPicked(
+                                next
+                                  ? new Set(
+                                      decidable.map((row) => row.count_id)
+                                    )
+                                  : new Set()
+                              )
+                            }
                           />
-                        </td>
-                        <td className={CELL}>
-                          <span className="block truncate font-medium text-ink">
-                            {row.article_name}
-                          </span>
-                          <span className="block truncate font-mono text-[0.65625rem] text-mute">
-                            {row.article_code}
-                            {own && " · your count"}
-                          </span>
-                        </td>
-                        <td className={cn(CELL, NUM)}>
-                          {count(row.expected_stock_units)}
-                        </td>
-                        <td className={cn(CELL, NUM, "font-semibold")}>
-                          {count(row.counted_quantity)}
-                        </td>
-                        <td className={cn(CELL, "text-right")}>
-                          {row.variance === 0 ? (
-                            <span className="text-mute tabular-nums">0</span>
-                          ) : (
-                            <Pill tone="bad">{variance(row.variance)}</Pill>
-                          )}
-                        </td>
-                        <td className={cn(CELL, NUM)}>
-                          {money(row.unit_price_minor)}
-                        </td>
-                        <td className={cn(CELL, NUM, "text-ink")}>
-                          {row.unit_price_minor === null
-                            ? "—"
-                            : money(
-                                row.counted_quantity * row.unit_price_minor
+                        </th>
+                        <th className={HEAD}>Item</th>
+                        <th className={cn(HEAD, "text-right")}>Ordered</th>
+                        <th className={cn(HEAD, "text-right")}>Counted</th>
+                        <th className={cn(HEAD, "text-right")}>Diff</th>
+                        <th className={cn(HEAD, "text-right")}>Price</th>
+                        <th className={cn(HEAD, "text-right")}>Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {waiting.map((row) => {
+                        const own = locked(row)
+                        return (
+                          // The whole row is the tick's hit area. A 14px box in
+                          // the first column is the smallest target on the sheet,
+                          // and it is the one thing a verifier presses five times
+                          // in a row — the box still shows the state, it is just
+                          // not the only place you can aim.
+                          <tr
+                            key={row.count_id}
+                            onClick={() => !own && toggle(row.count_id)}
+                            className={cn(
+                              "border-t border-hairline transition-colors",
+                              own
+                                ? "opacity-70"
+                                : "cursor-pointer hover:bg-soft"
+                            )}
+                          >
+                            <td
+                              className={cn(CELL, "text-center")}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <Checkbox
+                                label={
+                                  <span className="sr-only">
+                                    {`Decide ${row.article_code}`}
+                                  </span>
+                                }
+                                checked={picked.has(row.count_id)}
+                                disabled={own}
+                                onChange={() => toggle(row.count_id)}
+                              />
+                            </td>
+                            <td className={CELL}>
+                              <span className="block truncate font-medium text-ink">
+                                {row.article_name}
+                              </span>
+                              <span className="block truncate font-mono text-[0.875rem] text-mute">
+                                {row.article_code}
+                                {mineToo(row) && " · your count"}
+                                {notMine(row) && ` · raised by ${row.raised_by}`}
+                              </span>
+                            </td>
+                            <td className={cn(CELL, NUM)}>
+                              <InUnit
+                                pieces={row.expected_stock_units}
+                                unit={row.order_unit_code}
+                                quantity={row.order_unit_quantity}
+                              />
+                            </td>
+                            <td className={cn(CELL, NUM, "font-semibold")}>
+                              <InUnit
+                                pieces={row.counted_quantity}
+                                unit={row.counted_unit_code}
+                                quantity={row.counted_unit_quantity}
+                              />
+                            </td>
+                            <td className={cn(CELL, "text-right")}>
+                              {/* Over is not refused: what came beyond the
+                                  order is received and goes back to the
+                                  supplier. Short stays owed unless closed. */}
+                              {row.counted_quantity >
+                              row.outstanding_stock_units ? (
+                                <span className="flex flex-col items-end gap-0.5">
+                                  <Pill tone="warn">
+                                    {variance(
+                                      row.counted_quantity -
+                                        row.outstanding_stock_units
+                                    )}
+                                  </Pill>
+                                  <span className="text-[0.875rem] text-warn-fg">
+                                    Return to supplier
+                                  </span>
+                                </span>
+                              ) : row.counted_quantity <
+                                row.outstanding_stock_units ? (
+                                <span className="flex flex-col items-end gap-0.5">
+                                  <Pill tone="bad">
+                                    {variance(
+                                      row.counted_quantity -
+                                        row.outstanding_stock_units
+                                    )}
+                                  </Pill>
+                                  <span className="text-[0.875rem] text-mute">
+                                    Short
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="text-mute tabular-nums">
+                                  0
+                                </span>
                               )}
+                            </td>
+                            <td className={cn(CELL, NUM)}>
+                              {money(row.unit_price_minor)}
+                            </td>
+                            <td className={cn(CELL, NUM, "text-ink")}>
+                              {row.unit_price_minor === null
+                                ? "—"
+                                : money(
+                                    row.counted_quantity * row.unit_price_minor
+                                  )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    {/* The totals the invoice underneath is checked against, on
+                    the same right edge as the figures they add up. */}
+                    <tfoot>
+                      <tr className="border-t border-hairline bg-soft-2">
+                        <td className={CELL} />
+                        <td
+                          className={cn(
+                            CELL,
+                            "font-mono text-eyebrow tracking-[0.04em] text-body uppercase"
+                          )}
+                        >
+                          This delivery
+                        </td>
+                        <td className={cn(CELL, NUM)}>{count(totalOrdered)}</td>
+                        <td className={cn(CELL, NUM, "font-semibold")}>
+                          {count(totalCounted)}
+                        </td>
+                        <td className={cn(CELL, NUM)}>
+                          {variance(totalCounted - totalOrdered)}
+                        </td>
+                        <td className={CELL} />
+                        <td className={cn(CELL, NUM, "font-semibold text-ink")}>
+                          {money(totalValue)}
                         </td>
                       </tr>
-                    )
-                  })}
-                </tbody>
-                {/* The totals the invoice underneath is checked against, on
-                    the same right edge as the figures they add up. */}
-                <tfoot>
-                  <tr className="border-t border-hairline bg-soft-2">
-                    <td className={CELL} />
-                    <td
-                      className={cn(
-                        CELL,
-                        "font-mono text-eyebrow tracking-[0.04em] text-body uppercase"
-                      )}
-                    >
-                      This delivery
-                    </td>
-                    <td className={cn(CELL, NUM)}>{count(totalOrdered)}</td>
-                    <td className={cn(CELL, NUM, "font-semibold")}>
-                      {count(totalCounted)}
-                    </td>
-                    <td className={cn(CELL, NUM)}>
-                      {variance(totalCounted - totalOrdered)}
-                    </td>
-                    <td className={CELL} />
-                    <td className={cn(CELL, NUM, "font-semibold text-ink")}>
-                      {money(totalValue)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
 
-          {unpriced > 0 && (
-            <p className="-mt-2.5 text-[0.71875rem] text-mute">
-              {count(unpriced)} of {count(waiting.length)} lines carry no agreed
-              price, so they add nothing to the value above — it is a floor, not
-              the whole delivery.
-            </p>
+              {unpriced > 0 && (
+                <p className="-mt-2.5 text-[0.875rem] text-mute">
+                  {count(unpriced)} of {count(waiting.length)} lines carry no
+                  agreed price, so they add nothing to the value above — it is a
+                  floor, not the whole delivery.
+                </p>
+              )}
+            </>
           )}
 
           {/* Directly under the value the goods come to, because "billed" and
               "worth at the agreed price" are two halves of one sum and a
               verifier should not have to hold one of them in their head. */}
           {receiptId !== null && (
-            <InvoiceBlock receiptId={receiptId} counts={waiting} />
+            <InvoiceBlock
+              key={receiptId}
+              receiptId={receiptId}
+              counts={invoiced}
+            />
           )}
 
           {decide.isSuccess && (
@@ -1268,5 +1513,76 @@ function VerifySheet({
         </div>
       )}
     </Sheet>
+  )
+}
+
+/// Close short what is still owed on accepted lines, at head office.
+///
+/// The acceptance is written at the DC and reaches head office as a receipt a
+/// few seconds later; closing short before it lands would record the whole
+/// line as missing. So each line is retried until head office has the receipt
+/// — a refusal saying nothing is outstanding means it is already settled.
+async function closeRestShort(
+  rows: readonly PurchaseCountAwaitingVerification[],
+  actor: string,
+  note: string
+) {
+  const reason =
+    note.trim() === "" ? "Closed short at verification" : note.trim()
+  for (const row of rows) {
+    if (row.counted_quantity >= row.outstanding_stock_units) continue
+    let settled = false
+    for (let attempt = 0; attempt < 20 && !settled; attempt += 1) {
+      const page = await purchaseOrderPage({ q: row.po_number })
+      const order = page.rows.find((one) => one.po_number === row.po_number)
+      const line =
+        order === undefined
+          ? undefined
+          : (await purchaseOrderDetail(order.purchase_order_id)).lines.find(
+              (one) => one.po_line_id === row.po_line_id
+            )
+      // What head office should hold once this count lands: what was
+      // already matched before it, plus this count.
+      const want =
+        line === undefined
+          ? Number.POSITIVE_INFINITY
+          : line.ordered_quantity -
+            row.outstanding_stock_units +
+            row.counted_quantity
+      const landed = line !== undefined && line.received_quantity >= want
+      if (landed) {
+        await closeLineShort(row.po_line_id, actor, reason)
+        settled = true
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 3000))
+      }
+    }
+    if (!settled)
+      throw new Error(
+        `${row.article_name} was accepted, but head office has not received it yet — close it short from the order once it shows as received.`
+      )
+  }
+}
+
+/// A quantity said the way it was ordered or counted — "9.5 KODI" — with the
+/// pieces it comes to under it. Pieces alone when that is how it was typed.
+function InUnit({
+  pieces,
+  unit,
+  quantity,
+}: {
+  pieces: number
+  unit: string | null | undefined
+  quantity: string | null | undefined
+}) {
+  if (unit === null || unit === undefined || quantity === null || quantity === undefined)
+    return <>{count(pieces)}</>
+  return (
+    <span className="flex flex-col items-end leading-tight">
+      <span>{`${quantity.replace(".", ",")} ${unit}`}</span>
+      <span className="text-[0.875rem] font-normal text-mute">
+        {count(pieces)} pcs
+      </span>
+    </span>
   )
 }

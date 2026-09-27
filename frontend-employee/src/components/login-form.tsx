@@ -1,24 +1,13 @@
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { auth } from "@/lib/api"
-import { cn } from "@/lib/utils"
-import type { LoginResponse } from "@itulah/contract"
-import { ApiError } from "@itulah/contract/client"
 import { useForm } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
+import { Eye, EyeOff } from "lucide-react"
+import { useState } from "react"
+
+import { Button } from "@/components/ui/button"
+import { Field, Input } from "@/components/ui/field"
+import { auth } from "@/lib/api"
+import type { LoginResponse } from "@itulah/contract"
+import { ApiError } from "@itulah/contract/client"
 
 /// Sign-in, with the same account as every other surface.
 ///
@@ -26,18 +15,17 @@ import { useMutation } from "@tanstack/react-query"
 /// and an `<input type="email">` would refuse a perfectly valid operator name
 /// before the request was ever made. There is no self-service sign-up — the
 /// account is issued with the job.
-///
-/// The fields are `h-11` and 16px here rather than the design system's default
-/// because this one is typed on a phone: anything smaller is both hard to hit
-/// and, at under 16px, enough to make iOS Safari zoom the page on focus and
-/// leave the password field off the side of the screen.
 export function LoginForm({
   onSignedIn,
-  className,
-  ...props
-}: React.ComponentProps<"div"> & {
+  problem: sessionProblem = null,
+  footer,
+}: {
   onSignedIn: (session: LoginResponse) => void
+  problem?: string | null
+  footer?: React.ReactNode
 }) {
+  const [revealed, setRevealed] = useState(false)
+
   const signIn = useMutation({
     mutationFn: (credentials: { username: string; password: string }) =>
       auth.login(credentials.username, credentials.password),
@@ -46,103 +34,106 @@ export function LoginForm({
 
   const form = useForm({
     defaultValues: { username: "", password: "" },
-    // `mutate` rather than `mutateAsync`: the refusal belongs to the request,
-    // not to the form, and is read back off the mutation below. Throwing it
-    // through the submit handler would make it a second thing to catch.
     onSubmit: ({ value }) => signIn.mutate(value),
   })
 
-  // The server's message is written for a person; repeating it is more use
-  // than a generic failure. Anything else means we never reached it.
-  const problem =
+  const signInProblem =
     signIn.error === null
       ? null
       : signIn.error instanceof ApiError
         ? signIn.error.message
         : "could not reach the server"
+  const problem = signInProblem ?? sessionProblem
 
   return (
-    <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <Card>
-        <CardHeader>
-          <CardTitle>Itulah</CardTitle>
-          <CardDescription>Your work — sign in to continue</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              void form.handleSubmit()
-            }}
-          >
-            <FieldGroup>
-              <form.Field name="username">
-                {(field) => (
-                  <Field>
-                    <FieldLabel htmlFor={field.name}>Username</FieldLabel>
-                    <Input
-                      id={field.name}
-                      name={field.name}
-                      autoComplete="username"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      autoFocus
-                      required
-                      className="h-11 text-base md:text-sm"
-                      value={field.state.value}
-                      onBlur={field.handleBlur}
-                      onChange={(event) =>
-                        field.handleChange(event.target.value)
-                      }
-                    />
-                  </Field>
-                )}
-              </form.Field>
-              <form.Field name="password">
-                {(field) => (
-                  <Field>
-                    <FieldLabel htmlFor={field.name}>Password</FieldLabel>
-                    <Input
-                      id={field.name}
-                      name={field.name}
-                      type="password"
-                      autoComplete="current-password"
-                      required
-                      className="h-11 text-base md:text-sm"
-                      value={field.state.value}
-                      onBlur={field.handleBlur}
-                      onChange={(event) =>
-                        field.handleChange(event.target.value)
-                      }
-                    />
-                  </Field>
-                )}
-              </form.Field>
-              {problem !== null && (
-                <FieldDescription
-                  role="alert"
-                  className="font-medium text-destructive"
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        void form.handleSubmit()
+      }}
+      className="w-full max-w-[21rem]"
+    >
+      <div className="mb-6 flex items-center gap-2.5">
+        <span className="grid size-[1.875rem] place-items-center rounded-inner bg-dark text-[0.6875rem] font-semibold tracking-[0.02em] text-on-dark">
+          IT
+        </span>
+        <div>
+          <h1 className="text-hero font-semibold text-ink">My work</h1>
+          <p className="text-meta text-body">Sign in to continue.</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3.5">
+        <form.Field name="username">
+          {(field) => (
+            <Field label="Username">
+              <Input
+                name={field.name}
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                autoFocus
+                required
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+            </Field>
+          )}
+        </form.Field>
+
+        <form.Field name="password">
+          {(field) => (
+            <Field label="Password">
+              <div className="relative">
+                <Input
+                  name={field.name}
+                  type={revealed ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                  className="pr-11"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setRevealed((on) => !on)}
+                  aria-label={revealed ? "Hide password" : "Show password"}
+                  className="absolute top-1/2 right-1 grid size-8 -translate-y-1/2 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-text"
                 >
-                  {problem}
-                </FieldDescription>
-              )}
-              <Field>
-                <Button
-                  type="submit"
-                  size="lg"
-                  className="h-11"
-                  disabled={signIn.isPending}
-                >
-                  {signIn.isPending ? "Signing in…" : "Sign in"}
-                </Button>
-                <FieldDescription className="text-center">
-                  Use the same account as the till.
-                </FieldDescription>
-              </Field>
-            </FieldGroup>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+                  {revealed ? (
+                    <EyeOff className="size-4" />
+                  ) : (
+                    <Eye className="size-4" />
+                  )}
+                </button>
+              </div>
+            </Field>
+          )}
+        </form.Field>
+      </div>
+
+      {problem !== null && (
+        <p role="alert" className="mt-3.5 text-[0.71875rem] text-bad">
+          {problem}
+        </p>
+      )}
+
+      <Button
+        type="submit"
+        variant="primary"
+        size="tap"
+        className="mt-5 w-full md:h-10"
+        disabled={signIn.isPending}
+      >
+        {signIn.isPending ? "Signing in…" : "Sign in"}
+      </Button>
+
+      <p className="mt-4 text-center text-meta text-mute">
+        Use the same account as the till.
+      </p>
+      {footer}
+    </form>
   )
 }

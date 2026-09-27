@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The splash mark, breathing — the same 700 ms pulse `Splash.kt` runs. -->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/splash_mark">
+    <target android:name="root" android:animation="@animator/splash_blink" />
+</animated-vector>

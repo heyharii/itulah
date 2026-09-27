@@ -150,7 +150,7 @@ export function VaultSheet({
               <a
                 href={row.href}
                 download={row.name}
-                className="inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-hairline-2 bg-canvas px-3 text-[0.78125rem] font-medium text-text transition-colors hover:bg-soft-2"
+                className="inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-hairline-2 bg-canvas px-3 text-[0.875rem] font-medium text-text transition-colors hover:bg-soft-2"
               >
                 Download
               </a>

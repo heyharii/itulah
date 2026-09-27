@@ -14,6 +14,8 @@ use argon2::{
 };
 use sha2::{Digest as _, Sha256};
 
+pub mod sso;
+
 pub const SESSION_COOKIE: &str = "inventory_session";
 pub const CSRF_COOKIE: &str = "inventory_csrf";
 /// Minimum textual length for high-entropy machine credentials. Provisioning
@@ -104,14 +106,31 @@ pub fn hash_password(password: &str, minimum_length: usize) -> Result<String, St
         .map_err(|error| format!("password hashing failed: {error}"))
 }
 
+/// The verifier Cloud projects to a DC for somebody who signs in there only
+/// through Cloud single sign-on.
+///
+/// Deliberately not a PHC string: `password_matches` cannot parse it, so no
+/// password typed anywhere on the node — its login, a till override — ever
+/// matches it. Older nodes treat it the same way, because an unparseable
+/// verifier has always been a refusal.
+pub const SSO_ONLY_VERIFIER: &str = "!cloud-sso-only";
+
+/// Spent on a verifier that cannot be parsed, so that an account with no
+/// password answers as slowly as one with a wrong password.
+const UNUSABLE_VERIFIER_DECOY: &str = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
 pub fn password_matches(stored_hash: &str, password: &str) -> bool {
-    PasswordHash::new(stored_hash)
-        .map(|parsed| {
-            Argon2::default()
-                .verify_password(password.as_bytes(), &parsed)
-                .is_ok()
-        })
-        .unwrap_or(false)
+    match PasswordHash::new(stored_hash) {
+        Ok(parsed) => Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok(),
+        Err(_) => {
+            if let Ok(decoy) = PasswordHash::new(UNUSABLE_VERIFIER_DECOY) {
+                let _ = Argon2::default().verify_password(password.as_bytes(), &decoy);
+            }
+            false
+        }
+    }
 }
 
 pub fn normalize_username(username: &str) -> Result<String, String> {
@@ -166,6 +185,13 @@ mod tests {
         let second = random_token();
         assert_eq!(first.len(), 64);
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn nothing_matches_the_sso_only_verifier() {
+        for attempt in ["", SSO_ONLY_VERIFIER, "password-1"] {
+            assert!(!password_matches(SSO_ONLY_VERIFIER, attempt));
+        }
     }
 
     #[test]

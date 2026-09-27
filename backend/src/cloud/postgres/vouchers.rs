@@ -501,15 +501,32 @@ pub async fn list_vouchers(pool: &PgPool, query: VoucherQuery) -> Result<Voucher
           ORDER BY {order}
           LIMIT $6"
     );
-    let rows = sqlx::query(&sql)
-        .bind(&member_id)
-        .bind(&search)
-        .bind(&status)
-        .bind(&kind)
-        .bind(cursor.as_ref().map(|c| c.voucher_id))
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
+    let page = async {
+        Ok::<_, AppError>(
+            sqlx::query(&sql)
+                .bind(&member_id)
+                .bind(&search)
+                .bind(&status)
+                .bind(&kind)
+                .bind(cursor.as_ref().map(|c| c.voucher_id))
+                .bind(limit)
+                .fetch_all(pool)
+                .await?,
+        )
+    };
+    // The page, its counts and the ledger read the same table independently,
+    // so they are asked together rather than one after another.
+    let (rows, (total, facets), ledger) = tokio::try_join!(
+        page,
+        voucher_facets(
+            pool,
+            member_id.as_deref(),
+            search.as_deref(),
+            &status,
+            &kind,
+        ),
+        voucher_ledger(pool),
+    )?;
 
     // A short page is the last page. A full one may not be — the next request
     // can come back empty — and that is the honest answer: knowing whether more
@@ -521,15 +538,6 @@ pub async fn list_vouchers(pool: &PgPool, query: VoucherQuery) -> Result<Voucher
         _ => None,
     };
 
-    let (total, facets) = voucher_facets(
-        pool,
-        member_id.as_deref(),
-        search.as_deref(),
-        &status,
-        &kind,
-    )
-    .await?;
-
     Ok(VoucherList {
         rows: rows
             .iter()
@@ -538,7 +546,7 @@ pub async fn list_vouchers(pool: &PgPool, query: VoucherQuery) -> Result<Voucher
         next_cursor,
         total,
         facets,
-        ledger: voucher_ledger(pool).await?,
+        ledger,
     })
 }
 
@@ -610,7 +618,8 @@ async fn voucher_facets(
 /// scans of the same table to answer one strip of figures.
 pub async fn voucher_ledger(pool: &PgPool) -> Result<VoucherLedger, AppError> {
     let row = sqlx::query(
-        "SELECT count(*)::bigint                                       AS issued_count,
+        "SELECT h.*, moved.redeemed_minor, moved.voided_minor
+           FROM (SELECT count(*)::bigint                                       AS issued_count,
                 COALESCE(sum(issued_minor), 0)::bigint                 AS issued_minor,
                 count(*) FILTER (WHERE status = 'ACTIVE')::bigint      AS outstanding_count,
                 COALESCE(sum(balance_minor)
@@ -621,15 +630,20 @@ pub async fn voucher_ledger(pool: &PgPool) -> Result<VoucherLedger, AppError> {
                 COALESCE(sum(balance_minor)
                          FILTER (WHERE status = 'ACTIVE'
                                    AND expires_at IS NOT NULL
-                                   AND expires_at <= now()), 0)::bigint AS expired_minor,
-                -- From the movements, not from the header: what came off a
-                -- card and what was written off are two different events and
-                -- the header remembers neither, only the total that is left.
-                COALESCE((SELECT -sum(amount_minor) FROM voucher_movement
-                           WHERE kind = 'REDEEM'), 0)::bigint          AS redeemed_minor,
-                COALESCE((SELECT -sum(amount_minor) FROM voucher_movement
-                           WHERE kind = 'VOID'), 0)::bigint            AS voided_minor
-           FROM voucher",
+                                   AND expires_at <= now()), 0)::bigint AS expired_minor
+                   FROM voucher) h
+          CROSS JOIN (
+                 -- From the movements, not from the header: what came off a
+                 -- card and what was written off are two different events and
+                 -- the header remembers neither, only the total that is left.
+                 -- One pass over the movements for both figures. Each side is
+                 -- an aggregate with no GROUP BY, so each is exactly one row
+                 -- even when there are no cards at all.
+                SELECT COALESCE(-sum(amount_minor) FILTER (WHERE kind = 'REDEEM'), 0)::bigint
+                           AS redeemed_minor,
+                       COALESCE(-sum(amount_minor) FILTER (WHERE kind = 'VOID'), 0)::bigint
+                           AS voided_minor
+                  FROM voucher_movement) moved",
     )
     .fetch_one(pool)
     .await?;

@@ -106,7 +106,7 @@ pub async fn finance_controls(
         "SELECT COALESCE(SUM(l.credit_minor - l.debit_minor),0)::bigint
            FROM journal_line l
           WHERE l.account_code IN (
-                SELECT account_code FROM account_map WHERE semantic_key = 'loan_principal')",
+                SELECT account_code FROM account_resolution WHERE role = 'loan_principal')",
     )
     .fetch_one(pool)
     .await?;
@@ -127,8 +127,8 @@ pub async fn finance_controls(
             COALESCE((SELECT SUM(l.credit_minor - l.debit_minor)
                         FROM journal_line l
                        WHERE l.account_code IN (
-                             SELECT account_code FROM account_map
-                              WHERE semantic_key IN ('trade_payable','non_merchandise_payable'))
+                             SELECT account_code FROM account_resolution
+                              WHERE role IN ('trade_payable','non_merchandise_payable'))
                     ), 0)::bigint AS gl_minor,
             COALESCE((SELECT SUM(st.outstanding_minor)
                         FROM payment_ledger_as_of(COALESCE($1::date, CURRENT_DATE)) st
@@ -183,8 +183,8 @@ pub async fn finance_controls(
         "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor),0)::bigint
            FROM journal_line l
           WHERE l.account_code IN (
-                SELECT account_code FROM account_map
-                 WHERE semantic_key IN ('affiliate_receivable','affiliate_payable'))",
+                SELECT account_code FROM account_resolution
+                 WHERE role IN ('affiliate_receivable','affiliate_payable'))",
     )
     .fetch_one(pool)
     .await?;
@@ -209,8 +209,8 @@ pub async fn finance_controls(
     let bank = sqlx::query(
         "WITH mapped AS (
              SELECT DISTINCT m.site_id, m.account_code
-               FROM account_map m
-              WHERE m.semantic_key IN ('bank_giro', 'bank_savings')
+               FROM account_resolution m
+              WHERE m.role IN ('bank_giro', 'bank_savings')
          ), latest AS (
              SELECT DISTINCT ON (s.site_id, s.account_code)
                     s.site_id, s.account_code, s.closing_minor, s.period_end
@@ -269,8 +269,8 @@ pub async fn finance_controls(
             COALESCE((SELECT SUM(l.debit_minor - l.credit_minor)
                         FROM journal_line l
                        WHERE l.account_code IN (
-                             SELECT account_code FROM account_map
-                              WHERE semantic_key = 'fixed_asset')), 0)::bigint AS gl_minor,
+                             SELECT account_code FROM account_resolution
+                              WHERE role = 'fixed_asset')), 0)::bigint AS gl_minor,
             COALESCE((SELECT SUM(c.capitalized_cost_minor)
                         FROM asset_capitalization c
                         JOIN fixed_asset a ON a.asset_id = c.asset_id
@@ -327,8 +327,8 @@ pub async fn finance_controls(
             COALESCE((SELECT SUM(l.credit_minor - l.debit_minor)
                         FROM journal_line l
                        WHERE l.account_code IN (
-                             SELECT account_code FROM account_map
-                              WHERE semantic_key = 'payroll_payable')), 0)::bigint AS gl_minor,
+                             SELECT account_code FROM account_resolution
+                              WHERE role = 'payroll_payable')), 0)::bigint AS gl_minor,
             -- What is still owed, read from the payroll documents: the 2017
             -- credit of every run handed over and not yet paid, plus the
             -- envelopes a store has not yet handed out for runs Finance has
@@ -341,8 +341,8 @@ pub async fn finance_controls(
                          JOIN payroll_handover h ON h.run_id = e.source_id
                         WHERE e.source_kind = 'PAYROLL_RUN' AND e.purpose IN ('ACCRUAL', 'MAIN')
                           AND h.state = 'RECEIVED'
-                          AND l.account_code IN (SELECT account_code FROM account_map
-                                                  WHERE semantic_key = 'payroll_payable')), 0)
+                          AND l.account_code IN (SELECT account_code FROM account_resolution
+                                                  WHERE role = 'payroll_payable')), 0)
              + COALESCE((SELECT SUM(t.net_minor) FROM payroll_payout_task t
                           JOIN payroll_handover h ON h.run_id = t.run_id
                          WHERE h.state <> 'RECEIVED' AND t.status <> 'PAID'), 0))::bigint
@@ -383,7 +383,7 @@ pub async fn finance_controls(
             "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor),0)::bigint
                FROM journal_line l
               WHERE l.account_code IN (
-                    SELECT account_code FROM account_map WHERE semantic_key = 'inventory')",
+                    SELECT account_code FROM account_resolution WHERE role = 'inventory')",
         )
         .fetch_one(pool)
         .await?,
@@ -655,11 +655,11 @@ pub async fn finance_close_readiness(
            FROM journal_line l
            JOIN journal_entry e ON e.entry_id = l.entry_id
           -- The client chart keeps the inter-unit balance on its affiliate
-          -- leaves (1057/1058/1059 receivable, 2028/2029/2031 payable), not
+          -- leaves (1057/1058/1059 receivable, 2028/2029/2030 payable), not
           -- on the retired 1501: every account an affiliate meaning points at.
           WHERE l.account_code IN (
-                SELECT DISTINCT account_code FROM account_map
-                 WHERE semantic_key IN ('affiliate_receivable', 'affiliate_payable'))
+                SELECT DISTINCT account_code FROM account_resolution
+                 WHERE role IN ('affiliate_receivable', 'affiliate_payable'))
             AND l.counter_site_id IS NOT NULL
             AND e.posting_date <= make_date($1, $2, 1) + INTERVAL '1 month' - INTERVAL '1 day'",
     )
@@ -677,7 +677,7 @@ pub async fn finance_close_readiness(
                 .to_string()
         } else {
             format!(
-                "Selisih {interunit} pada akun afiliasi (1057/1058/1059, 2028/2029/2031): \
+                "Selisih {interunit} pada akun afiliasi (1057/1058/1059, 2028/2029/2030): \
                  satu sisi dibukukan tanpa lawannya. Cari pasangan kirim/terima antar-unit \
                  yang baru satu sisinya diposting."
             )

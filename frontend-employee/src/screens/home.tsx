@@ -1,10 +1,12 @@
+import { useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { ChevronRight } from "lucide-react"
 
 import { Async, Panel, Row } from "@/components/bits"
+import { Input } from "@/components/ui/field"
+import { Button } from "@/components/ui/button"
 import { StatusPill } from "@/components/status-pill"
-import { buttonVariants } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
+import { button } from "@/components/ui/button-style"
 import {
   duration,
   isUpcoming,
@@ -14,16 +16,25 @@ import {
   relativeDay,
   shortDate,
 } from "@/lib/format"
-import { punchSource, readDays, readMinutes } from "@/lib/hr/days"
+import {
+  punchSource,
+  readDays,
+  readMinutes,
+  settledOutcomes,
+} from "@/lib/hr/days"
 import {
   attendanceWindow,
   useAttendance,
+  useCompleteOwnTask,
   useHolidays,
   useLeaveEntitlements,
+  useMyLifecycleTasks,
   useOvertimeOrders,
   usePaySlips,
   useProfile,
 } from "@/lib/hr/queries"
+import { useState } from "react"
+
 import { useSession } from "@/lib/session"
 
 /// The one screen somebody opens without a question in mind.
@@ -64,6 +75,19 @@ export function Home() {
     isUpcoming(day.date)
   )
   const latestPay = (pay.data ?? [])[0]
+  const isManager =
+    session.identity.role === "ADMIN" || session.identity.role === "SUPERVISOR"
+  // A new joiner's checklist: the tasks whose owner is the employee. Empty
+  // for everybody who has finished onboarding, which is why it sits above
+  // Today and renders nothing at all once it is done.
+  const tasks = useMyLifecycleTasks()
+  const openTasks = (tasks.data ?? []).filter(
+    (task) => task.state === "PENDING"
+  )
+  const client = useQueryClient()
+  const completeTask = useCompleteOwnTask()
+  const [taskReason, setTaskReason] = useState("")
+  void client
 
   return (
     <div className="flex flex-col gap-4">
@@ -72,10 +96,10 @@ export function Home() {
             how they should be addressed. HR holds a legal name, and a greeting
             is not the place for it — the preferred name this used to read is
             not a field the employment record has. */}
-        <p className="text-xl font-semibold">
+        <p className="text-hero font-semibold text-ink">
           Hello, {session.identity.display_name}
         </p>
-        <p className="text-[13px] text-muted-foreground">
+        <p className="text-meta text-body">
           {/* Both halves are absent until a contract is signed and a posting
               made, and "null · null" is worse than the username. */}
           {[profile.data?.job_title, profile.data?.place_name]
@@ -84,30 +108,78 @@ export function Home() {
         </p>
       </div>
 
+      {/* The store head's desk, one tap away — and only for a store head.
+          The rung rides the session; the server re-checks every decision
+          against reach and the record anyway. */}
+      {isManager && (
+        <Link
+          to="/team"
+          className={button({
+            size: "tap",
+            className: "w-full justify-between md:h-control",
+          })}
+        >
+          Team queue
+          <ChevronRight className="size-4" />
+        </Link>
+      )}
+
+      {openTasks.length > 0 && (
+        <Panel title={`Checklist (${openTasks.length})`}>
+          <div className="flex flex-col gap-3">
+            {openTasks.map((task) => (
+              <div key={task.id} className="flex flex-col gap-1">
+                <p className="text-cell font-medium text-ink">{task.label}</p>
+                <Input
+                  value={taskReason}
+                  placeholder="Confirm to mark done"
+                  onChange={(e) => setTaskReason(e.target.value)}
+                />
+                <Button
+                  variant="primary"
+                  size="tap"
+                  disabled={taskReason.trim() === "" || completeTask.isPending}
+                  onClick={() =>
+                    completeTask.mutate(
+                      { templateId: task.template_id, reason: taskReason },
+                      {
+                        onSuccess: () => setTaskReason(""),
+                        onError: () => undefined,
+                      }
+                    )
+                  }
+                >
+                  Mark done
+                </Button>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+
       {awaiting.length > 0 && (
         <Panel title="Waiting on you">
           {awaiting.map((order) => (
             <div key={order.id} className="flex flex-col gap-1">
-              <p className="text-[13px] font-medium">
+              <p className="text-cell font-medium text-ink">
                 Overtime {relativeDay(order.on_date)} ·{" "}
                 {readMinutes(order.planned_minutes)}
               </p>
-              <p className="text-[13px] text-muted-foreground">
-                {order.ordered_reason}
-              </p>
+              <p className="text-cell text-body">{order.ordered_reason}</p>
             </div>
           ))}
           {/* Navigation styled as a button, not a Button that navigates.
               `<Button render={<Link/>}>` looks identical and is wrong
               underneath: Base UI puts `role="button"` on the anchor, so a
               screen reader announces "button" for something that changes the
-              page. `buttonVariants` is the appearance without the semantics. */}
+              page. `button` is the appearance without the semantics. */}
           <Link
             to="/overtime"
-            className={cn(
-              buttonVariants({ size: "lg" }),
-              "h-11 w-full md:w-auto md:self-start"
-            )}
+            className={button({
+              variant: "primary",
+              size: "tap",
+              className: "w-full md:h-control md:w-auto md:self-start",
+            })}
           >
             Answer
           </Link>
@@ -121,19 +193,17 @@ export function Home() {
               // Deliberately not "absent". Today derives to nothing until
               // somebody has rostered it, and a home screen is the last place
               // to tell a person they did not turn up.
-              <p className="text-[13px] text-muted-foreground">
-                Nothing recorded yet today.
-              </p>
+              <p className="text-cell text-body">Nothing recorded yet today.</p>
             ) : (
               <>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <p className="mr-auto text-[13px] font-medium">
+                  <p className="mr-auto text-cell font-medium text-ink">
                     {longDate(today.date)}
                   </p>
-                  {today.outcomes.map((outcome) => (
+                  {settledOutcomes(today, today.date).map((outcome) => (
                     <StatusPill key={outcome} status={outcome} />
                   ))}
-                  {today.outcomes.length === 0 && (
+                  {settledOutcomes(today, today.date).length === 0 && (
                     <StatusPill status={today.plan} />
                   )}
                 </div>
@@ -156,27 +226,24 @@ export function Home() {
       <Panel
         title="Leave"
         action={
-          <Link
-            to="/leave/new"
-            className={cn(buttonVariants({ size: "sm", variant: "outline" }))}
-          >
+          <Link to="/leave/new" className={button({ size: "sm" })}>
             Apply
           </Link>
         }
       >
         {annual === undefined ? (
-          <p className="text-[13px] text-muted-foreground">
+          <p className="text-cell text-body">
             No kind of leave draws on a balance yet.
           </p>
         ) : (
           <>
-            <p className="text-3xl font-semibold tabular-nums">
+            <p className="num text-kpi font-semibold text-ink">
               {readDays(annual.remainingCentidays ?? 0)}
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
+              <span className="ml-1.5 text-cell font-normal text-mute">
                 left
               </span>
             </p>
-            <p className="text-[13px] text-muted-foreground">
+            <p className="text-cell text-body">
               {annual.name}
               {(annual.pendingCentidays ?? 0) > 0 &&
                 ` · ${readDays(annual.pendingCentidays ?? 0)} awaiting a decision`}
@@ -190,8 +257,8 @@ export function Home() {
           <Row label={nextHoliday.name}>
             {shortDate(nextHoliday.date)} · {relativeDay(nextHoliday.date)}
           </Row>
-          {nextHoliday.kind === "JOINT_LEAVE" && (
-            <p className="text-[13px] text-muted-foreground">
+          {nextHoliday.consumes_annual_leave && (
+            <p className="text-cell text-body">
               Cuti bersama — deducted from your annual leave.
             </p>
           )}
@@ -199,7 +266,10 @@ export function Home() {
       )}
 
       {latestPay !== undefined && (
-        <Link to="/pay" className="block">
+        <Link
+          to="/pay"
+          className="block rounded-card transition-shadow hover:shadow-pop"
+        >
           <Panel title="Latest payslip">
             <div className="flex items-center gap-2">
               <div>
@@ -207,14 +277,14 @@ export function Home() {
                     so a figure labelled "net" would be the agreement wearing a
                     word it has not earned — and this is the card somebody
                     glances at rather than reads. */}
-                <p className="text-lg font-semibold tabular-nums">
+                <p className="num text-kpi font-semibold text-ink">
                   {money(latestPay.statutory_base_minor)}
                 </p>
-                <p className="text-[13px] text-muted-foreground">
+                <p className="text-cell text-body">
                   Agreed pay · {latestPay.run_id}
                 </p>
               </div>
-              <ChevronRight className="ml-auto size-5 text-muted-foreground" />
+              <ChevronRight className="ml-auto size-5 text-line-ico" />
             </div>
           </Panel>
         </Link>

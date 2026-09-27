@@ -314,7 +314,7 @@ export function Journal() {
             narrowing the list. The cap is not the window's: it is the
             server's, and a reader who has narrowed to a fortnight should still
             be told what was asked for. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {range.chip}
           {kind !== "" &&
             ` · ${SOURCE_KINDS.find((row) => row.value === kind)?.label}`}
@@ -433,7 +433,7 @@ function EntrySheet({
               placeholder="Why this entry is being reversed"
             />
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[0.71875rem] text-mute">
+              <span className="text-[0.875rem] text-mute">
                 The reason is the only record of why.
               </span>
               <Button
@@ -506,7 +506,7 @@ function EntrySheet({
                     className="border-t border-hairline"
                   >
                     <td className="py-2 pr-2">
-                      <span className="block text-[0.8125rem] text-ink">
+                      <span className="block text-[0.875rem] text-ink">
                         {line.account_name}
                         {/* The category is what the account code used to say
                             on its own. Without it an expense entry is eight
@@ -528,17 +528,17 @@ function EntrySheet({
                       <AppLink
                         to="/finance/ledger"
                         sheet={{ key: "account", value: line.account_code }}
-                        className="font-mono text-[0.65625rem] text-mute hover:text-accent hover:underline"
+                        className="font-mono text-[0.875rem] text-mute hover:text-accent hover:underline"
                       >
                         {line.account_code}
                       </AppLink>
                       {line.memo && (
-                        <span className="block text-[0.65625rem] text-mute">
+                        <span className="block text-[0.875rem] text-mute">
                           {line.memo}
                         </span>
                       )}
                     </td>
-                    <td className="py-2 text-right text-[0.71875rem] text-body">
+                    <td className="py-2 text-right text-[0.875rem] text-body">
                       <SiteName id={line.site_id} />
                     </td>
                     <td className="py-2 text-right tabular-nums">
@@ -755,7 +755,7 @@ function ComposerSheet({
         <form.Subscribe selector={(state) => entryTotals(state.values)}>
           {(totals) => (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[0.71875rem] text-mute tabular-nums">
+              <span className="text-[0.875rem] text-mute tabular-nums">
                 {totals.balanced
                   ? `Balanced at ${money(totals.debits)}`
                   : totals.usable.length === 0

@@ -4,6 +4,7 @@ import { useState } from "react"
 
 import { Input } from "@/components/ui/field"
 import { ColourSwatch } from "@/components/ui/swatch"
+import { POP_MOTION } from "@/lib/filter-chrome"
 import { cn } from "@/lib/utils"
 import { clamp, HEX, hexOf, hsvOf, type Hsv } from "@/screens/master/colour-hex"
 
@@ -168,7 +169,12 @@ export function ColourField({
 
       <Popover.Portal>
         <Popover.Positioner side="bottom" align="start" sideOffset={8}>
-          <Popover.Popup className="z-50 w-[15.5rem] rounded-inner border border-hairline bg-canvas p-2.5 shadow-pop outline-none">
+          <Popover.Popup
+            className={cn(
+              "z-50 w-[15.5rem] rounded-inner border border-hairline bg-canvas p-2.5 shadow-pop outline-none",
+              POP_MOTION
+            )}
+          >
             <div
               {...square}
               tabIndex={disabled ? -1 : 0}
@@ -212,7 +218,7 @@ export function ColourField({
                 placeholder="#1B2A4A"
                 spellCheck={false}
                 autoComplete="off"
-                className="h-8 flex-1 font-mono text-[0.78125rem] uppercase placeholder:font-sans placeholder:normal-case"
+                className="h-8 flex-1 font-mono text-[0.875rem] uppercase placeholder:font-sans placeholder:normal-case"
               />
               {/* Only where the browser has one. Picking the colour off a
                   supplier's photograph in the next tab is the shortest path
@@ -230,18 +236,13 @@ export function ColourField({
                 )}
             </div>
 
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <span className="text-[0.6875rem] text-mute">
-                {settled === null
-                  ? "No swatch agreed yet."
-                  : "Drag, or paste a hex."}
-              </span>
+            <div className="mt-2 flex items-center justify-end gap-2">
               <button
                 type="button"
                 disabled={value.trim() === ""}
                 onClick={() => onChange("")}
                 className={cn(
-                  "rounded-full px-2 py-0.5 text-[0.6875rem] text-mute transition-colors",
+                  "rounded-full px-2 py-0.5 text-[0.875rem] text-mute transition-colors",
                   "hover:bg-soft-2 hover:text-ink disabled:pointer-events-none disabled:opacity-40"
                 )}
               >

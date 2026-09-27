@@ -460,8 +460,8 @@ impl IntegrityCheck for GeneralLedgerBalances {
         // until somebody has mapped them the only honest next act is to go and
         // map them.
         let inter_unit_mapped: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM account_map
-                             WHERE semantic_key IN ('affiliate_receivable', 'affiliate_payable'))",
+            "SELECT EXISTS (SELECT 1 FROM account_resolution
+                             WHERE role IN ('affiliate_receivable', 'affiliate_payable'))",
         )
         .fetch_one(pool)
         .await?;
@@ -711,11 +711,11 @@ fn summarise_control_rows(
                 states.push(CheckState::Blocked);
                 actions.push(SuggestedAction::new(
                     ActionVerb::CreateDocument,
-                    "account_map",
+                    "account_link",
                     format!("{}|{}|{}", row.account_key, row.site_id, row.qualifier),
                     format!(
                         "{} holds {} across {} open items and no account is mapped to it. \
-                         Nothing can be compared until somebody maps one on the Account map \
+                         Nothing can be compared until somebody links one on the Account Links \
                          screen.",
                         row.label(),
                         minor(row.ledger_outstanding_minor),
@@ -743,7 +743,7 @@ fn summarise_control_rows(
                 if state.is_open() {
                     actions.push(SuggestedAction::new(
                         ActionVerb::Investigate,
-                        "account_map",
+                        "account_link",
                         format!("{}|{}|{}", row.account_key, row.site_id, row.qualifier),
                         format!(
                             "{} says {} is outstanding across {} open items; account {code} \
@@ -937,7 +937,7 @@ impl IntegrityCheck for AcquirerReceivablesControl {
                 ));
                 actions.push(SuggestedAction::new(
                     ActionVerb::Investigate,
-                    "account_map",
+                    "account_link",
                     format!("{}|{}|{}", row.account_key, row.site_id, row.qualifier),
                     match &row.account_code {
                         Some(code) => format!(
@@ -1226,21 +1226,21 @@ impl IntegrityCheck for BankReconcilesToStatement {
 // (10) The units against each other
 // ---------------------------------------------------------------------------
 
-/// The affiliate accounts, read from the map exactly as the Inter-unit screen
-/// reads them.
+/// The affiliate accounts at each site, read from the links exactly as the
+/// Inter-unit screen reads them.
 ///
-/// `qualifier` carries `kind:counter_site_id`, which is the convention the
-/// inter-unit lane established. Re-deriving it here rather than importing that
-/// module keeps this engine able to run on a database where that lane's code is
-/// not present — the map is the contract, and it is one table.
-const AFFILIATE: &str = "SELECT m.semantic_key,
-            m.site_id,
-            split_part(m.qualifier, ':', 1) AS kind,
-            split_part(m.qualifier, ':', 2) AS counter_site_id,
-            m.account_code
-       FROM account_map m
-      WHERE m.semantic_key IN ('affiliate_receivable', 'affiliate_payable')
-        AND m.qualifier LIKE '%:%'";
+/// A link names only the family (`PEMBIAYAAN`, `BARANG`, `LAIN`); the other
+/// site is on the journal line as `counter_site_id`, so the pair is read off
+/// the line and the link only says which accounts are affiliate accounts.
+/// DISTINCT because a unit's receivable and payable roles land on the same
+/// hutang leaf (I7), and summing that leaf once per role would count every
+/// line twice. Re-deriving it here rather than importing that module keeps
+/// this engine able to run on a database where that lane's code is not
+/// present — the view is the contract.
+const AFFILIATE: &str = "SELECT DISTINCT r.site_id, r.account_code
+       FROM account_resolution r
+      WHERE r.role IN ('affiliate_receivable', 'affiliate_payable')
+        AND r.source_type = 'COMPANY'";
 
 /// What one unit says another owes it equals what that one says it owes, and
 /// the whole set nets to zero.
@@ -1277,60 +1277,50 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
     }
 
     async fn evaluate(&self, pool: &PgPool, as_of: NaiveDate) -> Result<CheckResult, AppError> {
+        let linked: bool = sqlx::query_scalar(&format!(
+            "SELECT EXISTS (SELECT 1 FROM ({AFFILIATE}) a)"
+        ))
+        .fetch_one(pool)
+        .await?;
+        if !linked {
+            return Ok(waiting_on(
+                self.key(),
+                "account_link",
+                "No account is linked to affiliate_receivable or affiliate_payable, so no unit \
+                 has anywhere to record what another owes it.",
+            ));
+        }
+
+        // One row per (site, counterparty): debits less credits over every
+        // affiliate account at the site, for the lines that name that
+        // counterparty. Debit-positive is "owed to this site" on both sides —
+        // head office's piutang is a debit balance, a unit's hutang a credit
+        // one — so a pair that agrees sums to zero, which is what the whole
+        // equation is: the same money seen from two sides.
         let sides = sqlx::query(&format!(
             "WITH affiliate AS ({AFFILIATE})
-             SELECT a.site_id, a.counter_site_id, a.kind, a.account_code,
+             SELECT a.site_id, l.counter_site_id,
                     COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS net_minor
                FROM affiliate a
-               LEFT JOIN journal_line l
-                      ON l.account_code = a.account_code AND l.site_id = a.site_id
-               LEFT JOIN journal_entry e ON e.entry_id = l.entry_id
-              WHERE e.entry_id IS NULL OR e.posting_date <= $1
-              GROUP BY a.site_id, a.counter_site_id, a.kind, a.account_code
-              ORDER BY a.site_id, a.counter_site_id"
+               JOIN journal_line l
+                 ON l.account_code = a.account_code AND l.site_id = a.site_id
+               JOIN journal_entry e ON e.entry_id = l.entry_id
+              WHERE l.counter_site_id IS NOT NULL
+                AND e.posting_date <= $1
+              GROUP BY a.site_id, l.counter_site_id
+              ORDER BY a.site_id, l.counter_site_id"
         ))
         .bind(as_of)
         .fetch_all(pool)
         .await?;
 
-        if sides.is_empty() {
-            return Ok(waiting_on(
-                self.key(),
-                "account_map",
-                "No account is mapped to affiliate_receivable or affiliate_payable with a \
-                 counterparty in its qualifier, so no unit has anywhere to record what \
-                 another owes it.",
-            ));
-        }
-
-        // A receivable is a debit balance and a payable a credit one. Signed so
-        // that a pair which agrees sums to zero, which is what the whole
-        // equation is: the same money seen from two sides.
-        let mut pairs: Vec<(String, String, i64, i64)> = Vec::new();
+        let mut pairs: Vec<(String, String, i64)> = Vec::new();
         for row in &sides {
-            let site: String = row.try_get("site_id")?;
-            let counter: String = row.try_get("counter_site_id")?;
-            let kind: String = row.try_get("kind")?;
-            let net: i64 = row.try_get("net_minor")?;
-            let receivable = kind == "affiliate_receivable" || kind.contains("receivable");
-            match pairs
-                .iter_mut()
-                .find(|(left, right, _, _)| *left == site && *right == counter)
-            {
-                Some(entry) => {
-                    if receivable {
-                        entry.2 += net;
-                    } else {
-                        entry.3 += -net;
-                    }
-                }
-                None => pairs.push((
-                    site,
-                    counter,
-                    if receivable { net } else { 0 },
-                    if receivable { 0 } else { -net },
-                )),
-            }
+            pairs.push((
+                row.try_get("site_id")?,
+                row.try_get("counter_site_id")?,
+                row.try_get("net_minor")?,
+            ));
         }
 
         let mut detail_rows = Vec::new();
@@ -1338,7 +1328,7 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
         let mut states = Vec::new();
         let mut seen: Vec<(String, String)> = Vec::new();
         let mut group_net = 0i64;
-        for (site, counter, receivable, _payable) in &pairs {
+        for (site, counter, receivable) in &pairs {
             group_net += receivable;
             // Each unordered pair once. A and B is the same relationship as B
             // and A, and reporting it twice would double every difference on a
@@ -1351,13 +1341,11 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
             seen.push((site.clone(), counter.clone()));
             let mirror = pairs
                 .iter()
-                .find(|(left, right, _, _)| left == counter && right == site);
+                .find(|(left, right, _)| left == counter && right == site);
             let (theirs, mirrored) = match mirror {
                 // What B says it owes A. Signed to A's side, so agreement is
                 // equality rather than a sum somebody has to reason about.
-                Some((_, _, their_receivable, their_payable)) => {
-                    (their_payable - their_receivable, true)
-                }
+                Some((_, _, their_net)) => (-their_net, true),
                 None => (0, false),
             };
             detail_rows.push(DetailRow::new(
@@ -1367,7 +1355,10 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
             ));
             let state = classify(*receivable, theirs, None, Tolerance::EXACT);
             states.push(state);
-            if state.is_open() || !mirrored {
+            // One side with lines that net to nothing and no lines on the other
+            // is not a difference: there is nothing either side is owed.
+            let unanswered = !mirrored && *receivable != 0;
+            if state.is_open() || unanswered {
                 actions.push(SuggestedAction::new(
                     ActionVerb::Reclassify,
                     "site",
@@ -1383,14 +1374,14 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
                         )
                     } else {
                         format!(
-                            "{site} carries {} against {counter}, and {counter} has no \
-                             affiliate account mapped back to {site}. The other half of every \
+                            "{site} carries {} against {counter}, and {counter} has nothing \
+                             on its affiliate accounts against {site}. The other half of every \
                              one of those movements is unrecorded.",
                             minor(*receivable)
                         )
                     },
                 ));
-                if !mirrored {
+                if unanswered {
                     states.push(CheckState::Exception);
                 }
             }

@@ -46,36 +46,32 @@ export function App() {
 
   if (identity.isPending) {
     return (
-      <main className="flex min-h-svh items-center justify-center p-6">
-        <p className="text-sm text-muted-foreground">Checking your session…</p>
+      <main className="grid min-h-svh place-items-center p-6">
+        <p className="text-meta text-body">Checking your session…</p>
       </main>
     )
   }
 
   if (session === null) {
     return (
-      <main className="flex min-h-svh items-center justify-center p-6">
-        <div className="flex w-full max-w-sm flex-col gap-4">
-          <LoginForm
-            onSignedIn={(response) => {
-              // Writing the answer rather than refetching it: the login
-              // response already carries the person the server just
-              // authenticated, and it clears the failure with it.
-              client.setQueryData(cacheKey.me(), response.user)
-            }}
-          />
-          {problem !== null && (
-            <p role="alert" className="text-center text-sm text-destructive">
-              {problem}
-            </p>
-          )}
-          {here !== null && (
-            <p className="text-center text-xs text-muted-foreground">
-              {here.node_id} · {here.node_role}
-              {here.site_id === undefined ? "" : ` · ${here.site_id}`}
-            </p>
-          )}
-        </div>
+      <main className="grid min-h-svh place-items-center px-6">
+        <LoginForm
+          onSignedIn={(response) => {
+            // Writing the answer rather than refetching it: the login
+            // response already carries the person the server just
+            // authenticated, and it clears the failure with it.
+            client.setQueryData(cacheKey.me(), response.user)
+          }}
+          problem={problem}
+          footer={
+            here !== null && (
+              <p className="mt-1 text-center font-mono text-id text-mute">
+                {here.node_id} · {here.node_role}
+                {here.site_id === undefined ? "" : ` · ${here.site_id}`}
+              </p>
+            )
+          }
+        />
       </main>
     )
   }

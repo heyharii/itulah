@@ -81,7 +81,7 @@ export function Scenarios() {
         <div className="text-[0.9375rem] font-semibold text-ink">
           {totalChecks - failed} of {totalChecks} checks pass
         </div>
-        <p className="mt-0.5 text-[0.8125rem] text-body">
+        <p className="mt-0.5 text-[0.875rem] text-body">
           {failed === 0
             ? "Every scenario reproduces what it claims, including the six that must be refused. This proves the contract, not the production ledger — see Kontrak for what is still blocked."
             : `${failed} checks fail. A failing check is a defect in the rule, the binding or the fixture, and the expected and actual figures are shown beside it.`}
@@ -106,7 +106,7 @@ export function Scenarios() {
                   >
                     <span
                       className={cn(
-                        "mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-md text-[0.6875rem] font-semibold",
+                        "mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-md text-[0.875rem] font-semibold",
                         bad === 0
                           ? "bg-ok-bg text-ok-fg"
                           : "bg-bad-bg text-bad-fg"
@@ -115,10 +115,10 @@ export function Scenarios() {
                       {s.letter}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[0.8125rem] font-medium text-ink">
+                      <span className="block text-[0.875rem] font-medium text-ink">
                         {s.title}
                       </span>
-                      <span className="block text-[0.75rem] text-mute">
+                      <span className="block text-[0.875rem] text-mute">
                         {r
                           ? `${r.checks.length - bad}/${r.checks.length} checks`
                           : "—"}
@@ -162,7 +162,7 @@ function ScenarioDetail({
           {result.steps.map((s, i) => (
             <li key={i}>
               <div className="mb-1.5 flex items-baseline gap-2">
-                <span className="inline-flex size-[1.125rem] shrink-0 items-center justify-center rounded-full bg-soft-2 text-[0.625rem] font-semibold text-body">
+                <span className="inline-flex size-[1.125rem] shrink-0 items-center justify-center rounded-full bg-soft-2 text-[0.875rem] font-semibold text-body">
                   {i + 1}
                 </span>
                 <span className="text-[0.875rem] font-medium text-ink">
@@ -170,7 +170,7 @@ function ScenarioDetail({
                 </span>
               </div>
               {s.detail && (
-                <p className="mb-1.5 pl-6 text-[0.8125rem] text-body">
+                <p className="mb-1.5 pl-6 text-[0.875rem] text-body">
                   {s.detail}
                 </p>
               )}
@@ -204,7 +204,7 @@ function ScenarioDetail({
                 <Cell>
                   <span className="text-ink">{c.label}</span>
                   {c.note && (
-                    <div className="text-[0.75rem] text-mute">{c.note}</div>
+                    <div className="text-[0.875rem] text-mute">{c.note}</div>
                   )}
                 </Cell>
                 <Cell className="text-body">{c.expected ?? "—"}</Cell>

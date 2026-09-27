@@ -233,6 +233,41 @@ pub(super) async fn payable_settled(
 /// it owns whether that is a revaluation of the remaining quantity or a
 /// difference straight to cost of sales, and this lane must not pre-empt it.
 ///
+/// Open the cost layer for a receipt line that was valued before its article
+/// existed — the usual order: the receipt posts within a minute of being
+/// accepted, merchandising sets the article up later. Called in the setup's
+/// own transaction, right after the article is minted. A line not valued yet
+/// is left to the receipt posting, which will find the article through this
+/// setup; `cost_layer_create` is idempotent, so the two can never both open it.
+pub(super) async fn cost_layer_on_setup(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    receipt_line_id: Uuid,
+) -> Result<(), AppError> {
+    let Some(line) = sqlx::query(
+        "SELECT l.receipt_id, pl.article_code, l.quantity, pl.unit_price_minor,
+                (l.verified_at AT TIME ZONE 'Asia/Jakarta')::date AS accepted_on
+           FROM goods_receipt_line l
+           JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
+          WHERE l.receipt_line_id = $1 AND l.posting_id IS NOT NULL",
+    )
+    .bind(receipt_line_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    else {
+        return Ok(());
+    };
+    lane_i_cost_layer(
+        tx,
+        line.try_get("article_code")?,
+        line.try_get("quantity")?,
+        line.try_get("unit_price_minor")?,
+        line.try_get("accepted_on")?,
+        line.try_get("receipt_id")?,
+        receipt_line_id,
+    )
+    .await
+}
+
 /// Finance Connect stage 5 (owner decision): the receipt creates the layer at
 /// qty x PO price, and any sale that was posted while this SKU had no layer
 /// ("cost pending") is trued up against it in the same transaction.
@@ -243,19 +278,34 @@ pub(super) async fn lane_i_cost_layer(
     unit_cost_minor: i64,
     economic_date: NaiveDate,
     receipt_id: Uuid,
+    receipt_line_id: Uuid,
 ) -> Result<(), AppError> {
     if quantity <= 0 {
         return Ok(());
     }
-    let Some(article_id) =
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM article WHERE article_code = $1")
-            .bind(article_code)
-            .fetch_optional(&mut **tx)
-            .await?
+    // A sourced line carries the SUPPLIER's code; merchandising mints the
+    // article under a new 8-digit code at setup, and the setup session is the
+    // only thing that knows the two are the same goods. So: the code itself
+    // first (a re-order of an existing article), then the article the setup of
+    // this very receipt line minted.
+    let Some(article_id) = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM (
+             SELECT id, 0 AS rank FROM article WHERE article_code = $1
+             UNION ALL
+             SELECT a.id, 1 AS rank
+               FROM article_setup_session s
+               JOIN article a ON a.article_code = s.article_code
+              WHERE s.receipt_line_id = $2
+         ) found ORDER BY rank LIMIT 1",
+    )
+    .bind(article_code)
+    .bind(receipt_line_id)
+    .fetch_optional(&mut **tx)
+    .await?
     else {
-        // A receipt line for an article the catalogue does not hold cannot
-        // carry a layer; the valuation entry beside it still stands.
-        tracing::warn!(article = article_code, receipt = %receipt_id, "no article for a receipt line; no cost layer");
+        // Not set up yet. The valuation entry beside it still stands, and the
+        // layer is opened when the setup is issued (`cost_layer_on_setup`).
+        tracing::info!(article = article_code, receipt = %receipt_id, "receipt line not set up yet; its cost layer opens at setup");
         return Ok(());
     };
     let (site_id, supplier_id): (String, Option<String>) = sqlx::query_as(
@@ -285,11 +335,15 @@ pub(super) async fn lane_i_cost_layer(
             site_id,
             to_pool_id: pool_id,
             receipt_id: Some(receipt_id),
-            receipt_line_id: None,
+            receipt_line_id: Some(receipt_line_id),
             source_reference: None,
             supplier_id,
             source_kind: "GOODS_RECEIPT".into(),
-            source_id: format!("{receipt_id}:{article_code}"),
+            // Per LINE, not per article: the DC keeps a supplier's receipt open
+            // across deliveries, and the same shirt in the same quantity twice
+            // on one receipt is two layers — keyed by article, the second would
+            // have been handed the first one back and never costed (0390).
+            source_id: receipt_line_id.to_string(),
         },
         "system:goods-receipt",
     )
@@ -338,13 +392,31 @@ pub struct ReceiptAwaitingPosting {
     pub days_waiting: i32,
 }
 
-const POSTING_COLUMNS: &str = "p.receipt_id, r.receipt_number, r.supplier_id, r.site_id,
-     p.value_minor, p.posting_date, p.currency, p.journal_entry_id, p.posted_by, p.posted_at,
+/// The receipt as one answer across its tranches (0390).
+///
+/// A receipt is valued once per tranche of lines, so "what has this delivery
+/// done in the ledger" is a sum. The entry, date and reversal quoted are the
+/// latest tranche still standing — or, when every tranche has been reversed,
+/// the latest one, so a fully un-valued delivery still says so.
+const POSTING_SQL: &str = "SELECT p.receipt_id, r.receipt_number, r.supplier_id, r.site_id,
+     s.value_minor, p.posting_date, p.currency, p.journal_entry_id, p.posted_by, p.posted_at,
      p.reversal_entry_id, p.reversal_reason, p.reversed_by, p.reversed_at,
      (SELECT e.entry_number FROM journal_entry e WHERE e.entry_id = p.journal_entry_id)
          AS entry_number,
      (SELECT e.entry_number FROM journal_entry e WHERE e.entry_id = p.reversal_entry_id)
-         AS reversal_entry_number";
+         AS reversal_entry_number
+   FROM goods_receipt_posting p
+   JOIN goods_receipt r USING (receipt_id)
+   CROSS JOIN LATERAL (
+       SELECT (CASE WHEN bool_or(q.reversal_entry_id IS NULL)
+                    THEN SUM(q.value_minor) FILTER (WHERE q.reversal_entry_id IS NULL)
+                    ELSE SUM(q.value_minor) END)::bigint AS value_minor
+         FROM goods_receipt_posting q
+        WHERE q.receipt_id = p.receipt_id
+   ) s
+  WHERE p.receipt_id = $1
+  ORDER BY (p.reversal_entry_id IS NULL) DESC, p.posted_at DESC, p.posting_id DESC
+  LIMIT 1";
 
 fn to_posting(row: &sqlx::postgres::PgRow) -> Result<ReceiptPosting, AppError> {
     Ok(ReceiptPosting {
@@ -372,48 +444,57 @@ pub async fn receipt_posting(
     pool: &PgPool,
     receipt_id: Uuid,
 ) -> Result<Option<ReceiptPosting>, AppError> {
-    let sql = format!(
-        "SELECT {POSTING_COLUMNS} FROM goods_receipt_posting p
-           JOIN goods_receipt r USING (receipt_id)
-          WHERE p.receipt_id = $1"
-    );
-    let row = sqlx::query(&sql)
+    let row = sqlx::query(POSTING_SQL)
         .bind(receipt_id)
         .fetch_optional(pool)
         .await?;
     row.as_ref().map(to_posting).transpose()
 }
 
-/// What a delivery is worth at the price that was ordered, and where it landed.
-async fn receipt_value(
-    pool: &PgPool,
-    receipt_id: Uuid,
-) -> Result<(String, String, String, i64), AppError> {
-    let row = sqlx::query(
-        "SELECT r.receipt_number, r.supplier_id, r.site_id,
-                COALESCE(SUM(l.quantity * pl.unit_price_minor), 0)::bigint AS value_minor
-           FROM goods_receipt r
-           LEFT JOIN goods_receipt_line l ON l.receipt_id = r.receipt_id
-           LEFT JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
-          WHERE r.receipt_id = $1
-          GROUP BY r.receipt_id",
+/// When a delivery's debt falls due, before any bill says so.
+///
+/// Payment terms count from the bill, and a delivery has none yet. Until it
+/// does, the delivery stands in for it: the supplier's standing terms are
+/// counted from the day the goods were accepted, to the LAST instalment — the
+/// balance this delivery leaves owing. A supplier with no terms is owed on
+/// delivery. The bill, when it posts, replaces this with its own schedule.
+async fn receipt_due_date(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    supplier_code: &str,
+    accepted_on: NaiveDate,
+) -> Result<NaiveDate, AppError> {
+    let due: Option<NaiveDate> = sqlx::query_scalar(
+        "SELECT CASE t.basis
+                    WHEN 'DAYS_AFTER_BILL' THEN $2::date + t.offset_value
+                    WHEN 'DAYS_AFTER_BILL_MONTH_END'
+                        THEN (date_trunc('month', $2::date) + interval '1 month - 1 day')::date
+                             + t.offset_value
+                    WHEN 'MONTHS_AFTER_BILL_MONTH_END'
+                        THEN (date_trunc('month', $2::date)
+                              + make_interval(months => t.offset_value + 1)
+                              - interval '1 day')::date
+                END
+           FROM supplier s
+           JOIN payment_terms_template_line tl
+             ON tl.template_code = COALESCE(s.payment_terms_template_code,
+                                            s.default_payment_terms_code)
+           JOIN payment_term t ON t.code = tl.term_code
+          WHERE s.supplier_code = $1
+          ORDER BY tl.seq DESC
+          LIMIT 1",
     )
-    .bind(receipt_id)
-    .fetch_optional(pool)
+    .bind(supplier_code)
+    .bind(accepted_on)
+    .fetch_optional(&mut **tx)
     .await?
-    .ok_or_else(|| AppError::NotFound("goods receipt".into()))?;
-    Ok((
-        row.try_get("receipt_number")?,
-        row.try_get("supplier_id")?,
-        row.try_get("site_id")?,
-        row.try_get("value_minor")?,
-    ))
+    .flatten();
+    Ok(due.unwrap_or(accepted_on).max(accepted_on))
 }
 
-/// Value a delivery into the ledger.
+/// Value a delivery's accepted lines into the ledger.
 ///
 ///     Dr inventory        at the receiving location
-///     Cr trade_payable at the same location, carrying the supplier
+///     Cr trade_payable at head office, carrying the supplier
 ///
 /// The supplier is a dimension on the LINE rather than a qualifier on the
 /// account, exactly as `trade_payable` does it. A qualifier would mean a row in
@@ -421,23 +502,127 @@ async fn receipt_value(
 /// buys from a new one; `journal_line.party_type`/`party_id` already carry the
 /// sub-ledger, and every ageing projection already reads it.
 ///
-/// Idempotent because `goods_receipt_posting.receipt_id` is a primary key. The
-/// read below exists so the refusal is a sentence rather than a unique
-/// violation arriving as "database operation failed".
+/// Values exactly the lines no tranche has valued yet (0390), one tranche per
+/// day the goods were accepted — the DC keeps a supplier's receipt open across
+/// deliveries, so a receipt that is already in the books can gain lines, and
+/// those are owed too. With nothing left to value it answers with what the
+/// delivery already stands at, so the sweep, the applier and a person can all
+/// call it without stepping on each other.
+///
+/// `posting_date`, when given, is finance saying which open period carries the
+/// lot, and they go as one tranche on that date.
 pub async fn receipt_post(
     pool: &PgPool,
     receipt_id: Uuid,
     posting_date: Option<NaiveDate>,
     actor: &str,
 ) -> Result<ReceiptPosting, AppError> {
-    if let Some(existing) = receipt_posting(pool, receipt_id).await? {
-        return Err(AppError::Conflict(format!(
-            "delivery {} is already valued in the ledger by {}",
-            existing.receipt_number, existing.entry_number
-        )));
+    // The days still to value, in the company's own calendar: a lorry accepted
+    // at half past six in the morning in Bandung was accepted that day, not
+    // the day before, whatever UTC says.
+    let days: Vec<NaiveDate> = sqlx::query_scalar(
+        "SELECT DISTINCT (l.verified_at AT TIME ZONE 'Asia/Jakarta')::date
+           FROM goods_receipt_line l
+          WHERE l.receipt_id = $1 AND l.posting_id IS NULL
+          ORDER BY 1",
+    )
+    .bind(receipt_id)
+    .fetch_all(pool)
+    .await?;
+
+    if days.is_empty() {
+        return match receipt_posting(pool, receipt_id).await? {
+            Some(existing) => Ok(existing),
+            None => {
+                let number: Option<String> = sqlx::query_scalar(
+                    "SELECT receipt_number FROM goods_receipt WHERE receipt_id = $1",
+                )
+                .bind(receipt_id)
+                .fetch_optional(pool)
+                .await?;
+                let number = number.ok_or_else(|| AppError::NotFound("goods receipt".into()))?;
+                Err(AppError::Validation(format!(
+                    "delivery {number} has no accepted lines; there is no entry to make until \
+                     goods on it are accepted against an order line"
+                )))
+            }
+        };
     }
 
-    let (number, supplier_id, site_id, value) = receipt_value(pool, receipt_id).await?;
+    match posting_date {
+        Some(date) => receipt_post_tranche(pool, receipt_id, None, date, actor).await?,
+        None => {
+            for day in days {
+                receipt_post_tranche(pool, receipt_id, Some(day), day, actor).await?;
+            }
+        }
+    }
+
+    receipt_posting(pool, receipt_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("goods receipt posting".into()))
+}
+
+/// One tranche: the unvalued lines accepted on `accepted_on` (all of them when
+/// `None`), valued in one entry on `date`.
+async fn receipt_post_tranche(
+    pool: &PgPool,
+    receipt_id: Uuid,
+    accepted_on: Option<NaiveDate>,
+    date: NaiveDate,
+    actor: &str,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+
+    // The receipt row is the lock. Two posters — the applier and the sweep, or
+    // a person — would otherwise both read the same unvalued lines and value
+    // them twice.
+    let header = sqlx::query(
+        "SELECT r.receipt_number, r.supplier_id, r.site_id, r.arrived_at,
+                (SELECT s.name FROM supplier s WHERE s.supplier_code = r.supplier_id) AS supplier_name,
+                (SELECT COUNT(*) FROM goods_receipt_posting p
+                  WHERE p.receipt_id = r.receipt_id)::bigint AS tranches
+           FROM goods_receipt r
+          WHERE r.receipt_id = $1
+          FOR UPDATE OF r",
+    )
+    .bind(receipt_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound("goods receipt".into()))?;
+    let number: String = header.try_get("receipt_number")?;
+    let supplier_id: String = header.try_get("supplier_id")?;
+    let site_id: String = header.try_get("site_id")?;
+    let supplier_name: Option<String> = header.try_get("supplier_name")?;
+    let tranches: i64 = header.try_get("tranches")?;
+
+    let lines = sqlx::query(
+        "SELECT l.receipt_line_id, pl.article_code, l.quantity, pl.unit_price_minor,
+                (l.verified_at AT TIME ZONE 'Asia/Jakarta')::date AS accepted_on
+           FROM goods_receipt_line l
+           JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
+          WHERE l.receipt_id = $1
+            AND l.posting_id IS NULL
+            AND ($2::date IS NULL OR (l.verified_at AT TIME ZONE 'Asia/Jakarta')::date = $2)
+          ORDER BY pl.line_number, l.receipt_line_id",
+    )
+    .bind(receipt_id)
+    .bind(accepted_on)
+    .fetch_all(&mut *tx)
+    .await?;
+    if lines.is_empty() {
+        // Somebody else valued them between the read and the lock.
+        return Ok(());
+    }
+
+    let mut value: i64 = 0;
+    let mut line_ids = Vec::with_capacity(lines.len());
+    for line in &lines {
+        let quantity: i64 = line.try_get("quantity")?;
+        let price: i64 = line.try_get("unit_price_minor")?;
+        value = value.saturating_add(quantity.saturating_mul(price));
+        line_ids.push(line.try_get::<Uuid, _>("receipt_line_id")?);
+    }
     if value <= 0 {
         return Err(AppError::Validation(format!(
             "delivery {number} is worth nothing at the ordered price; there is no entry to make \
@@ -445,19 +630,19 @@ pub async fn receipt_post(
         )));
     }
 
-    let arrived: DateTime<Utc> =
-        sqlx::query("SELECT arrived_at FROM goods_receipt WHERE receipt_id = $1")
-            .bind(receipt_id)
-            .fetch_one(pool)
-            .await?
-            .try_get("arrived_at")?;
-    let date = posting_date.unwrap_or_else(|| arrived.date_naive());
+    // The first tranche is the receipt itself — the voucher id and purpose
+    // every receipt posted before 0390 already carries. Later ones are named.
+    let (posting_id, purpose) = if tranches == 0 {
+        (receipt_id, super::poster::MAIN.to_string())
+    } else {
+        (Uuid::new_v4(), format!("TRANCHE_{}", tranches + 1))
+    };
 
     let intent = PostingIntent {
         posting_date: date,
         source_kind: "GOODS_RECEIPT".into(),
         source_id: Some(receipt_id.to_string()),
-        rule_version: "goods_receipt/1".into(),
+        rule_version: "goods_receipt/2".into(),
         currency: "IDR".into(),
         memo: Some(format!("{number} {supplier_id}")),
         // The goods land where they were delivered; the supplier payable is
@@ -471,29 +656,18 @@ pub async fn receipt_post(
         ],
     };
 
-    let mut tx = pool.begin().await?;
-    // A delivery is valued once; re-valuing it is a reversal and a new entry.
-    let posted = post(&mut tx, &intent, None, actor).await?;
-    payable_opened(
-        &mut tx,
-        "trade_payable",
-        "GOODS_RECEIPT",
-        HEAD_OFFICE_SITE,
-        &supplier_id,
-        None,
-        receipt_id,
-        value,
-        None,
-        date,
-        posted.entry_id,
-        actor,
-    )
-    .await?;
+    // Asked before the poster, which numbers the entry before the journal's
+    // own period check refuses it: a delivery waiting for its month to open is
+    // retried every minute, and each refusal would otherwise spend a JV number.
+    super::stock_ledger::assert_period_open(&mut tx, date, "a goods receipt").await?;
+    let posted = post(&mut tx, &intent, Some(&purpose), actor).await?;
     sqlx::query(
         "INSERT INTO goods_receipt_posting
-           (receipt_id, journal_entry_id, value_minor, posting_date, currency, posted_by)
-         VALUES ($1,$2,$3,$4,'IDR',$5)",
+           (posting_id, receipt_id, journal_entry_id, value_minor, posting_date, currency,
+            posted_by)
+         VALUES ($1,$2,$3,$4,$5,'IDR',$6)",
     )
+    .bind(posting_id)
     .bind(receipt_id)
     .bind(posted.entry_id)
     .bind(value)
@@ -501,42 +675,91 @@ pub async fn receipt_post(
     .bind(actor)
     .execute(&mut *tx)
     .await?;
+    sqlx::query("UPDATE goods_receipt_line SET posting_id = $1 WHERE receipt_line_id = ANY($2)")
+        .bind(posting_id)
+        .bind(&line_ids)
+        .execute(&mut *tx)
+        .await?;
+
+    let due = receipt_due_date(&mut tx, &supplier_id, date).await?;
+    payable_opened(
+        &mut tx,
+        "trade_payable",
+        "GOODS_RECEIPT",
+        HEAD_OFFICE_SITE,
+        &supplier_id,
+        supplier_name.as_deref(),
+        posting_id,
+        value,
+        Some(due),
+        date,
+        posted.entry_id,
+        actor,
+    )
+    .await?;
 
     // The layers, one per accepted line, in the same transaction as the entry
     // that values them. Inside rather than after, so a ledger that says the
     // stock is worth something and layers that say it is worth nothing cannot
-    // both be committed.
-    //
-    // `arrived_at` and not `date`: a layer is consumed in the order the goods
-    // turned up, and finance posting a September delivery in October must not
-    // put it behind October's arrivals.
-    let layers = sqlx::query(
-        "SELECT pl.article_code, l.quantity, pl.unit_price_minor
-           FROM goods_receipt_line l
-           JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
-          WHERE l.receipt_id = $1
-          ORDER BY pl.line_number",
-    )
-    .bind(receipt_id)
-    .fetch_all(&mut *tx)
-    .await?;
-    for layer in &layers {
+    // both be committed. Dated the day each line was accepted: a layer is
+    // consumed in the order the goods turned up.
+    for line in &lines {
         lane_i_cost_layer(
             &mut tx,
-            layer.try_get("article_code")?,
-            layer.try_get("quantity")?,
-            layer.try_get("unit_price_minor")?,
-            arrived.date_naive(),
+            line.try_get("article_code")?,
+            line.try_get("quantity")?,
+            line.try_get("unit_price_minor")?,
+            line.try_get("accepted_on")?,
             receipt_id,
+            line.try_get("receipt_line_id")?,
         )
         .await?;
     }
 
     tx.commit().await?;
+    Ok(())
+}
 
-    receipt_posting(pool, receipt_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound("goods receipt posting".into()))
+/// Value every accepted line that is not owed yet.
+///
+/// Called by the sync applier the moment receipt lines land (`fresh_only`:
+/// lines that arrived in the last few minutes), and by a one-minute sweep over
+/// everything as the net under it. A receipt that cannot post — a period that
+/// is not open, an account the map cannot resolve — stays on the list and is
+/// tried again; one delivery's problem never stops the others.
+pub async fn receipts_post_pending(
+    pool: &PgPool,
+    fresh_only: bool,
+    actor: &str,
+) -> Result<ReceiptSweep, AppError> {
+    let pending: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT r.receipt_id, r.receipt_number
+           FROM goods_receipt r
+          WHERE EXISTS (SELECT 1 FROM goods_receipt_line l
+                         WHERE l.receipt_id = r.receipt_id AND l.posting_id IS NULL
+                           AND (NOT $1 OR l.received_at > now() - interval '5 minutes'))
+          ORDER BY r.arrived_at
+          LIMIT 200",
+    )
+    .bind(fresh_only)
+    .fetch_all(pool)
+    .await?;
+    let mut sweep = ReceiptSweep::default();
+    for (receipt_id, receipt_number) in pending {
+        match receipt_post(pool, receipt_id, None, actor).await {
+            Ok(posting) => sweep.posted.push(posting),
+            Err(error) => sweep.waiting.push((receipt_number, error.to_string())),
+        }
+    }
+    Ok(sweep)
+}
+
+/// What one pass of [`receipts_post_pending`] did.
+#[derive(Debug, Default)]
+pub struct ReceiptSweep {
+    pub posted: Vec<ReceiptPosting>,
+    /// Receipt number and why it could not post yet.
+    pub waiting: Vec<(String, String)>,
 }
 
 /// Undo the valuation, because the delivery was cancelled or posted in error.
@@ -577,28 +800,43 @@ pub async fn receipt_reverse(
         )));
     }
 
-    let date = posting_date.unwrap_or(existing.posting_date);
+    // Every tranche still standing, each mirrored on its own entry and its own
+    // payable delinked: a delivery valued in three tranches is un-valued in
+    // three, all or none.
     let mut tx = pool.begin().await?;
-    let mirror = reverse(&mut tx, existing.journal_entry_id, date, reason, actor).await?;
-    ple_delink(
-        &mut tx,
-        "GOODS_RECEIPT",
-        &receipt_id.to_string(),
-        reason,
-        actor,
-    )
-    .await?;
-    sqlx::query(
-        "UPDATE goods_receipt_posting
-            SET reversal_entry_id=$2, reversal_reason=$3, reversed_by=$4, reversed_at=now()
-          WHERE receipt_id=$1",
+    let standing: Vec<(Uuid, Uuid, NaiveDate)> = sqlx::query_as(
+        "SELECT posting_id, journal_entry_id, posting_date
+           FROM goods_receipt_posting
+          WHERE receipt_id = $1 AND reversal_entry_id IS NULL
+          ORDER BY posted_at
+          FOR UPDATE",
     )
     .bind(receipt_id)
-    .bind(mirror.entry_id)
-    .bind(reason)
-    .bind(actor)
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
+    for (posting_id, entry_id, posted_on) in standing {
+        let date = posting_date.unwrap_or(posted_on);
+        let mirror = reverse(&mut tx, entry_id, date, reason, actor).await?;
+        ple_delink(
+            &mut tx,
+            "GOODS_RECEIPT",
+            &posting_id.to_string(),
+            reason,
+            actor,
+        )
+        .await?;
+        sqlx::query(
+            "UPDATE goods_receipt_posting
+                SET reversal_entry_id=$2, reversal_reason=$3, reversed_by=$4, reversed_at=now()
+              WHERE posting_id=$1",
+        )
+        .bind(posting_id)
+        .bind(mirror.entry_id)
+        .bind(reason)
+        .bind(actor)
+        .execute(&mut *tx)
+        .await?;
+    }
     tx.commit().await?;
 
     receipt_posting(pool, receipt_id)
@@ -625,15 +863,16 @@ pub async fn receipts_awaiting_posting(
     limit: i64,
 ) -> Result<Vec<ReceiptAwaitingPosting>, AppError> {
     let rows = sqlx::query(
+        // The lines not owed yet, not the receipts never posted: a receipt the
+        // DC keeps open can be in the books and still gain lines (0390).
         "SELECT r.receipt_id, r.receipt_number, r.supplier_id, r.site_id, r.arrived_at,
                 COUNT(l.receipt_line_id)::bigint AS line_count,
                 COALESCE(SUM(l.quantity * pl.unit_price_minor), 0)::bigint AS value_minor,
-                (CURRENT_DATE - r.arrived_at::date)::int AS days_waiting
+                (CURRENT_DATE - MIN(l.verified_at)::date)::int AS days_waiting
            FROM goods_receipt r
-           LEFT JOIN goods_receipt_line l ON l.receipt_id = r.receipt_id
+           JOIN goods_receipt_line l
+             ON l.receipt_id = r.receipt_id AND l.posting_id IS NULL
            LEFT JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
-          WHERE NOT EXISTS (SELECT 1 FROM goods_receipt_posting p
-                             WHERE p.receipt_id = r.receipt_id)
           GROUP BY r.receipt_id
           ORDER BY r.arrived_at
           LIMIT $1",
@@ -773,10 +1012,12 @@ pub async fn bill_match(
     // chain. Ensure it is valued before matching its invoice, so a user does
     // not have to run a separate Finance posting action between receipt and
     // three-way match.
+    //
+    // Every line, not only a receipt that was never posted: a receipt already
+    // in the books can have gained lines since (0390), and a bill matched
+    // against half a delivery's value would post a variance that is not one.
     for receipt_id in &request.receipt_ids {
-        if receipt_posting(pool, *receipt_id).await?.is_none() {
-            receipt_post(pool, *receipt_id, None, actor).await?;
-        }
+        receipt_post(pool, *receipt_id, None, actor).await?;
     }
 
     let header = sqlx::query(
@@ -815,13 +1056,16 @@ pub async fn bill_match(
     for receipt_id in &request.receipt_ids {
         let row = sqlx::query(
             "SELECT r.receipt_number, r.supplier_id, r.site_id,
-                    p.value_minor, p.reversal_entry_id,
+                    (SELECT SUM(p.value_minor) FROM goods_receipt_posting p
+                      WHERE p.receipt_id = r.receipt_id AND p.reversal_entry_id IS NULL)::bigint
+                        AS value_minor,
+                    (SELECT MAX(p.reversal_entry_id::text) FROM goods_receipt_posting p
+                      WHERE p.receipt_id = r.receipt_id)::uuid AS reversal_entry_id,
                     (SELECT i.invoice_number FROM supplier_invoice_receipt sir
                        JOIN supplier_invoice i USING (invoice_id)
                       WHERE sir.receipt_id = r.receipt_id AND sir.invoice_id <> $2)
                         AS other_bill
                FROM goods_receipt r
-               LEFT JOIN goods_receipt_posting p ON p.receipt_id = r.receipt_id
               WHERE r.receipt_id = $1",
         )
         .bind(receipt_id)
@@ -854,18 +1098,20 @@ pub async fn bill_match(
                 "delivery {number} is already billed by {other}"
             )));
         }
+        // `value` is what its standing tranches are worth; a tranche reversed
+        // beside them takes nothing away from those.
         match (value, reversed) {
-            (None, _) => {
-                return Err(AppError::Conflict(format!(
-                    "delivery {number} is not in the ledger yet; value it before matching the bill"
-                )))
-            }
-            (Some(_), Some(_)) => {
+            (Some(value), _) => receipt_value += value,
+            (None, Some(_)) => {
                 return Err(AppError::Conflict(format!(
                     "delivery {number} was un-valued; there is no receipt liability for this bill to clear"
                 )))
             }
-            (Some(value), None) => receipt_value += value,
+            (None, None) => {
+                return Err(AppError::Conflict(format!(
+                    "delivery {number} is not in the ledger yet; value it before matching the bill"
+                )))
+            }
         }
         receipt_numbers.push(number);
     }
@@ -1071,8 +1317,10 @@ pub async fn merchandise_debit_lines(
     price_variance_minor: i64,
 ) -> Result<Vec<PostingLine>, AppError> {
     let row = sqlx::query(
-        "SELECT COUNT(*)::bigint AS receipts,
-                COUNT(p.receipt_id)::bigint AS valued,
+        // DISTINCT: a receipt valued in several tranches (0390) is one
+        // receipt, and joining its tranches must not count it several times.
+        "SELECT COUNT(DISTINCT sir.receipt_id)::bigint AS receipts,
+                COUNT(DISTINCT p.receipt_id)::bigint AS valued,
                 COALESCE(SUM(p.value_minor), 0)::bigint AS receipt_value
            FROM supplier_invoice_receipt sir
            LEFT JOIN goods_receipt_posting p
@@ -1278,20 +1526,21 @@ pub(super) async fn invoice_payable_replaces_receipts(
     actor: &str,
 ) -> Result<(), AppError> {
     let receipts = sqlx::query(
-        "SELECT r.receipt_id, p.value_minor
+        // One claim per tranche: each tranche's payable is filed under its own
+        // voucher (0390), the first under the receipt id itself.
+        "SELECT p.posting_id, p.value_minor
            FROM supplier_invoice_receipt sir
-           JOIN goods_receipt r USING (receipt_id)
            JOIN goods_receipt_posting p USING (receipt_id)
           WHERE sir.invoice_id = $1 AND p.reversal_entry_id IS NULL
-          ORDER BY p.posting_date, r.receipt_id",
+          ORDER BY p.posting_date, p.posted_at, p.posting_id",
     )
     .bind(invoice_id)
     .fetch_all(&mut **tx)
     .await?;
     for receipt in &receipts {
-        let receipt_id: Uuid = receipt.try_get("receipt_id")?;
+        let posting_id: Uuid = receipt.try_get("posting_id")?;
         let value: i64 = receipt.try_get("value_minor")?;
-        let receipt_voucher = receipt_id.to_string();
+        let receipt_voucher = posting_id.to_string();
         ple_settle_claim(
             tx,
             &PaymentLedgerClaim {
@@ -1637,6 +1886,7 @@ pub async fn credit_note_post(
     if note.subtotal_minor > 0 {
         lines.push(match note.credit_account_code.as_deref() {
             Some(code) => PostingLine {
+                dimensions: Vec::new(),
                 account: LineAccount::Account {
                     account_code: code.to_string(),
                     category_code: note.credit_category_code.clone(),
@@ -2263,13 +2513,21 @@ pub async fn payment_withhold(
         let code: Option<String> = row.try_get("withholding_code")?;
         let Some(code) = code else { continue };
         let invoice_number: String = row.try_get("invoice_number")?;
-        let category = withholding::category(&code).ok_or_else(|| {
+        let template = sqlx::query(
+            "SELECT name, rate_bps FROM tax_template WHERE code = $1 AND is_active",
+        )
+        .bind(&code)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| {
             AppError::Validation(format!(
-                "bill {invoice_number} names withholding {code}, which this system does not compute"
+                "bill {invoice_number} names withholding {code}, which Finance no longer keeps"
             ))
         })?;
+        let label: String = template.try_get("name")?;
+        let rate_bp: i32 = template.try_get("rate_bps")?;
         let withheld = withholding::withholding_on_payment(
-            category.rate_bp,
+            i64::from(rate_bp),
             row.try_get("subtotal_minor")?,
             row.try_get("total_minor")?,
             row.try_get("paid_before")?,
@@ -2279,26 +2537,19 @@ pub async fn payment_withhold(
         if withheld == 0 {
             continue;
         }
-        // One payment, one tax account. A transfer settling a rent bill and a
-        // security bill at once would need two credits to two different
-        // payables, and 0133 gives the payment one column to name them with.
-        // Refusing is honest; splitting them silently would put a final tax in
-        // a creditable account, where it would be claimed back a year later.
+        // One payment, one withholding: the certificate the supplier receives
+        // names one tax object, and 0133 gives the payment one column for it.
         match &key {
-            Some(existing) if existing != category.payable_key => {
+            Some(existing) if *existing != code => {
                 return Err(AppError::Validation(format!(
-                    "this payment settles bills withheld under two different taxes ({existing} and \
-                     {}); pay them separately so each certificate names one",
-                    category.payable_key
+                    "this payment settles bills withheld under two different templates ({existing} \
+                     and {code}); pay them separately so each certificate names one"
                 )))
             }
-            _ => key = Some(category.payable_key.to_string()),
+            _ => key = Some(code.clone()),
         }
         withheld_total += withheld;
-        explanation.push(format!(
-            "{invoice_number}: {withheld} at {}",
-            category.label
-        ));
+        explanation.push(format!("{invoice_number}: {withheld} at {label}"));
     }
 
     if withheld_total >= total_minor {
@@ -2403,11 +2654,10 @@ pub async fn payment_money_lines(
                     .into(),
             )
         })?;
-        lines.push(PostingLine::credit(
-            &key,
-            site_id,
-            deductions.withholding_minor,
-        ));
+        lines.push(
+            PostingLine::credit("withholding_payable", site_id, deductions.withholding_minor)
+                .from_source("TAX_TEMPLATE", &key),
+        );
     }
     debug_assert_eq!(
         total_minor + deductions.bank_charge_minor,
@@ -2472,12 +2722,14 @@ pub async fn three_way_report(pool: &PgPool, limit: i64) -> Result<ThreeWayRepor
         "SELECT r.receipt_id, r.receipt_number, r.supplier_id, r.site_id, r.arrived_at,
                 (CURRENT_DATE - r.arrived_at::date)::int AS days_waiting,
                 COALESCE(SUM(l.quantity * pl.unit_price_minor), 0)::bigint AS value_minor,
-                MAX(p.value_minor) AS posted_value
+                -- A sub-select, not a join: a receipt valued in tranches (0390)
+                -- would otherwise multiply its own lines.
+                (SELECT SUM(p.value_minor) FROM goods_receipt_posting p
+                  WHERE p.receipt_id = r.receipt_id
+                    AND p.reversal_entry_id IS NULL)::bigint AS posted_value
            FROM goods_receipt r
            LEFT JOIN goods_receipt_line l ON l.receipt_id = r.receipt_id
            LEFT JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
-           LEFT JOIN goods_receipt_posting p
-                  ON p.receipt_id = r.receipt_id AND p.reversal_entry_id IS NULL
           WHERE NOT EXISTS (SELECT 1 FROM supplier_invoice_receipt sir
                              WHERE sir.receipt_id = r.receipt_id)
           GROUP BY r.receipt_id

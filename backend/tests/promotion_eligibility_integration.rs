@@ -363,12 +363,12 @@ async fn a_started_promotion_is_reported_as_already_resolved(pool: PgPool) {
 /// A rule that selects on a division moves with the division.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn changing_the_division_is_a_consequence_too(pool: PgPool) {
-    plant_article(&pool, "T-JACKET", Some("MENSWEAR"), &[]).await;
+    plant_article(&pool, "T-JACKET", Some("PRIA"), &[]).await;
     plant_rule(
         &pool,
         "T-RULE-MENS",
         "Menswear week",
-        json!({ "on": "DIVISION", "divisions": ["MENSWEAR"] }),
+        json!({ "on": "DIVISION", "divisions": ["PRIA"] }),
         now() + Duration::days(3),
     )
     .await;
@@ -377,7 +377,7 @@ async fn changing_the_division_is_a_consequence_too(pool: PgPool) {
         &pool,
         "T-JACKET",
         &ProposedArticle {
-            division_code: Some("WOMENSWEAR".to_owned()),
+            division_code: Some("WANITA".to_owned()),
             tags: Vec::new(),
         },
     )
@@ -392,12 +392,12 @@ async fn changing_the_division_is_a_consequence_too(pool: PgPool) {
     assert!(!answer.scheduled[0].gains, "it would leave the promotion");
 
     // And the other direction: an article moved INTO the division joins it.
-    plant_article(&pool, "T-DRESS", Some("WOMENSWEAR"), &[]).await;
+    plant_article(&pool, "T-DRESS", Some("WANITA"), &[]).await;
     let joining = article_change_consequences(
         &pool,
         "T-DRESS",
         &ProposedArticle {
-            division_code: Some("MENSWEAR".to_owned()),
+            division_code: Some("PRIA".to_owned()),
             tags: Vec::new(),
         },
     )

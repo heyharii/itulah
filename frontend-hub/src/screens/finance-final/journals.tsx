@@ -1,12 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Panel } from "@/components/ui/dialog"
-import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
+import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
@@ -24,11 +23,13 @@ import {
   financeKeys,
   journalEntry,
   listJournal,
+  listJournalTemplates,
   postManualEntry,
   reverseEntry,
   type ManualLine,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
+import { useSheet } from "@/lib/sheets"
 import {
   Code,
   DebitCredit,
@@ -38,15 +39,20 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import { parseMinor, todayIso } from "@/screens/finance/chart"
-import { useWindow } from "@/screens/finance/hooks"
+import { todayIso } from "@/screens/finance/chart"
+import { useCategoriesByFamily, useWindow } from "@/screens/finance/hooks"
+import { JournalLinesGrid } from "@/screens/finance/journal-lines-grid"
 import {
-  AccountAndCategory,
-  accountChoiceReady,
+  blankLine,
+  byUnit,
+  draftFromTemplate,
+  draftTotals,
+  type DraftLine,
+} from "@/screens/finance/journal-lines"
+import {
   LocationSelect,
   SiteName,
   WindowControl,
-  type AccountChoice,
 } from "@/screens/finance/parts"
 import { idempotencyKey } from "@itulah/contract/client"
 import type { JournalEntryRow, JournalLineView } from "@itulah/contract"
@@ -106,8 +112,37 @@ export function Journals() {
   const [kind, setKind] = useState("")
   const [site, setSite] = useState("")
   const [needle, setNeedle] = useState("")
-  const [reading, setReading] = useState<string | null>(null)
+  // In the URL rather than in state, so a link from a bill, a deposit or a
+  // money movement (`?entry=`) opens the entry it names.
+  const reading = useSheet("entry")
   const [composing, setComposing] = useState(false)
+  // "Start a journal from this template" lands here with `?journalTemplate=`.
+  const fromTemplate = useSheet("journalTemplate")
+  const templates = useQuery({
+    queryKey: financeKeys.journalTemplates(),
+    queryFn: ({ signal }) => listJournalTemplates(signal),
+    enabled: fromTemplate.value !== undefined,
+  })
+  const categories = useCategoriesByFamily()
+  const template = templates.data?.find(
+    (one) => one.template_id === fromTemplate.value
+  )
+  const initial = useMemo(() => {
+    // Waits for the categories: a line's category family is read back from
+    // them, and the composer's state is seeded once.
+    if (template === undefined || categories.isPending) return null
+    const familyOf = (code: string) =>
+      categories.families.find((group) =>
+        group.rows.some((row) => row.category_code === code)
+      )?.family ?? null
+    const drafted = draftFromTemplate(template.lines, familyOf)
+    return {
+      name: template.name,
+      memo: template.memo ?? "",
+      lines: drafted.lines,
+      skipped: drafted.skipped,
+    }
+  }, [template, categories.isPending, categories.families])
 
   // Window, type and unit all go on the wire, and the key carries all three —
   // a register narrowed in the browser is a slice of the newest 200 entries of
@@ -158,7 +193,7 @@ export function Journals() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Accounting"
+        crumb="Finance · Accounting"
         title="Journals"
         sub="Entries posted by hand, and every entry the system posted for itself."
         actions={
@@ -201,7 +236,7 @@ export function Journals() {
           aria-label="Unit"
         />
         <Toolbar.Spacer />
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {range.chip}
           {kind !== "" && ` · ${label(kind)}`}
           {site !== "" && " · "}
@@ -216,7 +251,7 @@ export function Journals() {
           are the server's, over the window, and each one sets the type filter
           — the fastest way to the answer "show me only what a person keyed". */}
       {kinds.length > 0 && (
-        <div className="mb-3.5 flex flex-wrap items-center gap-1.5 text-[0.71875rem]">
+        <div className="mb-3.5 flex flex-wrap items-center gap-1.5 text-[0.875rem]">
           <span className="text-mute">In this window:</span>
           {kinds.map((facet) => (
             <button
@@ -290,15 +325,15 @@ export function Journals() {
                   {shown.map((entry) => (
                     <tr
                       key={entry.entry_id}
-                      onClick={() => setReading(entry.entry_id)}
+                      onClick={() => reading.open(entry.entry_id)}
                       className="cursor-pointer hover:bg-soft"
                     >
                       <Td>{day(entry.posting_date)}</Td>
                       <Td>
-                        <span className="block font-mono text-[0.75rem] text-ink">
+                        <span className="block font-mono text-[0.875rem] text-ink">
                           {entry.entry_number}
                         </span>
-                        <span className="block truncate text-[0.6875rem] text-mute">
+                        <span className="block truncate text-[0.875rem] text-mute">
                           {entry.memo ?? "no memo"}
                         </span>
                       </Td>
@@ -306,7 +341,7 @@ export function Journals() {
                         <Pill tone={toneOf(entry)}>
                           {label(entry.source_kind)}
                         </Pill>
-                        <span className="mt-0.5 block text-[0.6875rem] text-mute">
+                        <span className="mt-0.5 block text-[0.875rem] text-mute">
                           {byHand(entry) ? "written by hand" : "by the system"}
                         </span>
                       </Td>
@@ -370,11 +405,20 @@ export function Journals() {
       </div>
 
       <EntryPanel
-        id={reading}
-        onClose={() => setReading(null)}
-        onOpen={(id) => setReading(id)}
+        id={reading.value ?? null}
+        onClose={reading.close}
+        onOpen={(id) => reading.open(id)}
       />
-      <ComposerPanel open={composing} onClose={() => setComposing(false)} />
+      <ComposerPanel
+        // A new template is a new draft: the composer's state starts from it.
+        key={initial === null ? "blank" : fromTemplate.value}
+        open={composing || initial !== null}
+        initial={initial}
+        onClose={() => {
+          setComposing(false)
+          if (fromTemplate.value !== undefined) fromTemplate.close()
+        }}
+      />
     </PageContent>
   )
 }
@@ -392,30 +436,6 @@ function toneOf(entry: JournalEntryRow): "warn" | "info" | "neutral" {
   if (entry.source_kind === "MANUAL") return "warn"
   if (entry.source_kind === "REVERSAL") return "info"
   return "neutral"
-}
-
-/// What each unit is left holding by one entry.
-///
-/// Debits less credits, per unit. Zero everywhere is an entry each unit could
-/// close its own books on; anything else is an inter-unit entry, and the two
-/// numbers are what the client's grid of inter-unit accounts used to carry.
-function byUnit(
-  lines: readonly {
-    site_id: string
-    debit_minor: number
-    credit_minor: number
-  }[]
-): { site_id: string; net_minor: number }[] {
-  const table = new Map<string, number>()
-  for (const line of lines) {
-    table.set(
-      line.site_id,
-      (table.get(line.site_id) ?? 0) + line.debit_minor - line.credit_minor
-    )
-  }
-  return [...table.entries()]
-    .map(([site_id, net_minor]) => ({ site_id, net_minor }))
-    .sort((a, b) => b.net_minor - a.net_minor)
 }
 
 // ---------------------------------------------------------------------------
@@ -529,7 +549,7 @@ function EntryPanel({
                 <Fact term="Posted at">{moment(header.posted_at)}</Fact>
                 {header.source_id !== null && (
                   <Fact term="Source record">
-                    <span className="font-mono text-[0.75rem]">
+                    <span className="font-mono text-[0.875rem]">
                       {header.source_id}
                     </span>
                   </Fact>
@@ -538,7 +558,7 @@ function EntryPanel({
                   <Fact term="Reverses">
                     <button
                       type="button"
-                      className="font-mono text-[0.75rem] text-accent hover:underline"
+                      className="font-mono text-[0.875rem] text-accent hover:underline"
                       onClick={() => onOpen(header.reversal_of ?? "")}
                     >
                       the entry it answers
@@ -549,7 +569,7 @@ function EntryPanel({
                   <Fact term="Reversed by">
                     <button
                       type="button"
-                      className="font-mono text-[0.75rem] text-accent hover:underline"
+                      className="font-mono text-[0.875rem] text-accent hover:underline"
                       onClick={() => onOpen(header.reversed_by ?? "")}
                     >
                       the entry that answered it
@@ -602,7 +622,7 @@ function EntryPanel({
                           </span>
                           <Code>{line.account_code}</Code>
                           {line.memo !== null && (
-                            <span className="block text-[0.6875rem] text-mute">
+                            <span className="block text-[0.875rem] text-mute">
                               {line.memo}
                             </span>
                           )}
@@ -664,7 +684,7 @@ function EntryPanel({
                       cancel endpoint on this ledger at all, so the only thing
                       this button can do is the second — and it says so, because
                       somebody reaching for it may have wanted the first. */}
-                  <p className="text-[0.71875rem] text-body">
+                  <p className="text-[0.875rem] text-body">
                     This posts a <b>new entry</b> with the debits and credits
                     exchanged and leaves {header.entry_number} exactly as it is.
                     It is not a cancellation; nothing in this book can be
@@ -689,7 +709,7 @@ function EntryPanel({
                       />
                     </Field>
                     <div className="flex items-center gap-2">
-                      <span className="text-[0.71875rem] text-mute">
+                      <span className="text-[0.875rem] text-mute">
                         The reason is the only record of why.
                       </span>
                       <Button
@@ -715,85 +735,6 @@ function EntryPanel({
 // Writing one
 // ---------------------------------------------------------------------------
 
-/// A line being typed, before it is anything the server would take. Amounts are
-/// text until they are submitted — a half-typed number is not a number.
-///
-/// `account` is a pair and not a code. With forty accounts in the chart, 6301
-/// is one line of the profit and loss and says nothing about what the money
-/// went on; the category beside it is what used to be the difference between
-/// two account codes, and the database refuses the line without it. Holding
-/// them as one field is what stops a row ever carrying one half of the answer.
-interface DraftLine {
-  account: AccountChoice | null
-  site_id: string
-  debit: string
-  credit: string
-}
-
-function blankLine(): DraftLine {
-  return {
-    account: null,
-    site_id: "",
-    debit: "",
-    credit: "",
-  }
-}
-
-/// What a draft adds up to, whether the server would take it, and what it would
-/// leave each unit holding.
-///
-/// A line with no account, no unit or nothing but zeros is one somebody started
-/// and has not finished: not an error, and not yet a line.
-function draftTotals(lines: readonly DraftLine[]) {
-  const usable = lines
-    .map((line) => ({
-      line,
-      debit: line.debit.trim() === "" ? 0 : (parseMinor(line.debit) ?? 0),
-      credit: line.credit.trim() === "" ? 0 : (parseMinor(line.credit) ?? 0),
-    }))
-    .filter(
-      (row) =>
-        row.line.account !== null &&
-        row.line.site_id !== "" &&
-        (row.debit > 0 || row.credit > 0)
-    )
-  const debits = usable.reduce((sum, row) => sum + row.debit, 0)
-  const credits = usable.reduce((sum, row) => sum + row.credit, 0)
-  const units = byUnit(
-    usable.map((row) => ({
-      site_id: row.line.site_id,
-      debit_minor: row.debit,
-      credit_minor: row.credit,
-    }))
-  )
-  /// Rows with an account chosen and no category, where the account's family
-  /// asks for one.
-  ///
-  /// Counted over `usable` and not over every row, for the same reason the
-  /// totals are: a row somebody has started and not finished is not an error
-  /// yet. A row that is otherwise complete and is missing its category is,
-  /// and it is the one refusal a composer can see coming — the trigger's
-  /// sentence names the account and lists five legal codes, which is a fine
-  /// message to never have to read.
-  const uncategorised = usable.filter(
-    (row) => !accountChoiceReady(row.line.account)
-  )
-  return {
-    usable,
-    debits,
-    credits,
-    uncategorised,
-    /// Units this entry would leave carrying something — empty when each unit's
-    /// own books foot.
-    adrift: units.filter((unit) => unit.net_minor !== 0),
-    balanced:
-      usable.length >= 2 &&
-      debits === credits &&
-      debits > 0 &&
-      uncategorised.length === 0,
-  }
-}
-
 /// Writing an entry by hand — ERPNext's Journal Entry form, with the unit on
 /// every row.
 ///
@@ -815,17 +756,25 @@ function draftTotals(lines: readonly DraftLine[]) {
 function ComposerPanel({
   open,
   onClose,
+  initial,
 }: {
   open: boolean
   onClose: () => void
+  /// A journal template to start from: its memo and its lines, which the
+  /// person then checks, dates and posts like any other entry.
+  initial?: {
+    readonly name: string
+    readonly memo: string
+    readonly lines: DraftLine[]
+    readonly skipped: number
+  } | null
 }) {
   const client = useQueryClient()
   const [postingDate, setPostingDate] = useState(todayIso)
-  const [memo, setMemo] = useState("")
-  const [lines, setLines] = useState<DraftLine[]>(() => [
-    blankLine(),
-    blankLine(),
-  ])
+  const [memo, setMemo] = useState(initial?.memo ?? "")
+  const [lines, setLines] = useState<DraftLine[]>(() =>
+    initial ? initial.lines : [blankLine(), blankLine()]
+  )
   const [receipt, setReceipt] = useState<string | null>(null)
   // Minted once per composer and not per attempt: a retry after a dropped
   // connection must land the same entry, and generating the key inside the
@@ -868,11 +817,6 @@ function ComposerPanel({
     },
   })
 
-  const setLine = (index: number, patch: Partial<DraftLine>) =>
-    setLines((was) =>
-      was.map((line, at) => (at === index ? { ...line, ...patch } : line))
-    )
-
   return (
     <Panel
       open={open}
@@ -883,9 +827,23 @@ function ComposerPanel({
         }
       }}
       title="New journal entry"
-      sub="Two sides, and a unit on each of them."
+      sub={
+        initial
+          ? `From the template “${initial.name}”.`
+          : "Two sides, and a unit on each of them."
+      }
     >
       <div className="flex flex-col gap-4">
+        {initial && initial.skipped > 0 && (
+          <Banner tone="warn">
+            {count(initial.skipped)}{" "}
+            {initial.skipped === 1
+              ? "line of the template names"
+              : "lines of the template name"}{" "}
+            a posting role rather than an account, and cannot be drawn here. Add{" "}
+            {initial.skipped === 1 ? "it" : "them"} by hand.
+          </Banner>
+        )}
         {receipt !== null && (
           <Banner tone="ok" onDismiss={() => setReceipt(null)}>
             Posted as {receipt}.
@@ -912,95 +870,7 @@ function ComposerPanel({
           </Field>
         </div>
 
-        <div>
-          <SubHead aside={`${count(lines.length)} rows`}>
-            Accounting entries
-          </SubHead>
-          <Grid>
-            <thead>
-              <tr>
-                <Th>Account</Th>
-                <Th width="10rem">Unit</Th>
-                <Th align="right" width="8.5rem">
-                  Debit
-                </Th>
-                <Th align="right" width="8.5rem">
-                  Credit
-                </Th>
-                <Th width="2.5rem" />
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((line, index) => (
-                <tr key={index}>
-                  <Td>
-                    <AccountAndCategory
-                      value={line.account}
-                      onChange={(next) => setLine(index, { account: next })}
-                      categoryLabel={`Category on row ${index + 1}`}
-                    />
-                  </Td>
-                  <Td>
-                    <LocationSelect
-                      value={line.site_id}
-                      onChange={(next) => setLine(index, { site_id: next })}
-                      emptyLabel="Choose a unit"
-                      className="h-8"
-                      aria-label="Unit"
-                    />
-                  </Td>
-                  <Td align="right">
-                    <Money
-                      label={`Debit on row ${index + 1}`}
-                      value={line.debit}
-                      onChange={(next) => setLine(index, { debit: next })}
-                      placeholder="0"
-                      className="h-8"
-                    />
-                  </Td>
-                  <Td align="right">
-                    <Money
-                      label={`Credit on row ${index + 1}`}
-                      value={line.credit}
-                      onChange={(next) => setLine(index, { credit: next })}
-                      placeholder="0"
-                      className="h-8"
-                    />
-                  </Td>
-                  <Td>
-                    {lines.length > 2 && (
-                      <Button
-                        size="sm"
-                        variant="quiet"
-                        aria-label={`Remove row ${index + 1}`}
-                        onClick={() =>
-                          setLines((was) => was.filter((_, at) => at !== index))
-                        }
-                      >
-                        <Trash2 />
-                      </Button>
-                    )}
-                  </Td>
-                </tr>
-              ))}
-              <TotalRow>
-                <Td>Total</Td>
-                <Td />
-                <Td align="right">{money(totals.debits)}</Td>
-                <Td align="right">{money(totals.credits)}</Td>
-                <Td />
-              </TotalRow>
-            </tbody>
-          </Grid>
-          <Button
-            variant="soft"
-            className="mt-2.5"
-            onClick={() => setLines((was) => [...was, blankLine()])}
-          >
-            <Plus />
-            Add row
-          </Button>
-        </div>
+        <JournalLinesGrid lines={lines} onChange={setLines} />
 
         {totals.adrift.length > 0 && (
           <Note>
@@ -1020,7 +890,7 @@ function ComposerPanel({
         )}
 
         <div className="flex items-center justify-between gap-3 border-t border-hairline pt-3">
-          <span className="text-[0.71875rem] text-mute tabular-nums">
+          <span className="text-[0.875rem] text-mute tabular-nums">
             {totals.balanced
               ? `Balanced at ${money(totals.debits)}`
               : totals.usable.length === 0

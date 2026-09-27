@@ -876,3 +876,92 @@ shaped by the owner's submit/approve decision), `Salary Withholding`,
 `statistical_component` flags — every one of them is a way for a component to be
 on a slip and not in its totals, which is the shape that makes a payslip stop
 adding up.
+
+## Expense claims — HRMS's Expenses module, adapted
+
+Destination: `backend/src/cloud/domain/claim/`, `postgres/claims.rs`,
+`http/claims.rs`, migrations
+`backend/migrations/postgres/0341_a_claim_is_asked_for_and_sanctioned_by_two_people.sql`
+and `0342_the_claim_postings_have_somewhere_to_go.sql` (2026-09-23). Hub face:
+`frontend-hub/src/screens/people/claims.tsx` (Work group) plus the Requests
+banner and the Directory sheet's Claims and Advances sections.
+
+The reference is `hrms/hr/doctype/expense_claim` and `expense_claim_type`; the
+shape kept is the one that matters — a claim lists what was spent, a decider
+sanctions each line, and the sanction books the money. What did not cross:
+taxes and charges (the estate nets no statutory figure), multi-currency
+(one currency, IDR, integer minor units), and `is_paid` as a checkbox (here
+paying is a state with a journal behind it, not a flag).
+
+Decisions worth naming:
+
+- **Filing and deciding are two people's acts, in the schema.** The
+  two-actor rule is a CHECK on the row (`decided_by <> claimed_by` on decided
+  states), not only a live-path guard, because a rule just the handler knows
+  is a rule `psql` removes.
+- **One meaning, split by qualifier.** `employee_expense` is qualified by
+  claim-type code, and 0342 mints the map rows per type per site in the same
+  transaction that defines the type — because `resolve_account` matches
+  qualifiers exactly, a bare `''` row would have marked the pair mapped while
+  every posting refused. The `advance`/PERJALANAN qualified mould wins over
+  the spec's single unqualified seed.
+- **The debit leaf is minted, on the client's own rung.** `6010210014 Klaim
+  Karyawan` under 60102 Beban Pegawai, in the 0277 mould; `6201` was refused
+  because its pay-component family would force a payslip component onto every
+  claim line.
+- **Payment is the imprest's.** A payout is `Dr employee_claim_payable [site,
+  for_employee] / Cr petty_cash [site]`, numbered in the `KKC-` series, so the
+  cash-position fold sees it with no new table. What a shop may not pay from
+  stays refused exactly as the store-money lane refuses it.
+- **Advances are not rebuilt.** The finance lane's `advance`/
+  `advance_settlement` (0280) is the advance; People serves a read-only
+  projection of it, and the settlement fold — not stored columns — is the
+  outstanding. HRMS's `repay_unclaimed_amount_from_salary` is deferred: it
+  needs a third settlement kind riding the payout envelopes, which is its own
+  decision.
+- Reading the catalogue needs no key; filing is `people.claim.file` (manager,
+  under Reach) or `people.claim.request_own` (self, `Access::own`);
+  `people.claim.decide` and `people.claim.pay` are separate grants because
+  handing money over and declaring it paid must not be one person's loop.
+
+## Grievance, exit interview, and the Full & Final statement
+
+Destination: `backend/src/cloud/domain/{grievance,exit}.rs`,
+`postgres/{grievance,exit}.rs`, `http/{grievance,exit}.rs`, migrations
+`backend/migrations/postgres/0343*` and `0344*` (2026-09-23). Hub face:
+`frontend-hub/src/screens/people/{grievances,exits}.tsx`; a **Records** group
+appears between Work and Pay because Exits is its first screen with an
+endpoint behind it.
+
+Reference: `hrms/hr/doctype/{grievance_type,employee_grievance,exit_interview,
+full_and_final_statement}`. Not taken: the questionnaire email machinery,
+`boarding` templates (the estate's termination already carries its reasons),
+and `company` links.
+
+- **The grievance queue is head office's, by construction.** A grievance
+  against a store manager cannot be investigated by that store manager, and in
+  a thirteen-store estate the only place that is nobody's posting is head
+  office. Filing is `people.grievance.file` (manager, under Reach) or
+  `people.grievance.request_own` (self, `Access::own`) — an employee must be
+  able to complain about their own supervisor without asking them. Reading is
+  its own key, `people.grievance.read`, mapped ADMIN: the accused supervisor
+  holds `people.employee.read` and must not therefore read the queue.
+  Investigating and resolving are two disjoint ADMIN keys — the payroll run's
+  lesson, applied to a verdict about a person.
+- **The exit interview exists from the termination, not after it.** The
+  TERMINATE path opens a PENDING row in the same transaction; `employee.rs`
+  has no transition out of TERMINATED (rehire is a new record), so the UNIQUE
+  is `employee_id` alone — a key for a span the machine cannot produce would
+  be a lie about the machine. Withdrawn offers get nothing: nobody who never
+  worked has an appointment at the door. A backfill route covers
+  terminations predating the hook.
+- **The Full & Final statement freezes its reads.** The leaver's open
+  advances (0280), approved-unpaid claims (0341) and manual asset-recovery
+  rows are summed at creation; SETTLE re-reads the sources inside the settle
+  transaction and refuses on drift, naming what moved. The net posts once,
+  idempotent on `(source_kind, source_id, purpose)`; the person-side leg is
+  `employee_claim_payable` at the leaver's place, the cash side the HO
+  imprest, and the affiliate legs are the poster's. A zero net refuses by
+  name — a journal of nothing is not a settlement.
+- `employee_stance` is nullable, paired to COMPLETED by CHECK: a PENDING row
+  carrying a stance is an answer before the question.

@@ -94,6 +94,8 @@ fn frontend() -> PathBuf {
 /// claimed.
 fn cloud_config() -> AppConfig {
     AppConfig {
+        po_import: inventory_backend::cloud::intake::po::PoImportConfig::from_env(),
+        clock: None,
         bind_addr: "127.0.0.1:0"
             .parse::<SocketAddr>()
             .unwrap_or_else(|e| panic!("socket address: {e}")),
@@ -104,6 +106,7 @@ fn cloud_config() -> AppConfig {
         observed_window_hours: 24,
         lost_risk_window_days: 30,
         enable_test_controls: false,
+        finance_automation_enabled: false,
         frontend_dir: frontend(),
         sync_upload_url: None,
         sync_upload_key: None,
@@ -443,7 +446,7 @@ async fn catalogue(pool: &PgPool) {
         &Article {
             code: KEMEJA,
             name: "Kemeja Cendana Lengan Panjang",
-            division: "MENSWEAR",
+            division: "PRIA",
             tags: &["KEMEJA", "LENGAN_PANJANG"],
             colours: &[("1", "TEST_NAVY"), ("2", "TEST_PUTIH"), ("3", "TEST_MERAH")],
             skus: &[
@@ -459,7 +462,7 @@ async fn catalogue(pool: &PgPool) {
         &Article {
             code: KAOS,
             name: "Kaos Cendana Polos",
-            division: "MENSWEAR",
+            division: "PRIA",
             tags: &["KAOS", "BASIC"],
             colours: &[("1", "TEST_PUTIH")],
             skus: &[("1", "02", 90_000)],
@@ -471,7 +474,7 @@ async fn catalogue(pool: &PgPool) {
         &Article {
             code: ROK,
             name: "Rok Cendana Lipit",
-            division: "WOMENSWEAR",
+            division: "WANITA",
             tags: &["BASIC"],
             colours: &[("3", "TEST_MERAH")],
             skus: &[("3", "03", 175_000), ("3", "05", 175_000)],
@@ -483,7 +486,7 @@ async fn catalogue(pool: &PgPool) {
         &Article {
             code: SEPATU,
             name: "Sepatu Cendana Lari",
-            division: "FOOTWEAR",
+            division: "SANDAL_SEPATU",
             tags: &[],
             colours: &[("1", "TEST_HITAM")],
             skus: &[("1", "13", 480_000)],
@@ -589,14 +592,14 @@ async fn choosing_one_division_still_says_what_the_others_hold(pool: PgPool) {
 
     let all = search(&pool, &format!("q={FIXTURE}")).await;
     assert_eq!(
-        facet(&all, "divisions", "MENSWEAR"),
+        facet(&all, "divisions", "PRIA"),
         2,
         "two menswear articles before any filter: {all}"
     );
-    assert_eq!(facet(&all, "divisions", "WOMENSWEAR"), 1, "{all}");
-    assert_eq!(facet(&all, "divisions", "FOOTWEAR"), 1, "{all}");
+    assert_eq!(facet(&all, "divisions", "WANITA"), 1, "{all}");
+    assert_eq!(facet(&all, "divisions", "SANDAL_SEPATU"), 1, "{all}");
 
-    let menswear = search(&pool, &format!("q={FIXTURE}&division_code=MENSWEAR")).await;
+    let menswear = search(&pool, &format!("q={FIXTURE}&division_code=PRIA")).await;
     let mut listed = codes(&menswear);
     listed.sort();
     assert_eq!(
@@ -612,18 +615,18 @@ async fn choosing_one_division_still_says_what_the_others_hold(pool: PgPool) {
 
     // And the facets do not.
     assert_eq!(
-        facet(&menswear, "divisions", "WOMENSWEAR"),
+        facet(&menswear, "divisions", "WANITA"),
         1,
         "womenswear must still be counted while menswear is selected, or nobody \
          can see it is there: {menswear}"
     );
     assert_eq!(
-        facet(&menswear, "divisions", "FOOTWEAR"),
+        facet(&menswear, "divisions", "SANDAL_SEPATU"),
         1,
         "footwear likewise: {menswear}"
     );
     assert_eq!(
-        facet(&menswear, "divisions", "MENSWEAR"),
+        facet(&menswear, "divisions", "PRIA"),
         2,
         "and the chosen division still reports its own count: {menswear}"
     );
@@ -760,7 +763,7 @@ async fn an_eleventh_colourway_cannot_exist_and_is_refused_in_words(pool: PgPool
         &Article {
             code: PAYUNG,
             name: "Payung Cendana",
-            division: "ACCESSORY",
+            division: "AKSESORIS",
             tags: &[],
             colours: &[("0", "TEST_NAVY")],
             skus: &[("0", "08", 65_000)],
@@ -1006,7 +1009,7 @@ async fn an_edit_that_never_saw_the_last_one_is_refused(pool: PgPool) {
         KEMEJA,
         seen,
         "reclassify-second",
-        json!({ "division_code": "WOMENSWEAR" }),
+        json!({ "division_code": "WANITA" }),
     )
     .await;
     assert_eq!(
@@ -1028,7 +1031,7 @@ async fn an_edit_that_never_saw_the_last_one_is_refused(pool: PgPool) {
         "the refused save did not quietly restore the old name: {after}"
     );
     assert_eq!(
-        after["division_code"], "MENSWEAR",
+        after["division_code"], "PRIA",
         "and did not half-apply either: {after}"
     );
 }

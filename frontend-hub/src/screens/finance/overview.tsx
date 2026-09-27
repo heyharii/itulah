@@ -19,7 +19,6 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { count, day, money } from "@/lib/format"
 import {
-  accountMap,
   acquisitionGap,
   balanceMatrix,
   financeKeys,
@@ -32,7 +31,7 @@ import {
   unbilledReceipts,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { accountMapGaps } from "@/screens/finance/badges"
+import { usePostingReadiness } from "@/screens/finance/badges"
 import { asPresented, monthLabel } from "@/screens/finance/chart"
 import { useWindow } from "@/screens/finance/hooks"
 import { RankedBars, WindowControl } from "@/screens/finance/parts"
@@ -55,10 +54,7 @@ export function FinanceOverview() {
     queryKey: financeKeys.periods(),
     queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
   })
-  const map = useQuery({
-    queryKey: financeKeys.accountMap(null),
-    queryFn: ({ signal }) => accountMap(undefined, signal),
-  })
+  const readiness = usePostingReadiness()
   const bills = useQuery({
     queryKey: financeKeys.bills(null),
     queryFn: ({ signal }) => listBills({}, signal).then((page) => page.rows),
@@ -76,10 +72,14 @@ export function FinanceOverview() {
     queryFn: ({ signal }) =>
       listAssets({ unassessed: true }, signal).then((page) => page.rows),
   })
+  // The cache holds the whole page under this key — Bank Reconciliation's
+  // badge, Deposits and Card & EDC Settlement read it that way — so the rows
+  // are selected here rather than stored. Storing the array crashed whichever
+  // reader arrived second.
   const statements = useQuery({
     queryKey: financeKeys.bankStatements(),
-    queryFn: ({ signal }) =>
-      listBankStatements(signal).then((page) => page.rows),
+    queryFn: ({ signal }) => listBankStatements(signal),
+    select: (page) => page.rows,
   })
   const cash = useQuery({
     queryKey: financeKeys.balances("10110", null),
@@ -128,7 +128,7 @@ export function FinanceOverview() {
   const board = {
     isPending:
       periods.isPending ||
-      map.isPending ||
+      readiness.isPending ||
       bills.isPending ||
       balance.isPending ||
       unbilled.isPending ||
@@ -137,7 +137,7 @@ export function FinanceOverview() {
       cash.isPending,
     isError:
       periods.isError ||
-      map.isError ||
+      readiness.isError ||
       bills.isError ||
       balance.isError ||
       unbilled.isError ||
@@ -146,7 +146,7 @@ export function FinanceOverview() {
       cash.isError,
     error:
       periods.error ??
-      map.error ??
+      readiness.error ??
       bills.error ??
       balance.error ??
       unbilled.error ??
@@ -156,7 +156,7 @@ export function FinanceOverview() {
     data: true as const,
     refetch: () => {
       void periods.refetch()
-      void map.refetch()
+      void readiness.refetch()
       void bills.refetch()
       void balance.refetch()
       void unbilled.refetch()
@@ -186,25 +186,25 @@ export function FinanceOverview() {
         ),
         severity: "high",
         icon: <Scale className="size-4" />,
-        onOpen: go("/finance/ledger"),
+        onOpen: go("/finance/accounting/general-ledger"),
       })
     }
 
-    if (map.data) {
-      // One derivation, in `badges.ts`, shared with the Account map screen and
-      // with the sidebar badge — so the three of them cannot report different
+    if (readiness.data) {
+      // The server's count, under the key the sidebar badge and the Posting
+      // readiness screen read — so the three of them cannot report different
       // numbers for the same gap.
-      const gaps = accountMapGaps(map.data).pairs
+      const gaps = readiness.data.gaps
       if (gaps > 0) {
         found.push({
           id: "unmapped",
-          title: "Meanings with no account",
+          title: "Roles with no account",
           detail:
-            "Every posting that needs one of these is refused, and the refusal names the key.",
+            "A role, at a site, that no account link reaches. Every posting that needs one is refused, and the refusal names the role.",
           amount: count(gaps),
           severity: "high",
           icon: <GitBranch className="size-4" />,
-          onOpen: go("/finance/account-map"),
+          onOpen: go("/finance/setup/posting-readiness"),
         })
       }
     }
@@ -220,7 +220,7 @@ export function FinanceOverview() {
           detail: "Nothing can be posted into a month that does not exist yet.",
           severity: "high",
           icon: <CalendarClock className="size-4" />,
-          onOpen: go("/finance/periods"),
+          onOpen: go("/finance/setup/periods"),
         })
       }
       const stale = periods.data.filter(
@@ -253,7 +253,7 @@ export function FinanceOverview() {
           ),
           severity: "medium",
           icon: <CalendarClock className="size-4" />,
-          onOpen: go("/finance/periods"),
+          onOpen: go("/finance/setup/periods"),
         })
       }
     }
@@ -271,7 +271,7 @@ export function FinanceOverview() {
           amount: money(late.reduce((sum, bill) => sum + bill.total_minor, 0)),
           severity: "high",
           icon: <Receipt className="size-4" />,
-          onOpen: go("/finance/bills"),
+          onOpen: go("/finance/payables/bills"),
         })
       }
     }
@@ -290,7 +290,7 @@ export function FinanceOverview() {
         ),
         severity: "medium",
         icon: <Receipt className="size-4" />,
-        onOpen: go("/finance/bills"),
+        onOpen: go("/finance/payables/bills"),
       })
     }
 
@@ -308,7 +308,7 @@ export function FinanceOverview() {
           amount: count(open),
           severity: "medium",
           icon: <Wallet className="size-4" />,
-          onOpen: go("/finance/bank"),
+          onOpen: go("/finance/cash-bank/bank-reconciliation"),
         })
       }
     }
@@ -322,7 +322,7 @@ export function FinanceOverview() {
         amount: money(unbacked.data.assets_total_minor),
         severity: "medium",
         icon: <Archive className="size-4" />,
-        onOpen: go("/finance/assets"),
+        onOpen: go("/finance/assets/capitalization"),
       })
     }
 
@@ -334,7 +334,7 @@ export function FinanceOverview() {
           "An open control gap: nobody has decided whether to capitalise or expense them.",
         severity: "low",
         icon: <Archive className="size-4" />,
-        onOpen: go("/finance/assets"),
+        onOpen: go("/finance/assets/capitalization"),
       })
     }
 
@@ -344,7 +344,7 @@ export function FinanceOverview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     balance.data,
-    map.data,
+    readiness.data,
     periods.data,
     bills.data,
     unbilled.data,
@@ -405,7 +405,7 @@ export function FinanceOverview() {
             nothing else on this page — the queue and the strip are about
             today, and a control that silently rewrote them would be worse
             than one that says what it moves. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {range.chip} · the window the expense mix is read over
         </span>
       </Toolbar>
@@ -453,7 +453,7 @@ export function FinanceOverview() {
             <Card className="mb-3">
               <CardHeader>
                 <CardTitle>Expense mix</CardTitle>
-                <span className="text-[0.71875rem] text-mute">
+                <span className="text-[0.875rem] text-mute">
                   {range.chip}
                   {result.data && (
                     <>
@@ -467,11 +467,11 @@ export function FinanceOverview() {
               </CardHeader>
               <div className="px-4 pb-3.5">
                 {result.isPending ? (
-                  <p className="text-[0.71875rem] text-mute">
+                  <p className="text-[0.875rem] text-mute">
                     Reading the profit and loss…
                   </p>
                 ) : result.isError ? (
-                  <p className="text-[0.71875rem] text-mute">
+                  <p className="text-[0.875rem] text-mute">
                     The profit and loss could not be read for this window.
                   </p>
                 ) : (
@@ -501,7 +501,7 @@ export function FinanceOverview() {
                   {count(statements.data?.length ?? 0)}
                 </KeyValue>
                 <KeyValue term="Locations the books are kept for">
-                  {count(map.data?.locations.length ?? 0)}
+                  {count(readiness.data?.locations.length ?? 0)}
                 </KeyValue>
               </div>
             </Card>

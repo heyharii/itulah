@@ -379,7 +379,6 @@ export function Terminals() {
   const sheet = useSheet("terminal")
   const [tab, setTab] = useState<Tab>("stations")
   const [query, setQuery] = useState("")
-  const [note, setNote] = useState<string | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   // Composer state: which record a form is being written FOR, never which
   // record is open for reading. A half-typed reason must not be linkable, and
@@ -594,12 +593,7 @@ export function Terminals() {
 
   const publish = useMutation({
     mutationFn: () => publishEmployeeBook(place ?? ""),
-    onSuccess: (done) => {
-      setFailed(null)
-      setNote(
-        `${unit.name ?? done.place_id}'s book is on its way to ${done.origins.join(", ")} — ${count(done.employees)} people, ${count(done.rostered_days)} rostered days, ${count(done.terminals)} stations. A station with the line down still greets by name and knows the shift.`
-      )
-    },
+    onSuccess: () => setFailed(null),
     onError: (error) => setFailed(problemOf(error)),
   })
 
@@ -623,11 +617,6 @@ export function Terminals() {
         }
       />
 
-      {note !== null && (
-        <Banner tone="ok" className="mb-3" onDismiss={() => setNote(null)}>
-          {note}
-        </Banner>
-      )}
       {failed !== null && (
         <Banner tone="bad" className="mb-3" onDismiss={() => setFailed(null)}>
           {failed}
@@ -740,26 +729,19 @@ export function Terminals() {
         monday={monday}
         missing={sheet.isOpen && open === undefined && !stations.isPending}
         onClose={sheet.close}
-        onDone={(sentence) => {
-          setFailed(null)
-          setNote(sentence)
-        }}
+        onDone={() => setFailed(null)}
       />
       <RegisterSheet
         open={registering}
         place={place}
         onClose={() => setRegistering(false)}
-        onDone={(sentence) => {
-          setFailed(null)
-          setNote(sentence)
-        }}
+        onDone={() => setFailed(null)}
       />
       <WithdrawSheet
         target={withdrawing}
         onClose={() => setWithdrawing(null)}
-        onDone={(sentence) => {
+        onDone={() => {
           setFailed(null)
-          setNote(sentence)
           void client.invalidateQueries({ queryKey: punchKeys.terminals(null) })
         }}
       />
@@ -885,7 +867,7 @@ function PeopleTab({
       <Card className="mb-[1.125rem] overflow-hidden">
         <CardHeader>
           <CardTitle>{unitName ?? "This unit"}</CardTitle>
-          <span className="text-[0.75rem] text-mute">
+          <span className="text-[0.875rem] text-mute">
             only the people posted here — a station pulls no other templates
           </span>
         </CardHeader>
@@ -1040,8 +1022,8 @@ function Enrolment({
             sentence belongs here — where the control is — rather than in a
             document nobody opens. */}
         {fingers.length > 0 && (
-          <p className="text-[0.71875rem] text-mute">
-            Withdrawing a finger deletes the template. A retired-but-present
+          <p className="text-[0.875rem] text-mute">
+            Withdrawing a finger deletes the template. A cancelled-but-present
             biometric is regulated data held with no purpose, so the bytes go
             and the event stays: the log below keeps who withdrew it, when, and
             why.
@@ -1097,7 +1079,7 @@ function StationSheet({
   monday: number
   missing: boolean
   onClose: () => void
-  onDone: (said: string) => void
+  onDone: () => void
 }) {
   const client = useQueryClient()
   const [reason, setReason] = useState("")
@@ -1105,14 +1087,8 @@ function StationSheet({
   const change = useMutation({
     mutationFn: (status: string) =>
       setTerminalStatus(station?.id ?? "", status, reason.trim()),
-    onSuccess: (_rows, status) => {
-      onDone(
-        `${station?.name ?? station?.id} is ${statusWord(status).toLowerCase()}. ${
-          status === "ACTIVE"
-            ? "It can attest identifications again."
-            : "It attests nothing, so no punch it takes will be recorded."
-        }`
-      )
+    onSuccess: () => {
+      onDone()
       // Invalidated rather than written into the cache from the response: the
       // endpoint answers with the rows for THAT station's place, and this
       // screen holds the unplaced list of everything the caller reaches.
@@ -1258,7 +1234,7 @@ function StationSheet({
                   Revoke for good
                 </Button>
               </div>
-              <p className="text-[0.71875rem] text-mute">
+              <p className="text-[0.875rem] text-mute">
                 Suspending is reversible and is the answer to a station that has
                 moved, is under repair, or is sending traffic nobody can
                 explain. Revoking is not reversible.
@@ -1296,7 +1272,7 @@ function RegisterSheet({
   open: boolean
   place: string | null
   onClose: () => void
-  onDone: (said: string) => void
+  onDone: () => void
 }) {
   const client = useQueryClient()
   const places = usePlaces()
@@ -1320,9 +1296,7 @@ function RegisterSheet({
         reason: draft.reason.trim(),
       }),
     onSuccess: () => {
-      onDone(
-        `${draft.name.trim()} is registered at ${chosenPlace} and active, so it can attest identifications immediately. It holds no templates until the unit's book reaches it.`
-      )
+      onDone()
       void client.invalidateQueries({ queryKey: punchKeys.terminals(null) })
       setDraft({ terminalId: "", placeId: "", name: "", reason: "" })
       register.reset()
@@ -1444,7 +1418,7 @@ function WithdrawSheet({
     readonly only: boolean
   } | null
   onClose: () => void
-  onDone: (said: string) => void
+  onDone: () => void
 }) {
   const client = useQueryClient()
   const [reason, setReason] = useState("")
@@ -1457,12 +1431,7 @@ function WithdrawSheet({
         reason.trim()
       ),
     onSuccess: (view) => {
-      const who = target === null ? "" : personName(target.person)
-      onDone(
-        view.can_clock_in
-          ? `${said(FINGERS, target?.finger.finger ?? "")} withdrawn for ${who}. The template is deleted; the event stays.`
-          : `${said(FINGERS, target?.finger.finger ?? "")} withdrawn for ${who}. That was their last finger, so they cannot clock in until somebody enrols them again at a station.`
-      )
+      onDone()
       // The response IS this key's answer, so it is written straight in rather
       // than refetched.
       if (target !== null) {
@@ -1502,7 +1471,7 @@ function WithdrawSheet({
     >
       <div className="flex flex-col gap-3.5">
         <Banner tone="warn">
-          This deletes the template. A retired-but-present biometric is
+          This deletes the template. A cancelled-but-present biometric is
           regulated data held with no purpose, so the bytes go — and the event
           stays, with who decided it, when and why, so the disposal is
           auditable.

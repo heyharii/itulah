@@ -39,32 +39,16 @@
 //! the state would be a click rather than a fact. 0240 says the same thing in
 //! its CHECK.
 
-use super::{decode_cursor, encode_cursor, payables::PayableFacet};
+use super::{
+    decode_cursor, encode_cursor,
+    payables::{PayableFacet, RecordBillLine, RecordBillRequest},
+};
 use crate::cloud::application::AppError;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-/// The nine kinds of cost a shop may file against, the same nine
-/// `edge/petty.rs::EXPENSE_CATEGORIES` constrains.
-///
-/// Named here rather than imported from the edge module because this is the
-/// centre's copy of the same agreement — 0240's CHECK is the guarantee, and
-/// this list exists so the refusal is a sentence naming the nine rather than
-/// SQLSTATE 23514 arriving as "database operation failed". The edge's comment
-/// already says adding a tenth is a line in three places; this is the third.
-const CATEGORIES: [&str; 9] = [
-    "expense_electricity",
-    "expense_water",
-    "expense_telephone",
-    "expense_household",
-    "expense_stationery",
-    "expense_repairs",
-    "expense_transport",
-    "expense_cleaning",
-    "expense_misc",
-];
 
 /// One ask, and everything that has happened to it.
 #[derive(Clone, Debug, Serialize)]
@@ -87,8 +71,8 @@ pub struct PaymentInstruction {
     pub supplier_name: Option<String>,
     /// A sentence somebody at head office can decide on without ringing back.
     pub purpose: String,
-    /// One of the nine kinds of cost. Resolves to no account here — see
-    /// `CATEGORIES`.
+    /// An expense category open to shops (0465). Resolves to no account here:
+    /// the bill head office settles the ask with carries the account.
     pub category: String,
     pub amount_minor: i64,
     pub currency: String,
@@ -524,11 +508,16 @@ pub async fn raise_instruction(
             "an instruction asks for a positive amount; a credit is not an ask".into(),
         ));
     }
-    let category = request.category.trim().to_ascii_lowercase();
-    if !CATEGORIES.contains(&category.as_str()) {
+    let category = request.category.trim().to_string();
+    let open_to_stores: Vec<String> = sqlx::query_scalar(
+        "SELECT code FROM expense_category WHERE is_active AND for_stores ORDER BY code",
+    )
+    .fetch_all(pool)
+    .await?;
+    if !open_to_stores.contains(&category) {
         return Err(AppError::Validation(format!(
             "'{category}' is not a kind of cost this shop can file against; it is one of {}",
-            CATEGORIES.join(", ")
+            open_to_stores.join(", ")
         )));
     }
     // The bill has to belong to the unit that is asking. A shop asking head
@@ -671,19 +660,177 @@ pub async fn decide_instruction(
         ));
     }
 
+    if !request.approve {
+        // A refusal creates NOTHING (brief §13): the status moves and no bill
+        // exists, which is the whole point of telling the shop "no".
+        let updated = sqlx::query(
+            "UPDATE payment_instruction
+                SET status = 'REFUSED',
+                    supplier_id = COALESCE($2, supplier_id),
+                    supplier_name = COALESCE($3, supplier_name),
+                    decided_by = $4,
+                    decided_at = now(),
+                    decision_reason = $5
+              WHERE instruction_id = $1 AND status = 'REQUESTED'",
+        )
+        .bind(instruction_id)
+        .bind(supplier_id)
+        .bind(
+            request
+                .supplier_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .bind(actor)
+        .bind(reason)
+        .execute(pool)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(AppError::Conflict(
+                "this instruction has already been answered".into(),
+            ));
+        }
+        return instruction(pool, instruction_id).await;
+    }
+
+    // ── APPROVED: say yes, and raise the draft in the same write ──
+    //
+    // Brief §8.4: a yes makes a DRAFT bill that points at the request (and at
+    // the repair the request's bill named, when there was one). The bill is
+    // NOT AP — it is a DRAFT for Finance to review, exactly as a bill GA filed
+    // is. The two writes share one transaction, so an APPROVED ask and its
+    // draft cannot come apart.
+    let supplier = supplier_id.expect("an approval without a supplier was refused above");
+
+    // Refuse when the vendor has nowhere to send money. A draft nobody could
+    // ever pay is not worth raising, and the shop's ask is better answered with
+    // "add a bank account first" than with a bill that will sit forever.
+    let has_account: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM bank_account
+                         WHERE NOT is_company_account
+                           AND party_type = 'SUPPLIER'
+                           AND party_id = $1
+                           AND active)",
+    )
+    .bind(supplier)
+    .fetch_one(pool)
+    .await?;
+    if !has_account {
+        return Err(AppError::Validation(format!(
+            "{supplier} has no bank account on file, so there is nowhere to pay this; add and \
+             verify one on the vendor first, then approve"
+        )));
+    }
+
+    // The repair the ask came from, if its own bill named one.
+    let repair_id: Option<Uuid> = match existing.bill_id {
+        Some(bill_id) => sqlx::query_scalar(
+            "SELECT repair_id FROM supplier_invoice_expense_line
+              WHERE invoice_id = $1 AND repair_id IS NOT NULL
+              LIMIT 1",
+        )
+        .bind(bill_id)
+        .fetch_optional(pool)
+        .await?,
+        None => None,
+    };
+
+    let suggestion = super::ga_accounts::suggest_account(
+        pool,
+        &existing.site_id,
+        &super::ga_accounts::LineRefs {
+            repair_id,
+            supplier_id: Some(supplier.to_string()),
+            ..Default::default()
+        },
+    )
+    .await?;
+    let Some(account_code) = suggestion.account_code else {
+        return Err(AppError::Validation(format!(
+            "the bill this approval would raise has no account: {}",
+            suggestion
+                .missing
+                .unwrap_or_else(|| "Finance has not mapped one".into())
+        )));
+    };
+
+    let invoice_date = Utc::now().date_naive();
+    let draft = RecordBillRequest {
+        // The instruction's own number, which is unique — the draft is
+        // findable by the ask down the phone, and the real invoice number is
+        // keyed when the paper arrives.
+        invoice_number: existing.instruction_number.clone(),
+        supplier_id: supplier.to_string(),
+        supplier_name: request
+            .supplier_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| existing.supplier_name.clone()),
+        site_id: existing.site_id.clone(),
+        invoice_date,
+        // A bill may not fall due before it is dated. The ask's own
+        // `needed_by` is the plan; when it is already past, the draft falls
+        // due the day it was raised rather than carrying an impossible date.
+        due_date: existing.needed_by.map(|due| due.max(invoice_date)),
+        subtotal_minor: existing.amount_minor,
+        tax_minor: 0,
+        discount_minor: 0,
+        note: Some(format!(
+            "Draft dibuat dari pengajuan pembayaran {}: {}",
+            existing.instruction_number, existing.purpose
+        )),
+        kind: Some("EXPENSE".into()),
+        lines: Some(vec![RecordBillLine {
+            account_code,
+            site_id: existing.site_id.clone(),
+            amount_minor: existing.amount_minor,
+            category_code: None,
+            asset_class_code: None,
+            draws_reserve: false,
+            asset_id: None,
+            contract_id: None,
+            repair_id,
+            replacement_id: None,
+            supply_request_id: None,
+            service_period_start: None,
+            service_period_end: None,
+            account_overridden: false,
+            memo: None,
+        }]),
+        matching: None,
+        withholding_code: None,
+        receipt_ids: None,
+        submitted_by_domain: Some("PAYMENT_REQUEST".into()),
+        document_ref: None,
+    };
+    let validated = super::payables::validate_bill(pool, &draft).await?;
+
+    let mut tx = pool.begin().await?;
+    let invoice_id = super::payables::insert_bill(
+        &mut tx,
+        &draft,
+        actor,
+        &validated.kind,
+        validated.total,
+        validated.withholding_code.as_deref(),
+    )
+    .await?;
     let updated = sqlx::query(
         "UPDATE payment_instruction
-            SET status = CASE WHEN $2 THEN 'APPROVED' ELSE 'REFUSED' END,
-                supplier_id = COALESCE($3, supplier_id),
-                supplier_name = COALESCE($4, supplier_name),
-                decided_by = $5,
+            SET status = 'APPROVED',
+                supplier_id = COALESCE($2, supplier_id),
+                supplier_name = COALESCE($3, supplier_name),
+                decided_by = $4,
                 decided_at = now(),
-                decision_reason = $6
+                decision_reason = $5,
+                bill_id = $6
           WHERE instruction_id = $1 AND status = 'REQUESTED'",
     )
     .bind(instruction_id)
-    .bind(request.approve)
-    .bind(supplier_id)
+    .bind(supplier)
     .bind(
         request
             .supplier_name
@@ -693,13 +840,17 @@ pub async fn decide_instruction(
     )
     .bind(actor)
     .bind(reason)
-    .execute(pool)
+    .bind(invoice_id)
+    .execute(&mut *tx)
     .await?;
     if updated.rows_affected() == 0 {
+        // The `tx` drops here, taking the draft with it: an ask somebody else
+        // already answered raises no second bill.
         return Err(AppError::Conflict(
             "this instruction has already been answered".into(),
         ));
     }
+    tx.commit().await?;
     instruction(pool, instruction_id).await
 }
 

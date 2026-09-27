@@ -18,6 +18,7 @@ import {
   financeKeys,
   listBankStatements,
   listCashCounts,
+  siteAccounts,
 } from "@/lib/queries/finance"
 import {
   CardRow,
@@ -28,7 +29,7 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import { useLocations, useWindow } from "@/screens/finance/hooks"
+import { useWindow } from "@/screens/finance/hooks"
 import { LocationSelect, WindowControl } from "@/screens/finance/parts"
 import type {
   BankStatementRow,
@@ -79,9 +80,15 @@ import type {
 /// cannot be booked.
 export function SalesReconciliation() {
   const range = useWindow()
-  const map = useLocations()
   const [site, setSite] = useState("")
   const scoped = site !== ""
+  // What each role resolves to at this unit, as the server resolves it.
+  const map = useQuery({
+    queryKey: financeKeys.siteAccounts(site),
+    queryFn: ({ signal }) => siteAccounts(site, signal),
+    enabled: scoped,
+    staleTime: 5 * 60 * 1000,
+  })
 
   const dates = useMemo(
     () => datesIn(range.from, range.to),
@@ -145,11 +152,11 @@ export function SalesReconciliation() {
   // Read by MEANING and never by account code: the client's chart puts the
   // unit inside the code — `101100100103` is cash at store 03 — and a screen
   // that built such a code itself would be guessing at somebody else's chart.
-  // The account map is the only thing entitled to that answer.
+  // The account links are the only thing entitled to that answer.
   const meanings = useMemo(() => {
     const at = (key: string) =>
-      (map.data?.rows ?? [])
-        .filter((row) => row.site_id === site && row.semantic_key === key)
+      (map.data ?? [])
+        .filter((row) => row.role === key)
         .map((row) => row.account_code)
     return {
       drawer: at(DRAWER_MEANING),
@@ -157,7 +164,7 @@ export function SalesReconciliation() {
       fee: at(FEE_MEANING),
       variance: at(VARIANCE_MEANING),
     }
-  }, [map.data, site])
+  }, [map.data])
 
   const codes = useMemo(
     () => [...meanings.drawer, ...meanings.card, ...meanings.fee],
@@ -199,7 +206,7 @@ export function SalesReconciliation() {
   // drew the till's side while the bank's was still in flight would say
   // "nothing arrived" about a statement it had not opened yet.
   const pending =
-    map.isPending ||
+    (scoped && map.isPending) ||
     till.pending ||
     counts.isPending ||
     statements.isPending ||
@@ -248,7 +255,7 @@ export function SalesReconciliation() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Store"
+        crumb="Finance · Receivables"
         title="Sales reconciliation"
         sub="What the till says was taken, what the drawer held, and what the bank says arrived — and which of the gaps between them is explained."
       />
@@ -262,7 +269,7 @@ export function SalesReconciliation() {
         />
         <WindowControl range={range} />
         <Toolbar.Spacer />
-        <span className="text-[0.71875rem] text-mute">{range.chip}</span>
+        <span className="text-[0.875rem] text-mute">{range.chip}</span>
       </Toolbar>
 
       {!scoped ? (
@@ -336,7 +343,7 @@ export function SalesReconciliation() {
               check that expected really is opening plus takings, and what this
               screen can honestly say about the gap. */}
           <section className="flex flex-col gap-2">
-            <h2 className="text-[0.8125rem] font-semibold text-ink">
+            <h2 className="text-[0.875rem] font-semibold text-ink">
               By mode of payment
             </h2>
             <Grid>
@@ -398,7 +405,7 @@ export function SalesReconciliation() {
                           <Pill tone={row.standing.tone}>
                             {row.standing.label}
                           </Pill>
-                          <span className="text-[0.6875rem] text-mute">
+                          <span className="text-[0.875rem] text-mute">
                             {row.standing.why}
                           </span>
                         </span>
@@ -432,7 +439,7 @@ export function SalesReconciliation() {
 
           {/* ── The three numbers, day by day ────────────────────────────── */}
           <section className="flex flex-col gap-2">
-            <h2 className="text-[0.8125rem] font-semibold text-ink">
+            <h2 className="text-[0.875rem] font-semibold text-ink">
               Day by day
             </h2>
             <Grid>
@@ -588,14 +595,14 @@ export function SalesReconciliation() {
               is why a day with a count and no sales is ordinary, and why
               &ldquo;drawer vs books&rdquo; never equals &ldquo;cash of
               it&rdquo;. Both figures are the server&rsquo;s —{" "}
-              <code className="font-mono text-[0.6875rem]">variance_minor</code>{" "}
+              <code className="font-mono text-[0.875rem]">variance_minor</code>{" "}
               is computed on read from the count and the ledger, never stored.
             </Note>
           </section>
 
           {/* ── The differences, named ───────────────────────────────────── */}
           <section className="flex flex-col gap-2">
-            <h2 className="text-[0.8125rem] font-semibold text-ink">
+            <h2 className="text-[0.875rem] font-semibold text-ink">
               The differences, named
             </h2>
             <Grid>
@@ -637,7 +644,7 @@ export function SalesReconciliation() {
                     <Td>
                       <Pill tone={row.standing.tone}>{row.standing.label}</Pill>
                     </Td>
-                    <Td className="text-[0.71875rem] text-body">
+                    <Td className="text-[0.875rem] text-body">
                       {row.standing.why}
                     </Td>
                   </tr>
@@ -649,15 +656,15 @@ export function SalesReconciliation() {
           <Note>
             <b>What is the server&rsquo;s and what is this page&rsquo;s.</b>{" "}
             Every figure here is a server answer: the till from{" "}
-            <code className="font-mono text-[0.6875rem]">
+            <code className="font-mono text-[0.875rem]">
               /reports/sales/daily
             </code>{" "}
             once per date, the drawer from{" "}
-            <code className="font-mono text-[0.6875rem]">
+            <code className="font-mono text-[0.875rem]">
               /finance/cash-counts?site=
             </code>
             , the books from{" "}
-            <code className="font-mono text-[0.6875rem]">
+            <code className="font-mono text-[0.875rem]">
               /finance/accounts/&#123;code&#125;/ledger
             </code>{" "}
             and the bank from that statement&rsquo;s own lines — each narrowed
@@ -691,7 +698,7 @@ export function SalesReconciliation() {
             asked for again next month. The endpoint this wants is a POST that
             stores a closing for one unit and one day, the way a POS Closing
             Entry is stored — except that ours would post its cash difference to{" "}
-            <code className="font-mono text-[0.6875rem]">cash_variance</code>,
+            <code className="font-mono text-[0.875rem]">cash_variance</code>,
             which ERPNext has no equivalent of at all.
           </Note>
         </div>
@@ -931,20 +938,17 @@ function tenderRows(input: {
       case "QRIS":
         return {
           ...tender,
-          // QRIS has no meaning on the account map at all — there is
-          // `card_receivable_credit` and `card_receivable_debit` and nothing
-          // else — so a QRIS sale has nowhere to sit between the till and the
-          // bank. Four dashes and a sentence, rather than a zero that would
-          // read as "settled".
+          // QRIS shares the debit-card clearing account. Showing the shared
+          // opening balance here as well would double-count it beside CARD.
           opening: null,
           expected: null,
           closing: null,
           difference: null,
           taken,
           standing: {
-            tone: taken === 0 ? "neutral" : "bad",
-            label: "No clearing account",
-            why: "The chart has no QRIS receivable, so nothing can be expected of it",
+            tone: taken === 0 ? "neutral" : "warn",
+            label: "Debit-card account",
+            why: "QRIS is posted to the shared Piutang Debit Card account; acquirer detail stays in the settlement ledger",
           },
         }
       case "VOUCHER":
@@ -1153,12 +1157,12 @@ function differences(input: {
   const qris = takings.byTender.QRIS ?? 0
   if (qris > 0) {
     rows.push({
-      name: "QRIS taken with nowhere to sit",
+      name: "QRIS posted through the debit-card receivable",
       amount: qris,
       standing: {
-        tone: "bad",
-        label: "No clearing account",
-        why: "QRIS settles like a card and has no receivable in the chart, so it cannot be tracked from till to bank at all",
+        tone: "warn",
+        label: "Shared clearing account",
+        why: "QRIS uses Piutang Debit Card; this amount is included in the shared card clearing balance",
       },
     })
   }

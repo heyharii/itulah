@@ -190,7 +190,10 @@ export interface VoidVoucherRequest {
 export const voucherKeys = {
   all: ["vouchers"] as const,
   /// Keyed by the filter, because a different question has a different answer
-  /// and backspacing a search should re-use the one it already had.
+  /// and backspacing a search should re-use the one it already had. Every
+  /// field `search` sends is in here — the Overview's one-row peek at the
+  /// ledger once shared a key with the full book, and the Vouchers table then
+  /// drew that single row as if it were all of them.
   list: (query: VoucherQuery) =>
     [
       "vouchers",
@@ -199,6 +202,10 @@ export const voucherKeys = {
       query.kind ?? "any",
       query.member_id ?? "anyone",
       query.q ?? "",
+      query.sort ?? "",
+      query.dir ?? "",
+      query.cursor ?? "",
+      query.limit ?? "default",
     ] as const,
   detail: (code: string) => ["vouchers", "detail", code] as const,
 }

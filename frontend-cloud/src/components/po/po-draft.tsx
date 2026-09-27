@@ -541,6 +541,20 @@ export function PoDraftPanel({
                               }}
                               className="border-input bg-background h-7 rounded-md border px-2 text-[11.5px]"
                             >
+                              {/* The row's own value when the active list
+                                  does not hold it — unclassified, or a
+                                  retired division. Without it a native select
+                                  shows the FIRST division (Wanita) for a row
+                                  that has none, and picking Wanita then fires
+                                  no change: a default nobody chose, and a
+                                  choice nobody can make. */}
+                              {!vocabulary.divisionOrder.includes(line.row.division) && (
+                                <option value={line.row.division}>
+                                  {line.row.division === UNCLASSIFIED
+                                    ? "Choose a division…"
+                                    : `${vocabulary.division(line.row.division)} · Retired`}
+                                </option>
+                              )}
                               {vocabulary.divisionOrder.map((code) => (
                                 <option key={code} value={code}>
                                   {vocabulary.division(code)}

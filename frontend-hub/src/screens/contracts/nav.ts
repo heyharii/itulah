@@ -49,26 +49,33 @@ import type { AppModule } from "@/lib/navigation"
 /// Both are `hidden`: routed, in ⌘K, reached from the group they narrow, and
 /// not a place anybody sets out for. Their rows light the group they belong to
 /// through `alsoLights`, because they share no path prefix with it.
-type ContractGroup = {
-  readonly label: string
-  readonly icon: LucideIcon
-}
 
 /// One row per group of `contract_type`, in the order the brief reads them.
 /// Each path is the same register, filtered to its group — six doors onto
 /// one table, not six tables.
-const GROUPS: readonly ContractGroup[] = [
-  { label: "Sewa", icon: Building2 },
-  { label: "Jasa", icon: Hammer },
-  { label: "Asuransi", icon: ShieldCheck },
-  { label: "Izin", icon: Stamp },
-  { label: "Langganan", icon: RefreshCw },
-  { label: "Disewakan", icon: KeyRound },
+///
+/// Exported rather than copied because the composer's Kelompok cards are the
+/// SAME six choices: two lists of six would drift the day somebody reorders
+/// one, and the sidebar row and the form tile would disagree about what a
+/// group is called. `group_code` is the wire's word for the group — the
+/// uppercase of the label, which is why the paths get away with lowercasing
+/// the same word.
+export const CONTRACT_GROUPS: readonly {
+  readonly label: string
+  readonly icon: LucideIcon
+  readonly group_code: string
+}[] = [
+  { label: "Sewa", icon: Building2, group_code: "SEWA" },
+  { label: "Jasa", icon: Hammer, group_code: "JASA" },
+  { label: "Asuransi", icon: ShieldCheck, group_code: "ASURANSI" },
+  { label: "Izin", icon: Stamp, group_code: "IZIN" },
+  { label: "Langganan", icon: RefreshCw, group_code: "LANGGANAN" },
+  { label: "Disewakan", icon: KeyRound, group_code: "DISEWAKAN" },
 ]
 
 export const contractsNav: AppModule = {
   id: "contracts",
-  label: "Contracts",
+  label: "Kontrak",
   icon: Handshake,
   // The register's first group is where the module's row lands, per the
   // registry's rule that home is the first item of the first section.
@@ -79,7 +86,7 @@ export const contractsNav: AppModule = {
   sections: [
     {
       items: [
-        ...GROUPS.map((group) => ({
+        ...CONTRACT_GROUPS.map((group) => ({
           path: `/contracts/${group.label.toLowerCase()}`,
           label: group.label,
           icon: group.icon,

@@ -50,6 +50,7 @@ async fn main() -> Result<(), AppError> {
     let state = AppState::new(pool, config);
     tokio::spawn(run_auth_policy_refresh_agent(state.db.clone()));
     tokio::spawn(run_catalog_publisher(state.db.clone()));
+    tokio::spawn(run_silent_node_sweep(state.db.clone()));
     tokio::spawn(run_ageing_work_agent(state.db.clone()));
     if state.config.finance_automation_enabled {
         tokio::spawn(run_asset_month_end_agent(state.db.clone()));
@@ -63,13 +64,29 @@ async fn main() -> Result<(), AppError> {
     tokio::spawn(run_sale_day_agent(state.db.clone()));
     tokio::spawn(run_goods_receipt_posting_agent(state.db.clone()));
     tokio::spawn(run_bill_template_agent(state.db.clone()));
+    tokio::spawn(run_journal_repeat_agent(state.db.clone()));
     tokio::spawn(run_integrity_agent(state.db.clone()));
     // The clock's own HR work: the accrual a policy has earned, the
     // carry-forward a cap put a deadline on, next week's roster carried from
     // this week's plan, and the nudges. See `postgres::schedule` and `0363`.
     tokio::spawn(run_hr_scheduler(state.db.clone()));
+    // The same clock, telling head office what is about to lapse: GA
+    // contracts, filed papers, supplier bills, tax months. See
+    // `postgres::reminders` and `0383`.
+    tokio::spawn(run_reminder_scheduler(state.db.clone()));
+    // Web Push: notifications sent on to the phones and browsers that asked,
+    // every two seconds from the outbox 0462 fills. Says at startup whether
+    // it is on; off is a missing key, never a refusal to boot. See
+    // `cloud::push`.
+    inventory_backend::cloud::push::spawn_agent(state.db.clone());
     if state.config.sync_apply_enabled {
         tokio::spawn(sync_agent::run_apply_agent(state.clone()));
+        // Head office told what its promotions are doing that no sale causes:
+        // a shop that could not apply a price book or has said nothing about
+        // it, a shop behind on its messages, a guardrail crossed, tomorrow's
+        // starts and ends. Beside the applier because it reads what the
+        // applier writes. See `postgres::marketing_watch` and `0386`.
+        tokio::spawn(run_marketing_scheduler(state.db.clone()));
     }
     // The mail gateway. Silent and absent unless this node is told where to
     // look — see `cloud::intake`. Started before the server rather than after,
@@ -109,25 +126,37 @@ async fn main() -> Result<(), AppError> {
 /// Publishing per change would send a hundred commands to thirty shops for one
 /// new shirt; publishing on a timer sends nothing at all when nothing changed.
 ///
-/// A few minutes of delay costs a shop nothing it can feel: the till prices
-/// from the price book, not from this list, so a garment that arrives before
-/// its name does can still be sold. What waits is the catalogue screen.
+/// A minute of delay costs a shop nothing it can feel: the till prices from the
+/// price book, not from this list, so a garment that arrives before its name
+/// does can still be sold. What waits is the catalogue screen.
+/// Tell head office about shop servers that have gone quiet.
+///
+/// A node that is unwell says so in its heartbeat; a node that is off, or cut
+/// off, says nothing, and only a clock at the centre can notice that. Once a
+/// minute, and once per silence (`postgres::sweep_silent_nodes`).
+async fn run_silent_node_sweep(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    loop {
+        interval.tick().await;
+        if let Err(error) = postgres::sweep_silent_nodes(&pool).await {
+            tracing::warn!(%error, "silent node sweep failed");
+        }
+    }
+}
+
 async fn run_catalog_publisher(pool: sqlx::PgPool) {
-    // Five minutes is the shop's number, not the bench's.
+    // One minute (owner, 26 Sep 2026; it was five). A setup is issued and the
+    // handheld at the DC is the next thing asked for the new SKUs; five minutes
+    // of the list from before read as a broken sync rather than as a timer.
+    // A tick that finds nothing changed sends nothing, so the shorter timer
+    // costs a query, not a broadcast.
     //
-    // On a rig somebody is minting products by hand, the wait is the whole
-    // experience: a setup is issued, the handheld is asked for a catalogue, and
-    // the honest answer for up to five minutes is the list from before. That
-    // reads as a broken sync rather than as a timer, and the next thing anybody
-    // does is restart something.
-    //
-    // The default is unchanged, so no deployment moves by reading this. A bench
-    // sets CATALOG_PUBLISH_SECONDS=5 and the wait stops being a thing.
+    // A bench sets CATALOG_PUBLISH_SECONDS=5 and the wait stops being a thing.
     let seconds = std::env::var("CATALOG_PUBLISH_SECONDS")
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|value| *value > 0)
-        .unwrap_or(5 * 60);
+        .unwrap_or(60);
     info!(%seconds, "catalogue publisher interval");
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(seconds));
     loop {
@@ -168,6 +197,21 @@ async fn run_ageing_work_agent(pool: sqlx::PgPool) {
             Ok(0) => {}
             Ok(raised) => info!(%raised, "told head office about work that went past its date"),
             Err(error) => tracing::error!(%error, "failed to look for work past its date"),
+        }
+        // On the same tick: write down the coupon holds and codes whose window
+        // passed. Nothing waits on this -- an expired hold already stopped
+        // counting and a lapsed code is already refused -- it only lets the
+        // coupon screens show EXPIRED without computing it per row. Until now
+        // it ran only when somebody pressed the button.
+        match postgres::expire_lapsed_coupons(&pool).await {
+            Ok(expired)
+                if expired["holds_expired"].as_u64().unwrap_or(0) > 0
+                    || expired["codes_expired"].as_u64().unwrap_or(0) > 0 =>
+            {
+                info!(%expired, "marked lapsed coupon holds and codes expired")
+            }
+            Ok(_) => {}
+            Err(error) => tracing::error!(%error, "failed to mark lapsed coupons"),
         }
     }
 }
@@ -315,34 +359,30 @@ async fn run_sale_day_agent(pool: sqlx::PgPool) {
 
 /// Value accepted supplier deliveries automatically at their ordered price.
 ///
-/// A failed receipt stays in the awaiting-posting list and is retried on the
-/// next sweep. The list is bounded so a backlog drains steadily.
+/// The net under the sync applier, which values receipt lines the moment they
+/// land (`application::sync::run_apply_agent`). This catches what that could
+/// not post — a period not yet open, an account the map cannot resolve — and
+/// tries it again every minute, so the debt appears as soon as the obstacle is
+/// gone rather than at the top of the next hour.
 async fn run_goods_receipt_posting_agent(pool: sqlx::PgPool) {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
     loop {
         interval.tick().await;
-        match postgres::receipts_awaiting_posting(&pool, 200).await {
-            Ok(receipts) => {
-                for receipt in receipts {
-                    match postgres::receipt_post(
-                        &pool,
-                        receipt.receipt_id,
-                        None,
-                        "system:goods-receipt",
-                    )
-                    .await
-                    {
-                        Ok(posting) => info!(
-                            receipt = %posting.receipt_number,
-                            entry = %posting.entry_number,
-                            "automatically posted accepted goods receipt"
-                        ),
-                        Err(error) => tracing::warn!(
-                            receipt = %receipt.receipt_number,
-                            %error,
-                            "goods receipt awaits correction before it can post"
-                        ),
-                    }
+        match postgres::receipts_post_pending(&pool, false, "system:goods-receipt").await {
+            Ok(sweep) => {
+                for posting in &sweep.posted {
+                    info!(
+                        receipt = %posting.receipt_number,
+                        entry = %posting.entry_number,
+                        "automatically posted accepted goods receipt"
+                    );
+                }
+                for (receipt, error) in &sweep.waiting {
+                    tracing::warn!(
+                        %receipt,
+                        %error,
+                        "goods receipt awaits correction before it can post"
+                    );
                 }
             }
             Err(error) => tracing::error!(%error, "could not find goods receipts awaiting posting"),
@@ -380,6 +420,30 @@ async fn run_bill_template_agent(pool: sqlx::PgPool) {
             ),
             Ok(_) => {}
             Err(error) => tracing::error!(%error, "could not raise recurring bills"),
+        }
+    }
+}
+
+/// Raise the repeating journals that are due (ERPNext Auto Repeat, 0473).
+async fn run_journal_repeat_agent(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    loop {
+        interval.tick().await;
+        match postgres::run_journal_repeats(
+            &pool,
+            chrono::Utc::now().date_naive(),
+            "system:journal-repeat",
+        )
+        .await
+        {
+            Ok(sweep) if sweep.drafted + sweep.posted > 0 || !sweep.failed.is_empty() => info!(
+                drafted = sweep.drafted,
+                posted = sweep.posted,
+                failed = sweep.failed.len(),
+                "raised the repeating journals that were due"
+            ),
+            Ok(_) => {}
+            Err(error) => tracing::error!(%error, "could not raise repeating journals"),
         }
     }
 }
@@ -547,6 +611,77 @@ async fn run_hr_scheduler(pool: sqlx::PgPool) {
                     %today,
                     detail = %result.detail,
                     "HR scheduler job failed"
+                ),
+                _ => {}
+            }
+        }
+    }
+}
+
+/// The reminder pass: GA contracts inside their own reminder window, filed
+/// papers about to expire, supplier bills due this week, tax months near their
+/// deadline.
+///
+/// Hourly with the same business day as the HR scheduler, for the same reason:
+/// every notice is claimed once per (subject, date, band) in
+/// `scheduled_job_run`, so the extra ticks cost a query each and a restarted
+/// node loses nothing.
+async fn run_reminder_scheduler(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    info!("reminder scheduler started: GA contracts, papers, supplier bills, tax deadlines");
+    loop {
+        interval.tick().await;
+        let today = inventory_backend::reporting::local_today();
+        for result in postgres::run_reminders(&pool, today).await {
+            match result.status.as_str() {
+                "FAILED" => tracing::error!(
+                    job = %result.job,
+                    %today,
+                    detail = %result.detail,
+                    "reminder job failed"
+                ),
+                _ if result.detail["raised"].as_u64().unwrap_or(0) > 0 => info!(
+                    job = %result.job,
+                    %today,
+                    detail = %result.detail,
+                    "reminder job raised notices"
+                ),
+                _ => {}
+            }
+        }
+    }
+}
+
+/// The marketing pass, every minute.
+///
+/// A minute rather than the hour the HR and reminder clocks keep, because what
+/// it watches goes wrong within the trading day: a price book a shop could not
+/// apply this morning is a wrong price at a counter this afternoon. Every
+/// notice is claimed once in `scheduled_job_run`, so the extra ticks cost a
+/// query each. Guardrails are measured every fifth tick — measuring a campaign
+/// reads its takings, which is worth doing often but not constantly.
+async fn run_marketing_scheduler(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    let mut tick: u64 = 0;
+    info!("marketing scheduler started: rollouts, stale shops, guardrails, tomorrow's calendar");
+    loop {
+        interval.tick().await;
+        let today = inventory_backend::reporting::local_today();
+        let sweep_guardrails = tick % 5 == 0;
+        tick = tick.wrapping_add(1);
+        for result in
+            postgres::run_marketing_watch(&pool, chrono::Utc::now(), today, sweep_guardrails).await
+        {
+            match result.status.as_str() {
+                "FAILED" => tracing::error!(
+                    job = %result.job,
+                    detail = %result.detail,
+                    "marketing job failed"
+                ),
+                _ if result.detail["raised"].as_u64().unwrap_or(0) > 0 => info!(
+                    job = %result.job,
+                    detail = %result.detail,
+                    "marketing job raised notices"
                 ),
                 _ => {}
             }

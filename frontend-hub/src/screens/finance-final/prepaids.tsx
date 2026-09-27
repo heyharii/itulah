@@ -10,7 +10,7 @@ import { count, money } from "@/lib/format"
 import {
   accountChildren,
   accountLedger,
-  accountMap,
+  accountLinks,
   financeAttention,
   financeKeys,
   listPeriods,
@@ -164,7 +164,7 @@ export function PrepaidsAndAccruals() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Accounting"
+        crumb="Finance · Accounting"
         title="Prepaids &amp; Accruals"
         sub="Costs paid before the months they belong to, and months that ran before their cost arrived."
       />
@@ -178,7 +178,7 @@ export function PrepaidsAndAccruals() {
           aria-label="Location"
         />
         <Toolbar.Spacer />
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {range.chip}
           {site === "" ? (
             " · every location"
@@ -414,10 +414,10 @@ function SideBody({
           colSpan={COLUMNS}
           className="border-b border-hairline-2 bg-soft px-2 py-1.5"
         >
-          <span className="text-[0.71875rem] font-semibold text-ink">
+          <span className="text-[0.875rem] font-semibold text-ink">
             {label}
           </span>
-          <span className="ml-2 text-[0.6875rem] text-mute">{sub}</span>
+          <span className="ml-2 text-[0.875rem] text-mute">{sub}</span>
         </td>
       </tr>
       {rows.map((row) => (
@@ -459,7 +459,7 @@ function FamilyRow({ row }: { row: FamilyReading }) {
     <tr>
       <Td>
         <span className="font-medium text-ink">{row.family.what}</span>
-        <span className="mt-0.5 block text-[0.65625rem] text-mute">
+        <span className="mt-0.5 block text-[0.875rem] text-mute">
           {row.family.reading}
         </span>
       </Td>
@@ -469,7 +469,7 @@ function FamilyRow({ row }: { row: FamilyReading }) {
         ) : (
           <>
             <span>{row.name}</span>
-            <span className="mt-0.5 block text-[0.65625rem] text-mute">
+            <span className="mt-0.5 block text-[0.875rem] text-mute">
               {row.family.covers}
             </span>
           </>
@@ -572,7 +572,7 @@ function Schedule({ to, site }: { to: string; site: string }) {
       <h2 className="mt-2 text-[0.875rem] font-semibold text-ink">
         Release schedule
       </h2>
-      <p className="-mt-2 text-[0.71875rem] text-mute">
+      <p className="-mt-2 text-[0.875rem] text-mute">
         What a release run would post, month by month
         {site === "" ? "" : ", at this location"}
       </p>
@@ -805,8 +805,8 @@ function ChartShape() {
     staleTime: 5 * 60 * 1000,
   })
   const map = useQuery({
-    queryKey: financeKeys.accountMap(null),
-    queryFn: ({ signal }) => accountMap(undefined, signal),
+    queryKey: financeKeys.accountLinks(null, null),
+    queryFn: ({ signal }) => accountLinks({}, signal),
     staleTime: 5 * 60 * 1000,
   })
 
@@ -839,7 +839,7 @@ function ChartShape() {
       <h2 className="mt-2 text-[0.875rem] font-semibold text-ink">
         What the chart is set up to carry
       </h2>
-      <p className="-mt-2 text-[0.71875rem] text-mute">
+      <p className="-mt-2 text-[0.875rem] text-mute">
         The buckets that already exist, and which of them a posting can reach
       </p>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -859,9 +859,9 @@ function ChartShape() {
 
       <Note>
         <b>A bucket with no meaning against it cannot be posted to by rule.</b>{" "}
-        Everything this system books automatically goes through the account map
-        — a meaning like <code>prepaid_expense</code> bound to one of the
-        client&rsquo;s accounts, per unit —{" "}
+        Everything this system books automatically goes through an account
+        link — a role like <code>prepaid_expense</code> bound to one of the
+        client&rsquo;s accounts, for every unit or for some —{" "}
         {map.isPending ? (
           <>and the ones that carry one are marked above.</>
         ) : (
@@ -899,7 +899,7 @@ function BucketList({
 }) {
   return (
     <div>
-      <div className="mb-1.5 text-[0.71875rem] font-medium text-mute">
+      <div className="mb-1.5 text-[0.875rem] font-medium text-mute">
         {heading} · {count(accounts.length)}
       </div>
       <Grid>
@@ -920,7 +920,7 @@ function BucketList({
                   ) : mapped ? (
                     <Pill tone="ok">mapped</Pill>
                   ) : (
-                    <span className="text-[0.65625rem] text-faint">
+                    <span className="text-[0.875rem] text-faint">
                       no meaning
                     </span>
                   )}

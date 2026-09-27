@@ -1,4 +1,5 @@
 import { money } from "@/lib/format"
+import { useStackLabels } from "@/lib/stack-table"
 import { cn } from "@/lib/utils"
 
 /// The pieces every screen in this module shares.
@@ -36,7 +37,7 @@ export function NumberCard({
     >
       <div
         className={cn(
-          "text-[0.6875rem]",
+          "text-[0.875rem]",
           tone === "bad"
             ? "text-bad-fg"
             : tone === "ok"
@@ -63,7 +64,7 @@ export function NumberCard({
       {note !== undefined && (
         <div
           className={cn(
-            "mt-0.5 text-[0.6875rem]",
+            "mt-0.5 text-[0.875rem]",
             tone === "bad" ? "text-bad-fg" : "text-mute"
           )}
         >
@@ -81,9 +82,14 @@ export function CardRow({ children }: { children: React.ReactNode }) {
 /// A dense table in the shape ERPNext's datatable has: hairline rules, no
 /// zebra, numbers right and tabular.
 export function Grid({ children }: { children: React.ReactNode }) {
+  // Stacks on a phone rather than scrolling sideways (`useStackLabels`).
+  const table = useStackLabels()
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-[0.78125rem]">
+      <table
+        ref={table}
+        className="mini-stack w-full border-collapse text-[0.875rem]"
+      >
         {children}
       </table>
     </div>
@@ -103,7 +109,7 @@ export function Th({
     <th
       style={width === undefined ? undefined : { width }}
       className={cn(
-        "border-b border-hairline-2 px-2 py-1.5 text-[0.71875rem] font-medium whitespace-nowrap text-mute",
+        "border-b border-hairline-2 px-2 py-1.5 text-[0.875rem] font-medium whitespace-nowrap text-mute",
         align === "right" ? "text-right" : "text-left"
       )}
     >
@@ -143,7 +149,7 @@ export function Td({
 /// stop hiding them.
 export function Reasons({ reasons }: { reasons: readonly string[] }) {
   if (reasons.length === 0) {
-    return <span className="text-[0.71875rem] text-mute">no stated reason</span>
+    return <span className="text-[0.875rem] text-mute">no stated reason</span>
   }
   return (
     <span className="flex flex-wrap gap-1">
@@ -151,7 +157,7 @@ export function Reasons({ reasons }: { reasons: readonly string[] }) {
         <span
           key={reason}
           className={cn(
-            "rounded-full border px-1.5 py-px text-[0.65625rem]",
+            "rounded-full border px-1.5 py-px text-[0.875rem]",
             reason.startsWith("amount matches") ||
               reason === "reference matches"
               ? "border-ok-fg/30 bg-ok-bg text-ok-fg"
@@ -169,7 +175,7 @@ export function Reasons({ reasons }: { reasons: readonly string[] }) {
 /// endpoint of its own. Better than a convincing screen drawn over nothing.
 export function LabNote({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-inner border border-hairline bg-soft px-3 py-2 text-[0.71875rem] leading-relaxed text-body">
+    <p className="rounded-inner border border-hairline bg-soft px-3 py-2 text-[0.875rem] leading-relaxed text-body">
       {children}
     </p>
   )

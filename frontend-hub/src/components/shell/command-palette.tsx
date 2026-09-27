@@ -39,9 +39,13 @@ export function CommandPalette({
 
   const destinations = useMemo(() => {
     const lower = needle.toLowerCase()
+    // A `soon` module's screens are declared for the sidebar, not for
+    // offering: the palette must not hand somebody a jump that lands on a
+    // screen that is not there.
+    const routable = allNavItems.filter((item) => !item.module.soon)
     const pool = everywhere
-      ? allNavItems
-      : allNavItems.filter((item) => item.module.id === here.id)
+      ? routable
+      : routable.filter((item) => item.module.id === here.id)
     if (!lower) return pool.slice(0, 12)
     return pool
       .filter(
@@ -149,7 +153,7 @@ export function CommandPalette({
                 setCursor(0)
               }}
               className={cn(
-                "inline-flex h-[1.625rem] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[0.71875rem] font-medium transition-colors",
+                "inline-flex h-[1.625rem] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[0.875rem] font-medium transition-colors",
                 everywhere
                   ? "bg-accent-bg text-info-fg"
                   : "bg-soft-2 text-body hover:text-ink"
@@ -187,7 +191,7 @@ export function CommandPalette({
               }
               className="min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-mute"
             />
-            <kbd className="shrink-0 rounded-[5px] border border-hairline-2 bg-canvas px-1.5 py-px font-mono text-[0.65625rem] text-body">
+            <kbd className="shrink-0 rounded-[5px] border border-hairline-2 bg-canvas px-1.5 py-px font-mono text-[0.875rem] text-body">
               tab
             </kbd>
             {/* Implicit submission already applies — one text field, nothing
@@ -235,10 +239,10 @@ export function CommandPalette({
                     ) : (
                       <span className="size-4 shrink-0" />
                     )}
-                    <span className="min-w-0 flex-1 truncate text-[0.84375rem] font-medium text-ink">
+                    <span className="min-w-0 flex-1 truncate text-[0.875rem] font-medium text-ink">
                       {row.title}
                     </span>
-                    <span className="shrink-0 truncate text-[0.71875rem] text-mute">
+                    <span className="shrink-0 truncate text-[0.875rem] text-mute">
                       {row.subtitle}
                     </span>
                     {index === at && (
@@ -250,7 +254,7 @@ export function CommandPalette({
             })}
 
             {records.isFetching && needle.length >= 2 && (
-              <p className="px-3.5 py-2 text-[0.71875rem] text-mute">
+              <p className="px-3.5 py-2 text-[0.875rem] text-mute">
                 Looking through {everywhere ? "every module" : here.label}…
               </p>
             )}

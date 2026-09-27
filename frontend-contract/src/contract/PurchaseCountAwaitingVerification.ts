@@ -36,4 +36,19 @@ outstanding_stock_units: number,
 /**
  * The agreed price per piece, to check the invoice against.
  */
-unit_price_minor: number | null, };
+unit_price_minor: number | null, 
+/**
+ * Who raised the order at head office — the one person who may verify
+ * this count. Absent on orders activated before the centre sent it.
+ */
+raised_by: string | null, 
+/**
+ * What the order was placed in — "10 KODI", factor "20" — beside the
+ * pieces above. Absent for a line ordered in pieces.
+ */
+order_unit_code: string | null, order_unit_quantity: string | null, unit_factor: string | null, 
+/**
+ * What the count was typed in — "9.5 KODI". Absent when counted in
+ * pieces.
+ */
+counted_unit_code: string | null, counted_unit_quantity: string | null, };

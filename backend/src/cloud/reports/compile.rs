@@ -9,7 +9,7 @@
 
 use super::catalogue::{Dimension, Format, Kind};
 use super::spec::{Checked, Filter, Grain, Operator, LOCAL_OFFSET_MINUTES};
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 
 /// A value bound to the query. Kept as an enum rather than strings so the
 /// runner binds the right Postgres type and the compiler cannot accidentally
@@ -53,6 +53,11 @@ struct Builder {
     /// is needed. Reused rather than re-bound because a report whose bucket and
     /// whose hour column disagreed about the timezone would be very hard to see.
     offset: Option<String>,
+    /// The business instant as a SQL literal, substituted into every `$NOW`
+    /// token (the same shape as `$OFFSET`: a static catalogue dimension cannot
+    /// carry a bind parameter). One literal per query, so every column of one
+    /// report measures against the same instant.
+    now_literal: String,
 }
 
 impl Builder {
@@ -78,25 +83,36 @@ impl Builder {
         placeholder
     }
 
-    /// A dimension's expression, with the local-clock placeholder filled in.
+    /// A dimension's expression, with the local-clock and business-instant
+    /// placeholders filled in.
     fn expression(&mut self, dimension: &Dimension) -> String {
-        if dimension.sql.contains("$OFFSET") {
+        let mut sql = dimension.sql.to_owned();
+        if sql.contains("$OFFSET") {
             let offset = self.offset();
-            dimension.sql.replace("$OFFSET", &offset)
-        } else {
-            dimension.sql.to_owned()
+            sql = sql.replace("$OFFSET", &offset);
         }
+        if sql.contains("$NOW") {
+            sql = sql.replace("$NOW", &self.now_literal);
+        }
+        sql
     }
 }
 
-/// Build the query for a checked spec, as of `today` on the business clock.
-pub fn compile(checked: &Checked<'_>, today: NaiveDate) -> Query {
+/// The business day a report is run on, from the business instant the clock
+/// reported.
+pub fn business_day(now: DateTime<Utc>) -> NaiveDate {
+    (now + chrono::Duration::minutes(i64::from(LOCAL_OFFSET_MINUTES))).date_naive()
+}
+
+/// Build the query for a checked spec, as of the business instant `now`.
+pub fn compile(checked: &Checked<'_>, now: DateTime<Utc>) -> Query {
     let dataset = checked.dataset;
     let spec = checked.spec;
     let mut builder = Builder {
         params: Vec::new(),
         base: 0,
         offset: None,
+        now_literal: crate::clock::sql_now_literal(now),
     };
 
     let mut select: Vec<String> = Vec::new();
@@ -158,6 +174,7 @@ pub fn compile(checked: &Checked<'_>, today: NaiveDate) -> Query {
     // The period, resolved on the local clock and compared as an instant. The
     // end is the midnight *after* the last local day, because a reader asking
     // for "to the first" means the whole of the first.
+    let today = business_day(now);
     if let Some((from, to)) = spec.period.resolve(today) {
         let offset = builder.offset();
         let from_param = builder.bind(Param::Date(from));
@@ -252,11 +269,18 @@ pub fn narrow(
     filters: &[Filter],
     all: bool,
     bound: usize,
+    now: DateTime<Utc>,
 ) -> Narrowing {
+    // A narrowing fragment can absolutely carry `$NOW`: the member dataset's
+    // `segment` and `days_since_purchase` dimensions are clock-shaped, and a
+    // saved segment may narrow on them. The caller's business instant is
+    // required, never defaulted — a wall-clock default here would quietly
+    // evaluate a saved segment against the wrong calendar.
     let mut builder = Builder {
         params: Vec::new(),
         base: bound,
         offset: None,
+        now_literal: crate::clock::sql_now_literal(now),
     };
 
     let mut parts: Vec<String> = Vec::new();
@@ -381,18 +405,20 @@ fn predicate(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::cloud::reports::spec::{
         check, with_overlay, Checked, Filter as SpecFilter, Operator as Op, Present, ReportSpec,
         Sort, Unit,
     };
+    use chrono::TimeZone;
 
     fn spec(json: serde_json::Value) -> ReportSpec {
         serde_json::from_value(json).unwrap_or_else(|error| panic!("spec: {error}"))
     }
 
-    fn today() -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 9, 3).unwrap_or_default()
+    fn now() -> chrono::DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 9, 3, 0, 0, 0).unwrap()
     }
 
     fn checked(spec: &ReportSpec) -> Checked<'_> {
@@ -416,7 +442,7 @@ mod tests {
             "sort": { "key": "gross", "desc": true }
         }));
         let checked = checked(&spec);
-        let query = compile(&checked, today());
+        let query = compile(&checked, now());
 
         assert!(query.sql.contains("FROM sale_line sl"));
         assert!(
@@ -455,7 +481,7 @@ mod tests {
             "measures": ["sales"]
         }));
         let checked = checked(&spec);
-        let query = compile(&checked, today());
+        let query = compile(&checked, now());
 
         let offsets = query
             .params
@@ -478,12 +504,12 @@ mod tests {
             "period": { "kind": "relative", "last": 7, "unit": "day" },
             "measures": ["gross"]
         }));
-        let resolved = spec.period.resolve(today());
+        let resolved = spec.period.resolve(business_day(now()));
         assert_eq!(
             resolved,
             Some((
                 NaiveDate::from_ymd_opt(2026, 8, 28).unwrap_or_default(),
-                today()
+                business_day(now())
             )),
             "seven days inclusive of today"
         );
@@ -528,6 +554,7 @@ mod tests {
             ],
             true,
             3,
+            now(),
         );
 
         let sql = narrowing.sql.expect("two clauses compile to a predicate");
@@ -566,6 +593,7 @@ mod tests {
             ],
             false,
             0,
+            now(),
         );
         let sql = narrowing.sql.expect("a predicate");
         assert!(sql.contains(" OR "), "ANY joins with OR: {sql}");
@@ -594,7 +622,7 @@ mod tests {
         assert_eq!(narrowed.filters.len(), 2);
 
         let checked = checked(&narrowed);
-        let query = compile(&checked, today());
+        let query = compile(&checked, now());
         assert!(
             query.sql.contains("(s.channel) = $"),
             "the spec's own clause"
@@ -686,7 +714,7 @@ mod tests {
             "present": { "kpis": ["gross"] }
         }));
         let checked = checked(&spec);
-        let query = compile(&checked, today());
+        let query = compile(&checked, now());
         assert!(!query.sql.contains("GROUP BY"));
         assert_eq!(checked.spec.present.kpis, vec!["gross".to_owned()]);
         let _ = Present::default();

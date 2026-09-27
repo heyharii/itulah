@@ -4,7 +4,7 @@ import { useMemo } from "react"
 
 /// The words the catalogue may be described with, and what they read as.
 ///
-/// The wire carries codes — `KAUS_KAKI`, `WOMENSWEAR` — because a code is what
+/// The wire carries codes — `KAUS_KAKI`, `WANITA` — because a code is what
 /// a filter addresses and what does not change when somebody edits a label.
 /// But a code is not what a buyer should be reading, and the screens were
 /// showing them raw. The labels live in `tag` and `division`; this is how they

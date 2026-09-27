@@ -15,7 +15,7 @@ use crate::cloud::reports::{
     compile::{compile, Param},
     spec::{check, with_overlay, Filter, ReportSpec},
 };
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -23,21 +23,19 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 /// Now, on the business clock the reports use.
-fn today() -> NaiveDate {
-    let offset =
-        chrono::Duration::minutes(crate::cloud::reports::spec::LOCAL_OFFSET_MINUTES.into());
-    (Utc::now() + offset).date_naive()
-}
-
 /// Run a spec and answer with its rows, its columns and what it resolved to.
 ///
 /// The resolved period travels back with the rows on purpose: a report saying
 /// "last 14 days" has to be able to tell a reader which fourteen days it just
 /// meant, or the figure cannot be checked against anything.
+///
+/// `now` is the business instant the report measures against — the caller's
+/// clock, so a report under a virtual clock answers with virtual history.
 pub async fn run_spec(
     pool: &PgPool,
     spec: &ReportSpec,
     overlay: &[Filter],
+    now: DateTime<Utc>,
 ) -> Result<Value, AppError> {
     // The reader's narrowing, joined to the report's own. Two lists rather than
     // one because they mean different things: the spec's filters are part of
@@ -49,8 +47,8 @@ pub async fn run_spec(
     let narrowed = with_overlay(spec, overlay);
     let spec = &narrowed;
     let checked = check(spec).map_err(|problems| AppError::Validation(problems.join("; ")))?;
-    let day = today();
-    let query = compile(&checked, day);
+    let day = crate::cloud::reports::compile::business_day(now);
+    let query = compile(&checked, now);
 
     let mut statement = sqlx::query(&query.sql);
     for parameter in &query.params {
@@ -97,7 +95,7 @@ pub async fn run_spec(
     let totals = if spec.present.kpis.is_empty() {
         Value::Null
     } else {
-        totals_for(pool, spec).await?
+        totals_for(pool, spec, now).await?
     };
 
     let period = checked.spec.period.resolve(day);
@@ -116,7 +114,11 @@ pub async fn run_spec(
 }
 
 /// The same spec with its grouping removed: one row, over the whole period.
-async fn totals_for(pool: &PgPool, spec: &ReportSpec) -> Result<Value, AppError> {
+async fn totals_for(
+    pool: &PgPool,
+    spec: &ReportSpec,
+    now: DateTime<Utc>,
+) -> Result<Value, AppError> {
     let mut flat = spec.clone();
     flat.group_by = Vec::new();
     flat.grain = crate::cloud::reports::spec::Grain::None;
@@ -128,7 +130,7 @@ async fn totals_for(pool: &PgPool, spec: &ReportSpec) -> Result<Value, AppError>
     flat.present = Default::default();
 
     let checked = check(&flat).map_err(|problems| AppError::Validation(problems.join("; ")))?;
-    let query = compile(&checked, today());
+    let query = compile(&checked, now);
     let mut statement = sqlx::query(&query.sql);
     for parameter in &query.params {
         statement = match parameter {
@@ -708,11 +710,12 @@ pub async fn run_saved(
     id: Uuid,
     actor: &str,
     overlay: &[Filter],
+    now: DateTime<Utc>,
 ) -> Result<Value, AppError> {
     let report = read(pool, id, actor).await?;
     let spec: ReportSpec =
         serde_json::from_value(report.get("spec").cloned().unwrap_or(Value::Null))?;
-    let mut result = run_spec(pool, &spec, overlay).await?;
+    let mut result = run_spec(pool, &spec, overlay, now).await?;
     if let Some(object) = result.as_object_mut() {
         object.insert("report".into(), report);
     }

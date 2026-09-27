@@ -1,4 +1,14 @@
+mod account_links;
+mod accounting_dimensions;
 mod accounts;
+mod chart_changes;
+mod expense_categories;
+mod finance_policies;
+mod journal_templates;
+mod pay_component_accounts;
+mod payment_methods;
+mod permissions;
+mod tax_templates;
 mod acquirer;
 mod allotments;
 mod articles;
@@ -67,6 +77,8 @@ mod member;
 mod membership;
 mod management_fee;
 mod movements;
+mod node_enrolment;
+mod node_health;
 mod notifications;
 mod observations;
 mod opening;
@@ -84,6 +96,7 @@ mod payment_terms;
 mod payments;
 mod performance;
 mod period_close;
+mod period_closing;
 mod poster;
 /// People's next generation, as rows. See `domain::people`.
 mod people;
@@ -95,10 +108,24 @@ mod price_changes;
 mod price_history;
 mod pricing;
 mod punch;
+/// Web Push subscriptions and the deliveries still owed. See `cloud::push`.
+mod push;
 mod queries;
 mod receipts;
 mod records;
 mod reports;
+/// Head office told, once, what is about to lapse: GA contracts, filed papers,
+/// supplier bills and tax months. Claimed through the same run ledger as the
+/// HR nudges; the bands are `domain::reminder`'s.
+mod reminders;
+/// What the promotions are doing, said to head office and to the shops: a cap
+/// crossed and the fresh count it calls for, a price book a shop could not
+/// apply, a shop behind on its messages, a guardrail crossed, and tomorrow's
+/// starts and ends. Every notice claimed once through the run ledger.
+mod marketing_watch;
+/// The hard cap: a limit split into allowances each shop enforces against its
+/// own sales, granted and topped up here and never taken back. See `0387`.
+mod cap_allocation;
 mod reserves;
 mod returns;
 /// How far one price book has reached each shop — told, in service, or failed
@@ -159,6 +186,7 @@ mod tagging;
 mod tax;
 mod time_machine;
 mod transaction_categories;
+mod units;
 mod users;
 mod vocabulary;
 mod vouchers;
@@ -212,6 +240,17 @@ pub use integrity::*;
 pub use interunit::*;
 pub use journal::*;
 pub use leave::*;
+pub use account_links::*;
+pub use accounting_dimensions::*;
+pub use chart_changes::*;
+pub use expense_categories::*;
+pub use finance_policies::*;
+pub use journal_templates::*;
+pub use pay_component_accounts::*;
+pub use payment_methods::*;
+pub use permissions::*;
+pub use tax_templates::*;
+pub use period_closing::*;
 pub use ledger::*;
 pub use letters::*;
 pub use line_categories::*;
@@ -221,7 +260,10 @@ pub use member::*;
 pub use membership::*;
 pub use management_fee::*;
 pub use movements::*;
+pub use node_enrolment::*;
+pub use node_health::*;
 pub use notifications::*;
+pub use push::*;
 pub use people::*;
 pub use observations::*;
 pub use opening::*;
@@ -247,6 +289,12 @@ pub use queries::*;
 pub use receipts::*;
 pub use records::*;
 pub use reports::*;
+pub use reminders::*;
+pub use marketing_watch::*;
+pub use cap_allocation::{
+    cap_allocation, rebalance_allocations, set_cap_allocation, CapAllocationRequest,
+    CapAllocationView, ShopAllowanceView,
+};
 pub use reserves::*;
 pub use returns::*;
 pub use rollout::*;
@@ -286,6 +334,7 @@ pub use tagging::*;
 pub use tax::*;
 pub use time_machine::*;
 pub use transaction_categories::*;
+pub use units::*;
 pub use users::*;
 pub use vocabulary::*;
 pub use vouchers::*;

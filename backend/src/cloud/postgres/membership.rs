@@ -72,18 +72,30 @@ pub const LAPSING_DAYS: i32 = 180;
 /// as a `&'static str` that cannot carry a parameter. `the_windows_are_the_two
 /// _the_screen_prints` is the test that keeps the literals here and the
 /// constants above saying the same thing.
+/// The instant these windows are measured against is the `$NOW` token,
+/// replaced with the business clock's own instant (`sql_now_literal`) at
+/// query-build time — by [`segment_case`] for the queries built here, and by
+/// the report compiler for the catalogue dimension that splices the constant.
+/// The windows stay written out as literals so the catalogue keeps carrying
+/// a string that cannot carry a parameter; `the_windows_are_the_two_the_
+/// screen_prints` keeps the constants above saying the same thing.
 pub const SEGMENT_CASE: &str = "
     CASE
         WHEN m.blocked_at IS NOT NULL                              THEN 'BLOCKED'
         WHEN s.last_purchase_at IS NULL                            THEN 'NEVER'
-        WHEN s.first_purchase_at >= now() - make_interval(days => 90)
+        WHEN s.first_purchase_at >= $NOW - make_interval(days => 90)
                                                                    THEN 'NEW'
-        WHEN s.last_purchase_at  >= now() - make_interval(days => 90)
+        WHEN s.last_purchase_at  >= $NOW - make_interval(days => 90)
                                                                    THEN 'ACTIVE'
-        WHEN s.last_purchase_at  >= now() - make_interval(days => 180)
+        WHEN s.last_purchase_at  >= $NOW - make_interval(days => 180)
                                                                    THEN 'LAPSING'
         ELSE 'LAPSED'
     END";
+
+/// [`SEGMENT_CASE`] measured from a caller's business instant.
+pub fn segment_case(now: DateTime<Utc>) -> String {
+    SEGMENT_CASE.replace("$NOW", &crate::clock::sql_now_literal(now))
+}
 
 /// Where a member row comes from: the card, what has been bought on it, and
 /// what is still owed back on vouchers.
@@ -112,6 +124,7 @@ pub const MEMBER_SOURCE: &str = "
                max(occurred_at)                                AS last_purchase_at
           FROM edge_sale
          WHERE customer_id IS NOT NULL AND btrim(customer_id) <> ''
+           AND status = 'COMPLETED'
          GROUP BY customer_id
     ) s ON s.customer_id = m.member_id
     LEFT JOIN (
@@ -131,6 +144,7 @@ pub const MEMBER_SOURCE: &str = "
           FROM edge_sale es
           JOIN edge_sale_line esl ON esl.sale_id = es.sale_id
          WHERE es.customer_id IS NOT NULL AND btrim(es.customer_id) <> ''
+           AND es.status = 'COMPLETED'
          GROUP BY es.customer_id
     ) n ON n.customer_id = m.member_id
     -- What they hold now. `points_account` is a cache of the ledger's sum and
@@ -156,8 +170,13 @@ pub const MEMBER_SOURCE: &str = "
 /// those two had better be the same number.
 pub const DAYS_SINCE_PURCHASE: &str = "
     CASE WHEN s.last_purchase_at IS NULL THEN NULL
-         ELSE floor(extract(epoch FROM now() - s.last_purchase_at) / 86400)::bigint
+         ELSE floor(extract(epoch FROM $NOW - s.last_purchase_at) / 86400)::bigint
     END";
+
+/// [`DAYS_SINCE_PURCHASE`] measured from a caller's business instant.
+pub fn days_since_purchase(now: DateTime<Utc>) -> String {
+    DAYS_SINCE_PURCHASE.replace("$NOW", &crate::clock::sql_now_literal(now))
+}
 
 /// Whether a phone is currently paired to this card.
 pub const PAIRED: &str = "
@@ -521,6 +540,7 @@ pub async fn list_members(
     pool: &PgPool,
     query: MemberQuery,
     narrowing: Option<&Narrowing>,
+    now: DateTime<Utc>,
 ) -> Result<MemberDirectory, AppError> {
     let limit = query.limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE);
     let segment = checked_segment(query.segment.as_deref())?;
@@ -574,9 +594,9 @@ pub async fn list_members(
                 COALESCE(pr.points_spent_total, 0)               AS points_spent_total,
                 s.first_purchase_at,
                 s.last_purchase_at,
-                {DAYS_SINCE_PURCHASE}                            AS days_since_purchase,
+                {days_since}                                     AS days_since_purchase,
                 COALESCE(h.voucher_balance_minor, 0)             AS voucher_balance_minor,
-                {SEGMENT_CASE}                                   AS segment,
+                {segment}                                        AS segment,
                 COALESCE(s.spent_minor, 0)                       AS spent_key,
                 upper(COALESCE(m.display_name, ''))              AS name_key,
                 COALESCE(s.last_purchase_at,
@@ -586,7 +606,9 @@ pub async fn list_members(
           -- deliberately does not carry — see `MemberQuery::q`.
           WHERE ($1::text IS NULL
                  OR upper(m.member_id) LIKE '%' || $1 || '%'
-                 OR upper(COALESCE(m.display_name, '')) LIKE '%' || $1 || '%'){extra}"
+                 OR upper(COALESCE(m.display_name, '')) LIKE '%' || $1 || '%'){extra}",
+        days_since = days_since_purchase(now),
+        segment = segment_case(now)
     );
 
     // The sort, and the tie-break that makes it total. Every order ends in the
@@ -746,10 +768,10 @@ pub async fn list_members(
 /// segment present whether or not anybody is in it — `SEGMENT_ORDER` is
 /// left-joined against the counts precisely so a zero is a zero and not an
 /// absence.
-pub async fn member_segments(pool: &PgPool) -> Result<SegmentBook, AppError> {
+pub async fn member_segments(pool: &PgPool, now: DateTime<Utc>) -> Result<SegmentBook, AppError> {
     let rows = sqlx::query(&format!(
         "WITH placed AS (
-                  SELECT {SEGMENT_CASE}                          AS segment,
+                  SELECT {segment}                               AS segment,
                          COALESCE(s.transaction_count, 0)        AS transaction_count,
                          COALESCE(s.spent_minor, 0)              AS spent_minor,
                          s.last_purchase_at
@@ -763,7 +785,8 @@ pub async fn member_segments(pool: &PgPool) -> Result<SegmentBook, AppError> {
            FROM unnest($1::text[]) WITH ORDINALITY AS k(key, ord)
            LEFT JOIN placed p ON p.segment = k.key
           GROUP BY k.key, k.ord
-          ORDER BY k.ord"
+          ORDER BY k.ord",
+        segment = segment_case(now)
     ))
     .bind(SEGMENT_ORDER.map(str::to_owned).to_vec())
     .fetch_all(pool)
@@ -803,6 +826,7 @@ pub async fn member_segments(pool: &PgPool) -> Result<SegmentBook, AppError> {
                SELECT customer_id, sum(total_minor) AS spent_minor
                  FROM edge_sale
                 WHERE customer_id IS NOT NULL AND btrim(customer_id) <> ''
+                  AND status = 'COMPLETED'
                   AND NOT EXISTS (SELECT 1 FROM member m
                                    WHERE m.member_id = edge_sale.customer_id)
                 GROUP BY customer_id
@@ -889,6 +913,7 @@ pub async fn list_unenrolled(
                SELECT customer_id, sum(total_minor) AS spent_minor
                  FROM edge_sale
                 WHERE customer_id IS NOT NULL AND btrim(customer_id) <> ''
+                  AND status = 'COMPLETED'
                   AND NOT EXISTS (SELECT 1 FROM member m
                                    WHERE m.member_id = edge_sale.customer_id)
                 GROUP BY customer_id

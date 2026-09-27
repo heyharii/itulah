@@ -142,7 +142,7 @@ function readPlace(
 }
 
 const CHIP =
-  "inline-flex min-w-0 max-w-full items-baseline gap-1 rounded-full border px-2 py-px text-[0.6875rem] leading-[1.35rem]"
+  "inline-flex min-w-0 max-w-full items-baseline gap-1 rounded-full border px-2 py-px text-[0.875rem] leading-[1.35rem]"
 
 /// One end of the route, as a chip.
 ///
@@ -489,7 +489,7 @@ export function Movements() {
       {/* The panel docks where there is room for it — narrower than 1440 it is
           the Filter button in the omnibox, which is the same model drawn as a
           sheet. */}
-      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
           {/* One line the width of the table, carrying everything that acts on
               it: what narrows it at the left, what orders and shapes it at the
@@ -506,7 +506,7 @@ export function Movements() {
                 }
                 placeholder="Search tag, SKU, place"
                 aria-label="Search movements"
-                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.8125rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
             </span>
             {/* The same model as the panel, as the chips over the table and
@@ -579,7 +579,7 @@ export function Movements() {
           kpis={ledgerKpis(head?.total, rows.length)}
           id="movements"
           subject="Movement"
-          className="hidden min-[1440px]:flex"
+          className="hidden dock:flex"
         />
       </div>
     </PageContent>

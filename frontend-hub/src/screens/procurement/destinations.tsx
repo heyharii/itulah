@@ -54,7 +54,7 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
     cell: ({ row }) => (
       <span className="flex flex-col">
         <span className="font-medium text-ink">{row.original.label}</span>
-        <span className="font-mono text-[0.65625rem] text-mute">
+        <span className="font-mono text-[0.875rem] text-mute">
           {row.original.site_id}
         </span>
       </span>

@@ -32,7 +32,7 @@ export function Delta({
   if (fraction === null) {
     return (
       <span
-        className={cn("text-[0.65625rem] text-mute", className)}
+        className={cn("text-[0.875rem] text-mute", className)}
         title={
           against === undefined
             ? undefined
@@ -48,7 +48,7 @@ export function Delta({
   return (
     <span
       className={cn(
-        "text-[0.65625rem] font-medium tabular-nums",
+        "text-[0.875rem] font-medium tabular-nums",
         flat ? "text-mute" : fraction > 0 ? "text-ok" : "text-bad",
         className
       )}

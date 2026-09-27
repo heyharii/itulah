@@ -8,7 +8,6 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-import { Pill } from "@/components/ui/pill"
 import { CardList, Screen, Section } from "@/components/ui/screen"
 import { Banner, LoadingState } from "@/components/ui/states"
 import { count } from "@/lib/format"
@@ -221,10 +220,9 @@ function Station({
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span className="text-card-title font-semibold text-ink">{label}</span>
-          {idle && <Pill tone="neutral">Kosong</Pill>}
         </span>
         {said.length === 0 ? (
-          <span className="mt-0.5 block truncate text-meta text-body">
+          <span className="mt-0.5 block truncate text-meta text-mute">
             tidak ada yang menunggu
           </span>
         ) : (
@@ -242,7 +240,16 @@ function Station({
           ))
         )}
       </span>
-      <span className="text-metric font-semibold text-ink tabular-nums">
+      {/* Empty once, not three times: the line above already says so, and a
+          "Kosong" pill beside the name plus a dash here was the same fact
+          drawn in three places. The dash stays, faint, to hold the column. */}
+      <span
+        className={
+          idle
+            ? "text-metric font-semibold text-faint tabular-nums"
+            : "text-metric font-semibold text-ink tabular-nums"
+        }
+      >
         {idle ? "—" : count(value)}
       </span>
     </button>

@@ -302,7 +302,7 @@ pub struct StockLedgerAllocation {
 /// `assert_period_open` in 0051 uses, for the same reason: without the lock
 /// there is an interleaving where the period closes and a late consumption
 /// slips in behind it.
-async fn assert_period_open(
+pub(super) async fn assert_period_open(
     tx: &mut Transaction<'_, Postgres>,
     when: NaiveDate,
     what: &str,
@@ -731,12 +731,12 @@ fn supplier_return_lines(site_id: &str, value: i64) -> Vec<PostingLine> {
     if site_id != ho {
         lines.push(
             PostingLine::debit("affiliate_payable", site_id, value)
-                .with_qualifier(&format!("BARANG:{ho}"))
+                .with_qualifier("BARANG")
                 .with_counter_site(ho),
         );
         lines.push(
             PostingLine::credit("affiliate_receivable", ho, value)
-                .with_qualifier(&format!("BARANG:{site_id}"))
+                .with_qualifier("BARANG")
                 .with_counter_site(site_id),
         );
     }
@@ -1289,10 +1289,10 @@ fn price_correction_affiliate_lines(site: &str, amount_minor: i64, ho: &str) -> 
     }
     let magnitude = amount_minor.abs();
     let mut store_leg = PostingLine::debit("affiliate_payable", site, magnitude)
-        .with_qualifier(&format!("BARANG:{ho}"))
+        .with_qualifier("BARANG")
         .with_counter_site(ho);
     let mut ho_leg = PostingLine::credit("affiliate_receivable", ho, magnitude)
-        .with_qualifier(&format!("BARANG:{site}"))
+        .with_qualifier("BARANG")
         .with_counter_site(site);
     if amount_minor > 0 {
         store_leg.debit_minor = 0;
@@ -1829,23 +1829,36 @@ pub async fn stock_transfer_post_pending(pool: &PgPool, actor: &str) -> Result<i
                 } else {
                     PostingLine::credit(key, site, value)
                 }
-                .with_qualifier(&format!("BARANG:{counter}"));
+                .with_qualifier("BARANG");
+                leg.counter_site_id = Some(counter.to_string());
+                leg
+            };
+            // Goods in transit (1031) is a balance between two units, so each
+            // leg names the unit on the other side of the journey — the poster
+            // refuses a line on it that names only its own site.
+            let in_transit = |site: &str, counter: &str, debit: bool| {
+                let mut leg = if debit {
+                    PostingLine::debit(transit, site, value)
+                } else {
+                    PostingLine::credit(transit, site, value)
+                }
+                .with_qualifier(transit_q);
                 leg.counter_site_id = Some(counter.to_string());
                 leg
             };
             let entry = if value > 0 {
                 let lines = match stage {
                     "DISPATCH" => vec![
-                        PostingLine::debit(transit, &source, value).with_qualifier(transit_q),
+                        in_transit(&source, &destination, true),
                         PostingLine::credit(stock, &source, value),
-                        PostingLine::debit(transit, &destination, value).with_qualifier(transit_q),
+                        in_transit(&destination, &source, true),
                         affiliate("affiliate_payable", &destination, &source, false),
                     ],
                     _ => vec![
                         affiliate("affiliate_receivable", &source, &destination, true),
-                        PostingLine::credit(transit, &source, value).with_qualifier(transit_q),
+                        in_transit(&source, &destination, false),
                         PostingLine::debit(stock, &destination, value),
-                        PostingLine::credit(transit, &destination, value).with_qualifier(transit_q),
+                        in_transit(&destination, &source, false),
                     ],
                 };
                 Some(
@@ -2276,7 +2289,7 @@ pub async fn stock_ledger_integrity(
     // `1011201001` would be a module the client cannot renumber their own chart
     // without recompiling.
     let accounts: Vec<String> = sqlx::query(
-        "SELECT DISTINCT account_code FROM account_map WHERE semantic_key = 'inventory'
+        "SELECT DISTINCT account_code FROM account_resolution WHERE role = 'inventory'
           ORDER BY account_code",
     )
     .fetch_all(pool)
@@ -2304,7 +2317,7 @@ pub async fn stock_ledger_integrity(
     let difference = ledger - stock;
     let note = if accounts.is_empty() {
         "The `inventory` meaning is not mapped to any account, so there is nothing to compare \
-         the stock ledger against. Map it on the Account Map screen."
+         the stock ledger against. Link it on the Account Links screen."
             .to_string()
     } else if difference == 0 {
         "The stock ledger and the inventory control account agree.".to_string()

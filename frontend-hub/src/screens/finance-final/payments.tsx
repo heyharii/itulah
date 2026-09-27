@@ -29,6 +29,7 @@ import {
   type AllocateToBill,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
+import { useSheet } from "@/lib/sheets"
 import {
   CardRow,
   Grid,
@@ -144,7 +145,9 @@ export function Payments() {
   const [site, setSite] = useState("")
   const [status, setStatus] = useState("")
   const [needle, setNeedle] = useState("")
-  const [reading, setReading] = useState<string | null>(null)
+  // In the URL rather than in state, so a bill's "paid by" link
+  // (`?payment=`) opens the payment it names.
+  const reading = useSheet("payment")
   const [composing, setComposing] = useState(false)
 
   // Unit and status go on the wire and the key carries both. A register
@@ -187,7 +190,7 @@ export function Payments() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance final · Accounting"
+        crumb="Finance · Payables"
         title="Payments"
         sub="Money leaving and arriving, against the documents it settles."
         actions={
@@ -226,7 +229,7 @@ export function Payments() {
           </Select>
         </span>
         <Toolbar.Spacer />
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {site === "" ? "Every unit" : <SiteName id={site} />}
           {status !== "" && ` · ${label(status)}`}
           {` · ${count(rows.length)} ${rows.length === 1 ? "payment" : "payments"}`}
@@ -304,15 +307,15 @@ export function Payments() {
                   {shown.map((row) => (
                     <tr
                       key={row.payment_id}
-                      onClick={() => setReading(row.payment_id)}
+                      onClick={() => reading.open(row.payment_id)}
                       className="cursor-pointer hover:bg-soft"
                     >
                       <Td>{day(row.payment_date)}</Td>
                       <Td>
-                        <span className="block font-mono text-[0.75rem] text-ink">
+                        <span className="block font-mono text-[0.875rem] text-ink">
                           {row.payment_number}
                         </span>
-                        <span className="block text-[0.6875rem] text-mute">
+                        <span className="block text-[0.875rem] text-mute">
                           {row.reference ?? label(row.method)}
                         </span>
                       </Td>
@@ -402,7 +405,7 @@ export function Payments() {
         </Note>
       </div>
 
-      <PaymentPanel id={reading} onClose={() => setReading(null)} />
+      <PaymentPanel id={reading.value ?? null} onClose={reading.close} />
       <ComposerPanel open={composing} onClose={() => setComposing(false)} />
     </PageContent>
   )
@@ -541,7 +544,7 @@ function PaymentPanel({
                       payable is not an expense bill's — so the honest answer is
                       the rule, and the References grid below shows which of the
                       two each line will debit. */}
-                  <span className="text-[0.8125rem]">
+                  <span className="text-[0.875rem]">
                     the payable each bill sits in
                   </span>
                 </Fact>
@@ -557,7 +560,7 @@ function PaymentPanel({
                 )}
                 {payment.entry_number !== null && (
                   <Fact term="Journal entry">
-                    <span className="font-mono text-[0.75rem]">
+                    <span className="font-mono text-[0.875rem]">
                       {payment.entry_number}
                     </span>
                   </Fact>
@@ -565,7 +568,7 @@ function PaymentPanel({
               </Facts>
 
               {payment.note !== null && (
-                <p className="text-[0.78125rem] text-body">{payment.note}</p>
+                <p className="text-[0.875rem] text-body">{payment.note}</p>
               )}
 
               <div>
@@ -598,13 +601,13 @@ function PaymentPanel({
                       <tr key={allocation.invoice_id}>
                         <Td>{label(allocation.kind)} bill</Td>
                         <Td>
-                          <span className="block font-mono text-[0.75rem] text-ink">
+                          <span className="block font-mono text-[0.875rem] text-ink">
                             {allocation.invoice_number}
                           </span>
                           <SupplierName
                             id={allocation.supplier_id}
                             name={allocation.supplier_name}
-                            className="block truncate text-[0.6875rem] text-mute"
+                            className="block truncate text-[0.875rem] text-mute"
                           />
                         </Td>
                         <Td>{day(allocation.due_date)}</Td>
@@ -679,7 +682,7 @@ function PaymentPanel({
                     />
                   </Field>
                   <div className="flex items-center gap-2">
-                    <span className="text-[0.71875rem] text-mute">
+                    <span className="text-[0.875rem] text-mute">
                       Money that left on the 31st and was keyed on the 2nd
                       belongs to the month it left.
                     </span>
@@ -750,11 +753,19 @@ function ComposerPanel({
   const client = useQueryClient()
   const [site, setSite] = useState("")
   const [paymentDate, setPaymentDate] = useState(todayIso)
-  const [method, setMethod] = useState("TRANSFER")
+  // Giro by default: suppliers are paid by bilyet giro unless Finance says
+  // otherwise, and Finance chooses the instrument here, at payment — not on
+  // the supplier or the PO (owner, 2026-09-26).
+  const [method, setMethod] = useState("GIRO")
   const [account, setAccount] = useState("")
   const [total, setTotal] = useState("")
   const [reference, setReference] = useState("")
   const [note, setNote] = useState("")
+  /// Only when `method` is GIRO, and then both are required — the server
+  /// refuses a giro with no number or no due date. Kept out of `reference`
+  /// deliberately: `reference` is free text, a giro number is a key.
+  const [giroNumber, setGiroNumber] = useState("")
+  const [giroDueDate, setGiroDueDate] = useState("")
   const [references, setReferences] = useState<DraftReference[]>([])
   const [receipt, setReceipt] = useState<string | null>(null)
   // Minted once per composer and not per attempt: a retry after a dropped
@@ -813,7 +824,11 @@ function ComposerPanel({
     over.length === 0 &&
     paidMinor !== null &&
     paidMinor > 0 &&
-    unallocatedMinor === 0
+    unallocatedMinor === 0 &&
+    (method !== "GIRO" ||
+      (giroNumber.trim() !== "" &&
+        giroDueDate !== "" &&
+        giroDueDate >= paymentDate))
 
   const record = useMutation({
     mutationFn: () => {
@@ -838,11 +853,14 @@ function ComposerPanel({
               amount_minor: row.amount ?? 0,
             })
           ),
-          // Null because this form has no giro fields yet. The server now
-          // REQUIRES both when the method is GIRO, so a giro payment keyed
-          // here is refused until the form asks for the number and due date.
-          giro_number: null,
-          giro_due_date: null,
+          // Sent only on GIRO and refused by the server on anything else, so
+          // a method changed after typing must not smuggle the old paper in.
+          giro_number:
+            method === "GIRO" && giroNumber.trim() !== ""
+              ? giroNumber.trim()
+              : null,
+          giro_due_date:
+            method === "GIRO" && giroDueDate !== "" ? giroDueDate : null,
         },
         key
       )
@@ -855,6 +873,8 @@ function ComposerPanel({
       setTotal("")
       setReference("")
       setNote("")
+      setGiroNumber("")
+      setGiroDueDate("")
       setKey(idempotencyKey())
       // Recording writes no journal entry, so no balance moved — but a draft
       // reserves against the bills it names, which is what `allocated_minor`
@@ -955,6 +975,38 @@ function ComposerPanel({
             </Select>
           </Field>
           <AccountField site={site} value={account} onChange={setAccount} />
+          {/* The paper, and only when there is paper. A giro is a promise
+              before it is money, and the number is how the bank finds it
+              again — which is why the server requires both. */}
+          {method === "GIRO" && (
+            <>
+              <Field
+                label="Giro number"
+                hint="Printed on the slip. Required for a giro."
+              >
+                <Input
+                  value={giroNumber}
+                  onChange={(event) => setGiroNumber(event.target.value)}
+                />
+              </Field>
+              <Field
+                label="Giro due date"
+                hint="The date on its face — not before the payment date."
+                problem={
+                  giroDueDate !== "" && giroDueDate < paymentDate
+                    ? "A giro falls due on or after the day it is written."
+                    : undefined
+                }
+              >
+                <Day
+                  value={giroDueDate}
+                  onChange={setGiroDueDate}
+                  placeholder="Choose a day"
+                  notBefore={paymentDate}
+                />
+              </Field>
+            </>
+          )}
           <Field
             label="Paid amount"
             hint="What actually left the bank."
@@ -991,14 +1043,14 @@ function ComposerPanel({
           </SubHead>
 
           {bills.isPending ? (
-            <p className="text-[0.71875rem] text-mute">Reading the bills…</p>
+            <p className="text-[0.875rem] text-mute">Reading the bills…</p>
           ) : site === "" ? (
-            <p className="text-[0.71875rem] text-mute">
+            <p className="text-[0.875rem] text-mute">
               Choose a unit first — a payment answers that unit&rsquo;s debts,
               and the database refuses one that crosses units.
             </p>
           ) : candidates.length === 0 ? (
-            <p className="text-[0.71875rem] text-mute">
+            <p className="text-[0.875rem] text-mute">
               Nothing posted at this unit is still outstanding. A bill that has
               only been recorded is not in the books yet and cannot be paid.
             </p>
@@ -1042,19 +1094,19 @@ function ComposerPanel({
                         />
                       </Td>
                       <Td>
-                        <span className="block font-mono text-[0.75rem] text-ink">
+                        <span className="block font-mono text-[0.875rem] text-ink">
                           {bill.invoice_number}
                         </span>
                         <SupplierName
                           id={bill.supplier_id}
                           name={bill.supplier_name}
-                          className="block truncate text-[0.6875rem] text-mute"
+                          className="block truncate text-[0.875rem] text-mute"
                         />
                       </Td>
                       <Td>
                         {day(bill.next_due_date ?? bill.due_date)}
                         {bill.overdue && (
-                          <span className="block text-[0.6875rem] text-bad-fg">
+                          <span className="block text-[0.875rem] text-bad-fg">
                             {count(bill.days_overdue)} days late
                           </span>
                         )}
@@ -1089,7 +1141,7 @@ function ComposerPanel({
                           <span className="text-hairline-strong">·</span>
                         )}
                         {on && typed !== null && typed > free && (
-                          <span className="mt-0.5 block text-[0.6875rem] text-bad-fg">
+                          <span className="mt-0.5 block text-[0.875rem] text-bad-fg">
                             more than the {money(free)} left on this bill
                           </span>
                         )}
@@ -1135,7 +1187,7 @@ function ComposerPanel({
         </Field>
 
         <div className="flex items-center justify-between gap-3 border-t border-hairline pt-3">
-          <span className="text-[0.71875rem] text-mute tabular-nums">
+          <span className="text-[0.875rem] text-mute tabular-nums">
             {/* A disabled button with nothing beside it reads as broken, so
                 what is still wrong is always one sentence — and the last two
                 arms name the field rather than saying "not ready", which is
@@ -1155,7 +1207,13 @@ function ComposerPanel({
                         ? `${money(unallocatedMinor)} unallocated — this ledger keeps no money on account`
                         : account === ""
                           ? "Say which account the money left by"
-                          : "The payment date is missing"}
+                          : method === "GIRO" && giroNumber.trim() === ""
+                            ? "A giro needs the number printed on it"
+                            : method === "GIRO" && giroDueDate === ""
+                              ? "A giro needs the date on its face"
+                              : method === "GIRO" && giroDueDate < paymentDate
+                                ? "The giro falls due before the payment date"
+                                : "The payment date is missing"}
           </span>
           <Button
             variant="primary"

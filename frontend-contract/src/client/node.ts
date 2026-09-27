@@ -100,6 +100,13 @@ export class Node {
   /// requests.
   private bearer: string | undefined;
 
+  /// Who to tell when the node refuses the bearer this client is holding.
+  ///
+  /// A bearer session lapses on the node — idle, revoked, the machine
+  /// restarted — while every screen reading it still believes it is signed
+  /// in. Heard here, once, rather than by each screen from its own 401.
+  private bearerRejected: (() => void) | undefined;
+
   constructor(baseUrl: string = "", csrfCookie: string = CSRF_COOKIE) {
     this.baseUrl = baseUrl;
     this.csrfCookie = csrfCookie;
@@ -108,6 +115,14 @@ export class Node {
   /// Hand this node a session token, or `null` to forget the one it has.
   setBearer(token: string | null | undefined): void {
     this.bearer = token ?? undefined;
+  }
+
+  /// Be told when the node answers 401 to the token this client still holds.
+  ///
+  /// Only for the token actually sent: a refusal that comes back after the
+  /// token was replaced says nothing about the new one.
+  onBearerRejected(listener: (() => void) | undefined): void {
+    this.bearerRejected = listener;
   }
 
   /// Whether this node currently holds a token. A surface asks before deciding
@@ -203,13 +218,21 @@ export class Node {
     body: BodyInit | undefined,
     headers: Record<string, string>,
     options: RequestOptions,
+    withoutCredentials = false,
   ): Promise<T> {
     // A cookie-authenticated write must carry the CSRF token in a header as
     // well as the cookie; the server compares the two and rejects the request
     // when either is missing. Omitting this header is why a signed-in browser
     // gets 403 on everything except reads. A token-authenticated node sends
     // neither — see `bearer`.
-    const credentials = this.authorise(headers, method);
+    // Ticket exchange is the one deliberate exception: it must not carry a
+    // cookie or bearer from either node. In particular, the Edge proxy shares
+    // the Cloud page's origin, so default cookie credentials would send the
+    // Cloud session to the DC.
+    const sentBearer = withoutCredentials ? undefined : this.bearer;
+    const credentials = withoutCredentials
+      ? "omit"
+      : this.authorise(headers, method);
     for (const [name, value] of Object.entries(options.headers ?? {})) {
       headers[name] = value;
     }
@@ -221,6 +244,13 @@ export class Node {
       credentials,
       signal: options.signal,
     });
+    if (
+      response.status === 401 &&
+      sentBearer !== undefined &&
+      this.bearer === sentBearer
+    ) {
+      this.bearerRejected?.();
+    }
     if (!response.ok) {
       throw await readError(response);
     }
@@ -236,6 +266,37 @@ export class Node {
 
   post<T>(path: string, body: unknown, options?: RequestOptions): Promise<T> {
     return this.request<T>("POST", path, body, options);
+  }
+
+  /// A public GET with no cookies or bearer token.
+  ///
+  /// Used before a second node has its own session, so an ambient cookie for
+  /// the page's node cannot cross the proxy boundary by accident.
+  getWithoutCredentials<T>(
+    path: string,
+    options: RequestOptions = {},
+  ): Promise<T> {
+    return this.send("GET", path, undefined, {}, options, true);
+  }
+
+  /// A POST with no cookies, CSRF echo, or bearer token.
+  ///
+  /// Used to deliver a short-lived Cloud-signed ticket to an Edge node. This
+  /// does not mutate the node's regular bearer state and the credential stays
+  /// in the request body.
+  postWithoutCredentials<T>(
+    path: string,
+    body: unknown,
+    options: RequestOptions = {},
+  ): Promise<T> {
+    return this.send(
+      "POST",
+      path,
+      JSON.stringify(body),
+      { "content-type": "application/json" },
+      options,
+      true,
+    );
   }
 
   /// Change one field of something that already exists.

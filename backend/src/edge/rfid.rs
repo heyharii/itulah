@@ -5,6 +5,7 @@
 //! authenticates and scopes the device locally, stores the evidence, and
 //! appends the same batch to its durable ordered sync log in one transaction.
 
+use crate::clock::ClockHandle;
 use crate::{
     edge::{consolidate_reads, EdgeError, NodeContext, OperationalPool, RfidRead},
     security,
@@ -48,11 +49,24 @@ pub struct DeviceProof {
 pub struct EdgeRfid {
     connection: Arc<Mutex<Connection>>,
     node: NodeContext,
+    /// The business clock the RFID windows evaluate against. Plan §7.4: an
+    /// external reader under a compressed year signs with virtual time, so
+    /// the skew and future checks must answer from the same clock — while
+    /// the device's offline lease stays on the wall (security time).
+    clock: Arc<ClockHandle>,
 }
 
 impl EdgeRfid {
-    pub fn new(connection: Arc<Mutex<Connection>>, node: NodeContext) -> Self {
-        Self { connection, node }
+    pub fn new(
+        connection: Arc<Mutex<Connection>>,
+        node: NodeContext,
+        clock: Arc<ClockHandle>,
+    ) -> Self {
+        Self {
+            connection,
+            node,
+            clock,
+        }
     }
 
     pub fn node(&self) -> &NodeContext {
@@ -207,7 +221,13 @@ impl EdgeRfid {
             ));
         }
         let request_digest = security::sha256_hex(raw_body);
+        // Two instants, on purpose. The device's offline lease is security
+        // time and stays on the wall clock (plan §1.1); everything that
+        // reasons about readings — the skew window, the future check, the
+        // receipt stamps — evaluates against the business clock, because a
+        // reader under a compressed year signs with virtual time (§7.4).
         let now = Utc::now();
+        let business_now = self.clock.now();
         let mut connection = self.lock()?;
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -248,7 +268,7 @@ impl EdgeRfid {
 
         let request: EdgeRfidObservationRequest = serde_json::from_slice(raw_body)
             .map_err(|error| EdgeError::Validation(format!("invalid RFID JSON: {error}")))?;
-        validate_request(&self.node, &request, now)?;
+        validate_request(&self.node, &request, business_now)?;
 
         let prior: Option<(String, i64, String, String)> = tx
             .query_row(
@@ -292,7 +312,7 @@ impl EdgeRfid {
             return Ok(response);
         }
 
-        let clock_delta = now.timestamp().abs_diff(proof.timestamp);
+        let clock_delta = business_now.timestamp().abs_diff(proof.timestamp);
         if clock_delta > RFID_SIGNATURE_MAX_SKEW_SECONDS {
             return Err(EdgeError::Unauthorized(format!(
                 "RFID request timestamp is outside the {RFID_SIGNATURE_MAX_SKEW_SECONDS}-second window"
@@ -330,7 +350,7 @@ impl EdgeRfid {
                 crate::sync::MAX_RFID_SIGHTINGS_PER_BATCH
             )));
         }
-        let received_at = now;
+        let received_at = business_now;
         let batch_id = Uuid::new_v4();
         let mut sightings = Vec::with_capacity(consolidated.len());
         for read in consolidated {
@@ -416,7 +436,7 @@ impl EdgeRfid {
                 proof.sequence,
                 request_digest,
                 response_json,
-                time_text(now),
+                time_text(business_now),
             ],
         )
         .map_err(map_receipt_error)?;
@@ -424,7 +444,12 @@ impl EdgeRfid {
             "UPDATE edge_rfid_device
              SET last_sequence=?2,last_request_digest=?3,last_seen_at=?4
              WHERE device_id=?1",
-            params![device_id, proof.sequence, request_digest, time_text(now)],
+            params![
+                device_id,
+                proof.sequence,
+                request_digest,
+                time_text(business_now)
+            ],
         )
         .map_err(db)?;
         tx.commit().map_err(db)?;
@@ -618,7 +643,7 @@ mod tests {
                 )
                 .unwrap_or_else(|error| panic!("scope: {error}"));
         }
-        let service = EdgeRfid::new(edge.connection(), node);
+        let service = EdgeRfid::new(edge.connection(), node, edge.clock());
         (edge, service, signing_key)
     }
 

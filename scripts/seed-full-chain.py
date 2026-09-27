@@ -218,12 +218,12 @@ def _tsv(value) -> str:
 # Sizes follow the division, because this is the part that would look
 # obviously wrong otherwise: footwear in "M", or a belt offered in six sizes.
 SIZES_BY_DIVISION = {
-    "FOOTWEAR": ["11", "12", "13", "14", "15", "16"],
-    "ACCESSORY": ["08"],
-    "MENSWEAR": ["02", "03", "04", "05", "06"],
-    "WOMENSWEAR": ["01", "02", "03", "04", "05"],
-    "KIDS": ["01", "02", "03", "04"],
-    "DIVIDED": ["02", "03", "04", "05"],
+    "SANDAL_SEPATU": ["11", "12", "13", "14", "15", "16"],
+    "AKSESORIS": ["08"],
+    "PRIA": ["02", "03", "04", "05", "06"],
+    "WANITA": ["01", "02", "03", "04", "05"],
+    "ANAK_LAKI": ["01", "02", "03", "04"],
+    "NON_DIVISI": ["02", "03", "04", "05"],
 }
 DEFAULT_SIZES = ["02", "03", "04", "05"]
 
@@ -538,7 +538,7 @@ def build(db: Db, wanted: int, seed: int) -> None:
                     unit_price, item_currency, item_version, division, _sc, _sn,
                 ) = item
                 unit_price = int(unit_price)
-                division = division or "MENSWEAR"
+                division = division or "PRIA"
 
                 # What this style is offered in. Colour is one digit, so ten is
                 # the ceiling and nothing here goes near it.

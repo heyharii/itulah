@@ -275,7 +275,7 @@ export function Availability() {
                     {data.source_place_id}
                   </span>
                 </span>
-                <span className="text-[0.71875rem] text-mute">
+                <span className="text-[0.875rem] text-mute">
                   {data.inventory_equation}
                 </span>
               </CardStrip>
@@ -309,7 +309,7 @@ export function Availability() {
                     table={table}
                     className="max-h-[calc(100vh-26rem)]"
                   />
-                  <div className="flex items-center justify-between border-t border-hairline px-4 py-2.5 text-[0.71875rem] text-mute">
+                  <div className="flex items-center justify-between border-t border-hairline px-4 py-2.5 text-[0.875rem] text-mute">
                     <span className="tabular-nums">
                       Page {count(trail.length)} · {count(rows.length)} of{" "}
                       {count(data.total_items)} SKUs

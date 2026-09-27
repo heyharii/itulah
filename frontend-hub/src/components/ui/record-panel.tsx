@@ -56,14 +56,14 @@ export function RecordPanel({
   if (info.isPending) {
     return (
       <div className="mt-6 border-t border-hairline pt-3">
-        <p className="py-1 text-[0.71875rem] text-mute">Reading the record…</p>
+        <p className="py-1 text-[0.875rem] text-mute">Reading the record…</p>
       </div>
     )
   }
   if (info.isError) {
     return (
       <div className="mt-6 border-t border-hairline pt-3">
-        <p className="py-1 text-[0.71875rem] text-bad">
+        <p className="py-1 text-[0.875rem] text-bad">
           This record's comments and history could not be read.
         </p>
       </div>
@@ -137,7 +137,7 @@ function Tags({
       {info.tags.map((tag) => (
         <span
           key={tag.tag_code}
-          className="group inline-flex items-center gap-1 rounded-md bg-soft-2 py-[0.0625rem] pr-1 pl-[0.4375rem] text-[0.6875rem] text-body"
+          className="group inline-flex items-center gap-1 rounded-md bg-soft-2 py-[0.0625rem] pr-1 pl-[0.4375rem] text-[0.875rem] text-body"
           title={`${tag.tagged_by} · ${moment(tag.tagged_at)}`}
         >
           {tag.label}
@@ -155,27 +155,27 @@ function Tags({
       {picking ? (
         <span className="flex flex-wrap items-center gap-1">
           {vocabulary.isPending && (
-            <span className="text-[0.6875rem] text-mute">Reading words…</span>
+            <span className="text-[0.875rem] text-mute">Reading words…</span>
           )}
           {offer.map((term) => (
             <button
               key={term.code}
               type="button"
               onClick={() => add.mutate(term.code)}
-              className="rounded-md border border-hairline-2 px-[0.4375rem] py-[0.0625rem] text-[0.6875rem] text-body transition-colors hover:border-hairline-strong hover:text-ink"
+              className="rounded-md border border-hairline-2 px-[0.4375rem] py-[0.0625rem] text-[0.875rem] text-body transition-colors hover:border-hairline-strong hover:text-ink"
             >
               {term.label}
             </button>
           ))}
           {vocabulary.isSuccess && offer.length === 0 && (
-            <span className="text-[0.6875rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               Every word is already on this record.
             </span>
           )}
           <button
             type="button"
             onClick={() => setPicking(false)}
-            className="text-[0.6875rem] text-mute underline-offset-2 hover:underline"
+            className="text-[0.875rem] text-mute underline-offset-2 hover:underline"
           >
             Done
           </button>
@@ -184,7 +184,7 @@ function Tags({
         <button
           type="button"
           onClick={() => setPicking(true)}
-          className="inline-flex items-center gap-0.5 rounded-md px-[0.25rem] py-[0.0625rem] text-[0.6875rem] text-mute transition-colors hover:bg-soft-2 hover:text-ink"
+          className="inline-flex items-center gap-0.5 rounded-md px-[0.25rem] py-[0.0625rem] text-[0.875rem] text-mute transition-colors hover:bg-soft-2 hover:text-ink"
         >
           <Plus className="size-3" />
           {info.tags.length === 0 ? "Tag" : ""}
@@ -237,7 +237,7 @@ function Comments({
 
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="text-[0.71875rem] font-medium text-body">
+      <h3 className="text-[0.875rem] font-medium text-body">
         Comments
         {info.comments.length > 0 && (
           <span className="ml-1 text-mute tabular-nums">
@@ -249,26 +249,26 @@ function Comments({
       {info.comments.map((comment) => (
         <div key={comment.comment_id} className="flex flex-col gap-0.5">
           <div className="flex items-baseline gap-1.5">
-            <span className="text-[0.71875rem] font-medium text-ink">
+            <span className="text-[0.875rem] font-medium text-ink">
               {comment.display_name}
             </span>
-            <span className="text-[0.65625rem] text-mute tabular-nums">
+            <span className="text-[0.875rem] text-mute tabular-nums">
               {moment(comment.created_at)}
             </span>
             {comment.edited_at && (
-              <span className="text-[0.65625rem] text-mute">edited</span>
+              <span className="text-[0.875rem] text-mute">edited</span>
             )}
             {comment.mine && (
               <button
                 type="button"
                 onClick={() => drop.mutate(comment.comment_id)}
-                className="ml-auto text-[0.65625rem] text-mute underline-offset-2 hover:text-bad hover:underline"
+                className="ml-auto text-[0.875rem] text-mute underline-offset-2 hover:text-bad hover:underline"
               >
                 Remove
               </button>
             )}
           </div>
-          <p className="text-[0.78125rem] whitespace-pre-wrap text-body">
+          <p className="text-[0.875rem] whitespace-pre-wrap text-body">
             {comment.body}
           </p>
         </div>
@@ -287,10 +287,10 @@ function Comments({
           }
         }}
         placeholder="Say something about this record"
-        className="max-h-40 min-h-8 w-full resize-none rounded-inner border border-hairline-2 bg-canvas px-3 py-1.5 text-[0.78125rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-strong"
+        className="max-h-40 min-h-8 w-full resize-none rounded-inner border border-hairline-2 bg-canvas px-3 py-1.5 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-strong"
       />
       {say.isError && (
-        <p className="text-[0.65625rem] text-bad">
+        <p className="text-[0.875rem] text-bad">
           That comment was not saved.
         </p>
       )}
@@ -311,7 +311,7 @@ function Elsewhere({ info }: { info: RecordInfo }) {
   const threads = info.threads.length
   if (documents === 0 && threads === 0) return null
   return (
-    <p className="text-[0.6875rem] text-mute">
+    <p className="text-[0.875rem] text-mute">
       {documents > 0 && (
         <span>
           {documents} {documents === 1 ? "document" : "documents"} filed
@@ -341,7 +341,7 @@ function Trail({ info }: { info: RecordInfo }) {
   const entries = info.activity
   return (
     <Collapsible.Root>
-      <Collapsible.Trigger className="group flex w-full items-center gap-1.5 text-left text-[0.71875rem] font-medium text-body transition-colors hover:text-ink">
+      <Collapsible.Trigger className="group flex w-full items-center gap-1.5 text-left text-[0.875rem] font-medium text-body transition-colors hover:text-ink">
         <ChevronRight className="size-3.5 text-line-ico transition-transform duration-150 group-data-[panel-open]:rotate-90" />
         Activity
         {entries.length > 0 && (
@@ -350,7 +350,7 @@ function Trail({ info }: { info: RecordInfo }) {
       </Collapsible.Trigger>
       <Collapsible.Panel className="overflow-hidden">
         {entries.length === 0 ? (
-          <p className="py-3 text-[0.71875rem] text-mute">
+          <p className="py-3 text-[0.875rem] text-mute">
             Nothing has been done to this record since the log began.
           </p>
         ) : (
@@ -372,17 +372,17 @@ function Trail({ info }: { info: RecordInfo }) {
                   )}
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[0.75rem] text-ink">
+                  <span className="block text-[0.875rem] text-ink">
                     {readAction(entry)}
                     {entry.status >= 400 && (
                       <span className="ml-1.5 text-bad">refused</span>
                     )}
                   </span>
-                  <span className="block text-[0.65625rem] text-mute">
+                  <span className="block text-[0.875rem] text-mute">
                     {entry.display_name}
                   </span>
                 </span>
-                <span className="shrink-0 text-[0.65625rem] text-mute tabular-nums">
+                <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
                   {moment(entry.at)}
                 </span>
               </li>

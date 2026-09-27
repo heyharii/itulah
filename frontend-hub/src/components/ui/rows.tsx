@@ -1,3 +1,4 @@
+import { useStackLabels } from "@/lib/stack-table"
 import { cn } from "@/lib/utils"
 
 /// One part of a document, under its own heading.
@@ -59,8 +60,11 @@ export function KeyValue({
         className
       )}
     >
-      <span className="text-mute">{term}</span>
-      <span className="text-right font-medium text-ink tabular-nums">
+      <span className="shrink-0 text-mute">{term}</span>
+      {/* May narrow, and may break: a hash or a long code has no spaces to
+          wrap at, and without these it pushed the whole row — and on a
+          phone the whole page — past the edge of the glass. */}
+      <span className="min-w-0 text-right font-medium break-words text-ink tabular-nums">
         {children}
       </span>
     </div>
@@ -131,8 +135,16 @@ export function MiniTable({
   /// caller derives at render time.
   style?: React.CSSProperties
 }) {
+  // On a phone this table stacks instead of scrolling sideways — see
+  // `useStackLabels` and `.mini-stack` in styles/index.css.
+  const table = useStackLabels()
+
   return (
-    <table className={cn("w-full border-collapse", className)} style={style}>
+    <table
+      ref={table}
+      className={cn("mini-stack w-full border-collapse", className)}
+      style={style}
+    >
       <thead>
         <tr>
           {head.map((column, index) => {
@@ -194,7 +206,7 @@ export function MiniCell({
     <td
       colSpan={colSpan}
       className={cn(
-        "py-2 text-[0.78125rem] text-text",
+        "py-2 text-[0.875rem] text-text",
         // The gap belongs on the left of a right-aligned cell: padding on the
         // right would move the edge every figure in the column lines up on,
         // and two right-aligned cells with no gap at all run their contents
@@ -222,7 +234,7 @@ export function SubHead({
   return (
     <div className="mb-2 flex items-baseline justify-between gap-2">
       <h4 className="text-card-title font-semibold text-ink">{children}</h4>
-      {aside && <span className="text-[0.71875rem] text-mute">{aside}</span>}
+      {aside && <span className="text-[0.875rem] text-mute">{aside}</span>}
     </div>
   )
 }

@@ -925,7 +925,7 @@ async fn settle_adjusted_advances(
     // transaction so it cannot move under the check.
     let advances = sqlx::query(
         "SELECT ad.advance_id, ad.advance_number, ad.amount_minor AS paid_out_minor,
-                COALESCE(SUM(s.amount_minor), 0) AS settled_minor
+                COALESCE(SUM(s.amount_minor), 0)::bigint AS settled_minor
            FROM advance ad
            LEFT JOIN advance_settlement s ON s.advance_id = ad.advance_id
           WHERE ad.advance_id IN (SELECT a.advance_id FROM payroll_adjustment a
@@ -1474,85 +1474,24 @@ pub async fn hand_over(pool: &PgPool, handover: &PayrollHandover) -> Result<(), 
     Ok(())
 }
 
-/// The component class a pay component's code names, which is the qualifier
-/// `payroll_expense` is mapped by (0371): store staff to 6012–6024, head office
-/// and DC to 6026–6038, by the kind of site.
-///
-/// Read off the code because components are defined by HR, not by Finance; a
-/// code that names nothing more specific is salary (allowances belong with
-/// the salary account, owner decision 25 Sep).
-fn component_class(code: &str, unit: Option<&str>) -> &'static str {
-    let code = code.to_ascii_uppercase();
-    let has = |needle: &str| code.contains(needle);
-    if unit.is_some_and(|u| u.starts_with("OVERTIME")) || has("LEMBUR") || has("OVERTIME") {
-        "OVERTIME"
-    } else if has("THR") {
-        "THR"
-    } else if has("BONUS") || has("KPI") || has("INSENTIF") || has("INCENTIVE") || has("KOMISI") {
-        "BONUS"
-    } else if has("MAKAN") || has("MEAL") {
-        "MEAL"
-    } else if has("TRANSPORT") {
-        "TRANSPORT"
-    } else if has("KESEHATAN") || has("MEDIS") || has("MEDICAL") || has("PENGOBATAN") {
-        "MEDICAL"
-    } else if has("SERAGAM") || has("UNIFORM") {
-        "UNIFORM"
-    } else if has("PESANGON") || has("SEVERANCE") {
-        "SEVERANCE"
-    } else {
-        "SALARY"
-    }
-}
-
-/// Where a deduction withheld from pay goes, as (meaning, qualifier).
-///
-/// Client accountant, 25 Sep, and the owner's correction the same day: gross is
-/// owed as `2017 Biaya Gaji dan Upah YMHD`; PPh 21 withheld goes to 2011; a
-/// loan instalment repays the employee receivable; an advance remainder
-/// deducted from pay credits the advance (owner decision, HR 5). A deduction
-/// the code does not explain stays in 2017, where Finance sees it at payment.
-///
-/// BPJS is the one that was wrong. It used to fall through to 2017 with every
-/// other unexplained deduction, which is exactly the "Cr 2017 includes BPJS"
-/// the owner rejected. It now names `bpjs_payable` — its own meaning with its
-/// own canonical mapping (2021, marked TO_CONFIRM at the map), so the day the
-/// client accountant decides, one `account_map` row moves and no payroll code
-/// changes. It is deliberately NOT defaulted to salary.
-fn deduction_meaning(code: &str) -> (&'static str, &'static str) {
-    let code = code.to_ascii_uppercase();
-    let has = |needle: &str| code.contains(needle);
-    if has("PPH") {
-        ("pph21_payable", "")
-    } else if has("BPJS") || has("JAMSOSTEK") {
-        ("bpjs_payable", "")
-    } else if has("KASBON") || has("PINJAM") || has("CICIL") || has("LOAN") || has("PIUTANG") {
-        ("employee_receivable", "")
-    } else if has("UANG_MUKA") || has("UANGMUKA") || has("ADVANCE") {
-        ("advance", "PERJALANAN")
-    } else {
-        ("payroll_payable", "")
-    }
-}
-
 /// The accrual a payroll run posts when HR hands it to Finance.
 ///
-/// Client accountant (25 Sep), stage one of two: Dr each component's expense at
-/// the run's site — the site kind decides store (6012–6024) or head office/DC
-/// (6026–6038) — / Cr 2017 Biaya Gaji dan Upah YMHD, with the withholdings that
-/// leave 2017 credited where they are owed. Stage two (payment on the 1st) is
-/// Dr 2017 / Cr petty cash at a store (funded by head office's transfer) or Cr
-/// bank at head office.
+/// Every earning debits its component's `payroll_expense` link and every
+/// deduction credits its component's `payroll_deduction` link (0466) — the
+/// component says where it lands, nothing is read off its code. Base pay, which
+/// no component explains, is the company's `payroll_expense` / SALARY link, by
+/// the kind of site (6012 at a shop, 6026 at head office). What the employee is
+/// owed net is `payroll_payable` (2017); stage two (payment) clears it.
 ///
-/// The THR earned this month is accrued too — one twelfth of a month's base
-/// per slip, Dr THR expense / Cr `thr_payable` (2018, owner decision HR 4) —
-/// and a THR paid in the run is drawn from that accrual rather than expensed
-/// again. Employer BPJS is not computed anywhere in this estate yet, so no
-/// line is invented for it.
+/// A deduction the company bears (`employer_borne`, PPh 21 by owner decision)
+/// is the company's cost on top of gross: its expense link against its
+/// deduction link, not taken from net pay. An earning paid from the accrual
+/// (`paid_from_accrual`, THR) debits `thr_payable` instead of an expense. The
+/// monthly THR accrual is base pay / `payroll.thr_accrual_months`, the
+/// company's `payroll_expense` / THR link against `thr_payable`.
 ///
-/// Balanced by construction: the expense lines sum to the slips' gross (any
-/// amount the components do not explain is salary), and the credits sum to
-/// the same gross.
+/// Balanced by construction: the debits are gross (plus what the company
+/// bears), the credits are the deductions, net pay and what the company bears.
 async fn payroll_accrual_lines(
     tx: &mut Transaction<'_, Postgres>,
     run_id: &str,
@@ -1568,20 +1507,30 @@ async fn payroll_accrual_lines(
     .fetch_all(&mut **tx)
     .await?;
     let slip_lines = sqlx::query(
-        "SELECT employee_id, kind, component_code, unit, amount_minor
-           FROM payroll_slip_line WHERE run_id = $1",
+        "SELECT l.employee_id, l.kind, l.component_code, l.amount_minor,
+                COALESCE(c.employer_borne, false) AS employer_borne,
+                COALESCE(c.paid_from_accrual, false) AS paid_from_accrual
+           FROM payroll_slip_line l
+           LEFT JOIN pay_component c ON c.code = l.component_code
+          WHERE l.run_id = $1",
     )
     .bind(run_id)
     .fetch_all(&mut **tx)
     .await?;
+    let accrual_months: i64 = sqlx::query_scalar(
+        "SELECT COALESCE((SELECT round(value_numeric)::bigint FROM finance_setting
+                           WHERE setting_key = 'payroll.thr_accrual_months'), 12)",
+    )
+    .fetch_one(&mut **tx)
+    .await?;
 
-    let mut expense: BTreeMap<&'static str, i64> = BTreeMap::new();
-    let mut credits: BTreeMap<(&'static str, &'static str), i64> = BTreeMap::new();
+    let mut earnings: BTreeMap<String, i64> = BTreeMap::new();
+    let mut from_accrual = 0i64;
+    let mut deductions: BTreeMap<String, i64> = BTreeMap::new();
+    let mut borne: BTreeMap<String, i64> = BTreeMap::new();
+    let mut base_pay = 0i64;
     let mut thr_accrual = 0i64;
     let mut gross_total = 0i64;
-    // PPh 21 is borne by the company (owner decision, 25 Sep): it is an
-    // employer cost on top of gross, never a deduction from the employee's net.
-    let mut employer_pph = 0i64;
     for slip in &slips {
         let employee: String = slip.try_get("employee_id")?;
         let base: i64 = slip.try_get("base_minor")?;
@@ -1590,9 +1539,7 @@ async fn payroll_accrual_lines(
         let mut explained = 0i64;
         for allowance in decode_allowances(slip.try_get("fixed_allowances")?)? {
             let minor = allowance.amount().minor;
-            *expense
-                .entry(component_class(&allowance.code().to_string(), None))
-                .or_default() += minor;
+            *earnings.entry(allowance.code().to_string()).or_default() += minor;
             explained += minor;
         }
         for line in slip_lines
@@ -1601,25 +1548,28 @@ async fn payroll_accrual_lines(
         {
             let kind: String = line.try_get("kind")?;
             let code: String = line.try_get("component_code")?;
-            let unit: Option<String> = line.try_get("unit")?;
             let amount: i64 = line.try_get("amount_minor")?;
             if kind == "DEDUCTION" {
-                let meaning = deduction_meaning(&code);
-                if meaning.0 == "pph21_payable" {
-                    // Company-borne: an expense, not a withholding.
-                    employer_pph += amount;
+                if line.try_get::<bool, _>("employer_borne")? {
+                    *borne.entry(code).or_default() += amount;
                 } else {
-                    *credits.entry(meaning).or_default() += amount;
+                    *deductions.entry(code).or_default() += amount;
                 }
             } else {
-                *expense.entry(component_class(&code, unit.as_deref())).or_default() += amount;
+                if line.try_get::<bool, _>("paid_from_accrual")? {
+                    from_accrual += amount;
+                } else {
+                    *earnings.entry(code).or_default() += amount;
+                }
                 explained += amount;
             }
         }
-        // Whatever the components do not explain — base pay included — is
-        // salary, so the expense is always the slip's own gross.
-        *expense.entry("SALARY").or_default() += gross - explained;
-        thr_accrual += base / 12;
+        // Whatever no component explains is base pay, so the debits are
+        // always the slip's own gross.
+        base_pay += gross - explained;
+        if accrual_months > 0 {
+            thr_accrual += base / accrual_months;
+        }
     }
     if slips.is_empty() || gross_total != handed_gross {
         return Err(AppError::Conflict(format!(
@@ -1628,49 +1578,57 @@ async fn payroll_accrual_lines(
         )));
     }
 
-    // A THR paid in this run is drawn from what has been accrued for it.
-    let thr_paid = expense.remove("THR").unwrap_or(0);
     let mut lines = Vec::new();
-    for (class, amount) in &expense {
-        if *amount > 0 {
-            lines.push(PostingLine::debit("payroll_expense", site_id, *amount).with_qualifier(class));
-        } else if *amount < 0 {
-            lines.push(PostingLine::credit("payroll_expense", site_id, -amount).with_qualifier(class));
-        }
-    }
-    if thr_paid > 0 {
-        lines.push(PostingLine::debit("thr_payable", site_id, thr_paid));
-    }
-    for ((key, qualifier), amount) in &credits {
-        if *amount > 0 && *key != "payroll_payable" {
-            lines.push(PostingLine::credit(*key, site_id, *amount).with_qualifier(qualifier));
-        }
-    }
-    let net_to_2017 = gross_total
-        - credits
-            .iter()
-            .filter(|((key, _), _)| *key != "payroll_payable")
-            .map(|(_, amount)| amount)
-            .sum::<i64>();
-    if net_to_2017 != 0 {
-        lines.push(if net_to_2017 > 0 {
-            PostingLine::credit("payroll_payable", site_id, net_to_2017)
+    let signed = |amount: i64, line: PostingLine| -> Option<PostingLine> {
+        (amount != 0).then_some(line)
+    };
+    for (code, amount) in &earnings {
+        let line = if *amount > 0 {
+            PostingLine::debit("payroll_expense", site_id, *amount)
         } else {
-            PostingLine::debit("payroll_payable", site_id, -net_to_2017)
-        });
+            PostingLine::credit("payroll_expense", site_id, -amount)
+        };
+        lines.extend(signed(*amount, line.from_source("PAY_COMPONENT", code)));
+    }
+    if base_pay > 0 {
+        lines.push(PostingLine::debit("payroll_expense", site_id, base_pay).with_qualifier("SALARY"));
+    } else if base_pay < 0 {
+        lines.push(PostingLine::credit("payroll_expense", site_id, -base_pay).with_qualifier("SALARY"));
+    }
+    if from_accrual > 0 {
+        lines.push(PostingLine::debit("thr_payable", site_id, from_accrual));
+    }
+    let mut withheld = 0i64;
+    for (code, amount) in &deductions {
+        if *amount > 0 {
+            withheld += amount;
+            lines.push(
+                PostingLine::credit("payroll_deduction", site_id, *amount)
+                    .from_source("PAY_COMPONENT", code),
+            );
+        }
+    }
+    let net = gross_total - withheld;
+    if net > 0 {
+        lines.push(PostingLine::credit("payroll_payable", site_id, net));
+    } else if net < 0 {
+        lines.push(PostingLine::debit("payroll_payable", site_id, -net));
     }
     if thr_accrual > 0 {
         lines.push(PostingLine::debit("payroll_expense", site_id, thr_accrual).with_qualifier("THR"));
         lines.push(PostingLine::credit("thr_payable", site_id, thr_accrual));
     }
-    if employer_pph > 0 {
-        // Dr biaya gaji (6012 toko / 6026 HO) / Cr 2011 Hutang PPh 21. The map
-        // may move to 1045 if the client accountant chooses; payroll code does
-        // not change.
-        lines.push(
-            PostingLine::debit("payroll_expense", site_id, employer_pph).with_qualifier("SALARY"),
-        );
-        lines.push(PostingLine::credit("pph21_payable", site_id, employer_pph));
+    for (code, amount) in &borne {
+        if *amount > 0 {
+            lines.push(
+                PostingLine::debit("payroll_expense", site_id, *amount)
+                    .from_source("PAY_COMPONENT", code),
+            );
+            lines.push(
+                PostingLine::credit("payroll_deduction", site_id, *amount)
+                    .from_source("PAY_COMPONENT", code),
+            );
+        }
     }
     Ok(lines)
 }
@@ -1777,9 +1735,10 @@ pub async fn settle_handover(
                JOIN journal_entry e ON e.entry_id = l.entry_id
               WHERE e.source_kind = 'PAYROLL_RUN' AND e.source_id = $1
                 AND e.purpose IN ('ACCRUAL', 'MAIN') AND l.site_id = $2
-                AND l.account_code = (SELECT account_code FROM account_map
-                                       WHERE semantic_key = 'payroll_payable'
-                                         AND site_id = $2 AND qualifier = '')",
+                AND l.account_code = (SELECT account_code FROM account_resolution
+                                       WHERE role = 'payroll_payable'
+                                         AND site_id = $2 AND source_type = 'COMPANY'
+                                         AND source_id = '')",
         )
         .bind(handover.run_id().to_string())
         .bind(&site_id)

@@ -1,364 +1,444 @@
 import {
-  BellRing,
-  Boxes,
   ArrowLeftRight,
   BarChart3,
-  CalendarCheck,
+  BellRing,
+  Boxes,
+  Building2,
+  Briefcase,
+  CalendarClock,
   CalendarRange,
+  ClipboardList,
+  Clock4,
+  Gauge,
+  Hammer,
   HandCoins,
-  Inbox,
-  Scale,
-  Sunrise,
-  TrendingUp,
+  Handshake,
   KeyRound,
   Layers,
   LayoutGrid,
+  Package,
   PackagePlus,
   RefreshCw,
-  Receipt,
-  ScanBarcode,
-  Sparkles,
-  Undo2,
+  Scale,
+  Server,
+  Sun,
+  Target,
+  TrendingUp,
   Users,
   Wallet,
+  Fingerprint,
+  GraduationCap,
+  HeartHandshake,
+  Receipt,
+  Repeat2,
+  Percent,
+  PlayCircle,
+  Megaphone,
+  TicketPercent,
+  TrendingDown,
   type LucideIcon,
 } from "lucide-react"
 
 /// The navigation registry — one declaration the whole app reads.
 ///
-/// The tab bar draws `tabs`, the app-bar reads a screen's title out of here,
-/// and `routes.tsx` builds its tree from the same arrays. A path is declared
-/// once, so a tab cannot 404 and a screen cannot be routed with nothing
-/// leading to it.
+/// The shape is the hub's (`frontend-hub/src/lib/navigation.ts`), on the
+/// owner's instruction of 2026-09-25 that the till should look and move like
+/// the console: a dark rail of **modules** at the edge, a light sidebar of the
+/// active module's **screens** beside it, and a bar over the page carrying the
+/// breadcrumb. The rail draws `modules`, the sidebar draws the active module's
+/// `sections`, the phone's bottom bar draws `phoneTabs`, and `routes.tsx`
+/// builds the router from the same arrays — so a row cannot 404 and a screen
+/// cannot exist with nothing leading to it.
 ///
-/// The shape is not the console's. There is no rail and no sidebar, because
-/// DESIGN.md's phone expression has neither: **three to five destinations in a
-/// floating squircle bar, everything else behind the hamburger**. Four is what
-/// this till has — sell, receive, stock, reports — and that is not a
-/// simplification of the console's nine modules, it is the whole of what
-/// `store_router` can do.
+/// What is NOT the hub's is the set of modules. A shop has a counter, a range,
+/// a stockroom, a till's takings, its people and its premises; head office's
+/// finance, procurement and master data are not here because `store_router`
+/// cannot answer them.
 
-export interface TabItem {
+export interface NavItem {
   /// Absolute path. Must match a route in `routes.tsx` — the router is built
-  /// from these, so the two cannot drift.
+  /// from these, so it cannot drift.
   readonly path: string
-  /// The app-bar title while this screen is showing.
   readonly label: string
   readonly icon: LucideIcon
+  /// Routed and linkable, but not a row in the sidebar: a screen somebody
+  /// arrives at from another screen (the payment step, a product's card), not
+  /// one they set out for.
+  readonly hidden?: boolean
+  /// Where the back link goes on a hidden screen when there is no history to
+  /// go back to — a reload, or a link opened cold.
+  readonly back?: string
+  /// Old paths this screen used to answer at. `routes.tsx` redirects them
+  /// here, carrying their search, so a bookmark made before the move still
+  /// lands on the screen it named.
+  readonly moved?: readonly string[]
 }
 
-export interface PushedItem extends TabItem {
-  /// Where the back chip goes when there is no history to go back to — a
-  /// reload on a pushed screen, or a link opened cold. Declared rather than
-  /// inferred so the arrow always lands somewhere real.
-  readonly back: string
-  /// Whether the hamburger drawer put this screen on the stack. Drawer screens
-  /// are not part of any tab, so nothing in the bar lights up for them.
-  readonly fromDrawer?: boolean
-}
-
-/// The bar, left to right, in the order a shift uses them: what is sold, what
-/// the shop has, what arrives, what is on the shelf, what it all came to.
-///
-/// Five, and DESIGN.md's phone rule is **three to five**, so this is the last
-/// one that fits. The catalogue earns it over the drawer because it is not a
-/// setting: it is answered out loud to a customer, on the floor, away from the
-/// counter, several times an hour — and a destination somebody reaches that
-/// often behind a hamburger is a destination they walk to the till for instead.
-export const tabs: readonly TabItem[] = [
-  { path: "/sell", label: "Sell", icon: ScanBarcode },
-  { path: "/catalogue", label: "Catalogue", icon: LayoutGrid },
-  { path: "/receive", label: "Receive", icon: PackagePlus },
-  { path: "/stock", label: "Stock", icon: Layers },
-  { path: "/reports", label: "Reports", icon: BarChart3 },
-]
-
-/// Screens reached by pushing, not by tapping the bar.
-///
-/// A drill-in is a full-screen push with a back arrow and **no tab bar** —
-/// DESIGN.md is explicit that a pushed detail hides it. That rule is what keeps
-/// a payment screen from being escapable by a stray thumb halfway through
-/// taking money.
-export const pushed: readonly PushedItem[] = [
-  { path: "/sell/tender", label: "Payment", icon: Wallet, back: "/sell" },
-  { path: "/sell/receipt", label: "Receipt", icon: Receipt, back: "/sell" },
-  {
-    path: "/sell/queue",
-    label: "Not yet sent",
-    icon: ArrowLeftRight,
-    back: "/sell",
-  },
-  { path: "/sell/returns", label: "Returns", icon: Undo2, back: "/sell" },
-  // The drawer. Reached from the function board rather than the tab bar: it is
-  // pressed twice a day, at the two ends of a shift, and a destination in the
-  // bar is a destination somebody taps by accident mid-sale.
-  { path: "/till/shift", label: "Shift", icon: Wallet, back: "/sell" },
-  {
-    path: "/catalogue/product",
-    label: "Product",
-    icon: LayoutGrid,
-    back: "/catalogue",
-  },
-  // Not a tab of its own. What is on is a question about the range, asked while
-  // looking at the range, so it is reached from the catalogue rather than from
-  // a sixth squircle that would break the bar's own rule.
-  {
-    path: "/catalogue/offers",
-    label: "Promotions",
-    icon: Sparkles,
-    back: "/catalogue",
-  },
-  {
-    path: "/stock/movements",
-    label: "Movements",
-    icon: ArrowLeftRight,
-    back: "/stock",
-  },
-  {
-    path: "/node/sync",
-    label: "Sync",
-    icon: RefreshCw,
-    back: "/sell",
-    fromDrawer: true,
-  },
-  {
-    path: "/node/password",
-    label: "Change password",
-    icon: KeyRound,
-    back: "/sell",
-    fromDrawer: true,
-  },
-  // ── The money screens ─────────────────────────────────────────────────────
-  //
-  // Reached from the sidebar on a desk and from the drawer on a phone, and
-  // never from the tab bar: they are read at the end of a shift by whoever is
-  // responsible for the takings, not tapped between customers. That is also
-  // why they are `pushed` — a manager reading yesterday's trade with the tab
-  // bar still lit would be one thumb away from ringing a sale into it.
-  {
-    path: "/money/sales",
-    label: "Sales",
-    icon: TrendingUp,
-    back: "/sell",
-    fromDrawer: true,
-  },
-  {
-    path: "/money/reconciliation",
-    label: "Reconciliation",
-    icon: Scale,
-    back: "/sell",
-    fromDrawer: true,
-  },
-  {
-    path: "/money/expenses",
-    label: "Expenses",
-    icon: HandCoins,
-    back: "/sell",
-    fromDrawer: true,
-  },
-  // ── The people screens ────────────────────────────────────────────────────
-  //
-  // The first thing in this app that addresses HEAD OFFICE rather than the
-  // node behind the counter: the Edge has no employee, no roster and no leave,
-  // and a shop's rota is a fact about the company rather than about the
-  // shop's machine. See `lib/cloud.ts`.
-  //
-  // Five entries and no more, which is `prototypes/hr/menu-final.md`'s own
-  // ruling on what a store gets — Ringkasan, Karyawan, Jadwal & Kehadiran,
-  // Cuti & Lembur, Laporan — with Payroll and Pengaturan withheld from a shop
-  // there and withheld here. Reports is the one of the five with nothing
-  // behind it: there is no store-scoped HR report route at the centre, and a
-  // nav entry whose endpoint does not exist is worse than a missing entry.
-  //
-  // Pushed rather than tabbed, like the money screens and for the same reason:
-  // read once or twice a day by whoever is responsible for the shop's people,
-  // never tapped between customers.
-  //
-  // No `fromDrawer` on any of them, and it is a statement of fact rather than
-  // an omission: the hamburger in `components/shell/till-shell.tsx` is a
-  // hand-written list, not one generated from this flag, and it does not carry
-  // a People section. Below `md` these are reached by URL and then by the
-  // module's own strip. Adding that section to the drawer is the one change
-  // that closes it — and the flag should be set here on the same day.
-  { path: "/hr/today", label: "Today", icon: Sunrise, back: "/sell" },
-  // The four below fall back to Today rather than to Sell, because a cold
-  // reload inside the module should leave somebody in the module.
-  {
-    path: "/hr/roster",
-    label: "Roster",
-    icon: CalendarRange,
-    back: "/hr/today",
-  },
-  {
-    path: "/hr/requests",
-    label: "Leave & overtime",
-    icon: Inbox,
-    back: "/hr/today",
-  },
-  { path: "/hr/team", label: "Team", icon: Users, back: "/hr/today" },
-  {
-    path: "/hr/period",
-    label: "Month close",
-    icon: CalendarCheck,
-    back: "/hr/today",
-  },
-  // ── The premises ──────────────────────────────────────────────────────────
-  //
-  // What head office has on its register for THIS shop, read-only: a shop can
-  // check what it is holding and cannot add to it, which is the owner's
-  // ruling. Addresses the centre like the HR screens above and for the same
-  // reason — the Edge has no asset register, because what the company owns is
-  // a fact about the company.
-  //
-  // Pushed and not a sixth tab: DESIGN.md's phone rule is three to five, and a
-  // list read at a stock-take does not displace one of the five.
-  {
-    path: "/shop/assets",
-    label: "Assets",
-    icon: Boxes,
-    back: "/sell",
-    fromDrawer: true,
-  },
-  // What head office has told this shop. In the drawer and never in the
-  // app-bar: a count over the selling screen during a queue is an
-  // interruption, not news. The console's own bell is in its top bar because
-  // a desk is not a counter.
-  {
-    path: "/shop/news",
-    label: "Kabar",
-    icon: BellRing,
-    back: "/sell",
-    fromDrawer: true,
-  },
-]
-
-export const allNavItems: readonly TabItem[] = [...tabs, ...pushed]
-
-/// ── The desk's navigation ───────────────────────────────────────────────────
-///
-/// Added 2026-09-13, on the owner's instruction, and it is a real departure
-/// from what this app's README says: there was no sidebar here, by design.
-/// What the design did not survive is its own second half — the floating tab
-/// bar is drawn `md:hidden`, and the desk was supposed to carry the same
-/// destinations on its function board. Nothing ever drew that board, so every
-/// screen wider than 768px had NO navigation at all: an app-bar with a
-/// hamburger holding four account items, and no way to reach Catalogue,
-/// Receive, Stock or Reports at all.
-///
-/// So the counter gets the console's own column, in the console's own tokens,
-/// and the phone keeps its squircles. One registry still, and the sections
-/// below are an ORDER over paths already declared above — a screen cannot
-/// appear here without existing, and `routes.tsx` still throws if it does.
-///
-/// Money is first because that is the order the desk is used in: whoever opens
-/// this on a laptop opened it to read the takings, and whoever is selling is
-/// looking at the tab bar on a tablet, where Sell is still first.
 export interface NavSection {
-  readonly label: string
-  readonly paths: readonly string[]
+  /// Absent for the first group, which sits directly under the module title.
+  readonly label?: string
+  readonly items: readonly NavItem[]
 }
 
-/// The HR screens, in the order `prototypes/hr/menu-final.md` sets out — the
-/// summary first, because `#/people/overview/today` is the screen the owner
-/// pointed at, then the week, then what is waiting, then who works here, then
-/// signing the month off.
-///
-/// Named rather than written inline because **two** navigations draw them: the
-/// column below at `md+`, and the module's own strip on a phone, where there is
-/// no column. One list, so the two cannot disagree about what HR contains.
-const HR_PATHS = [
-  "/hr/today",
-  "/hr/roster",
-  "/hr/requests",
-  "/hr/team",
-  "/hr/period",
-] as const
+export interface AppModule {
+  readonly id: string
+  readonly label: string
+  readonly icon: LucideIcon
+  /// Where the module's rail tile lands. Always the first visible item.
+  readonly home: string
+  readonly sections: readonly NavSection[]
+}
 
-export const sidebar: readonly NavSection[] = [
-  {
-    label: "Money",
-    paths: [
-      "/money/sales",
-      "/money/reconciliation",
-      "/money/expenses",
-      "/reports",
-      "/till/shift",
-    ],
-  },
-  {
-    label: "Counter",
-    paths: ["/sell", "/catalogue", "/receive", "/stock"],
-  },
-  // Last, under Counter and above the node's own two screens, because it is
-  // the section a shop opens least: the rota is read at the start of a day and
-  // the month is closed once. Putting people above the counter would rank a
-  // monthly job over an hourly one.
-  {
-    label: "HR",
-    paths: HR_PATHS,
-  },
-  {
-    label: "The shop",
-    paths: ["/shop/news", "/shop/assets"],
-  },
-  {
-    label: "This node",
-    paths: ["/node/sync", "/node/password"],
-  },
+// ── The range ───────────────────────────────────────────────────────────────
+
+const catalogue: AppModule = {
+  id: "catalogue",
+  label: "Catalogue",
+  icon: LayoutGrid,
+  home: "/catalogue",
+  sections: [
+    {
+      items: [
+        { path: "/catalogue", label: "Catalogue", icon: LayoutGrid },
+        {
+          path: "/catalogue/product",
+          label: "Product",
+          icon: LayoutGrid,
+          hidden: true,
+          back: "/catalogue",
+        },
+      ],
+    },
+  ],
+}
+
+// ── What is on ───────────────────────────────────────────────────────────────
+//
+// Everything head office has put on offer at this shop, read from the price
+// book the node already holds — so it answers with the line down. The hub's
+// Commercial module (`frontend-hub/src/screens/commercial`) is where these
+// are written; this is where a shop reads them.
+
+const promotions: AppModule = {
+  id: "promotions",
+  label: "Promotions",
+  icon: Percent,
+  home: "/promotions",
+  sections: [
+    {
+      items: [
+        {
+          path: "/promotions",
+          label: "Promotions",
+          icon: Percent,
+          moved: ["/catalogue/offers"],
+        },
+        { path: "/promotions/campaigns", label: "Campaigns", icon: Megaphone },
+        {
+          path: "/promotions/price-drops",
+          label: "Price drops",
+          icon: TrendingDown,
+        },
+        {
+          path: "/promotions/vouchers",
+          label: "Vouchers",
+          icon: TicketPercent,
+        },
+      ],
+    },
+  ],
+}
+
+// ── The stockroom ───────────────────────────────────────────────────────────
+
+const stock: AppModule = {
+  id: "stock",
+  label: "Stock",
+  icon: Layers,
+  home: "/stock",
+  sections: [
+    {
+      items: [
+        { path: "/stock", label: "On hand", icon: Layers },
+        { path: "/receive", label: "Receive", icon: PackagePlus },
+        { path: "/stock/movements", label: "Movements", icon: ArrowLeftRight },
+      ],
+    },
+  ],
+}
+
+// ── The takings ─────────────────────────────────────────────────────────────
+
+const money: AppModule = {
+  id: "money",
+  label: "Money",
+  icon: Wallet,
+  home: "/money/sales",
+  sections: [
+    {
+      items: [
+        { path: "/money/sales", label: "Sales", icon: TrendingUp },
+        { path: "/money/reconciliation", label: "Reconciliation", icon: Scale },
+        { path: "/money/expenses", label: "Expenses", icon: HandCoins },
+        { path: "/reports", label: "Reports", icon: BarChart3 },
+      ],
+    },
+  ],
+}
+
+// ── The people ──────────────────────────────────────────────────────────────
+//
+// The shop's face of the People prototype (`prototypes/hr-v3/hr.html`, role
+// "HR toko", `navModel()`): the same menu head office has, minus Setup and the
+// HRMS map — a shop records what happened (who came, who asked for leave, who
+// worked late, what was spent) and head office owns the rules and the money.
+// Fourteen screens in the prototype's four groups and its order; Payroll is a
+// shop's month close, not a run.
+
+const people: AppModule = {
+  id: "people",
+  label: "People",
+  icon: Users,
+  home: "/hr/overview",
+  sections: [
+    {
+      items: [
+        {
+          path: "/hr/overview",
+          label: "Overview",
+          icon: Gauge,
+          moved: ["/hr/today"],
+        },
+        {
+          path: "/hr/directory",
+          label: "Directory",
+          icon: Users,
+          moved: ["/hr/team"],
+        },
+      ],
+    },
+    {
+      label: "Time",
+      items: [
+        { path: "/hr/roster", label: "Roster", icon: CalendarRange },
+        { path: "/hr/attendance", label: "Attendance", icon: Fingerprint },
+        {
+          path: "/hr/leave",
+          label: "Leave",
+          icon: Sun,
+          moved: ["/hr/requests"],
+        },
+        { path: "/hr/overtime", label: "Overtime", icon: Clock4 },
+      ],
+    },
+    {
+      label: "Pay",
+      items: [
+        {
+          path: "/hr/payroll",
+          label: "Payroll",
+          icon: PlayCircle,
+          moved: ["/hr/period"],
+        },
+        { path: "/hr/expenses", label: "Expenses", icon: Receipt },
+        { path: "/hr/benefits", label: "Benefits", icon: HeartHandshake },
+      ],
+    },
+    {
+      label: "Talent",
+      items: [
+        {
+          path: "/hr/recruitment",
+          label: "Recruitment",
+          icon: Briefcase,
+          moved: ["/hr/interviews"],
+        },
+        {
+          path: "/hr/lifecycle",
+          label: "Onboarding & exit",
+          icon: ClipboardList,
+          moved: ["/hr/tasks"],
+        },
+        {
+          path: "/hr/changes",
+          label: "Employment changes",
+          icon: Repeat2,
+        },
+        { path: "/hr/performance", label: "Performance", icon: Target },
+        { path: "/hr/training", label: "Training", icon: GraduationCap },
+      ],
+    },
+  ],
+}
+
+// ── The premises ────────────────────────────────────────────────────────────
+//
+// General affairs for THIS shop only: the hub's GA domain
+// (`frontend-hub/src/screens/{ga,assets,contracts,maintenance,supplies}`) cut
+// down to what a shop has — its own assets, the contracts that keep it open
+// (rent, services, insurance, permits, utilities), its repairs and servicing,
+// and what it asks head office for. Vendors, letters and the other places'
+// registers are head office's and are not here. The client's own chart of
+// accounts carries the same split per shop (C001–C013): rent, fixed assets
+// and operating equipment, repairs, utilities, permits and insurance.
+//
+// Overview first, then the three registers a shop READS — what it holds, the
+// deals it runs under, what is scheduled to be serviced — and last the two
+// places it ASKS: a repair when something breaks, supplies when something
+// runs out. Every screen is answered by head office through the calls the
+// edge→cloud relay allowlists, always for this node's own site.
+const ga: AppModule = {
+  id: "ga",
+  label: "GA",
+  icon: Building2,
+  home: "/ga",
+  sections: [
+    {
+      items: [{ path: "/ga", label: "Overview", icon: Gauge }],
+    },
+    {
+      label: "Premises",
+      items: [
+        {
+          path: "/ga/assets",
+          label: "Assets",
+          icon: Boxes,
+          moved: ["/shop/assets"],
+        },
+        { path: "/ga/contracts", label: "Contracts", icon: Handshake },
+        { path: "/ga/servicing", label: "Servicing", icon: CalendarClock },
+      ],
+    },
+    {
+      label: "Requests",
+      items: [
+        { path: "/ga/repairs", label: "Repairs", icon: Hammer },
+        { path: "/ga/supplies", label: "Supplies", icon: Package },
+      ],
+    },
+  ],
+}
+
+/// The rail's column, top to bottom, in the order a shift reaches for them.
+export const modules: readonly AppModule[] = [
+  catalogue,
+  promotions,
+  stock,
+  money,
+  people,
+  ga,
 ]
 
-/// Resolve declared paths to the entries that declare them. Throws at module
-/// load on a path no nav entry claims, for the same reason `routes.tsx` does: a
-/// row that leads nowhere should fail in the console on boot, not under a
-/// manager's thumb at closing time.
-function resolve(paths: readonly string[]): readonly TabItem[] {
-  return paths.map((path) => {
-    const item = allNavItems.find((entry) => entry.path === path)
-    if (item === undefined) {
-      throw new Error(`navigation names "${path}", which no nav entry declares`)
-    }
-    return item
-  })
+/// This machine: the one module that is about the node rather than the shop.
+/// It sits at the foot of the rail as a bare icon, the way the hub's System
+/// does, because it is opened when something is wrong rather than every hour.
+export const nodeModule: AppModule = {
+  id: "node",
+  label: "This node",
+  icon: Server,
+  home: "/node/sync",
+  sections: [
+    {
+      items: [
+        { path: "/node/sync", label: "Sync", icon: RefreshCw },
+        { path: "/node/password", label: "Change password", icon: KeyRound },
+      ],
+    },
+  ],
 }
 
-export const sidebarSections: readonly {
-  label: string
-  items: readonly TabItem[]
-}[] = sidebar.map((section) => ({
-  label: section.label,
-  items: resolve(section.paths),
-}))
+/// What head office has said to this shop — the hub's bell. Not a module a
+/// shop works in, so it is a bell in the bar and an icon at the rail's foot
+/// rather than a tile in the column.
+export const newsModule: AppModule = {
+  id: "news",
+  label: "Kabar",
+  icon: BellRing,
+  home: "/news",
+  sections: [
+    {
+      items: [
+        {
+          path: "/news",
+          label: "Kabar",
+          icon: BellRing,
+          moved: ["/shop/news"],
+        },
+      ],
+    },
+  ],
+}
 
-/// The HR screens for the module's own strip.
-///
-/// That strip exists because this app's single-navigation rule leaves people
-/// nowhere to go below `md`: the column is drawn `md:hidden`-inverted, and the
-/// floating squircle bar — which is the phone's navigation — is hidden on a
-/// pushed screen, which every HR screen is. A five-screen module with no way
-/// to move between its own screens on a phone is four screens nobody reaches.
-export const hrItems: readonly TabItem[] = resolve(HR_PATHS)
+export const allModules: readonly AppModule[] = [
+  ...modules,
+  newsModule,
+  nodeModule,
+]
 
-/// Which tab owns a path, so the bar lights the right squircle for a URL that
-/// was pasted in rather than tapped to. Longest match wins.
-export function tabForPath(pathname: string): TabItem | null {
-  let best: TabItem | null = null
-  for (const tab of tabs) {
-    const matches = pathname === tab.path || pathname.startsWith(tab.path + "/")
-    if (!matches) continue
-    if (best === null || tab.path.length > best.path.length) best = tab
+export const allNavItems: readonly NavItem[] = allModules.flatMap((module) =>
+  module.sections.flatMap((section) => section.items),
+)
+
+/// Whether a module earns a sidebar column at all. One screen does not: a
+/// column holding a single row is a column saying what the rail already said,
+/// and the width is worth more to the grid beside it (the catalogue).
+export function hasSidebar(module: AppModule): boolean {
+  return visibleSections(module).flatMap((section) => section.items).length > 1
+}
+
+/// The sidebar's rows for a module: everything that is not `hidden`.
+export function visibleSections(module: AppModule): readonly NavSection[] {
+  return module.sections
+    .map((section) => ({
+      label: section.label,
+      items: section.items.filter((item) => item.hidden !== true),
+    }))
+    .filter((section) => section.items.length > 0)
+}
+
+/// The phone's bottom bar. A phone has no rail and no sidebar, so the four
+/// places a shop goes most sit under the thumb and everything else is behind
+/// the last tab, which opens the same rail and sidebar as a drawer.
+export const phoneTabs: readonly AppModule[] = [catalogue, stock, money, people]
+
+/// The nav entry at this exact path, or the longest one it sits under.
+export function screenForPath(pathname: string): NavItem | undefined {
+  let best: NavItem | undefined
+  for (const item of allNavItems) {
+    const matches =
+      pathname === item.path || pathname.startsWith(`${item.path}/`)
+    if (matches && item.path.length > (best?.path.length ?? -1)) best = item
   }
   return best
 }
 
-/// The pushed screen at this path, if the path is one. `null` means a top-level
-/// screen, which is the same thing as "show the tab bar and the hamburger".
-export function pushedForPath(pathname: string): PushedItem | null {
-  return pushed.find((item) => item.path === pathname) ?? null
+/// The module that owns a path — by the screen it resolves to, not by a URL
+/// prefix, because the stockroom owns `/receive` and the takings own
+/// `/reports`, neither of which shares a prefix with its module's home.
+export function moduleForPath(pathname: string): AppModule {
+  const screen = screenForPath(pathname)
+  if (screen !== undefined) {
+    const owner = allModules.find((module) =>
+      module.sections.some((section) => section.items.includes(screen)),
+    )
+    if (owner !== undefined) return owner
+  }
+  return modules[0]
 }
 
-/// What the app-bar should say. DESIGN.md: sections are named by the section,
-/// pushed details by the record — so a screen title comes from one registry and
-/// a record id is added by the screen itself.
+/// Where the app opens, and where a screen with nowhere else to go returns.
+/// Selling is not here: the counter runs on the POS app (`pos-desktop`), and
+/// this app is the shop's back office.
+export const homePath = modules[0].home
+
+/// What the bar and the tab title say for a path.
 export function titleForPath(pathname: string): string {
-  return allNavItems.find((item) => item.path === pathname)?.label ?? "Till"
+  return screenForPath(pathname)?.label ?? "Till"
 }
+
+/// The HR screens, for the People module's own strip on a phone — where the
+/// sidebar is a drawer and moving between fourteen related screens by opening
+/// it each time is a tap too many every time.
+export const hrItems: readonly NavItem[] = visibleSections(people).flatMap(
+  (section) => section.items,
+)

@@ -759,6 +759,7 @@ pub async fn opening_import_balances(
             lines: of_site
                 .iter()
                 .map(|line| PostingLine {
+                    dimensions: Vec::new(),
                     // A code and not a meaning, and this is the one caller in
                     // the system entitled to say so: an opening balance names
                     // prepaid rent, a director's loan and accumulated
@@ -776,7 +777,8 @@ pub async fn opening_import_balances(
                     counter_site_id: line.counter_site_id.clone(),
                     debit_minor: line.debit_minor,
                     credit_minor: line.credit_minor,
-                    supplier_id: None,
+                    party_type: None,
+                    party_id: None,
                     asset_id: None,
                     bank_account_id: None,
                     memo: line
@@ -1513,7 +1515,7 @@ pub async fn opening_cutover_report(
             amount_minor: row.try_get("ledger_outstanding_minor")?,
             why: format!(
                 "no account is mapped for '{key}'{} at this place, so the open items against \
-                 it have no line in the books to be compared with; set it on the Account Map",
+                 it have no line in the books to be compared with; link it on the Account Links screen",
                 if qualifier.is_empty() {
                     String::new()
                 } else {

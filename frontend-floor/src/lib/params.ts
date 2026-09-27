@@ -1,4 +1,5 @@
-import { useNavigate, useSearch } from "@tanstack/react-router"
+import { useNavigate, useRouter, useSearch } from "@tanstack/react-router"
+import { useState } from "react"
 
 /// The screen state that belongs in the URL, named once.
 ///
@@ -47,9 +48,10 @@ export const PARAMS = {
   po: text,
   /// The shop a pack sheet is filling for.
   toko: text,
-  /// A record a pushed screen is showing — a pick round, a carton, a dispatch,
-  /// a stock take, a tagging job. One key rather than five, because a pushed
-  /// screen shows exactly one thing and the path already says what kind.
+  /// The one record a pushed screen or a station's sheet is showing — a pick
+  /// round, a carton, a dispatch, a stock take, a tagging job. One key rather
+  /// than five, because either shows exactly one thing and the path already
+  /// says what kind.
   id: text,
   /// The rack picking is taking stock off. In the URL because it survives the
   /// phone sleeping mid-round, and because a pick written against the wrong pool
@@ -104,5 +106,74 @@ export function useParam<K extends ParamKey>(key: K) {
         replace: true,
         search: (previous: Search) => ({ ...previous, [key]: next }),
       }),
+  }
+}
+
+declare module "@tanstack/history" {
+  interface HistoryState {
+    /// Which sheet pushed this entry — see `useSheetParam`.
+    sheet?: ParamKey
+  }
+}
+
+/// A station's sheet whose record is in the URL — the order being counted, the
+/// shop being packed for — opened so that the phone's back button closes it.
+///
+/// `useParam` replaces, which is right for a slice or a rack and wrong here:
+/// on Android the hardware back button is how a sheet is put away, and with
+/// the sheet written over the list's own entry that press left the station
+/// altogether, with the count still on the glass a moment before. So opening
+/// PUSHES an entry, marked as this sheet's, and closing goes back through it —
+/// the swipe, the save and the back button all end on the same entry.
+///
+/// A sheet reached cold — a reload, a pasted link — has no entry of its own
+/// behind it, so closing replaces instead; going back from there would leave
+/// the app. Moving from one record to the next while the sheet is up replaces
+/// too, so back is one press however many orders somebody looked at.
+///
+/// Closed at once, not when the URL catches up. `history.back()` lands on a
+/// later `popstate`, and Base UI's drawer checks on the very next frame whether
+/// its dismiss was taken — a sheet still open then is put back, so a swipe
+/// would bounce up before sliding away. So the record being closed reads as
+/// gone the moment `close()` is called, and a second `close()` before the first
+/// lands does nothing rather than stepping back out of the station.
+export function useSheetParam<K extends ParamKey>(key: K) {
+  const navigate = useNavigate()
+  const router = useRouter()
+  const search = useSearch({ strict: false }) as Search
+  const [closing, setClosing] = useState<Search[K]>(undefined)
+  const current = search[key]
+  // Only while the URL still names the record being closed: the moment it
+  // changes — the back landed, or another record was opened — this lapses.
+  const shut = closing !== undefined && closing === current
+  // Once the URL has moved on, forget it — or the same record opened again
+  // later (a second look at the same order, the forward button) would read as
+  // still being closed and never rise.
+  if (closing !== undefined && closing !== current) setClosing(undefined)
+  return {
+    value: shut ? undefined : current,
+    open: (next: NonNullable<Search[K]>) => {
+      setClosing(undefined)
+      void navigate({
+        to: ".",
+        replace: search[key] !== undefined,
+        search: (previous: Search) => ({ ...previous, [key]: next }),
+        state: (previous) => ({ ...previous, sheet: key }),
+      })
+    },
+    close: () => {
+      if (current === undefined || shut) return
+      setClosing(current)
+      const here = router.state.location
+      if (here.state.sheet === key && router.history.canGoBack()) {
+        router.history.back()
+        return
+      }
+      void navigate({
+        to: ".",
+        replace: true,
+        search: (previous: Search) => ({ ...previous, [key]: undefined }),
+      })
+    },
   }
 }

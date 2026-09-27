@@ -18,6 +18,17 @@ export function money(amountIdr: number): string {
   return rupiah.format(amountIdr)
 }
 
+/// `YYYY-MM-DD` in local time.
+///
+/// Not `toISOString().slice(0, 10)`, which converts to UTC first and so hands
+/// back yesterday for anybody east of Greenwich — which is everybody using
+/// this.
+export function isoDate(date: Date): string {
+  const month = `${date.getMonth() + 1}`.padStart(2, "0")
+  const day = `${date.getDate()}`.padStart(2, "0")
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
 /// A plain date is parsed with an explicit midnight rather than handed to
 /// `new Date("2026-09-01")`, which the language reads as UTC and so renders as
 /// the day before for anybody east of Greenwich.

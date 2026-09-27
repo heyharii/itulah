@@ -2,9 +2,14 @@
 //!
 //! # Two tables and one rule between them
 //!
-//! `payment_destination` is the master: a recipient's bank account, live and
+//! `bank_account` is the master: one table for every role an account can
+//! play, of which this module owns the party's half — the rows with
+//! `is_company_account = false`, a recipient's bank account, live and
 //! editable. `payment_destination_snapshot` is what a payment holds: a copy of
-//! that account as it was when the money moved, immutable by trigger.
+//! that account as it was when the money moved, immutable by trigger, and
+//! history now: the merge that made the one table dropped the snapshot's
+//! foreign key along with the table it pointed at, so the destination id it
+//! keeps is a label and never a lookup.
 //!
 //! The rule this module exists to keep is that **no read answering "what was
 //! this paid to" follows `destination_id`**. It is stated here rather than only
@@ -37,7 +42,7 @@ use uuid::Uuid;
 /// The symmetric key, from the environment.
 ///
 /// Absent is a refusal and never a fallback. See the module header.
-fn destination_key() -> Result<String, AppError> {
+pub(crate) fn destination_key() -> Result<String, AppError> {
     std::env::var("PAYMENT_DESTINATION_KEY")
         .ok()
         .map(|value| value.trim().to_string())
@@ -54,7 +59,7 @@ fn destination_key() -> Result<String, AppError> {
 }
 
 /// SHA-256 of the digits, hex. Answers "the same account?" without decrypting.
-fn fingerprint(digits: &str) -> String {
+pub(crate) fn fingerprint(digits: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(digits.as_bytes());
     hex::encode(hasher.finalize())
@@ -92,10 +97,18 @@ pub struct PaymentDestinationRow {
     pub updated_at: DateTime<Utc>,
 }
 
-const DESTINATION_COLUMNS: &str = "d.destination_id, d.party_type, d.party_id, d.party_name,
-     d.bank_name, d.bank_code, d.account_number_mask, d.account_holder,
+/// What a party row reads as. The names stay the destination's names —
+/// `account_id` arrives as `destination_id`, and the institution's name and
+/// code come along from `bank`, or arrive as nothing: `bank_id` is nullable
+/// on the party side, and a row that names no institution prints no bank.
+/// The reason a row was taken out of use is the `note` this table carries
+/// where the old one had deactivated columns.
+const DESTINATION_COLUMNS: &str =
+    "d.account_id AS destination_id, d.party_type, d.party_id, d.party_name,
+     COALESCE(b.name, '') AS bank_name, b.code AS bank_code,
+     d.account_number_mask, d.account_holder,
      d.verification_status, d.verified_by, d.verified_at, d.verification_note,
-     d.active, d.deactivated_reason, d.owner_domain,
+     d.active, d.note AS deactivated_reason, d.owner_domain,
      d.created_by, d.created_at, d.updated_by, d.updated_at";
 
 fn to_destination(row: &sqlx::postgres::PgRow) -> Result<PaymentDestinationRow, AppError> {
@@ -184,11 +197,13 @@ pub async fn payment_destination_list(
     limit: i64,
 ) -> Result<Vec<PaymentDestinationRow>, AppError> {
     let sql = format!(
-        "SELECT {DESTINATION_COLUMNS} FROM payment_destination d
-          WHERE ($1::text IS NULL OR d.party_type = $1)
+        "SELECT {DESTINATION_COLUMNS} FROM bank_account d
+          LEFT JOIN bank b ON b.bank_id = d.bank_id
+          WHERE NOT d.is_company_account
+            AND ($1::text IS NULL OR d.party_type = $1)
             AND ($2::text IS NULL OR d.party_id = $2)
             AND ($3 OR d.active)
-          ORDER BY d.party_name, d.bank_name, d.created_at
+          ORDER BY d.party_name, bank_name, d.created_at
           LIMIT $4"
     );
     let rows = sqlx::query(&sql)
@@ -206,7 +221,9 @@ pub async fn payment_destination_read(
     destination_id: Uuid,
 ) -> Result<PaymentDestinationRow, AppError> {
     let sql = format!(
-        "SELECT {DESTINATION_COLUMNS} FROM payment_destination d WHERE d.destination_id = $1"
+        "SELECT {DESTINATION_COLUMNS} FROM bank_account d
+          LEFT JOIN bank b ON b.bank_id = d.bank_id
+          WHERE d.account_id = $1 AND NOT d.is_company_account"
     );
     let row = sqlx::query(&sql)
         .bind(destination_id)
@@ -271,19 +288,18 @@ pub async fn payment_destination_create(
     }
     assert_finance_may_write(&owner_domain, party_name)?;
 
-    let destination_id = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO payment_destination
-           (destination_id, party_type, party_id, party_name, bank_name, bank_code,
-            account_number_enc, account_number_mask, account_number_fingerprint,
-            account_holder, owner_domain, created_by, updated_by)
-         VALUES ($1,$2,$3,$4,$5,$6,pgp_sym_encrypt($7,$8),$9,$10,$11,$12,$13,$13)",
+    // The institution is a row in `bank` now, not a typed name. The code the
+    // user knows and the name they type both resolve against the bank
+    // master's normalized name — the code wins when both answer — and a row
+    // naming an institution nobody has heard of carries no institution at
+    // all: `bank_id` is nullable on the party side.
+    let bank_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT bank_id FROM bank
+          WHERE normalized_name = upper(btrim($1))
+             OR normalized_name = upper(btrim($2))
+          ORDER BY (normalized_name = upper(btrim($1))) DESC NULLS LAST, bank_id
+          LIMIT 1",
     )
-    .bind(destination_id)
-    .bind(&party_type)
-    .bind(party_id)
-    .bind(party_name)
-    .bind(bank_name)
     .bind(
         request
             .bank_code
@@ -291,6 +307,28 @@ pub async fn payment_destination_create(
             .map(str::trim)
             .filter(|value| !value.is_empty()),
     )
+    .bind(bank_name)
+    .fetch_optional(pool)
+    .await?;
+
+    let destination_id = Uuid::new_v4();
+    let inserted = sqlx::query(
+        "INSERT INTO bank_account
+           (account_id, is_company_account, party_type, party_id, party_name,
+            bank_id, account_number_enc, account_number_mask,
+            account_number_fingerprint, account_holder, owner_domain,
+            verification_status, created_by, updated_by)
+         VALUES ($1, false, $2, $3, $4, $5, pgp_sym_encrypt($6,$7), $8, $9, $10, $11,
+                 'UNVERIFIED', $12, $12)
+         ON CONFLICT (party_type, party_id, account_number_fingerprint)
+           WHERE active AND account_number_fingerprint IS NOT NULL
+           DO NOTHING",
+    )
+    .bind(destination_id)
+    .bind(&party_type)
+    .bind(party_id)
+    .bind(party_name)
+    .bind(bank_id)
     .bind(&digits)
     .bind(&key)
     .bind(&mask)
@@ -302,22 +340,32 @@ pub async fn payment_destination_create(
     .await
     .map_err(duplicate_account)?;
 
+    // The partial index is the arbiter: nothing inserted is the same account
+    // already live for this party.
+    if inserted.rows_affected() == 0 {
+        return Err(duplicate_account_message());
+    }
+
     payment_destination_read(pool, destination_id).await
 }
 
 /// The unique index's message, in the words of what somebody just did.
 fn duplicate_account(error: sqlx::Error) -> AppError {
     if let sqlx::Error::Database(db) = &error {
-        if db.constraint() == Some("ux_payment_destination_live") {
-            return AppError::Conflict(
-                "that account is already on file for this party. Deactivate the one that is \
-                 there before adding it again, so there is never a question about which of two \
-                 identical rows a payment used"
-                    .into(),
-            );
+        if db.constraint() == Some("ux_bank_account_fingerprint") {
+            return duplicate_account_message();
         }
     }
     AppError::from(error)
+}
+
+fn duplicate_account_message() -> AppError {
+    AppError::Conflict(
+        "that account is already on file for this party. Deactivate the one that is \
+         there before adding it again, so there is never a question about which of two \
+         identical rows a payment used"
+            .into(),
+    )
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -355,10 +403,10 @@ pub async fn payment_destination_verify(
     }
 
     sqlx::query(
-        "UPDATE payment_destination
+        "UPDATE bank_account
             SET verification_status = $2, verified_by = $3, verified_at = now(),
                 verification_note = $4, updated_by = $3, updated_at = now()
-          WHERE destination_id = $1",
+          WHERE account_id = $1",
     )
     .bind(destination_id)
     .bind(if request.verified {
@@ -392,11 +440,16 @@ pub async fn payment_destination_deactivate(
     if !existing.active {
         return Ok(existing);
     }
+    // The table has no deactivated columns: taking an account out of use is
+    // retiring it, and the row's own CHECK wants both halves at once —
+    // `active = false` and `retired_at` set together. The reason goes to
+    // `note`, which is what a read hands back as the deactivated reason; the
+    // actor is already on the row as the last one who updated it.
     sqlx::query(
-        "UPDATE payment_destination
-            SET active = false, deactivated_by = $2, deactivated_at = now(),
-                deactivated_reason = $3, updated_by = $2, updated_at = now()
-          WHERE destination_id = $1",
+        "UPDATE bank_account
+            SET active = false, retired_at = now(), note = $3,
+                updated_by = $2, updated_at = now()
+          WHERE account_id = $1",
     )
     .bind(destination_id)
     .bind(actor)
@@ -419,7 +472,7 @@ pub(super) async fn payment_destination_number(
     let key = destination_key()?;
     let row = sqlx::query(
         "SELECT pgp_sym_decrypt(account_number_enc, $2) AS digits
-           FROM payment_destination WHERE destination_id = $1",
+           FROM bank_account WHERE account_id = $1 AND NOT is_company_account",
     )
     .bind(destination_id)
     .bind(&key)
@@ -490,6 +543,49 @@ pub(super) async fn payment_destination_snapshot_take(
     destination_id: Uuid,
     actor: &str,
 ) -> Result<Uuid, AppError> {
+    // The copy reads its source inside the same transaction. The snapshot's
+    // columns are NOT NULL where the merged table is nullable, and on purpose:
+    // a party row may name no institution, but a payment record cannot — a
+    // payment history that cannot say which bank was paid is the failure this
+    // table exists to prevent. So a destination with no bank on it refuses
+    // here, before any snapshot and any payment, rather than writing a copy
+    // that says nothing.
+    let source = sqlx::query(
+        "SELECT b.name AS bank_name, b.code AS bank_code,
+                d.account_number_mask, d.account_holder,
+                d.verification_status, d.verified_by, d.verified_at,
+                d.party_type, d.party_id, d.party_name
+           FROM bank_account d
+           LEFT JOIN bank b ON b.bank_id = d.bank_id
+          WHERE d.account_id = $1 AND NOT d.is_company_account",
+    )
+    .bind(destination_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound("payment destination".into()))?;
+
+    let party_name: String = source.try_get("party_name")?;
+    let bank_name: String = source
+        .try_get::<Option<String>, _>("bank_name")?
+        .filter(|name| !name.trim().is_empty())
+        .ok_or_else(|| {
+            AppError::Conflict(format!(
+                "{party_name}'s account names no bank, and a payment cannot be made to an \
+                 account with no bank on it; take the account down and key it again with \
+                 its bank",
+                party_name = party_name.clone()
+            ))
+        })?;
+    let bank_code: Option<String> = source.try_get("bank_code")?;
+    let account_number_mask: String = source.try_get("account_number_mask")?;
+    let account_holder: String = source.try_get("account_holder")?;
+    let verification_status: String = source.try_get("verification_status")?;
+    let verified_by: Option<String> = source.try_get("verified_by")?;
+    let verified_at: Option<DateTime<Utc>> = source.try_get("verified_at")?;
+    let party_type: String = source.try_get("party_type")?;
+    let party_id: String = source.try_get("party_id")?;
+    let party_name: String = source.try_get("party_name")?;
+
     let snapshot_id = Uuid::new_v4();
     let done = sqlx::query(
         "INSERT INTO payment_destination_snapshot
@@ -497,18 +593,23 @@ pub(super) async fn payment_destination_snapshot_take(
             bank_name, bank_code, account_number_mask, account_holder,
             verification_status, verified_by, verified_at,
             party_type, party_id, party_name, taken_by)
-         SELECT $1, $2, $3, d.destination_id,
-                d.bank_name, d.bank_code, d.account_number_mask, d.account_holder,
-                d.verification_status, d.verified_by, d.verified_at,
-                d.party_type, d.party_id, d.party_name, $5
-           FROM payment_destination d
-          WHERE d.destination_id = $4
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
          ON CONFLICT (payment_kind, payment_id) DO NOTHING",
     )
     .bind(snapshot_id)
     .bind(payment_kind)
     .bind(payment_id)
     .bind(destination_id)
+    .bind(&bank_name)
+    .bind(bank_code)
+    .bind(&account_number_mask)
+    .bind(&account_holder)
+    .bind(&verification_status)
+    .bind(verified_by)
+    .bind(verified_at)
+    .bind(&party_type)
+    .bind(&party_id)
+    .bind(&party_name)
     .bind(actor)
     .execute(&mut **tx)
     .await?;
@@ -516,10 +617,9 @@ pub(super) async fn payment_destination_snapshot_take(
     if done.rows_affected() == 1 {
         return Ok(snapshot_id);
     }
-    // Either the destination is gone, or this payment already has a copy —
-    // which is what a retried execution looks like, and is not an error. The
-    // existing one is the answer, because the first copy is the one taken when
-    // the money moved.
+    // This payment already has a copy — which is what a retried execution
+    // looks like, and is not an error. The existing one is the answer, because
+    // the first copy is the one taken when the money moved.
     let existing: Option<Uuid> = sqlx::query_scalar(
         "SELECT snapshot_id FROM payment_destination_snapshot
           WHERE payment_kind = $1 AND payment_id = $2",

@@ -76,13 +76,13 @@ function StopRow({
         {kind === "from" ? <Target /> : <MapPin />}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[0.78125rem] font-medium text-ink">
+        <span className="block truncate text-[0.875rem] font-medium text-ink">
           {stop.place}
         </span>
         {stop.detail && (
           <span
             className={cn(
-              "block truncate text-[0.71875rem]",
+              "block truncate text-[0.875rem]",
               stop.late ? "text-bad" : "text-mute"
             )}
           >
@@ -93,7 +93,7 @@ function StopRow({
       {stop.at && (
         <span
           className={cn(
-            "shrink-0 text-[0.6875rem] whitespace-nowrap tabular-nums",
+            "shrink-0 text-[0.875rem] whitespace-nowrap tabular-nums",
             stop.late ? "text-bad" : "text-mute"
           )}
         >

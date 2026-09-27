@@ -276,13 +276,13 @@ def seed_promotions(db: Db, publication: str, rng: random.Random) -> None:
     )
 
     rules = [
-        ("BUY2GET1-TEES", "Buy 2 get 1 free on tees", {"kind": "BUY_X_GET_Y", "buy": 2, "get": 1, "division": "MENSWEAR"}, 10),
-        ("PCT10-KIDS", "10% off kids", {"kind": "PERCENT_OFF", "percent": 10, "division": "KIDS"}, 20),
-        ("PCT15-WOMENS", "15% off womenswear", {"kind": "PERCENT_OFF", "percent": 15, "division": "WOMENSWEAR"}, 20),
+        ("BUY2GET1-TEES", "Buy 2 get 1 free on tees", {"kind": "BUY_X_GET_Y", "buy": 2, "get": 1, "division": "PRIA"}, 10),
+        ("PCT10-KIDS", "10% off kids", {"kind": "PERCENT_OFF", "percent": 10, "division": "ANAK_LAKI"}, 20),
+        ("PCT15-WOMENS", "15% off womenswear", {"kind": "PERCENT_OFF", "percent": 15, "division": "WANITA"}, 20),
         ("BASKET-500K", "Rp25.000 off baskets over Rp500.000", {"kind": "BASKET_THRESHOLD", "threshold_minor": 50_000_000, "discount_minor": 2_500_000}, 30),
-        ("PCT20-FOOTWEAR", "20% off footwear", {"kind": "PERCENT_OFF", "percent": 20, "division": "FOOTWEAR"}, 20),
+        ("PCT20-FOOTWEAR", "20% off footwear", {"kind": "PERCENT_OFF", "percent": 20, "division": "SANDAL_SEPATU"}, 20),
         ("MEMBER-5", "Extra 5% for members", {"kind": "PERCENT_OFF", "percent": 5, "member_only": True}, 40),
-        ("ACC-2FOR", "Two accessories for Rp99.000", {"kind": "BUNDLE_PRICE", "quantity": 2, "price_minor": 9_900_000, "division": "ACCESSORY"}, 15),
+        ("ACC-2FOR", "Two accessories for Rp99.000", {"kind": "BUNDLE_PRICE", "quantity": 2, "price_minor": 9_900_000, "division": "AKSESORIS"}, 15),
         ("CLEARANCE-30", "30% off clearance lines", {"kind": "PERCENT_OFF", "percent": 30, "tag": "CLEARANCE"}, 25),
     ]
     db.copy(
@@ -689,7 +689,7 @@ def seed_segments(db: Db) -> None:
         ("New this quarter", "Members enrolled in the last ninety days",
          {"joined_days": {"lte": 90}}),
         ("Footwear buyers", "Anybody who has bought a pair of shoes",
-         {"division": "FOOTWEAR", "purchases": {"gte": 1}}),
+         {"division": "SANDAL_SEPATU", "purchases": {"gte": 1}}),
     ]
     statements = ["BEGIN;"]
     for name, purpose, definition in definitions:

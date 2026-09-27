@@ -141,7 +141,7 @@ export function Overview() {
                   <CardTitle>Latest back over the counter</CardTitle>
                   <AppLink
                     to="/sales/returns"
-                    className="text-[0.75rem] font-medium text-accent hover:underline"
+                    className="text-[0.875rem] font-medium text-accent hover:underline"
                   >
                     All returns
                   </AppLink>
@@ -159,11 +159,11 @@ export function Overview() {
                             <AppLink
                               to="/sales/returns"
                               sheet={{ key: "refund", value: entry.id }}
-                              className="block font-mono text-[0.65625rem] text-accent hover:underline"
+                              className="block font-mono text-[0.875rem] text-accent hover:underline"
                             >
                               {entry.return_number}
                             </AppLink>
-                            <span className="text-[0.65625rem] text-mute">
+                            <span className="text-[0.875rem] text-mute">
                               {moment(entry.created_at)}
                             </span>
                           </td>
@@ -185,7 +185,7 @@ export function Overview() {
                   <CardTitle>Where the fleet stands</CardTitle>
                   <AppLink
                     to="/sales/analytics"
-                    className="text-[0.75rem] font-medium text-accent hover:underline"
+                    className="text-[0.875rem] font-medium text-accent hover:underline"
                   >
                     All stores
                   </AppLink>
@@ -213,7 +213,7 @@ export function Overview() {
                               <AppLink
                                 to="/sales/analytics"
                                 sheet={{ key: "store", value: store.site_id }}
-                                className="text-[0.8125rem] text-accent hover:underline"
+                                className="text-[0.875rem] text-accent hover:underline"
                               >
                                 {store.site_id}
                               </AppLink>

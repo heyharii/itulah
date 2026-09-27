@@ -1,76 +1,75 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   The till's stylesheet IS the hub's (frontend-hub/src/styles/index.css),
+   copied whole on 2026-09-25 so the store app reads as the same product as the
+   console: same tokens, same type scale, same rail and sidebar. If the two
+   ever look a generation apart again, diff this file against the hub's before
+   looking anywhere else.
+
+   What is added on top is marked "Till-only" and exists because a counter
+   needs it and a desk does not: a customer-facing total, press feedback on a
+   touch screen, and clearance for the home indicator.
+   ───────────────────────────────────────────────────────────────────────── */
 @import "tailwindcss";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Cloud Hub design language — the till's expression of it.
+   Cloud Hub design language — authored, not remapped.
 
-   Same tokens as `frontend-hub`, byte for byte: this is one design system and
-   a second palette would be a second system. What differs is the density and
-   the shell, and both differences are DESIGN.md's own — this app is the
-   document's PHONE expression (its `xs` row), not its desktop one.
-
-   Re-cut on 2026-09-13 against `frontend-hub/src/styles/index.css`, which had
-   moved on without this file: the ink ramp went from hue-neutral to blue-grey,
-   the accent from indigo to a plain blue, the radii down a step, and the one
-   filled action became `--cta` rather than a hardcoded black. `byte for byte`
-   is a claim that goes stale silently — if you are reading this because the
-   till looks a generation behind the console again, diff the two `:root`
-   blocks first; that is almost always the whole of it.
+   `frontend-cloud` reached this language by pointing shadcn's slots at
+   Cloud Hub values, which works but leaves two vocabularies alive: every
+   component still speaks `--background`/`--primary` and a reader has to hold
+   the mapping in their head. This app has one vocabulary. The tokens below
+   ARE the design system, and Tailwind's utilities are generated from them, so
+   `bg-soft` and `text-ink` are the only spellings that exist.
 
    Source of truth: ~/Documents/retail/cloud-app/ollama/DESIGN.md (v0.5),
-   Responsiveness section; geometry measured from
-   `_archive-distribution-frames.html`, the frame-faithful recreation whose
-   `@media (max-width:560px)` block IS the phone spec. The composites this
-   language builds out of the tokens — pill, button, card, table head — are
-   drawn in `prototypes/hub-prototype.html`, the purchase-order screen.
+   with the shell lifted from `inventory-prototype.html` — the workbench whose
+   topbar is deliberately `hidden`, leaving the left-hand column to carry all
+   navigation. The prototype's icon rail is folded into that one 248px sidebar;
+   58px is what it narrows to, not a second strip beside it.
 
    Where DESIGN.md and the prototypes disagreed, the rulings recorded in
-   CLOUDHUB-BRIEF.md §0 apply and are not re-litigated here.
+   CLOUDHUB-BRIEF.md apply and are not re-litigated here.
    ───────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Density: 16px, NOT the hub's 14.4px — and this is a deliberate divergence,
-     not an oversight.
+  /* Density, at 1.0. The prototypes render the whole shell at `zoom:0.9` and
+     write declared px on top of it, and this app reproduced that faithfully:
+     root at 14.4px (16 × 0.9), so a `declared/16` rem landed on the pixel the
+     prototype painted.
 
-     The desktop shell bakes DESIGN.md's `zoom:0.9` into the root
-     (16 × 0.9 = 14.4) so a `declared/16` rem lands on the pixel the prototype
-     paints. The phone reference does not: `_archive-distribution-frames.html`
-     sets `.app { zoom: 1 }` at `max-width:860px`, so the frames the responsive
-     model was derived from are drawn at full size on a handset.
+     Faithful, and too small to read. The 0.9 costs a tenth off every size at
+     once, and the scale it shrinks already bottoms out at 10px — micro-caps
+     came out at 9, the mono id under an article name at 9.45, and a grid cell
+     of money at 11.25. A prototype is looked at; a pricelist is worked in for
+     an afternoon.
 
-     It also has to be full size here. DESIGN.md's mobile rules put a hard 44px
-     floor under every touch target; a control declared at 44 and rendered at
-     0.9 measures 39.6, which is under the floor by enough to matter to a thumb
-     on a counter. Keeping the 0.9 would mean writing every target at 49px to
-     land on 44 — a scale nobody reading the file could check against the spec.
-
-     So: `declared/16` rem still lands exactly on the declared pixel, and the
-     type is one step larger than the console's, which is right for a screen
-     read at arm's length in a shop. Never write a raw px type size. */
+     So the density knob goes back to 1.0 and every `declared/16` rem in the
+     app now renders at exactly the pixel it is named for — 12.5 is 12.5. This
+     is the one number that sets the whole app's size; reach for it before
+     touching any individual size. Never write a raw px type size. */
   font-size: 16px;
 
   /* Prose, the size the base layer sets on `<body>`. It lives out here rather
-     than in `@theme` on purpose, and the reason is a bug this app shipped
-     with: DESIGN.md gives the name "body" to a SIZE and to a GREY, Tailwind
-     compiled both into the one class `.text-body`, and the colour won. The
-     size token generated nothing at all — a declared token doing nothing,
-     which is worse than a missing one because it reads as working. Keeping
-     the size out of the namespace leaves `text-body` meaning the colour and
-     nothing else, and prose simply inherits this. See `lib/utils.ts` for the
-     other half of the same trap. */
-  --size-body: 0.875rem;          /* 14 */
+     than in `@theme` on purpose: DESIGN.md gives the name "body" to a size AND
+     to a grey, Tailwind emits both declarations for the one class `.text-body`,
+     and the winner is decided by stylesheet order rather than by class order.
+     Keeping the size out of the namespace leaves `text-body` meaning the
+     colour and nothing else, and prose simply inherits this. */
+  --size-body: 0.875rem; /* 14 */
 
   /* text — four greys, in descending emphasis, plus two non-text marks.
-     The ramp was re-cut with the rest of the system: the old one was
-     hue-neutral (#1d1d1f, #46464d …) and this one carries a few degrees of
-     blue. The lightness is barely touched; what changes is that the greys now
-     belong to the same family as the blue they sit beside, instead of reading
-     as a separate, older palette underneath it.
+     WARM, not cool. Every grey here now carries a little yellow-green, which
+     is what makes the white read as paper rather than as screen. The previous
+     ramp was hue-neutral (#1d1d1f, #46464d …) and beside the warm one it reads
+     blue and cold. The difference per value is a couple of degrees of hue and
+     nothing at all in lightness — and it is the single thing that decides how
+     the page feels. Ruled 2026-09-10 against the reference screens.
 
      The jobs are unchanged: `ink` for names and figures, `text` for ordinary
-     content, `body` for supporting prose, `mute` for units, counts and
-     anything the eye should skip. */
+     cell content, `body` for column headings and supporting prose, `mute` for
+     units, counts and anything the eye should skip. */
   --ink: #20242c;
   --text: #394150;
   --body: #626b78;
@@ -78,7 +77,10 @@
   --faint: #b9c0c9;
   --line-ico: #89919d;
 
-  /* surfaces */
+  /* surfaces — the same four steps, warmed to match the ink ramp.
+     `soft` is the sidebar, `soft-3` the rail beside it (a shade deeper, so the
+     two columns of chrome are legibly two), `soft-2` the hover wash and the
+     fill behind an input. */
   --canvas: #ffffff;
   --soft: #f8f9fb;
   --soft-2: #f0f2f5;
@@ -89,31 +91,50 @@
   --dark: #191b20;
   --on-dark: #ffffff;
   --backdrop: #dfe3ea;
+  /* The rail is the one dark column in the app. It answers "which part of
+     the business", and being the only dark surface in the chrome is what lets
+     it answer that without a single word being read. Its ramp is its own
+     rather than borrowed from the page's inks: grey text on near-black needs
+     different steps than grey text on white to read at the same weight. */
+  --rail: #16181d;
+  --rail-2: #23262d;
+  --rail-3: #2e323a;
+  --rail-ink: #f2f4f7;
+  --rail-text: #b4bac4;
+  --rail-mute: #7d8491;
+  --rail-hair: #262a31;
   /* The veil is WHITE. Nothing in this system darkens: drawers and sheets
      wash the content behind them toward near-white. A black scrim is the
      single most recognisable way a screen stops being Cloud Hub. */
   --scrim: rgba(247, 248, 250, 0.72);
 
   /* Two blues, one job each, and they never swap.
-     ACCENT is selection — the live tab, the chosen tender, the selected row,
-     the focus ring. SKY is status, and only ever means in motion — shipped,
-     processing, issued, still receiving. Collapsing them flattens the system.
+     ACCENT is selection — active nav, primary series, selected row, focus.
+     SKY is status, and only ever means in motion — shipped, processing,
+     issued, still receiving. Collapsing them flattens the system.
 
-     The accent moved off indigo (#3c52f0) to a plain blue. Indigo reads
-     violet beside these greys, and a till that says "selected" in violet and
-     "press this" in blue is a till with two accents. */
+     The accent moved from indigo (#3c52f0) to blue (#2563EB) on 2026-09-10.
+     Indigo beside a warm neutral reads violet, and the reference screens hold
+     a plain blue. It is still only ever selection.
+
+     What the accent is NOT any more: the primary button. That is `--dark`
+     now — see `--cta` below. */
   --accent: #2563eb;
   --accent-bg: #eff5ff;
   --info: #2f86d8;
   --info-bg: #ddebfa;
 
-  /* The one call to action, named rather than spelled at each call site.
-     A screen has at most one — take the payment, receive the delivery, close
-     the shift — and it is the same blue as the accent on purpose: this
-     surface holds so little chrome that there is nothing for a CTA to be
-     confused with, and a second brand colour for one button is a second
-     system. It is a token rather than `bg-accent` so the day the console
-     moves the CTA off the accent again, the till follows in one line. */
+  /* The primary call to action is BLACK, not the accent.
+     One page may hold a dozen blue things that all mean "selected" — the live
+     nav row, the open record, the focused field — and a blue button standing
+     among them is one more blue thing rather than the one thing to press.
+     Black is the only ink on the page that nothing else uses, so it is
+     unambiguous by construction.
+
+     An alias of `--dark` rather than a fifth near-black: the CTA and the
+     tooltip are the two dark surfaces in this system and they must not drift
+     apart. It exists as its own name so a button asks for `cta` and says what
+     it means, instead of asking for `dark` and meaning it by convention. */
   --cta: #2563eb;
   --cta-fg: var(--on-dark);
   --cta-hover: #1d4ed8;
@@ -146,19 +167,16 @@
   --fill-sky: #4090f0;
   --fill-orange: #ee8b2e;
 
-  /* geometry — tightened a step across the board, with the console.
+  /* geometry — tightened one step across the board on 2026-09-10.
      The old radii (18/16/9/22) were rounder than the reference screens by
      enough to change the register: a 22px sheet corner reads soft and
-     consumer, a 16px one reads like a document. That matters more here than
-     it does at a desk, not less — a till is a cash register, and a cash
-     register should look like equipment.
-
-     `--r-inner` is now the radius of every CONTROL as well. Nothing in this
-     app is a full pill any more except a dot or a meter; see `button.tsx`. */
-  --r-shell: 1rem;              /* 16 */
-  --r-card: 0.75rem;            /* 12 */
-  --r-inner: 0.4375rem;         /* 7 — controls, tags, inputs */
-  --r-sheet: 1rem;              /* 16 */
+     consumer, a 16px one reads like a document. Cards keep the largest
+     radius of the four because they are the only thing that stands ON a
+     surface rather than being one. */
+  --r-shell: 1rem; /* 16 */
+  --r-card: 0.75rem; /* 12 */
+  --r-inner: 0.4375rem; /* 7 — controls, tags, inputs */
+  --r-sheet: 1rem; /* 16 */
 
   /* The tooltip chip, and the avatar wash. Both are the prototype's, and both
      are the kind of value that ends up hardcoded in three components unless it
@@ -168,40 +186,136 @@
   --avatar-from: #e8def4;
   --avatar-to: #f8dde8;
 
-  /* ── Motion ──────────────────────────────────────────────────────────
-     The console's two curves and five timing bands, carried here so the two
-     apps do not drift on timing the way they drifted on colour. Frequency
-     decides the budget: a press happens a thousand times a shift and must
-     feel instant; a sheet happens rarely and is allowed to explain the space
-     it came from.
+  /* ── The phone launcher's app icons ─────────────────────────────────
+     One hue per department, used for exactly one thing: the icon tile on
+     the Apps tab (`components/shell/app-icon.tsx`). The rest of this system
+     is neutral on purpose, and these never leak into it — no chip, row or
+     chart borrows a department's colour. On a launcher colour is how a tile
+     is FOUND: a grid of fifteen identical white squares was read tile by
+     tile; a blue cart and a purple megaphone are found before they are read.
+     Each is dark enough to carry a white glyph at 3:1 or better. */
+  --app-home: #f08a24;
+  --app-executive: #3a3a3c;
+  --app-merchandise: #e8456b;
+  --app-inventory: #b7791f;
+  --app-ops: #1f9fb4;
+  --app-marketing: #9b51e0;
+  --app-buying: #2f6fed;
+  --app-selling: #2ea44f;
+  --app-finance: #5856d6;
+  --app-finance-new: #1a8fd0;
+  --app-hr: #e9604f;
+  --app-ga: #0f9d8f;
+  --app-library: #8b6b4a;
+  --app-reports: #6d6af2;
+  --app-system: #5b6472;
 
-     The till's own press curve is NOT one of these — see `.pressable` below,
-     which keeps the iOS spring a thumb expects. What it takes from here is
-     the duration. */
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* ── Motion ──────────────────────────────────────────────────────────
+     Four curves, chosen by job rather than by taste, plus the timing bands
+     they belong in. Adapted from beui.dev's motion guide, whose framing this
+     system already agreed with: motion explains space, confirms input, shows
+     state or softens a change — and if you cannot say which, it should not
+     move.
+
+     Deliberately CSS rather than a motion library. Everything this app
+     animates is a colour, an opacity, a height or a transform on one element,
+     and all four are things CSS does without shipping a runtime. The cases
+     that genuinely need JS — a shared-layout indicator that travels between
+     two elements, a drag gesture — do not exist on this surface. They do on
+     the till, and that is where the dependency belongs if anywhere. */
+  /* The three curves from Emil Kowalski's motion rules, exactly — a UI
+     ease-out for anything entering or leaving, an ease-in-out for things
+     moving on screen, and the iOS sheet curve (Ionic's, the one Vaul uses)
+     for panels that travel the height or width of the glass. Never `ease-in`
+     on UI: it starts slow at the one moment somebody is watching. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Frequency decides the budget. A row hover happens a hundred times a day
+     and must feel instant; a drawer happens rarely and is allowed to explain
+     the space it came from. Under 300ms is the default for anything else. */
   --t-press: 120ms;
   --t-hover: 120ms;
   --t-pop: 160ms;
   --t-panel: 200ms;
+  /* One screen replacing another. Shorter than a sheet on purpose: a sheet
+     arrives from somewhere and has to say where from, while a page is already
+     where it is going and only has to stop being the last one. */
   --t-page: 180ms;
   --t-sheet: 280ms;
+  /* A phone's sheet travels the full height of the screen, which at 280ms is
+     a jump rather than an arrival. Drawers get up to 500ms; this is the iOS
+     presentation's pace. Every panel LEAVES in `--t-exit`: the person has
+     already decided, and the interface should get out of the way faster than
+     it came in. */
+  --t-drawer: 450ms;
+  --t-exit: 200ms;
 
-  /* Shadows are cast in the ink's own hue, not in neutral grey. A grey drop
-     under a blue-grey card is the one place the eye reliably notices that two
-     palettes are in play. */
   --shadow-soft: 0 1px 3px rgb(24 39 60 / 4%);
   --shadow-pop: 0 4px 8px rgb(24 39 60 / 4%), 0 12px 32px rgb(24 39 60 / 8%);
   --shadow-shell: 0 10px 34px rgb(24 39 60 / 8%);
-  --shadow-float: 0 8px 24px rgb(24 39 60 / 6%), 0 24px 64px rgb(24 39 60 / 12%);
+  --shadow-float:
+    0 8px 24px rgb(24 39 60 / 6%), 0 24px 64px rgb(24 39 60 / 12%);
 }
+
+/* ── the shell's motion ──────────────────────────────────────────────────
+   `nav-swap` is the sidebar's list changing domain: the new list rises 4px
+   into place as it fades in, so a click on the rail reads as the column
+   being REPLACED rather than as rows blinking. Nothing plays it on a screen
+   change inside one domain — the list is keyed on the domain, not the path. */
+@keyframes nav-swap {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.nav-swap {
+  animation: nav-swap var(--t-page) var(--ease-out) both;
+}
+
+/* `dock:` — the page is wide enough for a panel to stand beside its list.
+   Set on <html> by `publishPageWidth` in `lib/layout.ts`, from the width of
+   the column the page lives in. It replaced `dock:`, which asked the
+   WINDOW, and has been wrong since the shell grew a second column that ⌘B
+   can fold: the same 1440px window is a 1110px page with the sidebar open
+   and a 1360px one with it shut. `usePanelDock()` is the same answer for
+   code, read from the same number, so a class and a hook cannot disagree. */
+@custom-variant dock (&:where([data-dock], [data-dock] *));
 
 /* Tailwind's utility namespace, generated from the tokens above. This is what
    keeps px literals out of components: there is a `text-ink` and a
    `rounded-card`, so nobody reaches for `text-[#1d1d1f]`. */
 @theme inline {
-  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  /* The touch floor, as a spacing token: generates `h-tap`, `min-h-tap`,
+     `size-tap`, `w-tap`.
+
+     Most of this app is read at a desk with a mouse and has no use for it. The
+     Operations module is not: it is worked standing up, on a handheld, often
+     in gloves, and there a control too small to hit is not a density
+     preference but a mis-scan. Named rather than written as a length at each
+     call site so the floor is one edit if a device ever argues with it. */
+  --spacing-tap: 44px;
+
+  /* The height of a control — a filter chip, a toolbar button, a view tab.
+     Named once because the toolbar's whole rhythm is these things agreeing:
+     the moment one of them is 30 and its neighbour 32, the bar reads crooked
+     and nobody can say why. Hari's spec of 2026-09-10 said 28; the reference
+     screens hold 32 and the ruling was to follow the screens. */
+  --spacing-control: 32px;
+  /* A table row. 48 rather than the old ~38: the reference tables are read
+     across, not scanned down, and a row you can rest your eye on needs the
+     height. Fewer rows fit — that is the trade, made deliberately. */
+  --spacing-row: 48px;
+
+  --font-sans:
+    "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
 
   --color-ink: var(--ink);
   --color-text: var(--text);
@@ -219,6 +333,13 @@
   --color-hairline-strong: var(--hairline-strong);
   --color-dark: var(--dark);
   --color-on-dark: var(--on-dark);
+  --color-rail: var(--rail);
+  --color-rail-2: var(--rail-2);
+  --color-rail-3: var(--rail-3);
+  --color-rail-ink: var(--rail-ink);
+  --color-rail-text: var(--rail-text);
+  --color-rail-mute: var(--rail-mute);
+  --color-rail-hair: var(--rail-hair);
   --color-cta: var(--cta);
   --color-cta-fg: var(--cta-fg);
   --color-cta-hover: var(--cta-hover);
@@ -258,6 +379,10 @@
   --radius-shell: var(--r-shell);
   --radius-sheet: var(--r-sheet);
 
+  --ease-out: var(--ease-out);
+  --ease-in-out: var(--ease-in-out);
+  --ease-drawer: var(--ease-drawer);
+
   --shadow-soft: var(--shadow-soft);
   --shadow-pop: var(--shadow-pop);
   --shadow-shell: var(--shadow-shell);
@@ -265,37 +390,58 @@
 
   /* The type scale, named. Every size in DESIGN.md's `scale` block lives here
      so a screen asks for `text-card-title`, not for 15px. */
-  --text-hero: 1.375rem;          /* 22 declared — screen title */
-  --text-hero--line-height: 1.2;
-  --text-hero--letter-spacing: -0.022em;
-  /* The app-bar title. DESIGN.md's mobile app-bar entry is explicit: a
-     centered 17/600, and it is the only place that size appears. */
-  --text-title: 1.0625rem;        /* 17 */
-  --text-title--letter-spacing: -0.015em;
-  --text-card-title: 0.875rem;    /* 14 */
+  --text-hero: 1.0625rem; /* 17 declared — page title */
+  --text-hero--line-height: 1.4118;
+  --text-hero--letter-spacing: -0.02em;
+  --text-card-title: 0.9375rem; /* 15 */
   --text-card-title--letter-spacing: -0.01em;
-  --text-kpi: 1.3125rem;          /* 21 — the frames' phone KPI value */
-  --text-kpi--letter-spacing: -0.02em;
-  /* What a customer is being asked for. The one number on this surface that
-     is read from across a counter rather than at arm's length, so it is the
-     one size above the hero — a till whose total is the same size as its
-     screen title is a till somebody keys the wrong change into. */
-  --text-total: 2rem;             /* 32 */
+  /* The metric size, from Hari's spec of 2026-09-10 verbatim: Inter 18/24
+     Semi Bold, -0.1px. Down from 23, which was a headline pretending to be a
+     figure — at 23 a KPI outshouted the page title it sat under. */
+  /* Till-only sizes, carried over from the store's own scale. `title` is a
+     pushed screen's heading on a phone; `total` is what a customer is being
+     asked for, read from across a counter, so it stays the one number on this
+     surface above the hero. */
+  --text-title: 1.0625rem; /* 17 */
+  --text-title--letter-spacing: -0.015em;
+  --text-total: 2rem; /* 32 */
   --text-total--line-height: 1.1;
   --text-total--letter-spacing: -0.025em;
-  --text-metric: 0.9375rem;       /* 15 */
-  --text-nav: 0.84375rem;         /* 13.5 */
-  --text-section: 0.78125rem;     /* 12.5 */
-  --text-eyebrow: 0.625rem;       /* 10 — uppercase micro-caps */
+  --text-kpi: 1.125rem; /* 18 */
+  --text-kpi--line-height: 1.5rem; /* 24 */
+  --text-kpi--letter-spacing: -0.1px;
+  --text-metric: 0.9375rem; /* 15 */
+  /* 15 — the same size as a table cell, and that is still the point: the
+     sidebar is chrome and never outranks content. What keeps it from doing so
+     is no longer a smaller size but a lighter INK: a nav row is `text` at 500,
+     a row's own name is `ink` at 500, and the darker of the two wins the eye.
+     Nav rose from 13 to 15 with everything else on 2026-09-10; had it stayed
+     at 13 beside 15px cells it would have read as a disabled column rather
+     than a quiet one. */
+  --text-nav: 0.8125rem; /* 13 */
+  --text-section: 0.8125rem; /* 13 — the group label above a nav run */
+  --text-eyebrow: 0.75rem; /* 12 — uppercase micro-caps */
   --text-eyebrow--letter-spacing: 0.04em;
-  /* The label on a control. 14, where the console's is 13: its controls are
-     read at a desk and this one's are read standing, at arm's length, over a
-     customer's shoulder. Named so a button never asks for a bare length. */
-  --text-control: 0.875rem;       /* 14 */
-  --text-meta: 0.78125rem;        /* 12.5 */
-  --text-pill: 0.71875rem;        /* 11.5 — the reference's phone pill */
-  --text-id: 0.78125rem;          /* 12.5 — mono ids, one step up for a thumb */
-  --text-cell: 0.84375rem;        /* 13.5 — record-card body */
+  /* NOTE: there is deliberately no `--text-body`. `--color-body` already
+     compiles to `.text-body`, Tailwind kept the colour, and the size token
+     generated nothing at all — a declared token that reads as working and is
+     not. Prose takes its size from the base layer, via `--size-body` below,
+     which is deliberately outside this namespace for that reason. */
+  /* A control's label — button, filter chip, view tab. Hari's spec of
+     2026-09-10 said 13/16; the reference screens hold 14/20 and the ruling was
+     to follow the screens. Its own name rather than borrowing `card-title`,
+     because the day a control's size moves it must not drag every card
+     heading in the app with it. */
+  --text-control: 0.8125rem; /* 13 */
+  --text-control--line-height: 1.25rem; /* 20 */
+  --text-meta: 0.75rem; /* 12 */
+  /* 14, up from 11. The outline tag is a LABEL that happens to be enclosed,
+     not a badge: the reference screens set it at the same size as the text
+     beside it and let the colour and the hairline do the separating. At 11 it
+     read as a stamp applied to the row rather than as a fact about it. */
+  --text-pill: 0.6875rem; /* 11 */
+  --text-id: 0.75rem; /* 12 — mono ids */
+  --text-cell: 0.8125rem; /* 13 — table body */
 }
 
 @layer base {
@@ -307,12 +453,17 @@
   body,
   #root {
     height: 100%;
+    /* A phone's viewport is not a constant: mobile browsers grow and shrink
+       the visible area as their toolbars slide, and `100%` here resolves
+       against the taller of the two — so the shell stands a toolbar's height
+       below the glass and the bottom of every screen sits under the chrome.
+       `dvh` is the height that is visible right now. Declared second so a
+       browser without it keeps the percentage; on the desk the two are the
+       same number. */
+    height: 100dvh;
   }
 
   body {
-    /* Full-bleed. There is no floating app-card and no `{backdrop}` stage:
-       DESIGN.md drops both below `sm`, and the card becomes the page. A till
-       is a device, not a window onto a website. */
     background: var(--canvas);
     color: var(--ink);
     font-family: var(--font-sans);
@@ -320,34 +471,6 @@
     line-height: 1.45;
     letter-spacing: -0.006em;
     -webkit-font-smoothing: antialiased;
-    /* The page itself never scrolls; the screen inside it does. Rubber-banding
-       the whole document on a handheld drags the fixed tab bar with it. */
-    overscroll-behavior: none;
-  }
-
-  /* Two browser reflexes that are wrong on a counter.
-
-     `touch-action: manipulation` kills the 300ms double-tap-to-zoom delay, so
-     a tap on a tender chip registers when the thumb lifts rather than a third
-     of a second later. The tap highlight is iOS's own grey flash, which we
-     replace with the press feedback DESIGN.md specifies (a soft grey fill on
-     the card itself). */
-  button,
-  a,
-  [role="button"],
-  label,
-  input,
-  select {
-    touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  /* A number typed into a till is typed with a thumb. Spin buttons are a
-     mouse affordance and they steal the right-hand third of the field. */
-  input[type="number"]::-webkit-outer-spin-button,
-  input[type="number"]::-webkit-inner-spin-button {
-    appearance: none;
-    margin: 0;
   }
 
   /* Only three weights exist. Browsers default `b`, `strong` and `th` to 700,
@@ -371,7 +494,7 @@
     cursor: pointer;
   }
 
-  /* Selection is the accent, like everything else that means "this one". */
+  /* Selection is indigo, like everything else that means "this one". */
   ::selection {
     background: var(--accent-bg);
   }
@@ -385,26 +508,220 @@
     border-radius: var(--r-inner);
   }
 
-  /* Scrollbars are chrome, and chrome in this system is pale. A touch surface
-     shows none at all until it is driven by a mouse, which some counters are. */
+  /* One transition curve and one duration for the hover states that make up
+     almost all of this app's motion, so a row, a nav item and a button do not
+     each settle at a different speed. */
+  a,
+  button,
+  [role="button"],
+  tr,
+  input,
+  select,
+  textarea {
+    transition-timing-function: var(--ease-out);
+    transition-duration: var(--t-hover);
+  }
+
+  /* Reduced motion is a designed state, not an off switch.
+     Opacity and colour still carry meaning — they say the interface heard you
+     — so they stay. What goes is travel: transforms, scale, and anything long
+     enough to be watched rather than felt. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: var(--t-press) !important;
+      scroll-behavior: auto !important;
+    }
+    [data-motion="travel"] {
+      transform: none !important;
+    }
+  }
+
+  /* Scrollbars are chrome, and chrome in this system is pale. */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 10px;
+    height: 10px;
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--hairline-2);
+    background: #eeeeee;
     border-radius: 8px;
+    border: 3px solid var(--canvas);
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   The assistant's two pieces of motion, and there are only two.
+
+   Everything else in this app settles with the one hover transition above.
+   These exist because a streamed answer has states nothing else here has: a
+   model working with nothing yet to show, and a line of text arriving after
+   the paragraph above it has already been read.
+
+   `shimmer` is the label that says work is happening — a light sweeping
+   across the word, not a spinner, because a spinner claims to know how long
+   something takes and this does not. `rise` is the four pixels a tool chip
+   travels as it appears, so a trace that grows while somebody watches reads
+   as accumulating rather than jumping.
+
+   Both are switched off by the reduced-motion block above: `shimmer` loses
+   its iteration and settles on a flat colour, `rise` collapses to its end
+   state. Neither carries meaning that only the movement conveys.
+   ───────────────────────────────────────────────────────────────────────── */
+@keyframes assistant-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes assistant-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* iOS Safari zooms the page in when a field under 16px takes focus, and does
+   not zoom back out — the sheet was left cut off at the right edge the first
+   time anyone tapped the supplier box on a phone. Every field on a touch
+   screen is therefore 16px. Unlayered on purpose: Tailwind's utilities live
+   in a cascade layer, and unlayered rules win over layered ones regardless of
+   specificity, so a `text-[0.8125rem]` on one input cannot undo this. The
+   pinch-zoom a person does on purpose is untouched. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* ── feeling installed on a phone ────────────────────────────────────────
+   The platform layer, from Emil Kowalski's `mobile-native` rules — each one
+   is a tell that gives a web app away on a phone.
+
+   - The grey flash iOS and Android paint over anything tapped. It fights the
+     press feedback buttons already have (`:active` scale in `button-style`).
+   - Font inflation when a phone turns sideways.
+   - Pull-to-refresh and the page's rubber band. The shell is a fixed
+     `100dvh` frame whose columns scroll themselves, so the page behind them
+     moving is never right; the columns keep their own bounce (`contain`).
+   - The double-tap-zoom wait before a click fires, on controls.
+   - A long press selecting a button's label. Controls only — an order
+     number or an address is content and stays selectable. */
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+html,
+body {
+  overscroll-behavior: none;
+}
+button,
+a,
+[role="button"],
+[role="tab"],
+[role="option"] {
+  touch-action: manipulation;
+}
+button,
+[role="button"],
+[role="tab"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* With `viewport-fit=cover` the page runs under the notch; the shell pads
+   itself back out of it. All four are 0 in a portrait browser tab — this is
+   the phone held sideways (the rail would sit under the notch) and the app
+   added to the home screen (the top bar would sit under the clock). */
+#root {
+  box-sizing: border-box;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0
+    env(safe-area-inset-left, 0px);
+}
+
+/* The launcher tile: its department's hue under a soft top light, the way a
+   real app icon catches it, and a hairline of shadow to sit it on the page. */
+.app-icon {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.2), rgb(255 255 255 / 0) 58%),
+    var(--tile, var(--app-system));
+  box-shadow:
+    0 1px 2px rgb(24 39 60 / 12%),
+    inset 0 0 0 0.5px rgb(0 0 0 / 6%);
+}
+
+/* ── A small table on a phone ──────────────────────────────────────────
+   `<MiniTable>` stacks below 48rem instead of scrolling sideways inside its
+   card: a table of six columns in 343px was a strip you dragged to read one
+   row at a time, and no row could be compared with the one above it. Each
+   row becomes a block — its first cell, the row's name, across the top;
+   every other cell in a two-column grid under the name of its column
+   (`data-label`, copied from the head by `MiniTable`). A cell that spans
+   columns (a total, an empty state) spans the block. From 48rem up nothing
+   here applies. */
+@media (width < 48rem) {
+  table.mini-stack,
+  table.mini-stack > tbody {
+    display: block;
+    width: 100%;
+    min-width: 0 !important;
+  }
+  table.mini-stack > thead {
+    display: none;
+  }
+  table.mini-stack > tbody > tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1rem;
+    row-gap: 0.5rem;
+    padding-block: 0.75rem;
+  }
+  table.mini-stack > tbody > tr > td {
+    display: block;
+    min-width: 0;
+    padding: 0 !important;
+    text-align: left !important;
+    overflow-wrap: anywhere;
+  }
+  table.mini-stack > tbody > tr > td:first-child,
+  table.mini-stack > tbody > tr > td[colspan]:not([colspan="1"]) {
+    grid-column: 1 / -1;
+  }
+  table.mini-stack > tbody > tr > td:first-child {
+    font-weight: 500;
+    color: var(--ink);
+  }
+  table.mini-stack > tbody > tr > td[data-label]:not(:first-child)::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.125rem;
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--mute);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  /* Its wrapper no longer needs to scroll sideways. */
+  .overflow-x-auto:has(> table.mini-stack) {
+    overflow-x: visible;
+  }
+}
+
+/* Till-only utilities. */
 @layer utilities {
-  /* The press feedback DESIGN.md asks for on a phone: a soft grey fill while
-     a card or row is held. Written as a utility because it belongs to every
-     tappable record, and because `:active` is the only state a touch screen
-     really has — there is no hover to lean on. */
+  /* Press feedback for a tappable record: `:active` is the only state a touch
+     screen really has. */
   .pressable {
     transition:
       background-color var(--t-press) cubic-bezier(0.32, 0.72, 0, 1),
@@ -414,9 +731,7 @@
     background-color: var(--soft-2);
     transform: scale(0.994);
   }
-
-  /* The home indicator. Every fixed thing at the foot of this app clears it,
-     and the value is `0px` on a device that has none. */
+  /* The home indicator. `0px` on a device that has none. */
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }

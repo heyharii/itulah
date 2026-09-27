@@ -137,6 +137,30 @@ async fn open_bills(
                 GREATEST(0, CURRENT_DATE - i.due_date)::int AS days_overdue
            FROM supplier_invoice i
           WHERE i.status = 'POSTED'
+            -- A held bill is not offered for payment (brief §8.4). It is still
+            -- owed, and the ageing counts it separately, but it does not belong
+            -- on a screen whose whole purpose is choosing what to pay now.
+            AND NOT i.on_hold
+            -- A vendor whose every recorded bank account is still UNVERIFIED
+            -- cannot be paid by transfer, so its bills wait until Finance
+            -- verifies one. A vendor with NO bank account at all is KEPT: the
+            -- pajak daerah offices send no bank channel and are paid another
+            -- way, and dropping them would quietly hide a real debt.
+            AND (
+                NOT EXISTS (
+                    SELECT 1 FROM bank_account b
+                     WHERE NOT b.is_company_account
+                       AND b.party_type = 'SUPPLIER'
+                       AND b.party_id = i.supplier_id
+                       AND b.active)
+                OR EXISTS (
+                    SELECT 1 FROM bank_account b
+                     WHERE NOT b.is_company_account
+                       AND b.party_type = 'SUPPLIER'
+                       AND b.party_id = i.supplier_id
+                       AND b.active
+                       AND b.verification_status IS DISTINCT FROM 'UNVERIFIED')
+            )
             AND ($1::text IS NULL OR i.supplier_id = $1)
             AND ($2::uuid IS NULL OR i.invoice_id = $2)
           ORDER BY i.due_date NULLS LAST, i.invoice_date",

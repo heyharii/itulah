@@ -54,7 +54,7 @@ use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     close_verdict, CheckOutcome, CheckPointer, CloseCheckResult, ClosePeriod,
 };
-use chrono::{Datelike, NaiveDate, Utc};
+use chrono::{NaiveDate, Utc};
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::{PgPool, Row};
@@ -449,62 +449,50 @@ async fn check_late_entries(pool: &PgPool, period: ClosePeriod) -> Result<CheckO
     })?)
 }
 
-/// Every asset in service has been charged for the month.
+/// Every asset that owes a charge has been charged for the month.
 ///
-/// The eligibility test is `assets::run_depreciation`'s, copied deliberately
-/// rather than shared: the run decides what to charge and this decides what
-/// should have been charged, and if the two ever disagree the checklist is what
-/// notices. Sharing one predicate would make the check agree with the run by
-/// construction, including when the run is wrong.
+/// The asset register's status is the authority for which assets still owe a
+/// charge. It applies the same integer depreciation rules as the run, including
+/// opening balances, cutover months, non-depreciable assets, and assets already
+/// at salvage. The close checklist turns missing assets into actionable
+/// pointers for Finance.
 async fn check_depreciation(pool: &PgPool, period: ClosePeriod) -> Result<CheckOutcome, AppError> {
-    let (start, _) = bounds(period)?;
-    let rows = sqlx::query(
-        "SELECT a.asset_id, a.asset_number, a.name,
-                COUNT(*) OVER ()::bigint AS total
-           FROM fixed_asset a
-           JOIN LATERAL (
-               SELECT * FROM asset_capitalization x
-                WHERE x.asset_id = a.asset_id ORDER BY x.sequence DESC LIMIT 1
-           ) k ON true
-          WHERE k.decision = 'CAPITALIZE'
-            AND a.status <> 'DISPOSED'
-            AND k.in_service_on <= ($1::date + interval '1 month' - interval '1 day')
-            AND NOT EXISTS (SELECT 1 FROM asset_depreciation_entry d
-                             WHERE d.asset_id = a.asset_id AND d.period_month = $1)
-          ORDER BY a.asset_number LIMIT $2",
-    )
-    .bind(start)
-    .bind(POINTER_CAP)
-    .fetch_all(pool)
-    .await?;
-    Ok(outcome_from(rows, "asset", |row| {
-        Ok(format!(
-            "{} {}",
-            row.try_get::<String, _>("asset_number")?,
-            row.try_get::<String, _>("name")?
-        ))
-    })?)
+    let status = super::assets::asset_depreciation_status(pool, period.year, period.month).await?;
+    let count = status.missing.len() as i64;
+    let pointers = status
+        .missing
+        .into_iter()
+        .take(POINTER_CAP as usize)
+        .map(|asset| {
+            CheckPointer::new(
+                "asset",
+                asset.asset_id.to_string(),
+                format!("{} {}", asset.asset_number, asset.name),
+            )
+        })
+        .collect();
+    Ok(CheckOutcome::from_exceptions(count, pointers))
 }
 
 /// Every bank account has a statement covering the month end.
 ///
-/// "Every bank account" is read off `account_map`, not off a register of our
+/// "Every bank account" is read off `account_resolution`, not off a register of our
 /// own: an account nobody mapped is an account nothing can post to, and holding
 /// a second list of banks would mean two answers to which ones exist. The
 /// consequence is worth stating plainly — a bank Finance has not mapped is not
-/// checked here, and the Account Map screen is where that becomes visible.
+/// checked here, and the Account Links screen is where that becomes visible.
 async fn check_bank_statements(
     pool: &PgPool,
     period: ClosePeriod,
 ) -> Result<CheckOutcome, AppError> {
     let end = last_day(period)?;
     let rows = sqlx::query(
-        "SELECT m.account_code, m.site_id, m.qualifier,
+        "SELECT m.account_code, m.site_id, m.source_id AS qualifier,
                 COALESCE(a.name, m.account_code) AS name,
                 COUNT(*) OVER ()::bigint AS total
-           FROM account_map m
+           FROM account_resolution m
            LEFT JOIN ledger_account a ON a.account_code = m.account_code
-          WHERE m.semantic_key IN ('bank_giro', 'bank_savings')
+          WHERE m.role IN ('bank_giro', 'bank_savings')
             AND NOT EXISTS (SELECT 1 FROM bank_statement s
                              WHERE s.account_code = m.account_code
                                AND s.period_end >= $1)
@@ -813,10 +801,4 @@ pub async fn period_events(
             })
         })
         .collect()
-}
-
-/// Today's month, for a caller that did not name one.
-pub fn period_of_today() -> (i32, i32) {
-    let today = Utc::now().date_naive();
-    (today.year(), today.month() as i32)
 }

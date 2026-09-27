@@ -30,7 +30,7 @@
 //! | Dr | `cash` | cash tendered LESS change given |
 //! | Dr | `card_receivable_debit` | debit card, net of its fee |
 //! | Dr | `card_receivable_credit` | credit card, net of its fee |
-//! | Dr | `qris_clearing` | QRIS, net of its fee |
+//! | Dr | `card_receivable_debit` | QRIS follows the debit-card account route |
 //! | Dr | `voucher_liability` | vouchers presented |
 //! | Dr | `other_tender_clearing` | everything else |
 //! | Dr | `card_fee` | what the acquirer and the QRIS provider keep |

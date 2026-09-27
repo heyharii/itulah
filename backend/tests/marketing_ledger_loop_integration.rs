@@ -5,9 +5,9 @@
 //! reaching the centre (`sales_money_sync_integration`), a day of takings
 //! reaching the ledger (`sales_posting_integration`). Every one of those passes
 //! with the others broken. What none of them asks is the question this file
-//! asks: **does the number the merchandiser typed into a promotion come out the
-//! other end as the number in the discount account, without anybody re-typing
-//! it anywhere in between?**
+//! asks: **does the price the merchandiser's promotion set come out the other
+//! end as the revenue in the ledger, without anybody re-typing it anywhere in
+//! between?**
 //!
 //! ```text
 //!   Marketing (centre)  ──price book──▶  POS at a shop
@@ -23,16 +23,19 @@
 //!                                              │
 //!                                              ▼
 //!                                     Accounting: SALE_DAY
-//!                                     Dr 4201  the promotion
-//!                                     Cr 4101  the price before it
+//!                                     Cr sales  the price after it
 //! ```
 //!
 //! Two properties are asserted over and over, because they are the two that
 //! make the circle a circle rather than five straight lines:
 //!
-//!   * **the benefit the till took IS the discount the ledger books** — not a
-//!     recomputed figure, not a rounded one, the same rupiah, carried on the
-//!     sale fact and landed on `4201` by `domain::sales_posting`;
+//!   * **the price the till charged IS the revenue the ledger books** — the
+//!     promotion's benefit is inside it, not beside it: since the owner
+//!     decision of 25 Sep 2026 `domain::sales_posting` credits sales with what
+//!     was charged and debits nothing to the discount account for a promotion
+//!     (the client's own practice; what a promotion cost is read from the POS
+//!     sales data, `edge_sale_promotion`, not from the GL). Only a free
+//!     voucher reaches the discount account;
 //!   * **the limit a shop enforces comes back from the centre** — coupons work
 //!     with the line down (evaluated from the shop's own copy), and the count
 //!     that stops the third use is the centre's, published back to the till.
@@ -43,12 +46,10 @@
 //!
 //! # Why the tax rate is nought here
 //!
-//! The book every test delivers declares `rate_bps: 0`. VAT has its own
-//! thorough home in `sales_posting_integration` (the recorded-tax tests, the
-//! rounding pair, the refund pair); repeating it here would bury the arithmetic
-//! that is the point of this file in arithmetic that is not. A day priced at a
-//! nought rate is a day where the discount and the grossed-up revenue are the
-//! only two numbers moving, so an assertion on them cannot pass by coincidence.
+//! The book every test delivers declares `rate_bps: 0`. PPN is not posted at
+//! all (owner policy P11), and a nought rate keeps the reported tax figures
+//! out of the way too: a day priced at it is a day where the charged price is
+//! the only number moving, so an assertion on it cannot pass by coincidence.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use inventory_backend::cloud::domain::{

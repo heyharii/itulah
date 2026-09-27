@@ -110,7 +110,7 @@ export function Packing() {
         <Card className="mb-[1.125rem] overflow-hidden">
           <CardHeader>
             <CardTitle>Shops waiting</CardTitle>
-            <span className="text-[0.75rem] text-mute">
+            <span className="text-[0.875rem] text-mute">
               {count(shops.reduce((total, shop) => total + shop.wanted, 0))}{" "}
               pieces owed
             </span>
@@ -123,7 +123,7 @@ export function Packing() {
             <MiniTable head={["Shop", "SKUs", "Owed", "Can go now", ""]}>
               {shops.map((shop) => (
                 <MiniRow key={shop.destination_id}>
-                  <MiniCell className="font-mono text-[0.71875rem]">
+                  <MiniCell className="font-mono text-[0.875rem]">
                     {shop.destination_id}
                   </MiniCell>
                   <MiniCell align="right">{count(shop.sku_count)}</MiniCell>
@@ -141,7 +141,7 @@ export function Packing() {
                       type="button"
                       disabled={shop.packable === 0}
                       onClick={() => composing.open(true)}
-                      className="text-[0.75rem] text-accent underline underline-offset-2 disabled:text-faint disabled:no-underline"
+                      className="text-[0.875rem] text-accent underline underline-offset-2 disabled:text-faint disabled:no-underline"
                     >
                       Pack
                     </button>
@@ -200,12 +200,12 @@ export function Packing() {
                         <button
                           type="button"
                           onClick={() => opened.open(box.koli_id)}
-                          className="font-mono text-[0.71875rem] text-accent underline underline-offset-2"
+                          className="font-mono text-[0.875rem] text-accent underline underline-offset-2"
                         >
                           {box.koli_number}
                         </button>
                       </MiniCell>
-                      <MiniCell className="font-mono text-[0.71875rem]">
+                      <MiniCell className="font-mono text-[0.875rem]">
                         {box.destination_store_id}
                       </MiniCell>
                       <MiniCell align="right">{count(box.unit_count)}</MiniCell>
@@ -321,7 +321,7 @@ function NewPack({
                 key={one.destination_id}
                 type="button"
                 onClick={() => setShop(one.destination_id)}
-                className={`min-h-[2.25rem] rounded-full px-3 font-mono text-[0.71875rem] transition-colors ${
+                className={`min-h-[2.25rem] rounded-full px-3 font-mono text-[0.875rem] transition-colors ${
                   one.destination_id === destination
                     ? "bg-accent-bg text-accent"
                     : "bg-soft-2 text-body hover:bg-soft-3 hover:text-ink"
@@ -425,7 +425,7 @@ function Manifest({ manifest }: { manifest: KoliManifest }) {
         <MiniTable head={["SKU", "Pieces"]}>
           {manifest.lines.map((line) => (
             <MiniRow key={line.sku_code}>
-              <MiniCell className="font-mono text-[0.71875rem]">
+              <MiniCell className="font-mono text-[0.875rem]">
                 {line.sku_code}
               </MiniCell>
               <MiniCell align="right">{count(line.quantity)}</MiniCell>

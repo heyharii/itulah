@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { AppLink } from "@/components/ui/app-link"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, type PillProps } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
@@ -151,7 +152,7 @@ export function PaymentInstructions() {
           onChange={setStatus}
         />
         <Toolbar.Spacer />
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {site === "" ? "every location" : <SiteName id={site} />}
         </span>
       </Toolbar>
@@ -189,7 +190,7 @@ export function PaymentInstructions() {
 
             {/* ── The ladder, with what is standing on each rung ─────────── */}
             <section className="flex flex-col gap-2">
-              <h2 className="text-[0.8125rem] font-semibold text-ink">
+              <h2 className="text-[0.875rem] font-semibold text-ink">
                 Where the asks are
               </h2>
               <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
@@ -207,7 +208,7 @@ export function PaymentInstructions() {
                   </span>
                 ))}
               </div>
-              <p className="text-[0.71875rem] leading-relaxed text-mute">
+              <p className="text-[0.875rem] leading-relaxed text-mute">
                 Six rungs, against ERPNext&rsquo;s eight. <b>Refused</b> is ours
                 and is not their <Code>Cancelled</Code>: a refusal is a decision
                 head office made and has to give a reason for, where{" "}
@@ -223,7 +224,7 @@ export function PaymentInstructions() {
 
             {/* ── The queue ─────────────────────────────────────────────── */}
             <section className="flex flex-col gap-2">
-              <h2 className="text-[0.8125rem] font-semibold text-ink">
+              <h2 className="text-[0.875rem] font-semibold text-ink">
                 Instructions
               </h2>
               {page.rows.length === 0 ? (
@@ -286,7 +287,8 @@ export function PaymentInstructions() {
               <b>Not one of these six routes posts to the ledger.</b>{" "}
               <Code>POST …</Code> raises one, <Code>…/submit</Code> sends it,{" "}
               <Code>…/decide</Code> is head office&rsquo;s yes or no with a
-              reason and the vendor the payee turned out to be,{" "}
+              reason and the vendor the payee turned out to be — an approval
+              keys a DRAFT bill at the asking unit and posts nothing —{" "}
               <Code>…/withdraw</Code> is the shop taking it back, and{" "}
               <Code>…/settle</Code> binds the bill and the payment it became.
               The accounting happens entirely in those two documents, which is
@@ -329,6 +331,20 @@ function AskRow({ row }: { row: PaymentInstruction }) {
             <Code>{row.payment_number}</Code>
           </span>
         )}
+        {/* And what saying yes keys: a DRAFT bill at the asking unit. It is not
+            a payment and it is not posted, so the reader can check the coding
+            before anything reaches the books. */}
+        {row.bill_id !== null && (
+          <span className="block">
+            <AppLink
+              to="/finance/bills"
+              sheet={{ key: "bill", value: row.bill_id }}
+              className="text-[0.875rem] text-accent hover:underline"
+            >
+              Draft bill {row.bill_number ?? ""}
+            </AppLink>
+          </span>
+        )}
       </Td>
       <Td className="whitespace-nowrap">{day(row.raised_at)}</Td>
       <Td>
@@ -347,7 +363,7 @@ function AskRow({ row }: { row: PaymentInstruction }) {
               name={row.supplier_name}
               className="text-ink"
             />
-            <span className="block text-[0.65625rem] text-mute">
+            <span className="block text-[0.875rem] text-mute">
               {row.payee}
             </span>
           </>
@@ -367,10 +383,18 @@ function AskRow({ row }: { row: PaymentInstruction }) {
       </Td>
       <Td>
         <Pill tone={rung?.tone ?? "neutral"}>{rung?.name ?? row.status}</Pill>
+        {/* There is no approve control on this screen yet, so the sentence the
+            button would carry is said where the decision is read instead:
+            saying yes keys a DRAFT bill, it does not post one. */}
+        {row.status === "REQUESTED" && (
+          <span className="mt-0.5 block text-[0.875rem] leading-snug text-mute">
+            Approving keys a DRAFT bill — it does not post anything.
+          </span>
+        )}
         {/* A no the shop cannot read is a no they will ask about twice, so the
             reason travels with the state rather than hiding in a detail view. */}
         {row.decision_reason !== "" && (
-          <span className="mt-0.5 block text-[0.65625rem] leading-snug text-mute">
+          <span className="mt-0.5 block text-[0.875rem] leading-snug text-mute">
             {row.decision_reason}
           </span>
         )}

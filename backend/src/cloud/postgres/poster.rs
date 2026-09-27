@@ -50,7 +50,8 @@
 //! two requests can both pass. The index cannot be both passed.
 
 use super::ledger::{
-    assert_postable, resolve_account, validate_account_posting, Intent, PostingFacts, Resolved,
+    assert_postable, resolve_account_from, resolve_linked, validate_account_posting, Intent,
+    PostingFacts, Resolved,
 };
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{balancing_legs, first_unbalanced_site, kind_for_source, SiteMovement};
@@ -96,13 +97,19 @@ pub const MAIN: &str = "MAIN";
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LineAccount {
-    /// Resolved through `account_map` for this line's location.
+    /// Resolved through `account_link` for this line's site: the role, and
+    /// where the decision is kept — the company's defaults (`COMPANY`, with the
+    /// bank, pay class or asset class as `qualifier`), or a master record
+    /// (`EXPENSE_CATEGORY`, `PAY_COMPONENT`, `PAYMENT_METHOD`, …) named by
+    /// `qualifier` (0460, 0465).
     Meaning {
         semantic_key: String,
-        /// Which bank, which card scheme. Empty when the meaning needs no
+        /// Which one of the source's records. Empty when the role needs no
         /// narrowing.
         #[serde(default)]
         qualifier: String,
+        #[serde(default = "company_source")]
+        source_type: String,
     },
     /// A client account code, chosen deliberately by a person.
     Account {
@@ -125,11 +132,16 @@ pub enum LineAccount {
 // `&str` when the function is `impl Into<LineAccount>` — and the alternative is
 // a `.as_str()` on every rule that built its key at runtime.
 
+fn company_source() -> String {
+    "COMPANY".to_string()
+}
+
 impl From<&str> for LineAccount {
     fn from(semantic_key: &str) -> Self {
         LineAccount::Meaning {
             semantic_key: semantic_key.to_string(),
             qualifier: String::new(),
+            source_type: company_source(),
         }
     }
 }
@@ -145,6 +157,7 @@ impl From<String> for LineAccount {
         LineAccount::Meaning {
             semantic_key,
             qualifier: String::new(),
+            source_type: company_source(),
         }
     }
 }
@@ -190,6 +203,12 @@ pub struct PostingLine {
     #[serde(default)]
     pub bank_account_id: Option<Uuid>,
     pub memo: Option<String>,
+    /// Accounting dimension values (0470, ERPNext Accounting Dimension): the
+    /// division, cost center or project a line belongs to, as
+    /// (dimension code, value code). Written beside the line; a dimension
+    /// Finance made mandatory is checked when the entry commits.
+    #[serde(default)]
+    pub dimensions: Vec<(String, String)>,
 }
 
 impl PostingLine {
@@ -214,6 +233,7 @@ impl PostingLine {
             asset_id: None,
             bank_account_id: None,
             memo: None,
+            dimensions: Vec::new(),
         }
     }
 
@@ -229,6 +249,7 @@ impl PostingLine {
             asset_id: None,
             bank_account_id: None,
             memo: None,
+            dimensions: Vec::new(),
         }
     }
 
@@ -238,6 +259,21 @@ impl PostingLine {
         } = &mut self.account
         {
             *slot = qualifier.to_string();
+        }
+        self
+    }
+
+    /// Resolve a role from a master record rather than the company's
+    /// defaults: `from_source("EXPENSE_CATEGORY", "expense_electricity")`.
+    pub fn from_source(mut self, source_type: &str, source_id: &str) -> Self {
+        if let LineAccount::Meaning {
+            qualifier,
+            source_type: slot,
+            ..
+        } = &mut self.account
+        {
+            *slot = source_type.to_string();
+            *qualifier = source_id.to_string();
         }
         self
     }
@@ -268,6 +304,13 @@ impl PostingLine {
     /// half of receiving it — has to set it too, because the account guard
     /// (`requires_counter_site`) refuses an inter-unit balance that names only
     /// its own side. A rule that knows says so; nothing infers it.
+    /// Tag the line with an accounting dimension value (0470).
+    pub fn with_dimension(mut self, dimension: &str, value: &str) -> Self {
+        self.dimensions.retain(|(code, _)| code != dimension);
+        self.dimensions.push((dimension.to_string(), value.to_string()));
+        self
+    }
+
     pub fn with_counter_site(mut self, counter_site_id: &str) -> Self {
         self.counter_site_id = Some(counter_site_id.to_string());
         self
@@ -397,9 +440,11 @@ fn balanced_per_site(intent: &PostingIntent) -> Result<(Vec<PostingLine>, i64), 
     let mut lines = intent.lines.clone();
     for leg in legs {
         lines.push(PostingLine {
+            dimensions: Vec::new(),
             account: LineAccount::Meaning {
                 semantic_key: leg.semantic_key.to_string(),
                 qualifier: leg.qualifier,
+                source_type: company_source(),
             },
             site_id: leg.site_id,
             counter_site_id: Some(leg.counter_site_id),
@@ -483,7 +528,8 @@ pub async fn post(
     // One common door for document-driven posting. Finance can keep the global
     // switch off while explicitly allowing a reviewed set of source kinds; the
     // database trigger enforces the same decision at the journal boundary.
-    if intent.source_kind != "MANUAL" {
+    // A closing voucher is a Finance person's act like a manual journal (0464).
+    if !matches!(intent.source_kind.as_str(), "MANUAL" | "PERIOD_CLOSING") {
         let automatic_posting_enabled = sqlx::query_scalar::<_, bool>(
             "SELECT control.automatic_posting_enabled
                     OR EXISTS (
@@ -540,6 +586,7 @@ pub async fn post(
             LineAccount::Meaning {
                 semantic_key,
                 qualifier,
+                ..
             } => (Some(semantic_key.as_str()), Some(qualifier.as_str())),
             LineAccount::Account { .. } => (None, None),
         };
@@ -550,7 +597,53 @@ pub async fn post(
             LineAccount::Meaning {
                 semantic_key,
                 qualifier,
-            } => resolve_account(&mut **tx, semantic_key, &line.site_id, qualifier).await?,
+                source_type,
+            } => {
+                // ERPNext's get_party_account: a line against a party first asks
+                // whether that party has its own account for the role, then
+                // falls back to the company's default (0465).
+                let party = match (&line.party_type, &line.party_id) {
+                    (Some(kind), Some(id)) if source_type == "COMPANY" => {
+                        match resolve_linked(&mut **tx, semantic_key, &line.site_id, "PARTY", &format!("{kind}:{id}"))
+                            .await?
+                        {
+                            Some(own) => Some(own),
+                            // Then the party's group (ERPNext Supplier Group):
+                            // a supplier's group is its category.
+                            None if kind == "SUPPLIER" => {
+                                let group: Option<String> = sqlx::query_scalar(
+                                    "SELECT category FROM supplier WHERE supplier_id::text = $1",
+                                )
+                                .bind(id)
+                                .fetch_optional(&mut **tx)
+                                .await?;
+                                match group {
+                                    Some(group) => {
+                                        resolve_linked(
+                                            &mut **tx,
+                                            semantic_key,
+                                            &line.site_id,
+                                            "PARTY_GROUP",
+                                            &format!("SUPPLIER:{group}"),
+                                        )
+                                        .await?
+                                    }
+                                    None => None,
+                                }
+                            }
+                            None => None,
+                        }
+                    }
+                    _ => None,
+                };
+                match party {
+                    Some(found) => found,
+                    None => {
+                        resolve_account_from(&mut **tx, semantic_key, &line.site_id, source_type, qualifier)
+                            .await?
+                    }
+                }
+            }
             LineAccount::Account {
                 account_code,
                 category_code,
@@ -644,6 +737,7 @@ pub async fn post(
     for (index, (line, (account_code, category_code, bank_account_id))) in
         lines.iter().zip(&resolved).enumerate()
     {
+        let line_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO journal_line
                (line_id, entry_id, line_number, account_code, category_code, site_id,
@@ -651,7 +745,7 @@ pub async fn post(
                 bank_account_id)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
         )
-        .bind(Uuid::new_v4())
+        .bind(line_id)
         .bind(entry_id)
         .bind(index as i32 + 1)
         .bind(account_code)
@@ -672,6 +766,26 @@ pub async fn post(
         .bind(*bank_account_id)
         .execute(&mut **tx)
         .await?;
+        for (dimension, value) in &line.dimensions {
+            sqlx::query(
+                "INSERT INTO journal_line_dimension (line_id, dimension_code, value_code)
+                 VALUES ($1, $2, $3)",
+            )
+            .bind(line_id)
+            .bind(dimension)
+            .bind(value)
+            .execute(&mut **tx)
+            .await
+            .map_err(|error| match &error {
+                sqlx::Error::Database(db) if db.code().as_deref() == Some("23503") => {
+                    AppError::Validation(format!(
+                        "line {}: {value} is not a value of dimension {dimension}",
+                        index + 1
+                    ))
+                }
+                _ => error.into(),
+            })?;
+        }
     }
 
     Ok(Posted {
@@ -719,7 +833,7 @@ pub async fn reverse(
     // `reversal_of` is UNIQUE, so a second attempt is refused by the database
     // rather than by a check somebody could forget to write.
     let lines = sqlx::query(
-        "SELECT line_number, account_code, category_code, site_id, counter_site_id,
+        "SELECT line_id, line_number, account_code, category_code, site_id, counter_site_id,
                 debit_minor, credit_minor, party_type, party_id, asset_id, memo, bank_account_id
            FROM journal_line WHERE entry_id = $1 ORDER BY line_number",
     )
@@ -765,6 +879,7 @@ pub async fn reverse(
     for row in &lines {
         let debit: i64 = row.try_get("debit_minor")?;
         let credit: i64 = row.try_get("credit_minor")?;
+        let mirror_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO journal_line
                (line_id, entry_id, line_number, account_code, category_code, site_id,
@@ -772,7 +887,7 @@ pub async fn reverse(
                 bank_account_id)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
         )
-        .bind(Uuid::new_v4())
+        .bind(mirror_id)
         .bind(reversal_id)
         .bind(row.try_get::<i32, _>("line_number")?)
         .bind(row.try_get::<String, _>("account_code")?)
@@ -807,6 +922,16 @@ pub async fn reverse(
         // original moved, even if that account has since been closed or a second
         // one opened beside it.
         .bind(row.try_get::<Option<Uuid>, _>("bank_account_id")?)
+        .execute(&mut **tx)
+        .await?;
+        // The mirror carries the original's dimensions, so a division's or a
+        // project's figures net back to nothing when the entry is undone.
+        sqlx::query(
+            "INSERT INTO journal_line_dimension (line_id, dimension_code, value_code)
+             SELECT $1, dimension_code, value_code FROM journal_line_dimension WHERE line_id = $2",
+        )
+        .bind(mirror_id)
+        .bind(row.try_get::<Uuid, _>("line_id")?)
         .execute(&mut **tx)
         .await?;
     }
@@ -894,7 +1019,10 @@ async fn enforce_budgets(
         }
 
         let spent: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(jl.debit_minor - jl.credit_minor), 0)
+            // `::bigint`: SUM over bigint is numeric in Postgres, and numeric
+            // does not decode into i64 — without the cast every posting that
+            // met a STOP budget failed as "database operation failed".
+            "SELECT COALESCE(SUM(jl.debit_minor - jl.credit_minor), 0)::bigint
                FROM journal_line jl
                JOIN journal_entry je ON je.entry_id = jl.entry_id
               WHERE jl.site_id = $1

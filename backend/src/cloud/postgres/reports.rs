@@ -6,8 +6,11 @@
 //! not one that can be assembled from the daily report without a request per
 //! shop per day.
 //!
-//! Everything is derived from durable rows (sale, sale_payment, sale_return*)
-//! at a configurable UTC offset; nothing here writes.
+//! Fleet takings are derived from both durable sale populations: `sale` is a
+//! centre-created transaction, while `edge_sale` is what a store reported over
+//! sync. They are disjoint records; omitting either leaves the fleet report
+//! short. Returns still come from `sale_return*`, because store returns do not
+//! yet have a sync fact.
 
 use crate::cloud::application::{AppError, DailyReportQuery, SalesSeriesQuery, SalesWindowQuery};
 use crate::reporting::{buckets_between, offset_of, Bucket, DEFAULT_UTC_OFFSET_MINUTES};
@@ -34,14 +37,20 @@ pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Resul
     let end = start + Duration::hours(24);
 
     let sales = sqlx::query(
-        "SELECT COALESCE(COUNT(*),0)::bigint sales_count,\
-         COALESCE(SUM(net_minor),0)::bigint net_minor,\
-         COALESCE(SUM(tax_minor),0)::bigint tax_minor,\
-         COALESCE(SUM(total_minor),0)::bigint gross_minor,\
-         COALESCE(SUM(paid_minor),0)::bigint paid_minor,\
+        "SELECT COALESCE(COUNT(*),0)::bigint sales_count, \
+         COALESCE(SUM(net_minor),0)::bigint net_minor, \
+         COALESCE(SUM(tax_minor),0)::bigint tax_minor, \
+         COALESCE(SUM(total_minor),0)::bigint gross_minor, \
+         COALESCE(SUM(paid_minor),0)::bigint paid_minor, \
          COALESCE(SUM(change_minor),0)::bigint change_minor \
-         FROM sale WHERE site_id=$1 AND status='COMPLETED' \
-         AND completed_at >= $2 AND completed_at < $3",
+         FROM ( \
+           SELECT net_minor,tax_minor,total_minor,paid_minor,change_minor,completed_at sold_at \
+             FROM sale WHERE site_id=$1 AND status='COMPLETED' \
+           UNION ALL \
+           SELECT COALESCE(net_ex_tax_minor,total_minor),COALESCE(tax_total_minor,0), \
+                  total_minor,paid_minor,change_minor,occurred_at sold_at \
+             FROM edge_sale WHERE site_id=$1 \
+         ) trade WHERE sold_at >= $2 AND sold_at < $3",
     )
     .bind(&site_id)
     .bind(start)
@@ -50,10 +59,15 @@ pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Resul
     .await?;
 
     let items = sqlx::query(
-        "SELECT COALESCE(SUM(l.quantity),0)::bigint units \
-         FROM sale_line l JOIN sale s ON s.id=l.sale_id \
-         WHERE s.site_id=$1 AND s.status='COMPLETED' \
-         AND s.completed_at >= $2 AND s.completed_at < $3",
+        "SELECT COALESCE(SUM(units),0)::bigint units FROM ( \
+           SELECT COALESCE(SUM(l.quantity),0)::bigint units \
+             FROM sale_line l JOIN sale s ON s.id=l.sale_id \
+            WHERE s.site_id=$1 AND s.status='COMPLETED' AND s.completed_at >= $2 AND s.completed_at < $3 \
+           UNION ALL \
+           SELECT COALESCE(SUM(l.quantity),0)::bigint units \
+             FROM edge_sale_line l JOIN edge_sale s ON s.sale_id=l.sale_id \
+            WHERE s.site_id=$1 AND s.occurred_at >= $2 AND s.occurred_at < $3 \
+         ) quantities",
     )
     .bind(&site_id)
     .bind(start)
@@ -62,11 +76,14 @@ pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Resul
     .await?;
 
     let tenders = sqlx::query(
-        "SELECT p.method,COALESCE(SUM(p.amount_minor),0)::bigint amount_minor,COUNT(*)::bigint tender_count \
-         FROM sale_payment p JOIN sale s ON s.id=p.sale_id \
-         WHERE s.site_id=$1 AND s.status='COMPLETED' \
-         AND s.completed_at >= $2 AND s.completed_at < $3 \
-         GROUP BY p.method ORDER BY p.method",
+        "WITH tenders AS ( \
+           SELECT p.method,p.amount_minor FROM sale_payment p JOIN sale s ON s.id=p.sale_id \
+            WHERE s.site_id=$1 AND s.status='COMPLETED' AND s.completed_at >= $2 AND s.completed_at < $3 \
+           UNION ALL \
+           SELECT p.method,p.amount_minor FROM edge_sale_tender p JOIN edge_sale s ON s.sale_id=p.sale_id \
+            WHERE s.site_id=$1 AND s.occurred_at >= $2 AND s.occurred_at < $3 \
+         ) SELECT method,COALESCE(SUM(amount_minor),0)::bigint amount_minor,COUNT(*)::bigint tender_count \
+             FROM tenders GROUP BY method ORDER BY method",
     )
     .bind(&site_id)
     .bind(start)
@@ -86,7 +103,7 @@ pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Resul
     .get("count");
 
     let returns = sqlx::query(
-        "SELECT COALESCE(COUNT(*),0)::bigint return_count,\
+        "SELECT COALESCE(COUNT(*),0)::bigint return_count, \
          COALESCE(SUM(refund_total_minor),0)::bigint refund_total_minor \
          FROM sale_return WHERE site_id=$1 AND created_at >= $2 AND created_at < $3",
     )
@@ -178,14 +195,16 @@ pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Valu
         .map_err(AppError::Validation)?;
 
     // The shops the chart has rows for: every store, plus anything that
-    // actually sold in the span. The second half is not paranoia — a site
-    // whose kind was changed after it traded would otherwise take its history
-    // off the report with it.
+    // actually sold in either durable population in the span. The second half
+    // is not paranoia — a site whose kind was changed after it traded would
+    // otherwise take its history off the report with it.
     let sites = sqlx::query(
         "SELECT id,name,kind FROM site \
-         WHERE kind='STORE' OR id IN (\
+         WHERE kind='STORE' OR id IN ( \
            SELECT site_id FROM sale \
-           WHERE status='COMPLETED' AND completed_at >= $1 AND completed_at < $2) \
+           WHERE status='COMPLETED' AND completed_at >= $1 AND completed_at < $2 \
+           UNION SELECT site_id FROM edge_sale \
+           WHERE occurred_at >= $1 AND occurred_at < $2) \
          ORDER BY name",
     )
     .bind(start)
@@ -193,23 +212,39 @@ pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Valu
     .fetch_all(pool)
     .await?;
 
-    // `completed_at AT TIME ZONE 'UTC'` drops the instant to a naive UTC
-    // wall clock; adding the offset makes it the shop's own wall clock, which
-    // is the only reading of "which day was this sale on" a shop agrees with.
-    // Truncating a `timestamptz` directly would use the server's timezone —
-    // whatever that happens to be set to today.
+    // Both sources are placed on the same shop-local time axis. Centre sales
+    // use completed_at; a store's immutable fact uses occurred_at. Keep the
+    // source beside the UUID while joining lines: the two populations are
+    // intentionally separate and a UUID collision must not cross-wire them.
     let cells = sqlx::query(&format!(
-        "SELECT s.site_id,\
-         date_trunc('{field}', (s.completed_at AT TIME ZONE 'UTC') + make_interval(mins => $3))::date AS bucket_start,\
-         COUNT(*)::bigint sales_count,\
-         COALESCE(SUM(s.net_minor),0)::bigint net_minor,\
-         COALESCE(SUM(s.tax_minor),0)::bigint tax_minor,\
-         COALESCE(SUM(s.total_minor),0)::bigint gross_minor,\
+        "WITH selected_sales AS ( \
+           SELECT 'CENTRE'::text source,s.id sale_id,s.site_id,s.completed_at sold_at, \
+                  s.net_minor,s.tax_minor,s.total_minor \
+             FROM sale s \
+            WHERE s.status='COMPLETED' AND s.completed_at >= $1 AND s.completed_at < $2 \
+           UNION ALL \
+           SELECT 'EDGE'::text source,e.sale_id,e.site_id,e.occurred_at sold_at, \
+                  COALESCE(e.net_ex_tax_minor,e.total_minor),COALESCE(e.tax_total_minor,0),e.total_minor \
+             FROM edge_sale e \
+            WHERE e.occurred_at >= $1 AND e.occurred_at < $2 \
+         ), line_totals AS ( \
+           SELECT 'CENTRE'::text source,l.sale_id,SUM(l.quantity)::bigint units \
+             FROM sale_line l JOIN selected_sales s ON s.source='CENTRE' AND s.sale_id=l.sale_id \
+            GROUP BY l.sale_id \
+           UNION ALL \
+           SELECT 'EDGE'::text source,l.sale_id,SUM(l.quantity)::bigint units \
+             FROM edge_sale_line l JOIN selected_sales s ON s.source='EDGE' AND s.sale_id=l.sale_id \
+            GROUP BY l.sale_id \
+         ) \
+         SELECT s.site_id, \
+         date_trunc('{field}', (s.sold_at AT TIME ZONE 'UTC') + make_interval(mins => $3))::date AS bucket_start, \
+         COUNT(*)::bigint sales_count, \
+         COALESCE(SUM(s.net_minor),0)::bigint net_minor, \
+         COALESCE(SUM(s.tax_minor),0)::bigint tax_minor, \
+         COALESCE(SUM(s.total_minor),0)::bigint gross_minor, \
          COALESCE(SUM(lines.units),0)::bigint units \
-         FROM sale s \
-         LEFT JOIN (SELECT sale_id,SUM(quantity)::bigint units FROM sale_line GROUP BY sale_id) lines \
-           ON lines.sale_id=s.id \
-         WHERE s.status='COMPLETED' AND s.completed_at >= $1 AND s.completed_at < $2 \
+         FROM selected_sales s \
+         LEFT JOIN line_totals lines ON lines.source=s.source AND lines.sale_id=s.sale_id \
          GROUP BY 1,2 ORDER BY 2,1",
         field = bucket.label(),
     ))
@@ -267,6 +302,9 @@ pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Valu
 /// finance unit domain, and falls back to the site's when no place is bridged
 /// to it.
 ///
+/// Edge sale returns are not included yet: the POS return flow has no sync fact.
+/// The returned receipt list and sales/tender totals include both populations.
+///
 /// `average_minor` is here rather than left to the caller because there is one
 /// wrong way to compute it — dividing by a count that includes voided sales —
 /// and a caller reading `count` from a different block would take it.
@@ -300,14 +338,21 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     let limit = query.limit.unwrap_or(200).clamp(1, 1000);
 
     let sales = sqlx::query(
-        "SELECT COALESCE(COUNT(*),0)::bigint sales_count,\
-         COALESCE(SUM(net_minor),0)::bigint net_minor,\
-         COALESCE(SUM(tax_minor),0)::bigint tax_minor,\
-         COALESCE(SUM(total_minor),0)::bigint gross_minor,\
-         COALESCE(SUM(paid_minor),0)::bigint paid_minor,\
+        "SELECT COALESCE(COUNT(*),0)::bigint sales_count, \
+         COALESCE(SUM(net_minor),0)::bigint net_minor, \
+         COALESCE(SUM(tax_minor),0)::bigint tax_minor, \
+         COALESCE(SUM(total_minor),0)::bigint gross_minor, \
+         COALESCE(SUM(paid_minor),0)::bigint paid_minor, \
          COALESCE(SUM(change_minor),0)::bigint change_minor \
-         FROM sale WHERE ($1::text IS NULL OR site_id=$1) AND status='COMPLETED' \
-         AND completed_at >= $2 AND completed_at < $3",
+         FROM ( \
+           SELECT site_id,net_minor,tax_minor,total_minor,paid_minor,change_minor,completed_at sold_at \
+             FROM sale WHERE status='COMPLETED' \
+           UNION ALL \
+           SELECT site_id,COALESCE(net_ex_tax_minor,total_minor),COALESCE(tax_total_minor,0), \
+                  total_minor,paid_minor,change_minor,occurred_at sold_at \
+             FROM edge_sale \
+         ) trade WHERE ($1::text IS NULL OR site_id=$1) \
+           AND sold_at >= $2 AND sold_at < $3",
     )
     .bind(&site_id)
     .bind(start)
@@ -316,10 +361,16 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     .await?;
 
     let units: i64 = sqlx::query(
-        "SELECT COALESCE(SUM(l.quantity),0)::bigint units \
-         FROM sale_line l JOIN sale s ON s.id=l.sale_id \
-         WHERE ($1::text IS NULL OR s.site_id=$1) AND s.status='COMPLETED' \
-         AND s.completed_at >= $2 AND s.completed_at < $3",
+        "SELECT COALESCE(SUM(units),0)::bigint units FROM ( \
+           SELECT COALESCE(SUM(l.quantity),0)::bigint units \
+             FROM sale_line l JOIN sale s ON s.id=l.sale_id \
+            WHERE ($1::text IS NULL OR s.site_id=$1) AND s.status='COMPLETED' \
+              AND s.completed_at >= $2 AND s.completed_at < $3 \
+           UNION ALL \
+           SELECT COALESCE(SUM(l.quantity),0)::bigint units \
+             FROM edge_sale_line l JOIN edge_sale s ON s.sale_id=l.sale_id \
+            WHERE ($1::text IS NULL OR s.site_id=$1) AND s.occurred_at >= $2 AND s.occurred_at < $3 \
+         ) totals",
     )
     .bind(&site_id)
     .bind(start)
@@ -329,11 +380,15 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     .get("units");
 
     let tenders = sqlx::query(
-        "SELECT p.method,COALESCE(SUM(p.amount_minor),0)::bigint amount_minor,COUNT(*)::bigint tender_count \
-         FROM sale_payment p JOIN sale s ON s.id=p.sale_id \
-         WHERE ($1::text IS NULL OR s.site_id=$1) AND s.status='COMPLETED' \
-         AND s.completed_at >= $2 AND s.completed_at < $3 \
-         GROUP BY p.method ORDER BY p.method",
+        "WITH tenders AS ( \
+           SELECT p.method,p.amount_minor FROM sale_payment p JOIN sale s ON s.id=p.sale_id \
+            WHERE ($1::text IS NULL OR s.site_id=$1) AND s.status='COMPLETED' \
+              AND s.completed_at >= $2 AND s.completed_at < $3 \
+           UNION ALL \
+           SELECT p.method,p.amount_minor FROM edge_sale_tender p JOIN edge_sale s ON s.sale_id=p.sale_id \
+            WHERE ($1::text IS NULL OR s.site_id=$1) AND s.occurred_at >= $2 AND s.occurred_at < $3 \
+         ) SELECT method,COALESCE(SUM(amount_minor),0)::bigint amount_minor,COUNT(*)::bigint tender_count \
+             FROM tenders GROUP BY method ORDER BY method",
     )
     .bind(&site_id)
     .bind(start)
@@ -354,7 +409,7 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     .get("count");
 
     let returns = sqlx::query(
-        "SELECT COALESCE(COUNT(*),0)::bigint return_count,\
+        "SELECT COALESCE(COUNT(*),0)::bigint return_count, \
          COALESCE(SUM(refund_total_minor),0)::bigint refund_total_minor \
          FROM sale_return WHERE ($1::text IS NULL OR site_id=$1) \
          AND created_at >= $2 AND created_at < $3",
@@ -383,27 +438,42 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     // sale half in cash and half on a card is exactly the row a supervisor
     // opens this list to find.
     let transactions = sqlx::query(
-        "WITH selected_sales AS (\
-             SELECT * FROM sale WHERE ($1::text IS NULL OR site_id=$1) AND status='COMPLETED' \
-              AND completed_at >= $2 AND completed_at < $3 \
-             ORDER BY completed_at DESC LIMIT $4\
-         ), line_totals AS (\
-             SELECT line.sale_id,COUNT(*)::bigint line_count,COALESCE(SUM(line.quantity),0)::bigint units \
-             FROM sale_line line JOIN selected_sales sale ON sale.id=line.sale_id GROUP BY line.sale_id\
-         ), payment_methods AS (\
-             SELECT payment.sale_id,array_agg(DISTINCT payment.method ORDER BY payment.method) methods \
-             FROM sale_payment payment JOIN selected_sales sale ON sale.id=payment.sale_id \
-             GROUP BY payment.sale_id\
+        "WITH all_sales AS ( \
+             SELECT 'CENTRE'::text source,s.id,s.sale_number,s.site_id,s.channel,s.currency::text currency, \
+                    s.net_minor,s.tax_minor,s.total_minor,s.paid_minor,s.change_minor,s.actor_id,s.customer_id,s.completed_at \
+               FROM sale s WHERE s.status='COMPLETED' AND s.completed_at >= $2 AND s.completed_at < $3 \
+             UNION ALL \
+             SELECT 'EDGE'::text source,e.sale_id,'POS-'||LEFT(e.sale_id::text,8),e.site_id,'STORE',e.currency::text, \
+                    COALESCE(e.net_ex_tax_minor,e.total_minor),COALESCE(e.tax_total_minor,0),e.total_minor, \
+                    e.paid_minor,e.change_minor,e.actor_id,e.customer_id,e.occurred_at \
+               FROM edge_sale e WHERE e.occurred_at >= $2 AND e.occurred_at < $3 \
+         ), selected_sales AS ( \
+             SELECT * FROM all_sales WHERE ($1::text IS NULL OR site_id=$1) \
+              ORDER BY completed_at DESC LIMIT $4 \
+         ), line_totals AS ( \
+             SELECT 'CENTRE'::text source,line.sale_id,COUNT(*)::bigint line_count,COALESCE(SUM(line.quantity),0)::bigint units \
+               FROM sale_line line JOIN selected_sales sale ON sale.source='CENTRE' AND sale.id=line.sale_id GROUP BY line.sale_id \
+             UNION ALL \
+             SELECT 'EDGE'::text source,line.sale_id,COUNT(*)::bigint line_count,COALESCE(SUM(line.quantity),0)::bigint units \
+               FROM edge_sale_line line JOIN selected_sales sale ON sale.source='EDGE' AND sale.id=line.sale_id GROUP BY line.sale_id \
+         ), payment_methods AS ( \
+             SELECT 'CENTRE'::text source,payment.sale_id,array_agg(DISTINCT payment.method ORDER BY payment.method) methods \
+               FROM sale_payment payment JOIN selected_sales sale ON sale.source='CENTRE' AND sale.id=payment.sale_id \
+              GROUP BY payment.sale_id \
+             UNION ALL \
+             SELECT 'EDGE'::text source,payment.sale_id,array_agg(DISTINCT payment.method ORDER BY payment.method) methods \
+               FROM edge_sale_tender payment JOIN selected_sales sale ON sale.source='EDGE' AND sale.id=payment.sale_id \
+              GROUP BY payment.sale_id \
          ) \
-         SELECT s.id,s.sale_number,s.site_id,s.channel,s.currency::text currency,\
-         s.net_minor,s.tax_minor,s.total_minor,s.paid_minor,s.change_minor,\
-         s.actor_id,s.customer_id,s.completed_at,\
-         COALESCE(lines.line_count,0)::bigint line_count,\
-         COALESCE(lines.units,0)::bigint units,\
+         SELECT s.source,s.id,s.sale_number,s.site_id,s.channel,s.currency, \
+         s.net_minor,s.tax_minor,s.total_minor,s.paid_minor,s.change_minor, \
+         s.actor_id,s.customer_id,s.completed_at, \
+         COALESCE(lines.line_count,0)::bigint line_count, \
+         COALESCE(lines.units,0)::bigint units, \
          COALESCE(payments.methods,ARRAY[]::text[]) methods \
          FROM selected_sales s \
-         LEFT JOIN line_totals lines ON lines.sale_id=s.id \
-         LEFT JOIN payment_methods payments ON payments.sale_id=s.id \
+         LEFT JOIN line_totals lines ON lines.source=s.source AND lines.sale_id=s.id \
+         LEFT JOIN payment_methods payments ON payments.source=s.source AND payments.sale_id=s.id \
          ORDER BY s.completed_at DESC",
     )
     .bind(&site_id)
@@ -468,6 +538,7 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
             "cash_expected_minor": cash_in - change_out - cash_refunds,
         },
         "transactions": transactions.iter().map(|row| json!({
+            "source": row.get::<String,_>("source"),
             "id": row.get::<Uuid,_>("id"),
             "sale_number": row.get::<String,_>("sale_number"),
             // On every row, not only on the fleet-wide read. A receipt that

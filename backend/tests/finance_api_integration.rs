@@ -268,6 +268,42 @@ async fn a_shop_role_cannot_post_a_manual_journal(pool: PgPool) {
     )
     .await;
     assert_eq!(posted.status, StatusCode::OK, "admin: {:?}", posted.body);
+    let entry_id = posted.body["entry_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("entry_id: {:?}", posted.body))
+        .to_owned();
+
+    // A cash document is the same kind of act and carries the same gate.
+    let cash_doc = send(
+        app.clone(),
+        "POST",
+        "/api/v1/finance/cash-documents",
+        write_headers(&cashier.0, &cashier.1),
+        Some(json!({ "kind": "KK", "amount_minor": 1_000 })),
+    )
+    .await;
+    assert_eq!(
+        cash_doc.status,
+        StatusCode::FORBIDDEN,
+        "a cashier must not raise a cash document: {:?}",
+        cash_doc.body
+    );
+
+    // And a reversal is Finance HO's too.
+    let reversed = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/finance/journal/{entry_id}/reverse"),
+        write_headers(&cashier.0, &cashier.1),
+        Some(json!({ "reason": "coba" })),
+    )
+    .await;
+    assert_eq!(
+        reversed.status,
+        StatusCode::FORBIDDEN,
+        "a cashier must not reverse: {:?}",
+        reversed.body
+    );
 }
 
 // 36 -------------------------------------------------------------------------
@@ -369,7 +405,7 @@ async fn rental_income_lands_on_8005(pool: PgPool) {
 // 33 -------------------------------------------------------------------------
 
 /// Head office charges a unit a management fee: the unit's cost, head office's
-/// income, crossing on Lain-lain (1059).
+/// income, crossing on Lain-lain (1059 at head office, 2030 at the unit).
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_management_fee_crosses_on_lain_lain(pool: PgPool) {
     let app = app_with_admin(&pool).await;
@@ -396,7 +432,12 @@ async fn a_management_fee_crosses_on_lain_lain(pool: PgPool) {
         "/api/v1/finance/trial-balance?site=store-01&as_of=2026-09-30",
     )
     .await;
-    assert_eq!(store.status, StatusCode::OK, "store trial: {:?}", store.body);
+    assert_eq!(
+        store.status,
+        StatusCode::OK,
+        "store trial: {:?}",
+        store.body
+    );
     assert!(
         store.body.to_string().contains("7032"),
         "the unit carries Biaya Management Fee: {}",
@@ -416,14 +457,30 @@ async fn a_management_fee_crosses_on_lain_lain(pool: PgPool) {
         ho.body
     );
 
-    let affiliate: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(debit_minor - credit_minor), 0)::bigint
-           FROM journal_line WHERE account_code = '1059'",
+    let (ho_1059, unit_2030, affiliate): (i64, i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(debit_minor - credit_minor)
+                    FILTER (WHERE account_code = '1059' AND site_id = 'dc'), 0)::bigint,
+                COALESCE(SUM(debit_minor - credit_minor)
+                    FILTER (WHERE account_code = '2030' AND site_id = 'store-01'), 0)::bigint,
+                COALESCE(SUM(debit_minor - credit_minor)
+                    FILTER (WHERE account_code IN ('1059', '2030')), 0)::bigint
+           FROM journal_line",
     )
     .fetch_one(&pool)
     .await
     .unwrap_or_else(|error| panic!("affiliate: {error}"));
-    assert_eq!(affiliate, 0, "1059 nets to zero company-wide");
+    assert_eq!(
+        ho_1059, 250_000,
+        "head office Dr 1059 Piutang Affiliasi Lain-lain"
+    );
+    assert_eq!(
+        unit_2030, -250_000,
+        "the unit Cr 2030 Hutang Lain-lain Principal"
+    );
+    assert_eq!(
+        affiliate, 0,
+        "Lain-lain (1059/2030) nets to zero company-wide"
+    );
 }
 
 // 34 -------------------------------------------------------------------------

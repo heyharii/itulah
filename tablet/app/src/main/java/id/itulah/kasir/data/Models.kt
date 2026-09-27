@@ -237,6 +237,12 @@ data class ShiftReport(
     val varianceMinor: Long?,
     val movements: List<CashMovement>,
     val tenders: List<TenderTotal>,
+    /**
+     * True when the node withheld the drawer's figures because a cashier is
+     * signed in — the close is blind (`http.rs::blind_for_cashier`). The
+     * withheld fields then parse as 0 and must not be shown.
+     */
+    val blind: Boolean,
 ) {
     val isOpen: Boolean get() = status.equals("OPEN", ignoreCase = true)
 
@@ -260,6 +266,7 @@ data class ShiftReport(
             varianceMinor = if (json.isNull("variance_minor")) null else json.optLong("variance_minor"),
             movements = json.optJSONArray("movements").list { CashMovement.from(it) },
             tenders = json.optJSONArray("tenders").list { TenderTotal.from(it) },
+            blind = json.optBoolean("blind", false),
         )
     }
 }

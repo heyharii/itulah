@@ -45,6 +45,7 @@ import {
 } from "@/lib/queries/reports"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { csvName, downloadCsv } from "@/lib/csv"
 
 /// Reports somebody kept, and the one they are reading.
 ///
@@ -128,7 +129,7 @@ function SavedList({ onOpen }: { onOpen: (id: string) => void }) {
                       “{report.prompt}”
                     </p>
                   )}
-                  <div className="mt-3 flex items-center gap-2 text-[0.6875rem] text-mute">
+                  <div className="mt-3 flex items-center gap-2 text-[0.875rem] text-mute">
                     <span className="font-mono">{report.dataset}</span>
                     <span aria-hidden>·</span>
                     <span>v{report.version}</span>
@@ -367,7 +368,7 @@ function Answer({
           <CardTitle>
             {count(answer.row_count)} row{answer.row_count === 1 ? "" : "s"}
           </CardTitle>
-          <span className="text-[0.6875rem] text-mute">
+          <span className="text-[0.875rem] text-mute">
             {answer.period
               ? `${day(answer.period.from)} – ${day(answer.period.to)}`
               : "Sepanjang catatan"}
@@ -497,17 +498,5 @@ function figure(
 
 /// The rows as a file, built from what is already on the screen.
 function download(saved: SavedReport, answer: ReportResult) {
-  const blob = new Blob([toCsv(answer)], { type: "text/csv;charset=utf-8" })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement("a")
-  link.href = url
-  // Punctuation out, then runs of space collapsed: stripping the ampersand
-  // from "Bruto & Unit" otherwise leaves a double space in the filename.
-  const name = saved.name
-    .replace(/[^\w -]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-  link.download = `${name || "report"}.csv`
-  link.click()
-  URL.revokeObjectURL(url)
+  downloadCsv(csvName(saved.name, "report"), toCsv(answer))
 }

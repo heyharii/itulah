@@ -29,6 +29,8 @@ import id.itulah.kasir.ui.ReturningLine
 import id.itulah.kasir.ui.SupervisorSheet
 import id.itulah.kasir.ui.SetupScreen
 import id.itulah.kasir.ui.ShiftScreen
+import id.itulah.kasir.ui.Shell
+import id.itulah.kasir.ui.TillStatus
 import id.itulah.kasir.ui.TenderScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -154,6 +156,23 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Every screen stands in the same frame, as it does on pos-desktop.
+        // Before sign-in there is no cashier to show and no till to report on.
+        val signedIn = where != Where.SETUP && where != Where.LOGIN
+        Shell(
+            terminalId = config.terminalId.takeIf { it.isNotBlank() },
+            cashier = if (signedIn) config.cashier else null,
+            // Only from the desk: signing out mid-payment or mid-return would
+            // strand whatever was half done on the screen being left.
+            onSignOut = if (where == Where.DESK) ({
+                store.clearSession()
+                config = store.load()
+                api.config = config
+                loginError = null
+                where = Where.LOGIN
+            }) else null,
+            status = if (signedIn) ({ TillStatus(state) }) else null,
+        ) {
         when (where) {
             Where.SETUP -> SetupScreen(
                 config = config,
@@ -308,6 +327,7 @@ class MainActivity : ComponentActivity() {
                 onPrint = { copy -> state.receipt?.let { till.printReceipt(it.saleId, copy) } },
                 onBack = { where = Where.DESK },
             )
+        }
         }
 
         // The step-up sits over whatever asked for it, so the cashier can see

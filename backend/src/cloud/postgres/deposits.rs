@@ -37,7 +37,7 @@
 //!
 //! The drawer's code and the bank's arrive from the caller, because that is how
 //! every money screen in this estate addresses a place money sits — and both
-//! are resolved BACK to a meaning through `account_map` before anything posts.
+//! are resolved BACK to a meaning through `account_resolution` before anything posts.
 //! So a deposit out of an account nobody mapped is refused by name at the
 //! moment somebody records it, rather than at posting time, which is the
 //! arrangement `cash_counts` already makes and for the same reason.
@@ -493,7 +493,7 @@ fn trimmed(value: Option<&str>) -> Option<String> {
 /// else.
 ///
 /// A category the caller does not give is not filled in here. Two meanings on
-/// one pairing is still a real fault on the Account Map, and the refusal below
+/// one pairing is still a real fault on the Account Links, and the refusal below
 /// says which of the two the reader is looking at: a slip that did not say
 /// which pot, or a map that says the same pot twice.
 async fn meaning_of(
@@ -505,12 +505,13 @@ async fn meaning_of(
     role: &str,
 ) -> Result<(String, String), AppError> {
     let rows = sqlx::query(
-        "SELECT m.semantic_key, m.qualifier, a.category_family
-           FROM account_map m
+        "SELECT m.role AS semantic_key, m.source_id AS qualifier, a.category_family
+           FROM account_resolution m
            JOIN ledger_account a ON a.account_code = m.account_code
-          WHERE m.account_code = $1 AND m.site_id = $2 AND m.semantic_key = ANY($3)
+          WHERE m.account_code = $1 AND m.site_id = $2 AND m.role = ANY($3)
+            AND m.source_type = 'COMPANY'
             AND ($4::text IS NULL OR m.category_code = $4)
-          ORDER BY m.semantic_key, m.qualifier",
+          ORDER BY m.role, m.source_id",
     )
     .bind(account_code)
     .bind(site_id)
@@ -527,7 +528,7 @@ async fn meaning_of(
     match rows.len() {
         0 => Err(AppError::Validation(format!(
             "{account_code}{under} at {site_id} is not {role}: point one of {} at it on the \
-             Account Map screen, or name the account that is",
+             Account Links screen, or name the account that is",
             allowed.join(", ")
         ))),
         1 => Ok((
@@ -547,7 +548,7 @@ async fn meaning_of(
                 ))),
                 _ => Err(AppError::Validation(format!(
                     "{account_code}{under} at {site_id} is mapped by more than one meaning; one \
-                     account and one category carry one meaning, so fix the Account Map before \
+                     account and one category carry one meaning, so fix the Account Links before \
                      banking against it"
                 ))),
             }

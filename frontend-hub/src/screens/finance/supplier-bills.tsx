@@ -12,6 +12,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { BarSeries, type ChartSeries } from "@/components/ui/chart"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Money, Textarea } from "@/components/ui/field"
+import { Switch } from "@/components/ui/form"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import {
   MiniCell,
@@ -28,6 +29,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import {
   Banner,
   EmptyState,
+  LoadingState,
   NoAccessState,
   NoMatch,
   Problem,
@@ -37,16 +39,20 @@ import { useFilters } from "@/lib/filters"
 import { count, day, label, money, toneFor } from "@/lib/format"
 import {
   billDetail,
+  billWarnings,
   financeKeys,
+  holdBill,
   listBills,
   listPayments,
   payablesAging,
   postBill,
   recordBill,
+  releaseBill,
+  returnBill,
   unbilledReceipts,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { useSheet } from "@/lib/sheets"
+import { useSheet, type SheetKey } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import {
   EXPENSE_LINE_CLASSES,
@@ -69,6 +75,7 @@ import type {
   PayablesAgingRow,
   RecordBillLine,
   SupplierBill,
+  SupplierBillLine,
   UnbilledReceipt,
 } from "@itulah/contract"
 
@@ -170,8 +177,14 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     header: "Invoice",
     size: 150,
     cell: ({ row }) => (
-      <span className="font-mono text-id text-body">
-        {row.original.invoice_number}
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="font-mono text-id text-body">
+          {row.original.invoice_number}
+        </span>
+        {/* The marks a bill wears in any list: it was filed by Operations, and
+            it is held. Drawn here rather than as columns because both are
+            facts about the row and neither is a figure anybody sorts by. */}
+        <BillMarks bill={row.original} />
       </span>
     ),
   },
@@ -279,7 +292,7 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
             {money(bill.outstanding_minor)}
           </span>
           {reserved > 0 && (
-            <span className="text-[0.65625rem] text-warn-fg tabular-nums">
+            <span className="text-[0.875rem] text-warn-fg tabular-nums">
               {money(reserved)} in draft
             </span>
           )}
@@ -363,6 +376,119 @@ function LineCount({ id }: { id: string }) {
     return <span className="text-faint">—</span>
   }
   return <span className="text-body tabular-nums">{count(lines.length)}</span>
+}
+
+/// The two marks a bill can wear in a list, and nothing when it wears neither.
+///
+/// **GA** is the handover: the draft was filed by Operations and is Finance's
+/// to inspect, not yet to pay. **Ditahan** is the hold — the bill is real but
+/// nothing may pay it. Both are facts about the row, so they sit under the
+/// invoice number rather than in a column a reader has to sort to find.
+function BillMarks({ bill }: { bill: SupplierBill }) {
+  const fromGa = bill.submitted_by_domain === "GA"
+  if (!fromGa && !bill.on_hold) return null
+  return (
+    <span className="flex flex-wrap gap-1">
+      {fromGa && <Pill tone="info">GA</Pill>}
+      {bill.on_hold && <Pill tone="warn">Ditahan</Pill>}
+    </span>
+  )
+}
+
+/// A reference a bill line carries back to the GA record it was bought or
+/// worked for, and the door to that record.
+///
+/// The GA mark is on every one of them on purpose: a line that says "perbaikan
+/// AC-114" and does not say who filed it reads as Finance's own note. Each link
+/// lands on the record itself — the asset register's sheet, the repair book,
+/// the contract, the supply request — so a bill can be checked against what it
+/// was for without hunting through a list.
+function GaRef({
+  to,
+  sheetKey,
+  value,
+  label,
+}: {
+  to: string
+  sheetKey: SheetKey
+  value: string
+  label: string
+}) {
+  return (
+    <AppLink
+      to={to}
+      sheet={{ key: sheetKey, value }}
+      className="inline-flex items-center gap-1 text-accent hover:underline"
+    >
+      <Pill tone="info">GA</Pill>
+      <span className="truncate">{label}</span>
+    </AppLink>
+  )
+}
+
+/// The GA record a line points at, when it points at one.
+///
+/// Read from the LINE and never from the header: one bill may carry several
+/// lines for different objects, and the header only summarises them (brief
+/// §8.1). An asset, a repair, a contract and a supply request are each their
+/// own door; `replacement` is carried on the wire but has no screen yet, so it
+/// is not drawn rather than drawn as a dead link.
+function LineRefs({ line }: { line: SupplierBillLine }) {
+  return (
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      {line.asset_id !== null && (
+        <GaRef
+          to="/assets"
+          sheetKey="asset"
+          value={line.asset_id}
+          label="Aset"
+        />
+      )}
+      {line.repair_id !== null && (
+        <GaRef
+          to="/maintenance"
+          sheetKey="repair"
+          value={line.repair_id}
+          label="Perbaikan"
+        />
+      )}
+      {line.contract_id !== null && (
+        <GaRef
+          to="/contracts/sewa"
+          sheetKey="contract"
+          value={line.contract_id}
+          label="Kontrak"
+        />
+      )}
+      {line.supply_request_id !== null && (
+        <GaRef
+          to="/supplies"
+          sheetKey="supply"
+          value={line.supply_request_id}
+          label="Permintaan"
+        />
+      )}
+    </span>
+  )
+}
+
+/// Where the account on a line came from, and whether Finance changed it.
+///
+/// The server suggests an account from the object the line names (§8.2), and
+/// `source` is its own words for which level of that order answered — "kelas
+/// aset · Air Conditioner", "objek perbaikan · AC & refrigerator". A line whose
+/// account was keyed by Finance says so beside it, because an overridden
+/// suggestion and a suggested one are different facts about the same code.
+function LineSource({ line }: { line: SupplierBillLine }) {
+  if (line.source === null && !line.account_overridden) return null
+  return (
+    <span className="shrink-0 truncate rounded-inner bg-soft-2 px-[0.375rem] text-[0.875rem] text-body">
+      {line.source ?? "usulan GA"}
+      {line.account_overridden && (
+        <span className="text-mute"> · diganti Finance</span>
+      )}
+    </span>
+  )
 }
 
 /// The expense list: the same columns as merchandise, plus what the bill was
@@ -468,13 +594,18 @@ const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
   },
 ]
 
-/// Which of the three lists is on screen.
+/// Which of the four lists is on screen.
 ///
 /// Merchandise and Expenses are two *datasets* and not two filters on one, which
 /// is why they are sub-tabs: they are settled out of different payables, they
 /// are posted by different rules, and only one of them says what it was for. A
 /// segmented control here would have claimed they were one list narrowed.
-type BillTab = "merchandise" | "expenses" | "unbilled"
+///
+/// **Dari GA** is the handover inbox: the same DRAFT expense bills, but the
+/// ones Operations filed, asked for on the server (`draft_from=GA`) because
+/// "what has GA sent us" is a population rather than a narrowing of the page in
+/// hand. It is a fourth tab and not a filter on Expenses for that reason.
+type BillTab = "merchandise" | "expenses" | "ga" | "unbilled"
 
 /// What the bill read asks for, named here rather than left to the default
 /// inside `listBills` — a ceiling the screen cannot see is one the banner
@@ -516,6 +647,23 @@ export function SupplierBills() {
     queryFn: ({ signal }) =>
       listBills({ limit: CAP }, signal).then((page) => page.rows),
   })
+  /// The inbox, narrowed on the SERVER. It shares no cache entry with the list
+  /// above because it is a different answer: `draft_from=GA` asks the node for
+  /// the drafts Operations filed, which the in-memory kind split cannot
+  /// recover — a returned GA draft is still DRAFT and still expense, and one
+  /// page of two hundred bills may not hold it at all.
+  const gaBills = useQuery({
+    queryKey: financeKeys.bills("DRAFT", null, "GA"),
+    queryFn: ({ signal }) =>
+      listBills({ status: "DRAFT", draftFrom: "GA", limit: CAP }, signal).then(
+        (page) => page.rows
+      ),
+    // Fetched when the inbox is opened, not on every visit to this screen:
+    // most mornings nobody is looking at what GA filed, and a fourth list is
+    // a fourth request. The bill sheet reuses this key when it has to open a
+    // GA row the register did not carry, so arriving from there is warm too.
+    enabled: tab === "ga",
+  })
   const unbilled = useQuery({
     queryKey: financeKeys.unbilled(),
     queryFn: ({ signal }) => unbilledReceipts(signal),
@@ -556,10 +704,20 @@ export function SupplierBills() {
     [unbilled.data, site]
   )
 
+  /// The GA inbox, narrowed by location in the browser the way the other two
+  /// bill lists are — `GET /bills` takes a site too, but sharing one location
+  /// control across every tab is what keeps the chip in the toolbar honest.
+  const gaRows = useMemo(
+    () =>
+      (gaBills.data ?? []).filter((row) => site === "" || row.site_id === site),
+    [gaBills.data, site]
+  )
+
   /// Read off the answer and never off either tab's rows, which the location
   /// filter and the kind split have already thinned. Four expense bills out of
   /// a full two hundred is still four out of an unknown number of them.
   const truncated = (bills.data ?? []).length >= CAP
+  const gaTruncated = (gaBills.data ?? []).length >= CAP
 
   /// Every `GET /api/v1/finance/…` is behind SUPERVISOR, so a cashier signed
   /// into the hub is refused all three of these lists rather than served empty
@@ -631,6 +789,36 @@ export function SupplierBills() {
       }),
       [
         expenseRows,
+        expenseFilters.columns,
+        expenseFilters.columnFilters,
+        query,
+        expenseSort,
+      ]
+    )
+  )
+
+  /// The GA inbox's table, and deliberately the SAME filter model and sort as
+  /// Expenses: a GA draft is an expense bill, so every column and clause a
+  /// reader set on Expenses means the same here, and a second model would let
+  /// the two tabs' clauses overwrite each other in `?f=`. Only the rows differ,
+  /// and they came from the server already narrowed.
+  const gaTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: gaRows,
+        columns: expenseFilters.columns,
+        getRowId: (row: SupplierBill) => row.invoice_id,
+        state: {
+          columnFilters: expenseFilters.columnFilters,
+          globalFilter: query,
+          sorting: expenseSort,
+        },
+        onSortingChange: setExpenseSort,
+        onGlobalFilterChange: setQuery,
+      }),
+      [
+        gaRows,
         expenseFilters.columns,
         expenseFilters.columnFilters,
         query,
@@ -728,7 +916,7 @@ export function SupplierBills() {
           model={
             tab === "unbilled"
               ? waitFilters
-              : tab === "expenses"
+              : tab === "expenses" || tab === "ga"
                 ? expenseFilters
                 : billFilters
           }
@@ -737,24 +925,27 @@ export function SupplierBills() {
               ? waitTable
               : tab === "expenses"
                 ? expenseTable
-                : billTable
+                : tab === "ga"
+                  ? gaTable
+                  : billTable
           }
         />
         <Toolbar.Spacer />
         {/* The effective answer, in words, always. A date box filled with
             today and one left blank look identical to a reader; the sentence
             is what says which report is on screen. */}
-        <span className="text-[0.71875rem] text-mute">
+        <span className="text-[0.875rem] text-mute">
           {asOf.chip}
           {site === "" ? " · every location" : " · "}
           {site !== "" && <SiteName id={site} />}
         </span>
       </Toolbar>
 
-      {/* Three datasets, not three slices of one. Goods for resale and the
+      {/* Four datasets, not four slices of one. Goods for resale and the
           electricity bill are settled out of different payables and posted by
           different rules; an unbilled receipt is a document the supplier has
-          not sent at all. */}
+          not sent at all; the GA inbox is a handover, asked for on the server
+          because it is a population rather than a page. */}
       <SubTabs
         value={tab}
         onChange={(next) => setTab(next as BillTab)}
@@ -763,6 +954,10 @@ export function SupplierBills() {
           {
             value: "expenses",
             label: `Expenses${expenseRows.length > 0 ? ` · ${expenseRows.length}` : ""}`,
+          },
+          {
+            value: "ga",
+            label: `Dari GA${gaRows.length > 0 ? ` · ${gaRows.length}` : ""}`,
           },
           {
             value: "unbilled",
@@ -785,7 +980,7 @@ export function SupplierBills() {
                     are past due and *not posted* — and two numbers on one
                     screen that disagree without saying why is how somebody
                     stops trusting both. */}
-                <span className="text-[0.71875rem] text-mute">
+                <span className="text-[0.875rem] text-mute">
                   Every bill with something still owed on it, posted and draft,
                   across {count(ageing.suppliers.length)} suppliers ·{" "}
                   <span className="font-medium text-ink tabular-nums">
@@ -834,9 +1029,11 @@ export function SupplierBills() {
                               name={row.supplier_name}
                               className="block truncate text-ink"
                             />
-                            <span className="text-[0.65625rem] text-mute">
-                              {count(row.bill_count)}{" "}
-                              {row.bill_count === 1 ? "bill" : "bills"}
+                            <span className="text-[0.875rem] text-mute">
+                              {count(row.open_document_count)}{" "}
+                              {row.open_document_count === 1
+                                ? "open item"
+                                : "open items"}
                             </span>
                           </MiniCell>
                           <MiniCell align="right">
@@ -882,12 +1079,12 @@ export function SupplierBills() {
                         Show the heaviest {count(SUPPLIERS_SHOWN)}
                       </Button>
                     )}
-                  <p className="mt-2 text-[0.71875rem] text-mute">
+                  <p className="mt-2 text-[0.875rem] text-mute">
                     The server's own ageing, wound back to the date above: what
                     is still outstanding on each bill, not what the invoice was
                     for. It agrees with{" "}
                     <AppLink
-                      to="/finance/account-map"
+                      to="/finance/setup/account-links"
                       className="text-accent hover:underline"
                     >
                       trade payable
@@ -957,7 +1154,7 @@ export function SupplierBills() {
             accounts its cost belongs to, and those lines are what the posting
             debits. They settle out of{" "}
             <AppLink
-              to="/finance/account-map"
+              to="/finance/setup/account-links"
               sheet={{ key: "mapping", value: "non_merchandise_payable" }}
               className="text-accent hover:underline"
             >
@@ -995,6 +1192,60 @@ export function SupplierBills() {
                     className="max-h-[calc(100vh-25rem)]"
                   />
                 ),
+            })}
+          </Card>
+        </>
+      ) : tab === "ga" ? (
+        <>
+          {/* What the tab is for, said once, because the actions on a GA draft
+              are not the actions on a bill Finance keyed itself: this one is
+              somebody else's paperwork to check, and the honest answer may be
+              that it goes back. */}
+          <Banner tone="info" className="mb-3">
+            Draft tagihan yang diajukan GA — diperiksa di sini, bukan diposting
+            sendiri. Buka satu untuk melihat barisnya, memposting kalau sudah
+            benar, atau mengembalikannya ke GA dengan sebuah alasan. Mempelajari
+            baris-barisnya akan menunjukkan akun usulan GA dan rujukan ke
+            recordnya.
+          </Banner>
+          {gaTruncated && (
+            <Truncated limit={CAP} noun="drafts" className="mb-3" />
+          )}
+          <Card className="overflow-hidden">
+            {queryState(gaBills, {
+              loading: "Memuat draft dari GA…",
+              refused,
+              render: () => {
+                /// The server's own count, before the location select and the
+                /// search box thin it — the difference between "GA has sent
+                /// nothing" and "there are drafts and none of them show".
+                const held = (gaBills.data ?? []).length
+                if (held === 0) {
+                  return (
+                    <EmptyState>
+                      Tidak ada draft dari GA. Tagihan yang diajukan GA akan
+                      muncul di sini untuk diperiksa Finance.
+                    </EmptyState>
+                  )
+                }
+                return (
+                  <DataTable<SupplierBill>
+                    table={gaTable}
+                    onRowClick={(row) => bill.open(row.invoice_id)}
+                    isSelected={(row) => row.invoice_id === bill.value}
+                    // "GA has sent nothing" is the sentence above; this is
+                    // "there are some, and none of them match what you typed".
+                    empty={
+                      <NoMatch
+                        what="draft dari GA"
+                        held={held}
+                        onClear={() => setQuery("")}
+                      />
+                    }
+                    className="max-h-[calc(100vh-25rem)]"
+                  />
+                )
+              },
             })}
           </Card>
         </>
@@ -1084,7 +1335,28 @@ function BillSheet({
     enabled: id !== null,
   })
 
-  const bill = bills.data?.find((row) => row.invoice_id === id)
+  /// The register this screen already holds, if it carries this bill.
+  const listed = bills.data?.find((row) => row.invoice_id === id)
+
+  /// The GA inbox, asked only when the register cannot answer.
+  ///
+  /// A GA draft is a DRAFT expense bill, and the register is one page of two
+  /// hundred — so the one row the inbox sent somebody to open may simply not be
+  /// on it. This is the fallback, under the inbox's own key, so opening a row
+  /// from the Dari GA tab costs nothing (the screen already holds the answer)
+  /// and opening it from anywhere else costs one list read rather than a sheet
+  /// that says "no bill is recorded under that id". `isSuccess` keeps it from
+  /// firing while the register is still loading and the answer may already be
+  /// on its way.
+  const inbox = useQuery({
+    queryKey: financeKeys.bills("DRAFT", null, "GA"),
+    queryFn: ({ signal }) =>
+      listBills({ status: "DRAFT", draftFrom: "GA", limit: CAP }, signal).then(
+        (page) => page.rows
+      ),
+    enabled: id !== null && bills.isSuccess && listed === undefined,
+  })
+  const bill = listed ?? inbox.data?.find((row) => row.invoice_id === id)
 
   // What the bill was for, read one bill at a time. Only for an expense bill:
   // a merchandise bill has no lines by construction — what it debits is decided
@@ -1116,7 +1388,10 @@ function BillSheet({
     },
   })
 
-  const posted = bill?.status?.toUpperCase() === "POSTED"
+  const status = bill?.status?.toUpperCase() ?? ""
+  const posted = status === "POSTED"
+  const fromGa = bill?.submitted_by_domain === "GA"
+  const held = bill?.on_hold === true
 
   return (
     <Sheet
@@ -1132,12 +1407,17 @@ function BillSheet({
       footer={
         bill && !posted ? (
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[0.71875rem] text-mute">
-              Posts on the invoice date unless the month is closed.
+            <span className="text-[0.875rem] text-mute">
+              {held
+                ? "A held bill cannot be posted until it is released."
+                : "Posts on the invoice date unless the month is closed."}
             </span>
             <Button
               variant="primary"
-              disabled={post.isPending}
+              // Held is a refusal the server makes, and paying the reader the
+              // sentence before they press is better than a red banner after.
+              // No warning ever reaches this button: warnings are not blocks.
+              disabled={post.isPending || held}
               onClick={() => post.mutate()}
             >
               {post.isPending ? "Posting…" : "Post to the books"}
@@ -1150,9 +1430,15 @@ function BillSheet({
         loading: "Loading the bill…",
         render: () =>
           bill === undefined ? (
-            <EmptyState>
-              No bill is recorded under that id on this list.
-            </EmptyState>
+            // The register does not carry it and the inbox is still answering:
+            // saying "no bill is recorded" now would be a lie in progress.
+            inbox.isPending || inbox.isFetching ? (
+              <LoadingState>Loading the bill…</LoadingState>
+            ) : (
+              <EmptyState>
+                No bill is recorded under that id on this list.
+              </EmptyState>
+            )
           ) : (
             <div className="flex flex-col gap-5">
               {post.isError && (
@@ -1171,12 +1457,27 @@ function BillSheet({
                 <Pill tone={bill.kind === "EXPENSE" ? "info" : "neutral"}>
                   {bill.kind === "EXPENSE" ? "Expense" : "Merchandise"}
                 </Pill>
+                {/* Where it came from and whether it may be paid. Both are
+                    properties of the document, so they sit with its state. */}
+                {fromGa && <Pill tone="info">GA</Pill>}
+                {held && <Pill tone="warn">Ditahan</Pill>}
                 {isLate(bill) && (
                   <Pill tone="bad">
                     {count(bill.days_overdue)} days overdue
                   </Pill>
                 )}
               </div>
+
+              {/* A returned draft is not gone. Said on the record, because the
+                  one reader who needs it is the one deciding whether to post it
+                  or send it back again. */}
+              {bill.returned_reason !== null && (
+                <Banner tone="warn">
+                  Returned to GA: {bill.returned_reason}. The bill keeps its id
+                  and its GA mark and stays a draft — a return asks Operations
+                  to fix it, it does not delete it.
+                </Banner>
+              )}
 
               {/* Above the facts, because on an expense bill this IS the
                   document: the accounts these name are exactly what the
@@ -1194,7 +1495,7 @@ function BillSheet({
                     What it was for
                   </SubHead>
                   {lines === null ? (
-                    <p className="text-[0.71875rem] text-mute">
+                    <p className="text-[0.875rem] text-mute">
                       {detail.isPending
                         ? "Reading the lines…"
                         : isMissingRead(detail.error)
@@ -1206,43 +1507,53 @@ function BillSheet({
                       {lines.map((line) => (
                         <MiniRow key={line.line_id}>
                           <MiniCell>
-                            <span className="flex min-w-0 items-center gap-1.5">
-                              {/* The code opens the ledger — what has
-                                  happened in this account — and the client's
-                                  own name for it is never translated. */}
-                              <AppLink
-                                to="/finance/ledger"
-                                sheet={{
-                                  key: "account",
-                                  value: line.account_code,
-                                }}
-                                className="shrink-0 font-mono text-[0.65625rem] text-mute hover:text-accent hover:underline"
-                              >
-                                {line.account_code}
-                              </AppLink>
-                              <span className="truncate text-ink">
-                                {line.account_name}
-                                {/* What the line was for. Three expense
-                                    accounts now carry every cost this client
-                                    has, so a bill whose four lines all read
-                                    "Beban umum & administrasi" is unreadable
-                                    without this. */}
-                                {line.category_name !== null && (
-                                  <span
-                                    className="text-mute"
-                                    title={line.category_code ?? undefined}
-                                  >
-                                    {" · "}
-                                    {line.category_name}
-                                  </span>
-                                )}
+                            <span className="flex min-w-0 flex-col gap-1">
+                              <span className="flex min-w-0 items-center gap-1.5">
+                                {/* The code opens the ledger — what has
+                                    happened in this account — and the client's
+                                    own name for it is never translated. */}
+                                <AppLink
+                                  to="/finance/accounting/general-ledger"
+                                  sheet={{
+                                    key: "account",
+                                    value: line.account_code,
+                                  }}
+                                  className="shrink-0 font-mono text-[0.875rem] text-mute hover:text-accent hover:underline"
+                                >
+                                  {line.account_code}
+                                </AppLink>
+                                <span className="min-w-0 flex-1 truncate text-ink">
+                                  {line.account_name}
+                                  {/* What the line was for. Three expense
+                                      accounts now carry every cost this client
+                                      has, so a bill whose four lines all read
+                                      "Beban umum & administrasi" is unreadable
+                                      without this. */}
+                                  {line.category_name !== null && (
+                                    <span
+                                      className="text-mute"
+                                      title={line.category_code ?? undefined}
+                                    >
+                                      {" · "}
+                                      {line.category_name}
+                                    </span>
+                                  )}
+                                </span>
+                                {/* Where the account came from, in the
+                                    server's own words, and whether Finance
+                                    keyed it instead. */}
+                                <LineSource line={line} />
                               </span>
+                              {line.memo && (
+                                <span className="block text-[0.875rem] text-mute">
+                                  {line.memo}
+                                </span>
+                              )}
+                              {/* What the line was for on GA's side — the
+                                  record it was bought or worked for. One bill
+                                  may carry several, one per line. */}
+                              <LineRefs line={line} />
                             </span>
-                            {line.memo && (
-                              <span className="block text-[0.65625rem] text-mute">
-                                {line.memo}
-                              </span>
-                            )}
                           </MiniCell>
                           <MiniCell>
                             <SiteName id={line.site_id} />
@@ -1280,7 +1591,7 @@ function BillSheet({
                 {bill.entry_number && bill.journal_entry_id && (
                   <Fact term="Journal">
                     <AppLink
-                      to="/finance/journal"
+                      to="/finance/accounting/journal-entries"
                       sheet={{ key: "entry", value: bill.journal_entry_id }}
                       className="font-mono text-id text-accent hover:underline"
                     >
@@ -1291,7 +1602,7 @@ function BillSheet({
               </Facts>
 
               {bill.note && (
-                <p className="text-[0.78125rem] text-body">{bill.note}</p>
+                <p className="text-[0.875rem] text-body">{bill.note}</p>
               )}
 
               <TotalsLadder
@@ -1351,16 +1662,16 @@ function BillSheet({
                               this opens the record rather than landing
                               somebody on a list with a number to find. */}
                           <AppLink
-                            to="/finance/payments"
+                            to="/finance/payables/payments"
                             sheet={{
                               key: "payment",
                               value: payment.payment_id,
                             }}
-                            className="block font-mono text-[0.75rem] text-accent hover:underline"
+                            className="block font-mono text-[0.875rem] text-accent hover:underline"
                           >
                             {payment.payment_number}
                           </AppLink>
-                          <span className="text-[0.65625rem] text-mute">
+                          <span className="text-[0.875rem] text-mute">
                             {day(payment.payment_date)}
                           </span>
                         </MiniCell>
@@ -1377,10 +1688,254 @@ function BillSheet({
                   </MiniTable>
                 </div>
               )}
+
+              {/* Holding, returning and the checks that precede a posting are
+                  their own component, keyed by the bill: three drafts and a
+                  warning check belong to the record on screen, and the remount
+                  is what stops a reason typed for one being sent against the
+                  next. See `<BillHandover>`. */}
+              <BillHandover key={id!} id={id!} bill={bill} />
             </div>
           ),
       })}
     </Sheet>
+  )
+}
+
+/// The three acts that change a bill's standing, and the check that goes before
+/// the fourth: hold it, release it, send a GA draft back, and read what the
+/// server warns about before it is posted.
+///
+/// # Why its own component, with its own state
+///
+/// The sheet is reused as one bill is swapped for another, and every one of
+/// these holds something typed: a hold reason, a planned release, a return
+/// reason. In the sheet they would survive the swap, and a reason typed for one
+/// invoice would be one keystroke from being sent against the next. Keyed by
+/// the bill id, React throws the whole thing away and starts the next one
+/// empty — which is the reset, rather than an effect that runs after the wrong
+/// value has already been drawn.
+///
+/// # Why nothing here blocks a posting
+///
+/// The six warnings are warnings (brief §8.4). `post_bill` refuses a HELD bill
+/// and nothing else, so the one thing that reaches the post button is the hold,
+/// and the warnings are read and left alone. A screen that disabled Post on a
+/// warning would turn a question into a refusal.
+function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
+  const client = useQueryClient()
+  const [holdDraft, setHoldDraft] = useState(false)
+  const [holdReason, setHoldReason] = useState("")
+  const [releaseDate, setReleaseDate] = useState("")
+  const [returnReason, setReturnReason] = useState("")
+  const [warningsWanted, setWarningsWanted] = useState(false)
+
+  /// Hold, release and return all answer with the whole bill, so every list
+  /// holding it is invalidated rather than patched: whether it still appears in
+  /// an inbox, a payment run or an ageing is for the server to say, and this
+  /// screen does not own those answers.
+  const hold = useMutation({
+    mutationFn: () =>
+      holdBill(id, {
+        reason: holdReason.trim(),
+        release_date: releaseDate === "" ? null : releaseDate,
+      }),
+    onSuccess: () => {
+      setHoldDraft(false)
+      setHoldReason("")
+      setReleaseDate("")
+      client.invalidateQueries({ queryKey: financeKeys.all })
+    },
+  })
+
+  const release = useMutation({
+    mutationFn: () => releaseBill(id),
+    onSuccess: () => client.invalidateQueries({ queryKey: financeKeys.all }),
+  })
+
+  const sendBack = useMutation({
+    mutationFn: () => returnBill(id, { reason: returnReason.trim() }),
+    onSuccess: () => {
+      setReturnReason("")
+      client.invalidateQueries({ queryKey: financeKeys.all })
+    },
+  })
+
+  /// The warning check, and only when somebody has asked for it. `retry: false`
+  /// because a node that does not answer the warnings read is a capability this
+  /// deployment has not got, and asking three times changes nothing.
+  const warnings = useQuery({
+    queryKey: financeKeys.billWarnings(id),
+    queryFn: ({ signal }) => billWarnings(id, signal),
+    enabled: warningsWanted,
+    retry: false,
+    staleTime: 0,
+  })
+
+  const status = bill.status.toUpperCase()
+  const posted = status === "POSTED"
+  /// Whether the six checks apply: a draft or a matched bill is the one being
+  /// read before it goes into the books. A posted bill has no "before".
+  const checkable = status === "DRAFT" || status === "MATCHED"
+  const fromGa = bill.submitted_by_domain === "GA"
+  const held = bill.on_hold === true
+
+  return (
+    <>
+      {/* ── Holding, and the way back ─────────────────────────────────────
+          A hold is not a status of the document — it is a reason nothing may
+          pay it, which is why the reason is required and the planned release
+          is not. The switch is the state, exactly as `Switch` means everywhere
+          else: what it changes takes effect when it is released. */}
+      <div className="rounded-inner border border-hairline p-3.5">
+        <div className="flex items-start justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-[0.875rem] font-medium text-ink">
+              Tahan
+            </span>
+            <span className="mt-0.5 block text-[0.875rem] leading-relaxed text-body">
+              {held
+                ? "Ditahan; tidak ada pembayaran yang bisa mengambilnya sampai dilepas."
+                : "Menahan menghentikan pembayaran tagihan ini sampai dilepas."}
+            </span>
+          </span>
+          <Switch
+            on={held || holdDraft}
+            busy={hold.isPending || release.isPending}
+            label="Tahan tagihan ini"
+            onToggle={() => {
+              if (held) release.mutate()
+              else setHoldDraft((open) => !open)
+            }}
+          />
+        </div>
+
+        {held ? (
+          <div className="mt-3 flex flex-col gap-1">
+            <p className="text-[0.875rem] text-body">{bill.hold_reason}</p>
+            <p className="text-[0.875rem] text-mute">
+              Rencana lepas:{" "}
+              {bill.release_date === null
+                ? "belum ditentukan"
+                : day(bill.release_date)}
+            </p>
+            <Problem error={release.error} />
+          </div>
+        ) : holdDraft ? (
+          <div className="mt-3 flex flex-col gap-3">
+            <Field label="Alasan ditahan" aside="wajib">
+              <Input
+                value={holdReason}
+                onChange={(event) => setHoldReason(event.target.value)}
+                placeholder="Mengapa tagihan ini ditahan"
+              />
+            </Field>
+            {/* Optional, and it means what it says: an empty date is "held
+                until somebody decides", not "held forever". */}
+            <Field label="Rencana lepas" aside="opsional">
+              <Day value={releaseDate} onChange={setReleaseDate} />
+            </Field>
+            <div className="flex justify-end">
+              <Button
+                variant="soft"
+                disabled={holdReason.trim() === "" || hold.isPending}
+                onClick={() => hold.mutate()}
+              >
+                {hold.isPending ? "Menahan…" : "Tahan tagihan"}
+              </Button>
+            </div>
+            <Problem error={hold.error} />
+          </div>
+        ) : null}
+      </div>
+
+      {/* ── Returning a GA draft ──────────────────────────────────────────
+          Only a draft that came from GA can go back to it. The reason is
+          required: a returned draft with no reason is one Operations cannot
+          act on. */}
+      {fromGa && !posted && (
+        <div className="rounded-inner border border-hairline p-3.5">
+          <span className="block text-[0.875rem] font-medium text-ink">
+            Kembalikan ke GA
+          </span>
+          <span className="mt-0.5 block text-[0.875rem] leading-relaxed text-body">
+            Draft kembali ke GA untuk diperbaiki. ID dan penanda GA tetap dan
+            statusnya tetap DRAFT — ini pengembalian, bukan penghapusan.
+          </span>
+          <div className="mt-3 flex flex-col gap-3">
+            <Field label="Alasan dikembalikan" aside="wajib">
+              <Textarea
+                rows={2}
+                value={returnReason}
+                onChange={(event) => setReturnReason(event.target.value)}
+                placeholder="Apa yang harus diperbaiki GA"
+              />
+            </Field>
+            <div className="flex justify-end">
+              <Button
+                variant="soft"
+                disabled={returnReason.trim() === "" || sendBack.isPending}
+                onClick={() => sendBack.mutate()}
+              >
+                {sendBack.isPending ? "Mengembalikan…" : "Kembalikan ke GA"}
+              </Button>
+            </div>
+            <Problem error={sendBack.error} />
+          </div>
+        </div>
+      )}
+
+      {/* ── The six checks before posting ─────────────────────────────────
+          Read on demand and never on open: the checks cost a query each, and
+          most bills visit this sheet for a fact rather than to post. A warning
+          is NOT a block — the server refuses only a held bill — so nothing
+          here disables anything. */}
+      {checkable && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <SubHead>Sebelum posting</SubHead>
+            <Button
+              size="sm"
+              variant="soft"
+              disabled={warnings.isFetching}
+              onClick={() => {
+                setWarningsWanted(true)
+                if (warningsWanted) warnings.refetch()
+              }}
+            >
+              {warnings.isFetching ? "Memeriksa…" : "Periksa sebelum posting"}
+            </Button>
+          </div>
+          {warnings.isError ? (
+            <Problem error={warnings.error} />
+          ) : warningsWanted && warnings.data !== undefined ? (
+            warnings.data.length === 0 ? (
+              // A check that ran and found nothing has to say so: the reader
+              // needs to know the check happened, not that it was skipped.
+              <p className="text-[0.875rem] text-body">Tidak ada peringatan.</p>
+            ) : (
+              warnings.data.map((warning) => (
+                <Banner key={`${warning.code}:${warning.message}`} tone="warn">
+                  {/* The server's sentence, verbatim. It names the number or
+                      the object, and paraphrasing it would lose the figure
+                      somebody has to go and check. */}
+                  {warning.message}
+                  {warning.detail !== null && warning.detail !== undefined && (
+                    <span className="mt-1 block opacity-80">
+                      {warning.detail}
+                    </span>
+                  )}
+                </Banner>
+              ))
+            )
+          ) : (
+            <p className="text-[0.875rem] text-mute">
+              Peringatan bukan blokir: posting tetap bisa dilakukan.
+            </p>
+          )}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -1524,7 +2079,6 @@ function RecordSheet({
 }) {
   const client = useQueryClient()
   // What the request answered, not what was typed into it.
-  const [receipt, setReceipt] = useState<string | null>(null)
 
   const record = useMutation({
     // Wrapped rather than passed by reference: v5 hands a mutation context as
@@ -1551,23 +2105,26 @@ function RecordSheet({
         lines: totals.expense
           ? draft.lines.map((line): RecordBillLine => ({
               account_code: line.account!.account_code,
-              // What the cost was, in the client's own vocabulary. `null` for
-              // an account that declares no family — that is the answer and
-              // not a gap.
-              category_code: line.account!.category_code,
+              // Omit the category when this account has no category family;
+              // the API models that as an absent optional field.
+              category_code: line.account!.category_code ?? undefined,
               // The bill's own location, always. See `ExpenseLineDraft`.
               site_id: site,
               amount_minor: parseMinor(line.amount) ?? 0,
               // This form cannot say a line replaces something reserved for —
               // that needs an asset class beside it, which it does not ask for.
               draws_reserve: false,
+              // The account on this line is chosen by the person keying the
+              // bill, so it is an override of whatever the line's object would
+              // have proposed; the server reads this to show Finance what was
+              // changed (brief §8.2).
+              account_overridden: true,
               memo: line.memo.trim() === "" ? null : line.memo.trim(),
             }))
           : undefined,
       })
     },
     onSuccess: (saved) => {
-      setReceipt(saved.invoice_number)
       // The answer carries its lines, so the sheet somebody opens next reads
       // them out of the cache instead of asking for a bill this browser just
       // wrote.
@@ -1625,7 +2182,7 @@ function RecordSheet({
         <form.Subscribe selector={(state) => billTotals(state.values)}>
           {(totals) => (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[0.71875rem] text-mute tabular-nums">
+              <span className="text-[0.875rem] text-mute tabular-nums">
                 {totals.ready
                   ? money(totals.total)
                   : totals.expense && totals.subtotalMinor !== null
@@ -1656,11 +2213,6 @@ function RecordSheet({
         }}
         className="flex flex-col gap-3.5"
       >
-        {receipt && (
-          <Banner tone="ok" onDismiss={() => setReceipt(null)}>
-            {receipt} recorded. It is not in the books until somebody posts it.
-          </Banner>
-        )}
         {/* The server's own sentence, verbatim. Every refusal this endpoint
             has is written to be read by the person who typed the bill — which
             line is in the wrong class, which location the cost was put at,
@@ -1920,7 +2472,7 @@ function ExpenseLines({
         What it was for
       </SubHead>
 
-      <p className="text-[0.71875rem] text-mute">
+      <p className="text-[0.875rem] text-mute">
         A cost — class 6 or 7 — or something that becomes one: prepaid expense,
         an advance, or a capital purchase under <code>10215</code>. Every line
         sits at the bill's own location:{" "}
@@ -1952,7 +2504,7 @@ function ExpenseLines({
                 // assumes the search is broken.
                 accept={(account) =>
                   !account.is_active
-                    ? "retired"
+                    ? "cancelled"
                     : !EXPENSE_LINE_CLASSES.includes(account.root_class)
                       ? `class ${account.root_class}`
                       : null
@@ -2014,7 +2566,7 @@ function ExpenseLines({
         </Button>
         {/* Both halves of the comparison, always — a single "out by" figure
             would say something is wrong without saying which number to fix. */}
-        <span className="text-[0.71875rem] text-mute tabular-nums">
+        <span className="text-[0.875rem] text-mute tabular-nums">
           Lines{" "}
           <span className={agree ? "text-ink" : "font-medium text-bad-fg"}>
             {linesMinor === null ? "—" : money(linesMinor)}

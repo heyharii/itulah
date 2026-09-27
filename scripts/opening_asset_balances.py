@@ -51,7 +51,7 @@ import urllib.request
 
 SEP = "\x1f"
 
-# What each charge kind credits, as `account_map` knows it.
+# What each charge kind credits, as the account links know it.
 CONTRA_KEY = {
     "DEPRECIATION": "accumulated_depreciation",
     "REPLACEMENT_RESERVE": "replacement_reserve",
@@ -137,7 +137,7 @@ def main() -> int:
          ORDER BY a.asset_number""")
 
     accounts = {(r[0], r[1], r[2]): r[3] for r in psql(
-        args.database, "SELECT semantic_key, site_id, qualifier, account_code FROM account_map")}
+        args.database, "SELECT role, site_id, source_id, account_code FROM account_resolution")}
     names = {r[0]: r[1] for r in psql(args.database, "SELECT account_code, name FROM ledger_account")}
 
     per_account: dict[str, int] = collections.defaultdict(int)

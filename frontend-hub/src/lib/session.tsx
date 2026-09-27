@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { auth, cacheKey, node } from "@/lib/api"
+import { auth, cacheKey, edge, edgeAuth, node, setEdgeToken } from "@/lib/api"
+import { forgetPushOnSignOut } from "@/lib/push"
 import { ApiError, type Identity } from "@itulah/contract/client"
 
 /// Who is signed in, asked of the server rather than tracked by hand.
@@ -51,8 +52,20 @@ export function useNodeIdentity() {
 export function useSignOut() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: () => auth.logout(),
+    mutationFn: async () => {
+      // Revoke the local DC session while its bearer is still available. A
+      // disconnected DC must not prevent the Cloud sign-out from completing.
+      const edgeLogout = edge.hasBearer
+        ? edgeAuth.logout().catch(() => undefined)
+        : Promise.resolve()
+      // This browser stops being woken for this person, and first — the
+      // server only removes a subscription for the session that owns it.
+      // Never throws; see `lib/push.ts` for why a shared tablet needs it.
+      await forgetPushOnSignOut()
+      await Promise.all([auth.logout(), edgeLogout])
+    },
     onSettled: () => {
+      setEdgeToken(null)
       client.setQueryData<Identity | null>(cacheKey.me(), null)
       // And every answer fetched under it — an order book, a ledger, somebody's
       // employment record — none of which the next person at this desk is
@@ -66,4 +79,38 @@ export function useSignOut() {
       })
     },
   })
+}
+
+/// Why the last session here ended, when it was ended from somewhere else.
+///
+/// Kept in `sessionStorage` so it survives the reload an operator reaches for
+/// when a screen goes blank, and read once by the login box.
+const PUSHED_OUT = "itulah.signed-out-elsewhere"
+
+export function markSignedOutElsewhere() {
+  try {
+    sessionStorage.setItem(PUSHED_OUT, "1")
+  } catch {
+    // Storage blocked: the login box simply appears without the reason.
+  }
+}
+
+/// The sentence the login box shows, or null — and forgets it once read by a
+/// successful sign-in (`clearSignedOutElsewhere`).
+export function signedOutElsewhere(): string | null {
+  try {
+    return sessionStorage.getItem(PUSHED_OUT) === null
+      ? null
+      : "You were signed out because this account signed in on another device."
+  } catch {
+    return null
+  }
+}
+
+export function clearSignedOutElsewhere() {
+  try {
+    sessionStorage.removeItem(PUSHED_OUT)
+  } catch {
+    // Nothing to clear.
+  }
 }

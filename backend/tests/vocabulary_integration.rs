@@ -50,6 +50,8 @@ fn frontend() -> PathBuf {
 /// an actor the server chose rather than one a body claimed.
 fn cloud_config() -> AppConfig {
     AppConfig {
+        po_import: inventory_backend::cloud::intake::po::PoImportConfig::from_env(),
+        clock: None,
         bind_addr: "127.0.0.1:0"
             .parse::<SocketAddr>()
             .unwrap_or_else(|e| panic!("socket address: {e}")),
@@ -60,6 +62,7 @@ fn cloud_config() -> AppConfig {
         observed_window_hours: 24,
         lost_risk_window_days: 30,
         enable_test_controls: false,
+        finance_automation_enabled: false,
         frontend_dir: frontend(),
         sync_upload_url: None,
         sync_upload_key: None,

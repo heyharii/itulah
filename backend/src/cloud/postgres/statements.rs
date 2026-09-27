@@ -80,62 +80,26 @@ pub async fn balance_matrix(
         .map(|row| row.try_get::<String, _>("id"))
         .collect::<Result<_, _>>()?;
 
-    // The rows are the sub-accounts one rung below the family, which is where
-    // the client puts the thing being counted — `1011001001 CASH ON HAND`
-    // rather than each of its fourteen location leaves.
-    //
-    // # One rung down is not one LENGTH down
-    //
-    // This used to take the rung to be the SHORTEST child code, which is the
-    // same thing only while a family's children are all the same length. The
-    // client's chart is built that way and the forty are not: they hang
-    // straight off the one-digit roots (`docs/coa-40-contract.md` §4 — "induk =
-    // akar 1 digit yang sudah ada"), so under root `1` the shortest children
-    // are still the client's retired `101`, `102` and `103`, and every four-
-    // digit account in the live chart was invisible. The matrix answered zero
-    // for a ledger that had moved, on every family screen, and said nothing.
-    //
-    // A child is now an account with NO nearer ancestor in the chart: `101` has
-    // none under `1`, and neither has `1301`, because `13` and `130` are not
-    // accounts. Both charts read correctly off one rule, and that matters
-    // beyond the transition — the retired accounts still hold two years of
-    // history, and a screen that stopped showing them would be reporting a
-    // balance sheet that is missing most of its past.
-    //
-    // Live first, then the retired headings, so the rows a reader is looking
-    // for are not below two years of closed ones.
+    // Direct children come from the account tree; each child's amount includes
+    // every posting leaf in its nested-set interval.
     let rows = sqlx::query(
         "WITH child AS (
-             SELECT a.account_code, a.name, a.is_active
+             SELECT a.account_code, a.name, a.is_active, a.lft, a.rgt
                FROM ledger_account a
-              WHERE a.account_code LIKE $1 || '%'
-                AND a.account_code <> $1
-                AND NOT EXISTS (
-                    SELECT 1 FROM ledger_account b
-                     WHERE b.account_code LIKE $1 || '%'
-                       AND b.account_code <> $1
-                       AND b.account_code <> a.account_code
-                       AND a.account_code LIKE b.account_code || '%')
+              WHERE a.parent_code = $1
          )
-         -- The date belongs INSIDE the joined set, not on the join.
-         --
-         -- This used to read `LEFT JOIN journal_entry e ON e.entry_id =
-         -- l.entry_id AND e.posting_date <= $2`, which never eliminated
-         -- anything: a line whose entry is dated after `as_of` still joined —
-         -- with `e` null — and the SUM is over `l`, so it counted anyway. The
-         -- endpoint echoed the date back and answered with the whole ledger at
-         -- every date it was asked about. Narrowing the line set first makes
-         -- the filter real, and the outer LEFT JOIN still keeps a sub-account
-         -- nothing has posted to, which is the reason it is an outer join.
          SELECT c.account_code, c.name, c.is_active, l.site_id,
                 COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS balance
            FROM child c
+           LEFT JOIN ledger_account posting_account
+             ON posting_account.lft >= c.lft AND posting_account.rgt <= c.rgt
+            AND NOT posting_account.is_group
            LEFT JOIN (
                 SELECT jl.account_code, jl.site_id, jl.debit_minor, jl.credit_minor
                   FROM journal_line jl
                   JOIN journal_entry je ON je.entry_id = jl.entry_id
                  WHERE je.posting_date <= $2
-           ) l ON l.account_code LIKE c.account_code || '%'
+           ) l ON l.account_code = posting_account.account_code
           GROUP BY c.account_code, c.name, c.is_active, l.site_id
           ORDER BY c.is_active DESC, c.account_code",
     )
@@ -286,7 +250,7 @@ pub struct Statement {
     /// of accounts nobody can see is a figure nobody can check. Empty on the
     /// other two statements, and empty on a cash flow means the account map
     /// names no money account for this unit — which is why the report is
-    /// empty, and is fixed on the Account Map screen.
+    /// empty, and is fixed on the Account Links screen.
     pub cash_accounts: Vec<String>,
 }
 
@@ -329,24 +293,28 @@ pub async fn statement(
         }
     };
 
-    // Every heading down to the family rung, with its subtree summed. Rows that
+    // Every account down to the family rung, with its subtree summed. Rows that
     // moved nothing are dropped after the fact rather than in SQL, so a heading
     // whose children are all zero disappears with them instead of standing
     // there empty.
     let rows = sqlx::query(
-        "SELECT a.account_code, a.name, length(a.account_code)::int AS depth, a.is_group,
+        "SELECT a.account_code, a.name, a.depth::int AS depth, a.is_group,
                 COALESCE((
                     SELECT SUM(l.debit_minor - l.credit_minor)
                       FROM journal_line l JOIN journal_entry e USING (entry_id)
-                     WHERE l.account_code LIKE a.account_code || '%'
+                     WHERE EXISTS (
+                               SELECT 1 FROM ledger_account descendant
+                                WHERE descendant.account_code = l.account_code
+                                  AND descendant.lft >= a.lft
+                                  AND descendant.rgt <= a.rgt
+                           )
                        AND ($3::text IS NULL OR l.site_id = $3)
                        AND ($4::date IS NULL OR e.posting_date >= $4)
                        AND e.posting_date <= $2
                 ), 0)::bigint AS amount
-           FROM ledger_account a
+          FROM ledger_account a
           WHERE a.root_class = ANY($1)
-            AND length(a.account_code) <= 7
-          ORDER BY a.account_code",
+          ORDER BY a.lft",
     )
     .bind(classes)
     .bind(to)
@@ -577,8 +545,8 @@ pub async fn cash_flow(
     // can reach and miss one somebody mapped somewhere unexpected.
     let cash_accounts: Vec<String> = sqlx::query_scalar(
         "SELECT DISTINCT m.account_code
-           FROM account_map m
-          WHERE m.semantic_key = ANY($1)
+           FROM account_resolution m
+          WHERE m.role = ANY($1)
             AND ($2::text IS NULL OR m.site_id = $2)
           ORDER BY 1",
     )
@@ -592,8 +560,8 @@ pub async fn cash_flow(
     // another unit's drawer as its own.
     const CASH_SET: &str = "
         SELECT m.account_code, m.site_id
-          FROM account_map m
-         WHERE m.semantic_key = ANY($1)
+          FROM account_resolution m
+         WHERE m.role = ANY($1)
            AND ($2::text IS NULL OR m.site_id = $2)
     ";
 
@@ -633,11 +601,11 @@ pub async fn cash_flow(
               )
          SELECT l.account_code,
                 COALESCE(a.name, l.account_code) AS name,
-                length(l.account_code)::int AS depth,
+                a.depth::int AS depth,
                 COALESCE(SUM(l.credit_minor - l.debit_minor), 0)::bigint AS cash_effect
            FROM journal_line l
            JOIN touched t ON t.entry_id = l.entry_id
-           LEFT JOIN ledger_account a ON a.account_code = l.account_code
+          LEFT JOIN ledger_account a ON a.account_code = l.account_code
           WHERE NOT EXISTS (
                     SELECT 1 FROM cash c
                      WHERE c.account_code = l.account_code
@@ -962,9 +930,10 @@ pub struct MoneyScope {
 
 /// Where the previous page stopped — as a ROW, not as a position.
 ///
-/// It carries the natural key of `account_map` (semantic key, qualifier,
-/// site) and nothing else, whatever the list is sorted by. The seek re-reads
-/// that row's own sort value in SQL, so one cursor shape serves every order.
+/// It carries the key of an `account_resolution` row (role, source, site),
+/// under the names the screen has always used, and nothing else, whatever the
+/// list is sorted by. The seek re-reads that row's own sort value in SQL, so
+/// one cursor shape serves every order.
 ///
 /// The alternative — encoding the sort value into the cursor — needs a
 /// different cursor per sort, and the version where somebody adds a fourth
@@ -1020,9 +989,9 @@ const MONEY_ROWS: &str = "
            (closing_minor IS NOT NULL) AS has_statement,
            (per_books - closing_minor) AS difference
       FROM (
-    SELECT m.semantic_key, m.qualifier, m.site_id, m.account_code,
+    SELECT m.role AS semantic_key, m.source_id AS qualifier, m.site_id, m.account_code,
            a.name AS account_name,
-           CASE m.semantic_key
+           CASE m.role
                WHEN 'cash' THEN 'CASH'
                WHEN 'petty_cash' THEN 'PETTY_CASH'
                WHEN 'cashier_float' THEN 'CASHIER_FLOAT'
@@ -1031,7 +1000,7 @@ const MONEY_ROWS: &str = "
                WHEN 'giro_outstanding' THEN 'BANK'
                ELSE 'CARD_RECEIVABLE'
            END AS pot,
-           array_position($2::text[], m.semantic_key) AS ord,
+           array_position($2::text[], m.role) AS ord,
            (st.kind <> 'HO') AS dc_last,
            COALESCE((SELECT SUM(l.debit_minor - l.credit_minor)
                        FROM journal_line l JOIN journal_entry e USING (entry_id)
@@ -1040,7 +1009,7 @@ const MONEY_ROWS: &str = "
                         AND e.posting_date <= $1), 0)::bigint AS per_books,
            st.name AS site_name,
            s.statement_id, s.period_end, s.closing_minor, s.unmatched
-      FROM account_map m
+      FROM account_resolution m
       JOIN ledger_account a ON a.account_code = m.account_code
       JOIN site st ON st.id = m.site_id
       -- The latest statement for this account at this location, and how much
@@ -1071,7 +1040,8 @@ const MONEY_ROWS: &str = "
            ORDER BY b.period_end DESC, b.imported_at DESC
            LIMIT 1
       ) s ON true
-     WHERE m.semantic_key = ANY($2)
+     WHERE m.role = ANY($2)
+       AND m.source_type = 'COMPANY'
        -- Name, code and location. Three fields because those are the three
        -- things somebody actually has in front of them: the name off a
        -- statement, the code off a journal, the shop off a phone call.
@@ -1094,23 +1064,20 @@ const FLAG_CLAUSE: &str = "
 
 /// Every mapped money account, per location, beside the last bank statement.
 ///
-/// # Why this is driven off `account_map` and not off the chart
+/// # Why this is driven off `account_resolution` and not off the chart
 ///
 /// Because the question is "where is our money", and the answer is whatever
 /// Finance has said carries it. Walking the chart under `10110` instead would
 /// list every leaf the client keeps, including the ones no posting rule can
 /// ever reach, and it would silently omit an account somebody mapped somewhere
 /// unexpected. A key mapped nowhere produces no row, which is correct and
-/// visible: the Account Map screen is where that is fixed.
+/// visible: the Account Links screen is where that is fixed.
 ///
-/// # Why the balance is an exact match and not a prefix
+/// # Why the balance is an exact match rather than a tree rollup
 ///
-/// Every other balance in this module matches by prefix, because the caller
-/// picks an altitude in the client's tree. Here the account is one the map
-/// points at, and `account_map` pins `is_group = false`, so it is a leaf and a
-/// posting can only ever land on that exact code. A prefix would be the same
-/// answer today and would quietly start summing a longer code the day the
-/// client added one.
+/// The account is one a link points at, and `account_link` pins
+/// `is_group = false`, so it is a leaf and a posting can only ever land on that
+/// exact account number. Group reports use the account tree's nested-set bounds.
 pub async fn money_overview(pool: &PgPool, scope: MoneyScope) -> Result<MoneyOverview, AppError> {
     let as_of = scope
         .as_of
@@ -1135,7 +1102,7 @@ pub async fn money_overview(pool: &PgPool, scope: MoneyScope) -> Result<MoneyOve
     });
 
     // The sort, and the tie-break that makes it total. Every order ends in the
-    // natural key of `account_map`, so no two rows can ever compare equal —
+    // key of `account_resolution`, so no two rows can ever compare equal —
     // which is what stops a keyset from repeating or losing the rows that tie.
     //
     // TWO spellings of the same thing, and they are not interchangeable:

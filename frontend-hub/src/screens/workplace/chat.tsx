@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { MessageSquarePlus } from "lucide-react"
+import { ChevronLeft, MessageSquarePlus } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -137,8 +137,17 @@ export function Chat() {
         }
       />
 
-      <Card className="flex h-[calc(100vh-11.5rem)] overflow-hidden">
-        <div className="flex w-[19rem] shrink-0 flex-col border-r border-hairline">
+      {/* On a phone the two panes take turns, the way every messenger does:
+          the rooms, full width, until one is opened — then that room, full
+          width, with a way back. Side by side at 375px the room was 104px
+          wide and could not hold a sentence. */}
+      <Card className="flex h-[calc(100vh-11.5rem)] overflow-hidden max-md:h-[calc(100dvh-13.5rem-env(safe-area-inset-bottom,0px))]">
+        <div
+          className={cn(
+            "flex w-[19rem] shrink-0 flex-col border-r border-hairline max-md:w-full max-md:border-r-0",
+            conversation.value !== undefined && "max-md:hidden"
+          )}
+        >
           {queryState(conversations, {
             loading: "Loading the rooms…",
             render: () =>
@@ -177,7 +186,7 @@ export function Chat() {
         </div>
 
         {conversation.value === undefined ? (
-          <div className="flex flex-1 items-center justify-center">
+          <div className="flex flex-1 items-center justify-center max-md:hidden">
             <EmptyState>
               Pick a conversation on the left. The one you open goes in the
               address bar, so it can be sent to somebody.
@@ -187,7 +196,12 @@ export function Chat() {
           // Keyed by the room: the read mark this browser has already
           // posted, the open sub-tab and any uploaded-but-unsent attachment all
           // belong to one conversation and must not follow you into the next.
-          <Room key={conversation.value} id={conversation.value} me={me} />
+          <Room
+            key={conversation.value}
+            id={conversation.value}
+            me={me}
+            onBack={layout === "phone" ? () => conversation.close() : undefined}
+          />
         )}
       </Card>
 
@@ -322,7 +336,7 @@ function StartSheet({
       }
     >
       <div className="flex flex-col gap-5">
-        <p className="text-[0.78125rem] leading-relaxed text-body">
+        <p className="text-[0.875rem] leading-relaxed text-body">
           Correspondence, and nothing more. An argument about a purchase order
           belongs in a discussion instead — that one hangs off the record, and
           everybody who comes to the order later can read it.
@@ -445,7 +459,17 @@ const ROOM_TABS = [
 ] as const
 
 /// One conversation: its header, the thread, and the composer at the foot.
-function Room({ id, me }: { id: string; me: string | undefined }) {
+function Room({
+  id,
+  me,
+  onBack,
+}: {
+  id: string
+  me: string | undefined
+  /// Back to the rooms — drawn only on a phone, where the list is not beside
+  /// the room but behind it.
+  onBack?: () => void
+}) {
   const client = useQueryClient()
   const attachments = useAttachments()
   const [tab, setTab] = useState<"messages" | "files">("messages")
@@ -553,7 +577,17 @@ function Room({ id, me }: { id: string; me: string | undefined }) {
         // and a sequence number is not how anybody asks the question. A group
         // now says it is one in words, where its membership is.
         render: (room) => (
-          <div className="flex shrink-0 items-center gap-3 border-b border-hairline px-5 py-3">
+          <div className="flex shrink-0 items-center gap-3 border-b border-hairline px-5 py-3 max-md:gap-2 max-md:px-3">
+            {onBack !== undefined && (
+              <button
+                type="button"
+                aria-label="Back to conversations"
+                onClick={onBack}
+                className="-ml-1 grid size-tap shrink-0 place-items-center rounded-full text-line-ico active:bg-soft-2"
+              >
+                <ChevronLeft className="size-5" />
+              </button>
+            )}
             <Avatar name={conversationName(room, me)} size="lg" />
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-card-title font-semibold text-ink">
@@ -656,13 +690,13 @@ function Room({ id, me }: { id: string; me: string | undefined }) {
                             <AppLink
                               to="/library"
                               sheet={{ key: "file", value: file.file_id }}
-                              className="block truncate text-[0.8125rem] text-ink hover:text-accent"
+                              className="block truncate text-[0.875rem] text-ink hover:text-accent"
                             >
                               {file.file_name}
                             </AppLink>
                             <a
                               href={chatAttachmentUrl(id, file.file_id)}
-                              className="font-mono text-[0.65625rem] text-mute hover:text-accent"
+                              className="font-mono text-[0.875rem] text-mute hover:text-accent"
                             >
                               {file.available
                                 ? "download"
@@ -671,7 +705,7 @@ function Room({ id, me }: { id: string; me: string | undefined }) {
                           </div>
                         </div>
                       </td>
-                      <td className="py-2 text-right text-[0.78125rem]">
+                      <td className="py-2 text-right text-[0.875rem]">
                         {file.uploaded_by}
                       </td>
                       <td className="py-2 text-right tabular-nums">
@@ -742,7 +776,7 @@ function Message({
           </div>
           <div
             className={cn(
-              "mt-1 rounded-inner px-3 py-2 text-[0.84375rem] leading-relaxed whitespace-pre-wrap",
+              "mt-1 rounded-inner px-3 py-2 text-[0.875rem] leading-relaxed whitespace-pre-wrap",
               // Indigo is "mine" the way it is "selected" everywhere else.
               // Nothing darkens: the other person's bubble is the soft grey,
               // never a filled dark one.

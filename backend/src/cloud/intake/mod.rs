@@ -32,6 +32,9 @@ pub mod dir;
 pub mod imap;
 pub mod parse;
 pub mod pdf;
+/// PO intake: documents in, drafts out. The sibling of the statement
+/// pipeline, with the order book instead of the ledger at the end of it.
+pub mod po;
 pub mod xlsx;
 
 use crate::cloud::application::AppError;

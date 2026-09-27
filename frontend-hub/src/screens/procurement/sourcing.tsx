@@ -4,11 +4,12 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { ArrowLeft, Plus, ShoppingBasket, Store } from "lucide-react"
+import { ArrowLeft, Plus, Search, ShoppingBasket, Store } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
+import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
@@ -17,6 +18,7 @@ import { FilterOmnibox } from "@/components/ui/filter-omnibox"
 import {
   ChoiceMenu,
   DockedFilters,
+  ListOptionsSheet,
   ViewPicker,
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
@@ -420,7 +422,7 @@ export function Sourcing() {
           a table — the facets are how a buyer discovers that the thing they
           are looking for is filed under a division they had not thought of.
           Below 1440 it is the same model, reachable from the omnibox. */}
-      <div className="grid min-w-0 items-start gap-5 min-[1440px]:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         {/* `@container` on the column the cards are laid out in, not on the
             page: this column's width is whatever the sidebar and the panel
             leave it, and a `md:` breakpoint reading the VIEWPORT would put four
@@ -433,6 +435,43 @@ export function Sourcing() {
               breath. The rail also spent permanent width on a control most
               buyers touch twice a day, and this screen's grid is sized by what
               is left over. */}
+          {/* The phone: a plain search box and one button for filter, sort
+              and views (`ListOptionsSheet`) — the other books' shape. The
+              omnibox's menus are drawn for a pointer. From 48rem up it is the
+              omnibox, as it always was. */}
+          <div className="mb-3 flex items-center gap-1.5 md:hidden">
+            <span className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-line-ico" />
+              <input
+                value={search.value ?? ""}
+                onChange={(event) =>
+                  event.target.value
+                    ? search.open(event.target.value)
+                    : search.close()
+                }
+                placeholder={
+                  standing
+                    ? `Search in ${standing.name}`
+                    : "Search the catalogue"
+                }
+                aria-label="Search the catalogue"
+                enterKeyHint="search"
+                className="h-11 w-full rounded-inner border border-hairline-2 bg-canvas pr-3 pl-9 text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+              />
+            </span>
+            <ListOptionsSheet
+              model={filters}
+              filterModel={{ ...filters, fields: counted }}
+              orders={{
+                options: SORTS,
+                value: sort.value ?? null,
+                onChange: (next) =>
+                  next === null ? sort.close() : sort.open(next),
+              }}
+              id="sourcing"
+              all="Everything"
+            />
+          </div>
           <FilterOmnibox
             model={{ ...filters, fields: counted }}
             text={search.value ?? undefined}
@@ -442,7 +481,7 @@ export function Sourcing() {
                 ? `Search in ${standing.name}`
                 : "Search every supplier's catalogue, or filter"
             }
-            className="mb-3"
+            className="mb-3 max-md:hidden"
           />
 
           {/* One line the width of the grid, carrying everything that acts on
@@ -451,7 +490,7 @@ export function Sourcing() {
               ordered and saved in the middle, what creates and what collects at
               the right. */}
           <div className="mb-[1.125rem] flex flex-wrap items-center gap-1.5">
-            <span className="mr-auto text-[0.84375rem] text-body">
+            <span className="mr-auto text-[0.875rem] text-body">
               <b className="font-medium text-ink">{count(rows.length)}</b>{" "}
               {filtered || standing
                 ? catalogue.hasNextPage
@@ -466,20 +505,22 @@ export function Sourcing() {
                 its order from a menu with the same trigger, and four buttons
                 sitting open said that choosing an order is four times as
                 important here as it is next door. */}
-            <ChoiceMenu
-              heading="Sort by"
-              value={sort.value ?? null}
-              options={SORTS}
-              onChange={(next) =>
-                next === null ? sort.close() : sort.open(next)
-              }
-            />
-            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
-            <ViewPicker model={filters} id="sourcing" all="Everything" />
-            <Button onClick={() => adding.open(true)}>
-              <Plus />
-              Add item
-            </Button>
+            <div className="hidden md:contents">
+              <ChoiceMenu
+                heading="Sort by"
+                value={sort.value ?? null}
+                options={SORTS}
+                onChange={(next) =>
+                  next === null ? sort.close() : sort.open(next)
+                }
+              />
+              <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
+              <ViewPicker model={filters} id="sourcing" all="Everything" />
+              <Button onClick={() => adding.open(true)}>
+                <Plus />
+                Add item
+              </Button>
+            </div>
             <Button
               variant={picked > 0 ? "primary" : "ghost"}
               onClick={() => cart.open(true)}
@@ -489,6 +530,7 @@ export function Sourcing() {
               {picked > 0 && ` · ${count(picked)}`}
             </Button>
           </div>
+          <Fab label="Add item" onClick={() => adding.open(true)} />
 
           {queryState(catalogue, {
             loading: "Reading the catalogue…",
@@ -550,7 +592,7 @@ export function Sourcing() {
           kpis={catalogueKpis(searchable, facets)}
           id="sourcing"
           subject="Supplier item"
-          className="hidden min-[1440px]:flex"
+          className="hidden dock:flex"
         />
       </div>
 
@@ -651,7 +693,7 @@ function ProductCard({
               its category badge there: it is what the picture IS, so it belongs
               with the picture rather than in a list of facts under it. */}
           {item.division_code && (
-            <span className="absolute top-2.5 left-2.5 inline-flex items-center rounded-full bg-canvas/95 px-2 py-[0.1875rem] text-[0.625rem] font-semibold text-ink shadow-[0_1px_3px_rgba(20,20,25,.1)] backdrop-blur-[5px]">
+            <span className="absolute top-2.5 left-2.5 inline-flex items-center rounded-full bg-canvas/95 px-2 py-[0.1875rem] text-[0.875rem] font-semibold text-ink shadow-[0_1px_3px_rgba(20,20,25,.1)] backdrop-blur-[5px]">
               {termLabel(vocabulary?.divisions, item.division_code)}
             </span>
           )}
@@ -660,7 +702,7 @@ function ProductCard({
               buyer has done rather than about what the thing is. Absent at
               zero: a badge every card wears is a badge that says nothing. */}
           {held > 0 && (
-            <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-ink/90 px-2 py-[0.1875rem] text-[0.625rem] font-semibold text-white tabular-nums backdrop-blur-[5px]">
+            <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-ink/90 px-2 py-[0.1875rem] text-[0.875rem] font-semibold text-white tabular-nums backdrop-blur-[5px]">
               <ShoppingBasket className="size-2.5" />
               {count(held)}
             </span>
@@ -692,7 +734,7 @@ function ProductCard({
                 <Swatches colours={item.colours} cap={5} />
               )}
               {item.size_codes.length > 0 && (
-                <span className="min-w-0 truncate text-[0.71875rem] text-body">
+                <span className="min-w-0 truncate text-[0.875rem] text-body">
                   {sizeSpan(vocabulary?.sizes, item.size_codes)}
                 </span>
               )}
@@ -712,7 +754,7 @@ function ProductCard({
         <button
           type="button"
           onClick={onSupplier}
-          className="flex w-full min-w-0 items-center gap-1.5 text-[0.71875rem] text-body transition-colors hover:text-ink"
+          className="flex w-full min-w-0 items-center gap-1.5 text-[0.875rem] text-body transition-colors hover:text-ink"
         >
           <Store className="size-3 shrink-0 text-line-ico" />
           <span className="truncate">{supplier.name}</span>
@@ -728,7 +770,7 @@ function ProductCard({
               <Tag key={code}>{termLabel(vocabulary?.tags, code)}</Tag>
             ))}
             {item.tags.length > 3 && (
-              <span className="text-[0.625rem] text-mute tabular-nums">
+              <span className="text-[0.875rem] text-mute tabular-nums">
                 +{count(item.tags.length - 3)}
               </span>
             )}
@@ -767,7 +809,7 @@ function ProductCard({
               their eyes. Hidden at zero rather than shown as "0 bought" — a
               first order is not a warning. */}
           {row.bought !== undefined && row.bought.units > 0 && (
-            <span className="min-w-0 flex-1 truncate rounded-full bg-info-bg px-2 py-[0.1875rem] text-center text-[0.6875rem] font-medium text-info-fg tabular-nums">
+            <span className="min-w-0 flex-1 truncate rounded-full bg-info-bg px-2 py-[0.1875rem] text-center text-[0.875rem] font-medium text-info-fg tabular-nums">
               {count(row.bought.units)} bought
             </span>
           )}
@@ -825,7 +867,7 @@ function ShopHead({
       <button
         type="button"
         onClick={onBack}
-        className="mb-3 inline-flex items-center gap-1.5 text-[0.75rem] font-medium text-body transition-colors hover:text-ink"
+        className="mb-3 inline-flex items-center gap-1.5 text-[0.875rem] font-medium text-body transition-colors hover:text-ink"
       >
         <ArrowLeft className="size-3.5" />
         All suppliers
@@ -845,7 +887,7 @@ function ShopHead({
                 {supplier.supplier_code}
               </span>
               <Pill tone={supplier.status === "ACTIVE" ? "ok" : "neutral"}>
-                {supplier.status === "ACTIVE" ? "Active" : "Retired"}
+                {supplier.status === "ACTIVE" ? "Active" : "Cancelled"}
               </Pill>
             </div>
           </div>
@@ -854,10 +896,10 @@ function ShopHead({
         <dl className="mt-3.5 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-hairline pt-3.5 md:grid-cols-3">
           {facts.map(([term, value]) => (
             <div key={term} className="min-w-0">
-              <dt className="text-[0.625rem] font-semibold tracking-[0.04em] text-mute uppercase">
+              <dt className="text-[0.875rem] font-semibold tracking-[0.04em] text-mute uppercase">
                 {term}
               </dt>
-              <dd className="mt-0.5 truncate text-[0.78125rem] text-ink">
+              <dd className="mt-0.5 truncate text-[0.875rem] text-ink">
                 {value === null || value === "" ? "—" : value}
               </dd>
             </div>
@@ -941,11 +983,6 @@ function ItemSheet({
           <div className="flex flex-col gap-4">
             {pick.isError && (
               <Banner tone="bad">{(pick.error as Error).message}</Banner>
-            )}
-            {pick.isSuccess && (
-              <Banner tone="ok">
-                {count(pick.data.quantity)} in the basket.
-              </Banner>
             )}
             <ItemDetail item={item} vocabulary={vocabulary} bought={bought} />
           </div>
