@@ -32,8 +32,10 @@ import { Reconciliation } from "@/screens/money/reconciliation"
 import { Receive } from "@/screens/receive"
 import { Reports } from "@/screens/money/reports"
 import { Sales } from "@/screens/money/sales"
+import { Send } from "@/screens/send"
 import { Stock } from "@/screens/stock"
 import { SyncScreen } from "@/screens/sync"
+import { TillApprovals } from "@/screens/till-approvals"
 import type { ScreenMap } from "@/screens/registry"
 
 /// Path → screen. `routes.tsx` builds the router from `lib/navigation.ts` and
@@ -59,6 +61,7 @@ export const screens: ScreenMap = {
   "/promotions/vouchers": Vouchers,
   "/receive": Receive,
   "/stock": Stock,
+  "/stock/send": Send,
   "/stock/movements": Movements,
   "/reports": Reports,
   "/money/sales": Sales,
@@ -84,4 +87,5 @@ export const screens: ScreenMap = {
   "/hr/training": HrTraining,
   "/node/sync": SyncScreen,
   "/node/password": Password,
+  "/node/tills": TillApprovals,
 }

@@ -6,11 +6,7 @@ import {
   inboundDeliveryKey,
   inboundListKey,
 } from "@/lib/queries"
-// TEMPORARY: from `@itulah/contract` once the backend generates them.
-import type {
-  StoreInboundDelivery,
-  StoreInboundLine,
-} from "@/screens/stock/inbound-types"
+import type { StoreInboundDelivery, StoreInboundLine } from "@itulah/contract"
 
 /// The facts the Receive screen and its sheet share — the reads and the words
 /// for a delivery. Nothing here draws; the sheet is `delivery-sheet.tsx`.
