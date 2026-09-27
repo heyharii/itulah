@@ -273,6 +273,14 @@ const RESERVED: &[(u32, u32, &str)] = &[
          0610-0614 on 27 Sep 2026 and needed four numbers; the books step filled \
          0605-0609 and the flow-template engine 0615-0619",
     ),
+    (
+        621,
+        624,
+        "held for the lanes in flight on 27 Sep 2026 (the setup lane among \
+         them) when the flow-template engine's second step was given 0625-0627. \
+         Remove this entry once they land, or `no_reserved_block_is_dead_weight` \
+         will say so",
+    ),
 ];
 
 #[test]

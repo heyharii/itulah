@@ -2251,6 +2251,8 @@ pub async fn confirm_flow_actions(
         at,
     )
     .await?;
+    // What the nodes did while the flow waited for this person.
+    super::flow_stages::catch_up_tx(&mut tx, document_id, at).await?;
     let document = read_document_view(&mut tx, document_id, actor).await?;
     let response = json!({ "document": document, "effects": effects });
     complete_idempotent(&mut tx, &request.idempotency_key, &response).await?;
@@ -2343,6 +2345,8 @@ pub async fn resume_parked_stage(
         at,
     )
     .await?;
+    // What the nodes did while the flow waited for this person.
+    super::flow_stages::catch_up_tx(&mut tx, document_id, at).await?;
     let document = read_document_view(&mut tx, document_id, actor).await?;
     let response = json!({ "document": document, "effects": effects });
     complete_idempotent(&mut tx, &request.idempotency_key, &response).await?;

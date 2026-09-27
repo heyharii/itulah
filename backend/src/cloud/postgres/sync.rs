@@ -2332,6 +2332,27 @@ async fn apply_one(
                         reason: block_diagnostic(&error),
                     });
                 }
+                // The order the goods were bought on moves its flow's Tagging.
+                let fact = super::flow_stages::NodeFact {
+                    origin_id,
+                    event_type: crate::cloud::domain::FACT_TAGGING_COMPLETED,
+                    event_id: row.get("event_id"),
+                    stage: crate::cloud::domain::flow::StageKind::Tagging,
+                    actor_id: Some(done.confirmed_by.as_str()),
+                };
+                if let Err(error) = super::flow_stages::resume_tagging_job_tx(
+                    &mut tx,
+                    done.job_id,
+                    &fact,
+                    done.confirmed_at,
+                )
+                .await
+                {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
                 false
             } else if event_type == crate::cloud::domain::FACT_PUBLICATION_ACTIVATED {
                 let activated = match crate::cloud::domain::parse_publication_activated(&payload) {
@@ -2477,6 +2498,60 @@ async fn apply_one(
                 };
                 if let Err(error) = apply_fulfillment_progress(
                     &mut tx, origin_id, generation, next, event_id, &progress,
+                )
+                .await
+                {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
+            } else if event_type == crate::sync::flow::INVENTORY_INBOUND_RECEIVED_V1 {
+                // A delivery a site of ours received in its one confirm: kept
+                // for the flows of the allotments it carried
+                // (`flow_stages::apply_inbound_received_tx`).
+                let event_id: Uuid = row.get("event_id");
+                let received = match crate::sync::flow::parse_inbound_received(&payload) {
+                    Ok(received) => received,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) = super::flow_stages::apply_inbound_received_tx(
+                    &mut tx, origin_id, generation, next, event_id, &received,
+                )
+                .await
+                {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
+            } else if event_type == crate::sync::flow::INVENTORY_RETURN_INSPECTED_V1 {
+                let event_id: Uuid = row.get("event_id");
+                let inspected = match crate::sync::flow::parse_return_inspected(&payload) {
+                    Ok(inspected) => inspected,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) = super::flow_stages::apply_return_inspected_tx(
+                    &mut tx, origin_id, generation, next, event_id, &inspected,
+                )
+                .await
+                {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
+            } else if event_type == crate::sync::flow::INVENTORY_PUTAWAY_V1 {
+                let event_id: Uuid = row.get("event_id");
+                let putaway = match crate::sync::flow::parse_putaway(&payload) {
+                    Ok(putaway) => putaway,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) = super::flow_stages::apply_putaway_tx(
+                    &mut tx, origin_id, generation, next, event_id, &putaway,
                 )
                 .await
                 {
@@ -3896,6 +3971,24 @@ async fn apply_allotment_pick(
         return Ok(false);
     }
 
+    // Picking is under way at this site for this SKU: the flows whose pick is
+    // due there park it. Keyed by site and SKU, because a pick names no
+    // allotment (`flow_stages::resume_picks_tx`).
+    let fact = super::flow_stages::NodeFact {
+        origin_id,
+        event_type: INVENTORY_PICK_V1,
+        event_id,
+        stage: crate::cloud::domain::flow::StageKind::Pick,
+        actor_id: Some(pick.actor_id.as_str()),
+    };
+    super::flow_stages::resume_picks_tx(
+        tx,
+        &pick.source_site_id,
+        &pick.sku_code,
+        &fact,
+        pick.occurred_at,
+    )
+    .await?;
     Ok(true)
 }
 
@@ -4437,6 +4530,41 @@ async fn apply_fulfillment_progress(
         // exactly when the IN_TRANSIT fact does: a replay of the fact is
         // refused above (event id, then koli+stage) and cannot announce twice.
         announce_store_inbound_tx(tx, progress).await?;
+    }
+    // The flows of the allotments this koli carries, to its destination, move
+    // with it: pack, ship (and close koli), load, depart. Keyed by allotment and
+    // destination, the pair a flow document runs (`flow_stages`).
+    let stage = match progress.stage {
+        FulfillmentStage::Packed => crate::cloud::domain::flow::StageKind::Pack,
+        FulfillmentStage::Shipment => crate::cloud::domain::flow::StageKind::Ship,
+        FulfillmentStage::Loaded => crate::cloud::domain::flow::StageKind::Load,
+        FulfillmentStage::InTransit => crate::cloud::domain::flow::StageKind::Depart,
+    };
+    let fact = super::flow_stages::NodeFact {
+        origin_id,
+        event_type: INVENTORY_FULFILLMENT_PROGRESS_V1,
+        event_id,
+        stage,
+        actor_id: Some(progress.actor_id.as_str()),
+    };
+    let allotments: BTreeSet<Uuid> = progress
+        .units
+        .iter()
+        .map(|unit| unit.allotment_id)
+        .collect();
+    for allotment_id in allotments {
+        let source = crate::cloud::domain::flow::FlowSource {
+            kind: crate::cloud::domain::flow::SourceKind::Allotment,
+            id: allotment_id.to_string(),
+        };
+        super::flow_stages::resume_from_node_fact_tx(
+            tx,
+            &source,
+            Some(canonical_destination.as_str()),
+            &fact,
+            progress.occurred_at,
+        )
+        .await?;
     }
     Ok(true)
 }
@@ -7636,6 +7764,21 @@ async fn apply_goods_receipt_line(
             )
             .await?;
         }
+        // The order's receiving flow: arrival, blind count and verification
+        // are read off its accepted lines (`flow_stages`).
+        let fact = super::flow_stages::NodeFact {
+            origin_id,
+            event_type: FACT_GOODS_RECEIPT_LINE,
+            event_id: line.receipt_line_id,
+            stage: crate::cloud::domain::flow::StageKind::Verification,
+            actor_id: Some(line.verified_by.as_str()),
+        };
+        let source = crate::cloud::domain::flow::FlowSource {
+            kind: crate::cloud::domain::flow::SourceKind::PurchaseOrder,
+            id: purchase_order_id.to_string(),
+        };
+        super::flow_stages::resume_from_node_fact_tx(tx, &source, None, &fact, line.verified_at)
+            .await?;
         // Quantity nobody ordered is a commercial question, and it is asked
         // the moment it arrives rather than found weeks later by whoever
         // reconciles the invoice.

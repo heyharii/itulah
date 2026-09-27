@@ -5247,6 +5247,19 @@ impl EdgeInventory for SqliteEdge {
             ],
         )
         .map_err(db)?;
+        // The delivery as one receipt, for the flow its goods travel on: after
+        // the claims above, so head office has every claim of it first.
+        inbound::enqueue_received(
+            &tx,
+            self.node.site_id.as_str(),
+            &delivery_id,
+            receipt_id,
+            &source_site_id,
+            shipment_reference.as_deref(),
+            &landing.id(),
+            &actor_id,
+            occurred_at,
+        )?;
         let detail = inbound::detail(&tx, &delivery_id)?;
         Self::save_idempotent(
             &tx,

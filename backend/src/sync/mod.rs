@@ -23,6 +23,7 @@
 
 pub mod device;
 pub mod enrolment;
+pub mod flow;
 pub mod handshake;
 pub mod inventory;
 pub mod node_ops;
