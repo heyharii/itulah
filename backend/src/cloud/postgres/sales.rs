@@ -212,7 +212,7 @@ pub async fn add_sale_line(
         .get(&sku_id)
         .cloned()
         .ok_or_else(|| AppError::NotFound("a published price for this SKU".into()))?;
-    // The shop's own clock, from `site.timezone` (0474).
+    // The shop's own clock, from `site.timezone` (0603).
     let utc_offset_minutes =
         super::sites::business_utc_offset_minutes(&mut *tx, Some(site_id.as_str()), sale_created_at)
             .await?;

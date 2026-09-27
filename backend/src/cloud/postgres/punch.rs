@@ -769,7 +769,7 @@ pub async fn attendance_book_for_unit(
     Ok(AttendanceBook {
         // The wire still calls it `place_id`: deployed shop servers read the
         // book by that key, and the value — the unit id — is the same string the
-        // place id was (0450 keyed the units like the places).
+        // place id was (0600 keyed the units like the places).
         place_id: unit.as_str().to_owned(),
         // Stamped here, because "when the centre published it" is what lets a
         // station say the book is from Tuesday. A receive time stamped at the

@@ -295,7 +295,7 @@ async fn check_rule(
         }
     }
     // No site named means head office, which keeps the bank accounts — found
-    // by its kind, never spelled (0474).
+    // by its kind, never spelled (0603).
     let site_id = match request
         .site_id
         .as_deref()

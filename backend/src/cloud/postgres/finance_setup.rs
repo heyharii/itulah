@@ -559,7 +559,7 @@ pub async fn add_bank(
                 "an account number needs a giro or savings account to register it against".into(),
             ));
         }
-        // No site named means head office, found by its kind (0474).
+        // No site named means head office, found by its kind (0603).
         let site = match request.account_site_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             Some(site) => site.to_string(),
             None => super::sites::head_office_site_id(pool).await?,

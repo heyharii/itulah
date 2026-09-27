@@ -5,7 +5,7 @@
 -- read off its own id: `dc`/`dc-…` meant the warehouse, `store-…` a shop, the
 -- number printed on a koli was `KOLI-dc-01-…`, and every day was cut at UTC+7.
 --
--- Head office now sends what its `site` rows say (0474) with the auth policy
+-- Head office now sends what its `site` rows say (0603) with the auth policy
 -- it already renews every twelve hours: each site's kind, display code, name,
 -- IANA time zone and that zone's offset in minutes (worked out centrally — a
 -- node carries no tz database). This table holds the latest copy.

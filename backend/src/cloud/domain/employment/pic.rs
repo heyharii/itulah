@@ -1,7 +1,7 @@
 //! Who may be put in charge of a unit.
 //!
 //! Every unit has a PIC — the one person answerable for it, with an
-//! effective-dated history (0452, `unit_pic`). The appointment itself is a row;
+//! effective-dated history (0602, `unit_pic`). The appointment itself is a row;
 //! the rule for who may hold it is here, in one function, because it is the
 //! same rule whoever asks: the hub setting a store's manager, a backfill, the
 //! next route somebody adds. The database checks it again in a trigger for the

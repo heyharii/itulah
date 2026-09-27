@@ -2879,7 +2879,7 @@ pub async fn store_expense_claim(
 
     let mut tx = pool.begin().await?;
     site_exists(&mut tx, &request.site_id).await?;
-    // Counted under the internal id, printed under the display code (0474):
+    // Counted under the internal id, printed under the display code (0603):
     // the counter's scope does not move, so no number is ever issued twice.
     let printed = super::sites::display_code(&mut *tx, &request.site_id)
         .await?

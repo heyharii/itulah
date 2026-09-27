@@ -1045,7 +1045,7 @@ async fn a_purchase_order_leaves_the_dc_on_a_truck_entirely_over_http(pool: PgPo
         .unwrap_or_else(|| panic!("no koli_number: {manifest}"))
         .to_string();
     assert!(
-        // The site's display code (0474), which the policy published above
+        // The site's display code (0603), which the policy published above
         // told the node — never the internal id `dc`.
         koli_number.starts_with("KOLI-HO-GUDANG-"),
         "a koli number carries the code of the site that minted it: {koli_number}"

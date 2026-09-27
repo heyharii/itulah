@@ -335,7 +335,7 @@ WITH ledger_deltas AS (
 -- Two id spaces meet in this SELECT. `pool.id` is a POOL id and still spells
 -- the warehouse `dc.…` (the pool grammar, a later step's to change). Whether a
 -- pool stands at head office is NOT read off `pool.site_id`: it is the kind on
--- the site row it joins (0474), so a head office with any id sorts first and
+-- the site row it joins (0603), so a head office with any id sorts first and
 -- keeps its allotted column.
 SELECT pool.id,pool.site_id,site.name site_name,site.kind site_kind,pool.group_code,pool.pool_code,pool.label,
        pool.store_origin_site_id,pool.display_order,pool.is_placement,pool.outbound_stage,pool.destination_store_id,

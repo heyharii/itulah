@@ -234,6 +234,15 @@ const RESERVED: &[(u32, u32, &str)] = &[
          sessions were writing migrations at once) when the finance-foundation \
          lane claimed 0460 onward for account links and the chart editor",
     ),
+    (
+        521,
+        599,
+        "left to the lanes in flight on 27 Sep 2026 when the unit/site lane \
+         claimed 0600 onward: its three steps had been written as 0450-0452, \
+         0474 and 0475 on separate branches while other sessions already held \
+         0474-0477, 0490, 0500 and 0520 uncommitted, so the whole lane moved \
+         to a distant block rather than race for the next numbers",
+    ),
 ];
 
 #[test]

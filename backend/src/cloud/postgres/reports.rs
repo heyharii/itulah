@@ -28,7 +28,7 @@ pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Resul
         .ok_or_else(|| AppError::NotFound("site".into()))?;
 
     let midnight = query.date.and_time(NaiveTime::MIN);
-    // The caller's offset, else the shop's own clock (`site.timezone`, 0474).
+    // The caller's offset, else the shop's own clock (`site.timezone`, 0603).
     let offset_minutes = match query.utc_offset_minutes {
         Some(minutes) => minutes,
         None => {
@@ -200,7 +200,7 @@ pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Resul
 pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Value, AppError> {
     let bucket = Bucket::parse(query.bucket.as_deref()).map_err(AppError::Validation)?;
     // The caller's offset, else head office's clock: a chart of the whole
-    // fleet keeps the company's day (`site.timezone`, 0474).
+    // fleet keeps the company's day (`site.timezone`, 0603).
     let offset_minutes = match query.utc_offset_minutes {
         Some(minutes) => offset_of(Some(minutes)),
         None => super::sites::business_utc_offset_minutes(pool, None, Utc::now()).await?,

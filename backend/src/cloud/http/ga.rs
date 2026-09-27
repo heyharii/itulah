@@ -365,7 +365,7 @@ pub async fn contract_types(
     // Through a shop's till the accounts are the shop's: its own site, never
     // the DC's default and never another shop's.
     let asked: Vec<String> = single_value(&params, "site").into_iter().collect();
-    // Nobody named a site: head office's, found by its kind (0474).
+    // Nobody named a site: head office's, found by its kind (0603).
     let site = match principal.site_filter(asked)?.into_iter().next() {
         Some(site) => site,
         None => infrastructure::sites::head_office_site_id(&state.db).await?,

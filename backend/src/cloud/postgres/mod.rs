@@ -47,7 +47,7 @@ mod coupons;
 mod customer;
 mod deposits;
 mod destinations;
-/// Every machine enrolled to a node, fed by heartbeats. See migration 0475.
+/// Every machine enrolled to a node, fed by heartbeats. See migration 0604.
 mod devices;
 mod discussion;
 mod documents;

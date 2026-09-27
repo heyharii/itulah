@@ -166,7 +166,7 @@ impl HolidayScope {
 ///
 /// Stored under the key `places`, which is what every published calendar and
 /// every amendment in `holiday_calendar` already says. The ids in it are unit
-/// ids and always were — 0450 keyed the units like the places they replaced —
+/// ids and always were — 0600 keyed the units like the places they replaced —
 /// so only the word is old, and rewriting each calendar's whole amendment
 /// history to change a JSON key would put the history at risk for nothing.
 #[derive(Debug, Serialize, Deserialize)]

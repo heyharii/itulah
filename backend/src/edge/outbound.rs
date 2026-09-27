@@ -74,7 +74,7 @@ fn now_text() -> String {
 /// # What is printed
 ///
 /// `KOLI-HO-GUDANG-000001`, `SJ-HO-GUDANG-000045`: the site's DISPLAY code as
-/// head office gave it (`site.code`, 0474), never its internal id — a surat
+/// head office gave it (`site.code`, 0603), never its internal id — a surat
 /// jalan is paper a store signs, and `dc-01` means nothing to the person
 /// signing it. Until head office has told this node its code, the id is
 /// printed, exactly as before.

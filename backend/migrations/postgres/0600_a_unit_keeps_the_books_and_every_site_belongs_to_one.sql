@@ -8,8 +8,8 @@
 -- office, the Gudang or a shop, where goods and machines are. Until now the
 -- two were blurred across `site` (the syncing premises) and `org_place` (where
 -- people are posted), and head office answered to two ids, `dc` as a site and
--- `ho` as a place. This migration introduces the unit; 0451 moves the people
--- onto it and drops `org_place`; 0452 gives each unit its person in charge.
+-- `ho` as a place. This migration introduces the unit; 0601 moves the people
+-- onto it and drops `org_place`; 0602 gives each unit its person in charge.
 --
 -- # Why the ids are reused
 --
@@ -18,7 +18,7 @@
 -- only: that nothing already written has to be translated. Every HR row in the
 -- database names its place as `ho` or `store-NN` (0060 gave each store place
 -- its site's id; 0230 folded the warehouse's postings into `ho`), so a unit
--- keyed `ho` and `store-01`…`store-13` makes 0451 a change of foreign key and
+-- keyed `ho` and `store-01`…`store-13` makes 0601 a change of foreign key and
 -- not a rewrite of history. A new unit later takes whatever id the hub mints;
 -- nothing may parse meaning out of it (the architecture's "id hanya label").
 --

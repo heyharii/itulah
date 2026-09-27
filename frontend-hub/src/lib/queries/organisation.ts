@@ -11,7 +11,7 @@ export type { UnitPic, UnitSite, UnitView }
 /// Not `lib/queries/units`: that is units of *measure* (PCS, LUSIN), which kept
 /// the word before this vocabulary existed. A unit here is what owns books and
 /// people; its `id` is internal and never shown — people read `code` (C004)
-/// and `name` (Bumiayu). See migrations 0450–0452.
+/// and `name` (Bumiayu). See migrations 0600–0602.
 
 export const organisationKeys = {
   all: ["organisation"] as const,

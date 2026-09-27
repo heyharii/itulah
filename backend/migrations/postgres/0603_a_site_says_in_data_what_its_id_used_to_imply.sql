@@ -1,4 +1,4 @@
--- 0474: a site says in data what its id used to imply.
+-- 0603: a site says in data what its id used to imply.
 --
 -- Owner's ruling, 2026-09-27: everything is read from data, and no code may
 -- derive meaning from an id. Three things were being read off `site.id`:
@@ -55,7 +55,7 @@
 CREATE UNIQUE INDEX site_one_head_office ON site ((kind)) WHERE kind = 'HO';
 
 COMMENT ON INDEX site_one_head_office IS
-    'At most one site of kind HO (0474): head office is found by its kind, never by its id, so two would make the lookup a guess.';
+    'At most one site of kind HO (0603): head office is found by its kind, never by its id, so two would make the lookup a guess.';
 
 -- The one definition of "head office", for SQL and Rust alike: Rust's
 -- `sites::head_office_site_id` selects this, and a query that needs head
@@ -67,7 +67,7 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 COMMENT ON FUNCTION head_office_site_id() IS
-    'The id of the one site of kind HO, or NULL when there is none (0474). The only definition of head office; never compare a site id to a literal.';
+    'The id of the one site of kind HO, or NULL when there is none (0603). The only definition of head office; never compare a site id to a literal.';
 
 -- ---------------------------------------------------------------------------
 -- 2. Timezone
@@ -81,14 +81,14 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 COMMENT ON FUNCTION is_iana_timezone(text) IS
-    'Whether a text is a time zone name this server knows (0474). Abbreviations such as WIB and POSIX offsets such as UTC+7 are not names and are refused.';
+    'Whether a text is a time zone name this server knows (0603). Abbreviations such as WIB and POSIX offsets such as UTC+7 are not names and are refused.';
 
 ALTER TABLE site
     ADD COLUMN timezone text NOT NULL DEFAULT 'Asia/Jakarta'
         CONSTRAINT site_timezone_is_iana CHECK (is_iana_timezone(timezone));
 
 COMMENT ON COLUMN site.timezone IS
-    'IANA time zone the site keeps its business day in (0474). Every "which day was this" at the site reads it; cloud-wide reads use head office''s.';
+    'IANA time zone the site keeps its business day in (0603). Every "which day was this" at the site reads it; cloud-wide reads use head office''s.';
 
 -- The one definition of "whose clock", for SQL: the named site's zone, else
 -- head office's (a site id the centre holds no row for, or none at all),
@@ -103,7 +103,7 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 COMMENT ON FUNCTION site_business_timezone(text) IS
-    'The IANA zone a site cuts its day in: its own, else head office''s, else Asia/Jakarta (0474). NULL asks for head office''s.';
+    'The IANA zone a site cuts its day in: its own, else head office''s, else Asia/Jakarta (0603). NULL asks for head office''s.';
 
 -- The day an instant falls on where a site is. Replaces every
 -- `(x AT TIME ZONE 'UTC') + make_interval(mins => 420)` the code carried.
@@ -113,7 +113,7 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 COMMENT ON FUNCTION site_local_date(timestamptz, text) IS
-    'The calendar date of an instant in the named site''s zone (0474); NULL site means head office''s.';
+    'The calendar date of an instant in the named site''s zone (0603); NULL site means head office''s.';
 
 -- ---------------------------------------------------------------------------
 -- 3. Display code
@@ -127,7 +127,7 @@ ALTER TABLE site
         CHECK (code IS NULL OR code ~ '^[A-Z0-9][A-Z0-9-]{0,31}$');
 
 COMMENT ON COLUMN site.code IS
-    'What paper and screens show for the site (0474): HO-GUDANG, C001-TOKO. The id is internal and never printed. Upper-case letters, digits and dashes, so it survives a Code 128 barcode and a document number.';
+    'What paper and screens show for the site (0603): HO-GUDANG, C001-TOKO. The id is internal and never printed. Upper-case letters, digits and dashes, so it survives a Code 128 barcode and a document number.';
 
 UPDATE site SET code = 'HO-GUDANG' WHERE kind = 'HO' AND code IS NULL;
 
@@ -195,10 +195,10 @@ $$ LANGUAGE plpgsql;
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM site WHERE NOT is_iana_timezone(timezone)) THEN
-        RAISE EXCEPTION '0474: a site keeps a time zone this server does not know';
+        RAISE EXCEPTION '0603: a site keeps a time zone this server does not know';
     END IF;
     IF (SELECT count(*) FROM site WHERE kind = 'HO') > 1 THEN
-        RAISE EXCEPTION '0474: more than one site is head office';
+        RAISE EXCEPTION '0603: more than one site is head office';
     END IF;
 END
 $$;

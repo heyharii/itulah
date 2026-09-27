@@ -267,7 +267,7 @@ struct DayFacts {
 /// twenty-four and nothing would say so.
 pub async fn sale_days(pool: &PgPool, scope: SaleDayScope) -> Result<SaleDayPage, AppError> {
     // The caller's offset; else one shop's own clock when one shop is asked
-    // for, and head office's for the fleet (`site.timezone`, 0474).
+    // for, and head office's for the fleet (`site.timezone`, 0603).
     let offset_minutes = match scope.utc_offset_minutes {
         Some(minutes) => offset_of(Some(minutes)),
         None => {

@@ -317,7 +317,7 @@ pub struct BookLocation {
 ///
 /// The NAME comes from the site's `unit`, not from `site`, and that is the
 /// whole of the unit-domain decision taken on 2026-09-13 and made a table on
-/// 2026-09-27 (0450): the books belong to units, and a site belongs to one. Accounting's fourteen units
+/// 2026-09-27 (0600): the books belong to units, and a site belongs to one. Accounting's fourteen units
 /// are head office and thirteen shops — suffix `00` is HO in the client's own
 /// codes — while `site` is the fourteen places STOCK sits. The two lists
 /// coincide because head office has one site, the Gudang, and `site.unit_id`
@@ -2725,7 +2725,7 @@ pub async fn validate_account_posting(
     // already said "no account {code} in the chart" in the poster's own words.
     let Some(row) = row else { return Ok(None) };
 
-    // Head office by its kind, in the same round trip (0474). `None` only on a
+    // Head office by its kind, in the same round trip (0603). `None` only on a
     // database with no HO site, where a company account has nowhere to post.
     let head_office: Option<String> = row.try_get("head_office")?;
     let name: String = row.try_get("name")?;

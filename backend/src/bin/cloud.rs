@@ -579,7 +579,7 @@ async fn run_auth_policy_refresh_agent(pool: sqlx::PgPool) {
     }
 }
 
-/// Today at head office, by the zone its `site` row keeps (0474).
+/// Today at head office, by the zone its `site` row keeps (0603).
 ///
 /// The schedulers below run for the whole company, so they keep head office's
 /// calendar. A tick that cannot ask the database uses the fallback zone rather

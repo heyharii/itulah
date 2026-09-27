@@ -2,15 +2,15 @@
 //!
 //! Owner's ruling, 2026-09-27: no code may derive meaning from an id. Which
 //! site is head office, what kind a site is, what clock it keeps and what to
-//! print for it are columns on `site` (0474), and this module is the one door
+//! print for it are columns on `site` (0603), and this module is the one door
 //! the rest of the centre reads them through.
 //!
 //! # Head office is found by its kind
 //!
 //! `head_office_site_id` is the only place that says how, and it says it by
-//! asking the SQL function of the same name (0474), which is also what a query
+//! asking the SQL function of the same name (0603), which is also what a query
 //! calls when it needs head office inline. Today head office is the one `site`
-//! of kind `HO` — guarded to be the one by 0474's unique index. When the books
+//! of kind `HO` — guarded to be the one by 0603's unique index. When the books
 //! move from site to unit, it becomes the one `unit` of kind `HO`, and that
 //! change is that one function's body and nothing else.
 //!
@@ -60,7 +60,7 @@ pub async fn site_kind(
 
 /// Minutes east of UTC at one instant, where a site is — its own zone, or
 /// head office's when no site is named or the one named is not held here
-/// (`site_business_timezone`, 0474).
+/// (`site_business_timezone`, 0603).
 ///
 /// For the few readers that still cut a day in Rust (the pricing engine's
 /// weekday rules, a report window, "today"). The offset of a zone at an

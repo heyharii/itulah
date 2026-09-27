@@ -51,7 +51,7 @@ export const systemNav: AppModule = {
         // both with different roles.
         { path: "/system/access", label: "Access", icon: KeyRound },
         // The organisation: head office and the stores, their premises and
-        // who is in charge of each (0450-0452).
+        // who is in charge of each (0600-0602).
         { path: "/system/units", label: "Units", icon: Building2 },
         {
           path: "/system/notifications",

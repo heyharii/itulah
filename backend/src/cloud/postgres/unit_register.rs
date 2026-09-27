@@ -4,7 +4,7 @@
 //! Not `units.rs`: that module is units of *measure* (PCS, LUSIN), which is
 //! older than this vocabulary and keeps its name. Here "unit" means what the
 //! glossary says it means: the organisation that owns books, people and store
-//! money (`CONTEXT.md`, "The organisation"; migrations 0450–0452).
+//! money (`CONTEXT.md`, "The organisation"; migrations 0600–0602).
 //!
 //! Three things live here:
 //!
@@ -207,7 +207,7 @@ pub async fn is_pic_of(
 ///
 /// * the unit does not exist, or is closed;
 /// * the person is not an active employee posted at the unit on `valid_from`
-///   (the domain's rule, [`require_pic_eligible`]; the trigger in 0452 checks
+///   (the domain's rule, [`require_pic_eligible`]; the trigger in 0602 checks
 ///   it again);
 /// * the standing appointment starts after `valid_from` — a successor cannot
 ///   take over before their predecessor began, and backdating over somebody's

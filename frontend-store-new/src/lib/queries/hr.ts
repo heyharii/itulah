@@ -52,7 +52,7 @@ import type {
 /// shop whose rota it has any business showing.
 ///
 /// That the two ids are the same word is not luck. A shop is the only site of
-/// its store unit, and migration 0450 keyed each store unit like its shop
+/// its store unit, and migration 0600 keyed each store unit like its shop
 /// (`store-07` is both), so for a till the `site_id` *is* the centre's
 /// `unit_id` and nothing here maps between them. It is a fact about shops,
 /// not a rule: head office's site (`dc`) belongs to unit `ho`, which is why

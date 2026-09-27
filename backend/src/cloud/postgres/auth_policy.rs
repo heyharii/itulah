@@ -1014,7 +1014,7 @@ pub async fn list_rfid_devices(
     })
 }
 
-/// What a node is told about its own site and every other, from `site` (0474).
+/// What a node is told about its own site and every other, from `site` (0603).
 ///
 /// Its own is the row it was enrolled at. A warehouse node may be enrolled
 /// under a site id the centre does not hold as a row (`dc-01` beside the

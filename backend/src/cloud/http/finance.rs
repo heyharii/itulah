@@ -1905,7 +1905,7 @@ pub async fn company_bank_accounts(
 pub async fn banking_readiness(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<BankingSetupGap>>, AppError> {
-    // Head office by its kind, from the one lookup that says how (0474).
+    // Head office by its kind, from the one lookup that says how (0603).
     let head_office = infrastructure::sites::head_office_site_id(&state.db).await?;
     Ok(Json(infrastructure::banking_readiness(&state.db, &head_office).await?))
 }

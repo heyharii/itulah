@@ -112,7 +112,7 @@ pub struct AppConfig {
     /// canonical-name fallback in `inventory_dc_owner_tx` now answers to `ho`
     /// and no longer rescues a mismatched `dc`.
     ///
-    /// Empty — the default since 0474 — means head office's own site, found
+    /// Empty — the default since 0603 — means head office's own site, found
     /// by its kind when an order is raised rather than spelled here.
     pub default_destination_site_id: String,
 }

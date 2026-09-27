@@ -238,7 +238,7 @@ async fn hr_hires_somebody_and_that_person_can_read_their_own_record(pool: PgPoo
 
     let employee_id = hire(&app, &cookies, &csrf, "K0001").await;
 
-    // Posted to a shop. `store-01` is a unit because migration 0450
+    // Posted to a shop. `store-01` is a unit because migration 0600
     // seeded one per site.
     let assigned = send(
         app.clone(),

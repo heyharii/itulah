@@ -24,13 +24,13 @@ unit_id: string | null, unit_name: string | null,
  * `unit.kind`: `HO` or `STORE` (`ONLINE` once that unit is opened).
  *
  * Never `DC`: migration 0230 folded the distribution centre into head
- * office — the owner's decision of 2026-09-13 — and since 0450 the
+ * office — the owner's decision of 2026-09-13 — and since 0600 the
  * warehouse is a site of the head-office unit (the Gudang), not a unit.
  * `site.kind` is a different question: what kind of premises.
  */
 unit_kind: string | null, 
 /**
- * Whether the caller is the PIC in force at their unit (0452).
+ * Whether the caller is the PIC in force at their unit (0602).
  */
 in_charge: boolean, 
 /**

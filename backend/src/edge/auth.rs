@@ -392,7 +392,7 @@ impl EdgeAuth {
             return Err(denied());
         }
         // A password sign-in is a sign-in: it ends this person's other
-        // sessions at this node (one user, one device — migration 0054).
+        // sessions at this node (one user, one device — migration 0053).
         self.start_session(
             &mut connection,
             id,
@@ -680,7 +680,7 @@ impl EdgeAuth {
     ///
     /// With `supersede`, first revoke every other live session this person
     /// has at this node, as `SIGNED_IN_ELSEWHERE` — one user, one device
-    /// (migration 0054), the node's half of what head office does in
+    /// (migration 0053), the node's half of what head office does in
     /// `cloud/postgres/users.rs::create_session`. In the caller's transaction,
     /// so two sign-ins racing each other cannot both survive: SQLite has one
     /// writer, and whichever commits second revokes the first.

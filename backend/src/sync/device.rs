@@ -57,7 +57,7 @@ pub const KIND_PRINTER: &str = "PRINTER";
 pub const KIND_EDC: &str = "EDC";
 pub const KIND_ATTENDANCE_TERMINAL: &str = "ATTENDANCE_TERMINAL";
 
-/// Every kind the registry admits. The `device.kind` CHECK in migration 0475
+/// Every kind the registry admits. The `device.kind` CHECK in migration 0604
 /// names exactly these.
 pub const KINDS: [&str; 6] = [
     KIND_TILL,

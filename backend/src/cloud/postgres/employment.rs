@@ -851,7 +851,7 @@ pub struct CallerRecord {
     /// The unit's name, for saying `Head Office` where the id says `ho`.
     pub unit_name: Option<String>,
     /// Whether the caller is the PIC in force at the unit they are posted to
-    /// (0452). Only ever true alongside a posting: a PIC must be posted where
+    /// (0602). Only ever true alongside a posting: a PIC must be posted where
     /// they are in charge, so an appointment at a unit they have since left
     /// counts for nothing here.
     pub in_charge: bool,

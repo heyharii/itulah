@@ -716,7 +716,7 @@ fn guardrail_reading(measure: &str, threshold: i64, observed: i64) -> String {
 /// the estate's own offset.
 async fn calendar(pool: &PgPool, today: NaiveDate) -> Result<Value, AppError> {
     let tomorrow = today + Duration::days(1);
-    // Head office's clock: the calendar is the company's, not one shop's (0474).
+    // Head office's clock: the calendar is the company's, not one shop's (0603).
     let offset: i32 =
         super::sites::business_utc_offset_minutes(pool, None, chrono::Utc::now()).await?;
     let rows = sqlx::query(

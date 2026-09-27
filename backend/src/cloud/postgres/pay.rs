@@ -1731,7 +1731,7 @@ pub async fn settle_handover(
         .fetch_one(&mut *tx)
         .await?;
         if owed > 0 {
-            // The bank that pays is head office's, found by its kind (0474).
+            // The bank that pays is head office's, found by its kind (0603).
             let head_office = super::sites::head_office_site_id(&mut *tx).await?;
             post(
                 &mut tx,

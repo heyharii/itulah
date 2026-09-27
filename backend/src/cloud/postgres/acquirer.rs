@@ -49,7 +49,7 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 /// A sale's trading day, in SQL, from `edge_sale e`: the date the shop's own
-/// clock showed (`site.timezone`, 0474), not London's. Dating by UTC moves
+/// clock showed (`site.timezone`, 0603), not London's. Dating by UTC moves
 /// everything rung after the shop's UTC midnight into tomorrow.
 const SALE_BUSINESS_DATE: &str = "site_local_date(e.occurred_at, e.site_id)";
 
@@ -1807,7 +1807,7 @@ pub async fn acq_settlement_curate(
     // Ledger below. Gathered here rather than re-queried: the posting and the
     // items have to describe the same rows or they describe different debts.
     let mut discharged: Vec<(String, String, i64)> = Vec::with_capacity(lines.len());
-    // The bank is head office's, found by its kind (0474).
+    // The bank is head office's, found by its kind (0603).
     let head_office = super::sites::head_office_site_id(pool).await?;
     let mut posting_lines =
         vec![PostingLine::debit(bank_key, &head_office, settlement.net_minor)
@@ -2450,7 +2450,7 @@ pub async fn acq_settlement_unmapped_keys(
 /// office's, when no shop is named.
 ///
 /// Exposed because any caller turning a timestamp into a trading day must use
-/// the same clock the SQL above does (`site_local_date`, 0474); two answers to
+/// the same clock the SQL above does (`site_local_date`, 0603); two answers to
 /// "which day was this" is how a reconciliation comes to be missing one
 /// receipt.
 pub async fn acquirer_business_date(

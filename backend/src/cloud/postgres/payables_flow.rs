@@ -518,7 +518,7 @@ pub async fn receipt_post(
     actor: &str,
 ) -> Result<ReceiptPosting, AppError> {
     // The days still to value, in the receiving site's own calendar
-    // (`site.timezone`, 0474): a lorry accepted at half past six in the
+    // (`site.timezone`, 0603): a lorry accepted at half past six in the
     // morning was accepted that day, not the day before, whatever UTC says.
     let days: Vec<NaiveDate> = sqlx::query_scalar(
         "SELECT DISTINCT site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id))

@@ -17,7 +17,7 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
 
 /// Minutes east of UTC where a business day turns over when there is no site
 /// to ask: Asia/Jakarta, the zone every site kept before `site.timezone`
-/// existed (0474).
+/// existed (0603).
 ///
 /// A FALLBACK and nothing more. A day is cut where the site is: the centre
 /// reads `site.timezone` (`cloud::postgres::sites`), a node reads what head

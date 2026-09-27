@@ -1155,7 +1155,7 @@ pub fn now() -> DateTime<Utc> {
 /// A runtime query rather than `sqlx::query!`: it was the only compile-time
 /// checked query in the crate, and it tied every build to either a live
 /// database at the newest migration or a `.sqlx` cache regenerated in step
-/// with it — the unit rename (0451) is exactly the change that breaks both.
+/// with it — the unit rename (0601) is exactly the change that breaks both.
 pub async fn colleagues_at(
     pool: &PgPool,
     unit: &str,

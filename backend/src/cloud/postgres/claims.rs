@@ -676,7 +676,7 @@ pub async fn pay_claim(
 
     let mut tx = pool.begin().await?;
     let site = posting_site(&mut tx, claim.unit()).await?;
-    // Counted under the internal id, printed under the display code (0474).
+    // Counted under the internal id, printed under the display code (0603).
     let printed = super::sites::display_code(&mut *tx, &site)
         .await?
         .to_uppercase();

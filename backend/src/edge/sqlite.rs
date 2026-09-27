@@ -411,20 +411,20 @@ pub(crate) const ATTENDANCE_SCHEMA: &str = include_str!(concat!(
 /// migration and `edge/devices.rs`.
 pub(crate) const DEVICE_JOIN_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/migrations/sqlite/0051_a_till_asks_its_node_to_join_and_a_supervisor_says_yes.sql"
+    "/migrations/sqlite/0050_a_till_asks_its_node_to_join_and_a_supervisor_says_yes.sql"
 ));
 
 /// A till's status, peripherals and join. ALTERs: applied once, probed by
 /// `edge_terminal.status`.
 pub(crate) const TILL_DEVICE_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/migrations/sqlite/0052_a_till_knows_its_status_its_peripherals_and_how_it_joined.sql"
+    "/migrations/sqlite/0051_a_till_knows_its_status_its_peripherals_and_how_it_joined.sql"
 ));
 
 /// The printers this node knows by name.
 pub(crate) const PRINTER_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/migrations/sqlite/0053_a_printer_is_recorded_once_and_chosen_by_name.sql"
+    "/migrations/sqlite/0052_a_printer_is_recorded_once_and_chosen_by_name.sql"
 ));
 
 /// Why a session ended: one user, one device. An ALTER, applied through
@@ -432,7 +432,7 @@ pub(crate) const PRINTER_SCHEMA: &str = include_str!(concat!(
 /// call.
 pub(crate) const SESSION_REASON_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/migrations/sqlite/0054_a_person_is_signed_in_on_one_device_at_a_node.sql"
+    "/migrations/sqlite/0053_a_person_is_signed_in_on_one_device_at_a_node.sql"
 ));
 
 /// Darkness and speed on the print session. See the migration.
@@ -1200,7 +1200,7 @@ impl SqliteEdge {
         connection
             .execute_batch(SITE_DIRECTORY_SCHEMA)
             .map_err(db)?;
-        // Devices (`0051`–`0054`). The join queue, the device history and the
+        // Devices (`0050`–`0053`). The join queue, the device history and the
         // printer register create rather than change, so they run on every
         // open; the till's new columns and the session's reason are ALTERs,
         // so each is probed by the column it adds.
@@ -9575,7 +9575,7 @@ impl SqliteEdge {
         let arrived_at = request.arrived_at.unwrap_or_else(|| self.clock.now());
         let opened_at = self.clock.now();
         // The delivery number the supplier quotes back: the site's display code
-        // as head office gave it (0474), or its id until this node has heard.
+        // as head office gave it (0603), or its id until this node has heard.
         // The counter is the node's own and does not follow the code, so a
         // number is never issued twice.
         let receipt_number = format!(

@@ -2,7 +2,7 @@
 --
 -- Owner's decision, 2026-09-27: `org_place` is dropped. It was 0060's answer to
 -- "where is somebody posted" at a time when head office had no row anywhere
--- else, and since 0450 it is a second copy of the unit table under a second
+-- else, and since 0600 it is a second copy of the unit table under a second
 -- name — fourteen rows, one per unit, `ho` and the thirteen stores. Two tables
 -- that must agree are two tables that will one day disagree, so one goes.
 --
@@ -19,7 +19,7 @@
 --
 -- Each place maps to a unit: `ho` to the head-office unit, and a store place to
 -- the unit that owns its site (`org_place.site_id` → `site.unit_id`). Because
--- 0450 keyed the units like the places, that mapping is the identity on every
+-- 0600 keyed the units like the places, that mapping is the identity on every
 -- database this was written against, and no row changes — only the foreign
 -- key it hangs on. The UPDATE below exists for a database where it is not.
 --

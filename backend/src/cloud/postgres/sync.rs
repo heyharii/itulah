@@ -1795,7 +1795,7 @@ fn validate_allotment_pick_binding(
 
 /// What `site` says the named sites are, for the fact validators below.
 ///
-/// Read from the rows (0474), never from the spelling of the ids. `None` is
+/// Read from the rows (0603), never from the spelling of the ids. `None` is
 /// "the centre holds no such row" — a warehouse node's own id (`dc-01`) is
 /// often one — and the validators refuse only a kind they were TOLD.
 async fn fact_site_kinds(
@@ -5026,7 +5026,7 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
 }
 
 // What the CENTRE calls the building the warehouse stands in is head office's
-// `site.id`, found by its kind (`sites::head_office_site_id`, 0474) — never a
+// `site.id`, found by its kind (`sites::head_office_site_id`, 0603) — never a
 // constant. What the box in that building calls itself is the site id it was
 // enrolled under (`dc`, `dc-01`, anything), kept on
 // `sync_origin_credential.site_id`. [`sole_dc_origin_tx`] bridges the two.

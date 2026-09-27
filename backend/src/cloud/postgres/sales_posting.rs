@@ -35,7 +35,7 @@
 //! # Which day a sale belongs to
 //!
 //! The shop's own, by the time zone its `site` row keeps (`site_local_date`,
-//! 0474). A sale rung at 23:40 in the shop belongs to that day even though it
+//! 0603). A sale rung at 23:40 in the shop belongs to that day even though it
 //! is already tomorrow in UTC, and truncating a `timestamptz` would use
 //! whatever the server's timezone happens to be set to. Same reading `reports.rs` uses, deliberately: a day that
 //! closed on the takings report and a day that posted to the ledger have to be

@@ -182,7 +182,7 @@ fn to_category(row: &sqlx::postgres::PgRow) -> Result<TransactionCategoryRow, Ap
 /// The default location. Head office keeps the bank accounts, so a category
 /// asked about with no place named is asked about there — the same default
 /// `bank_rule` takes, and for the same reason. Head office is found by its
-/// kind (0474), never spelled.
+/// kind (0603), never spelled.
 async fn site_or_head_office(pool: &PgPool, site_id: Option<&str>) -> Result<String, AppError> {
     match site_id {
         Some(site) => Ok(site.to_string()),

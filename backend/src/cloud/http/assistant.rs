@@ -1435,7 +1435,7 @@ async fn run_tool(state: &AppState, name: &str, input: &Value) -> Result<ToolOut
 
 /// Minutes east of UTC at head office now: the clock "today" means to the
 /// assistant, and the one the reports cut a company-wide day with
-/// (`site.timezone`, 0474). The fallback zone if the database cannot be asked,
+/// (`site.timezone`, 0603). The fallback zone if the database cannot be asked,
 /// because a greeting is not worth failing a page over.
 async fn head_office_offset(pool: &sqlx::PgPool) -> i32 {
     infrastructure::sites::business_utc_offset_minutes(pool, None, Utc::now())

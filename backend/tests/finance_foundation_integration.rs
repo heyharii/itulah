@@ -86,7 +86,7 @@ fn link(role: &str, source: &str, scope_type: &str, scope_key: &str, account: &s
 }
 
 async fn open_a_fourteenth_shop(pool: &PgPool) {
-    // A shop is a site of its own store unit (0450), so the unit comes first.
+    // A shop is a site of its own store unit (0600), so the unit comes first.
     sqlx::query(
         "INSERT INTO unit (id, code, name, kind)
          VALUES ('store-14', 'C014', 'Toko Empat Belas', 'STORE')",

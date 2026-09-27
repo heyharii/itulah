@@ -54,7 +54,7 @@ struct Builder {
     /// whose hour column disagreed about the timezone would be very hard to see.
     offset: Option<String>,
     /// Minutes east of UTC that offset binds: head office's clock, read from
-    /// `site.timezone` by the caller (0474).
+    /// `site.timezone` by the caller (0603).
     offset_minutes: i32,
     /// The business instant as a SQL literal, substituted into every `$NOW`
     /// token (the same shape as `$OFFSET`: a static catalogue dimension cannot

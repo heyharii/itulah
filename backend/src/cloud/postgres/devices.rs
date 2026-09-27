@@ -3,7 +3,7 @@
 //! printer from a distance — suspend, reactivate or revoke it.
 //!
 //! The vocabulary is `sync::device`, shared with the node. Tables in
-//! migration 0475.
+//! migration 0604.
 //!
 //! # Whose word is the status
 //!

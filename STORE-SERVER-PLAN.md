@@ -505,7 +505,7 @@ Written, **not compiled or tested** (see the step-5 hand-off):
 - `sync/device.rs` — the shared vocabulary: kinds, ACTIVE/SUSPENDED/REVOKED
   (REVOKED terminal), the till-join wire, `DeviceReport`, the
   `device.status.set.v1` command, `NodeIdentity`, `_itulah-store._tcp`.
-- **A till joins by a code and a supervisor's yes** (sqlite `0051`,
+- **A till joins by a code and a supervisor's yes** (sqlite `0050`,
   `edge/devices.rs`): the till mints its key and sends its SHA-256 to the open
   `POST /api/v1/devices/join`; it shows the six-character code and the
   six-digit number (the node enrolment's own function) and polls
@@ -514,15 +514,15 @@ Written, **not compiled or tested** (see the step-5 hand-off):
   with a supervisor session for the shop's first till, or as Admin. Label
   "Kasir N" (lowest free); a replacement revokes the old till and takes its
   label. The old `POST /auth/terminals` pairing stays.
-- `edge_terminal` gains status, join, machine and peripherals (sqlite `0052`);
+- `edge_terminal` gains status, join, machine and peripherals (sqlite `0051`);
   `active` moves with the status, so a suspended or revoked till is refused at
   `verify_terminal`. History in the append-only `edge_device_event`.
-- **Printers are recorded** (sqlite `0053`) and chosen by `printer_id` on the
+- **Printers are recorded** (sqlite `0052`) and chosen by `printer_id` on the
   label, koli, receipt, repoint and test routes; host and port still work.
-- **One user, one device at a node** (sqlite `0054`): a password or SSO
+- **One user, one device at a node** (sqlite `0053`): a password or SSO
   sign-in revokes the person's other sessions there as `SIGNED_IN_ELSEWHERE`.
   A finger at a till does not.
-- **Head office's register** (postgres `0475`, `cloud/postgres/devices.rs`):
+- **Head office's register** (postgres `0604`, `cloud/postgres/devices.rs`):
   `device` + append-only `device_status_event`, fed by the heartbeat's optional
   `device_list`; suspend/reactivate/revoke of a till or printer from the hub is
   a request plus a signed command, confirmed by the next heartbeat. Hub:

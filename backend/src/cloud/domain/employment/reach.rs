@@ -21,7 +21,7 @@
 //! when a store opens a second premises, its manager reaches both through the
 //! unit without anybody editing a grant. Until 2026-09-27 this was spelled
 //! `org_place`, a second copy of the unit list under a second name; migration
-//! 0451 dropped it.
+//! 0601 dropped it.
 //!
 //! # Why the posting, and not the session
 //!
@@ -81,7 +81,7 @@
 //!
 //! # The person in charge
 //!
-//! Each unit has a PIC (0452): the one person answerable for it, who gets its
+//! Each unit has a PIC (0602): the one person answerable for it, who gets its
 //! reach and, as they arrive, its approvals. The PIC's reach is the unit they
 //! answer for — and a PIC must be posted at that unit, which is exactly the
 //! posting [`Reach::resolve`] already reads. So appointing a PIC widens
