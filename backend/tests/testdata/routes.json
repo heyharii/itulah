@@ -116,6 +116,8 @@ cloud	GET	/api/v1/employees/{id}/payslips	Cashier	-
 cloud	GET	/api/v1/employees/{id}/personal-data	Cashier	-
 cloud	GET	/api/v1/employees/{id}/profile	Cashier	-
 cloud	GET	/api/v1/employees/{id}/roster	Cashier	-
+cloud	GET	/api/v1/exceptions	Supervisor	-
+cloud	GET	/api/v1/exceptions/settings	Supervisor	-
 cloud	GET	/api/v1/exit-interviews	Cashier	-
 cloud	GET	/api/v1/expense-claim-types	Cashier	-
 cloud	GET	/api/v1/expense-claims	Cashier	-
@@ -266,6 +268,7 @@ cloud	GET	/api/v1/shop-sales/{id}	Cashier	-
 cloud	GET	/api/v1/sourcing-basket	Supervisor	-
 cloud	GET	/api/v1/stores	Cashier	-
 cloud	GET	/api/v1/stores/{unit}	Cashier	-
+cloud	GET	/api/v1/stores/{unit}/exceptions	Cashier	-
 cloud	GET	/api/v1/supplier-items	Supervisor	-
 cloud	GET	/api/v1/supplier-items/{id}	Supervisor	-
 cloud	GET	/api/v1/suppliers	Supervisor	-
@@ -411,6 +414,7 @@ cloud	POST	/api/v1/employees/{id}/personal-data	Supervisor	employee
 cloud	POST	/api/v1/employees/{id}/personal-data/amendments	Supervisor	employee
 cloud	POST	/api/v1/employees/{id}/punches	Supervisor	employee
 cloud	POST	/api/v1/employees/{id}/roster	Supervisor	employee
+cloud	POST	/api/v1/exceptions/{id}/acknowledge	Supervisor	-
 cloud	POST	/api/v1/exit-interviews	Supervisor	-
 cloud	POST	/api/v1/exit-interviews/{id}/cancellation	Supervisor	-
 cloud	POST	/api/v1/exit-interviews/{id}/completion	Supervisor	-
@@ -604,6 +608,7 @@ cloud	PUT	/api/v1/commercial/campaigns/{campaign_id}/activities/{activity_id}	Su
 cloud	PUT	/api/v1/commercial/campaigns/{campaign_id}/intent	Supervisor	campaign
 cloud	PUT	/api/v1/commercial/campaigns/{campaign_id}/plan	Supervisor	campaign
 cloud	PUT	/api/v1/commercial/campaigns/{campaign_id}/target	Supervisor	campaign
+cloud	PUT	/api/v1/exceptions/settings	Admin	-
 cloud	PUT	/api/v1/finance/journal/drafts/{id}	Admin	journal_draft
 cloud	PUT	/api/v1/finance/statement-sources/{id}	Admin	statement_source
 cloud	PUT	/api/v1/fleet/alert-settings	Admin	-

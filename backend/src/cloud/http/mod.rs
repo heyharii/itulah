@@ -50,6 +50,9 @@ pub mod fleet;
 /// The end of employment, on the wire: exit interviews and the Full & Final
 /// statement. See `domain::exit`.
 pub mod exit;
+/// The store exceptions list: what goes wrong in stores, for head office and
+/// each store manager. See `postgres::store_exceptions`.
+pub mod exceptions;
 pub mod files;
 /// Flow templates (Admin's) and the flow documents that run them: the hub's
 /// "Goods flows". See `domain::flow`.
@@ -409,6 +412,19 @@ pub fn router(state: AppState) -> Router {
     .route("/api/v1/stores", get(stores::list))
     .route("/api/v1/stores/{unit}", get(stores::detail))
     .route("/api/v1/stores/{unit}/open", post(stores::open))
+    // The store exceptions list (0646-0648): one needs-attention list read
+    // from data, per store and for all of them within reach, acknowledged by
+    // a person and closed by the data being fixed.
+    .route("/api/v1/stores/{unit}/exceptions", get(exceptions::for_store))
+    .route("/api/v1/exceptions", get(exceptions::list))
+    .route(
+        "/api/v1/exceptions/settings",
+        get(exceptions::settings).put(exceptions::update_settings),
+    )
+    .route(
+        "/api/v1/exceptions/{id}/acknowledge",
+        post(exceptions::acknowledge),
+    )
     .route(
         "/api/v1/stores/{unit}/server/install",
         post(stores::install_server),

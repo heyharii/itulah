@@ -126,6 +126,17 @@ pub fn required_role(method: &str, path: &str) -> Role {
             Role::Supervisor
         };
     }
+    // The store exceptions list (0646-0648): a store manager and head office's
+    // supervisors read it and acknowledge what is theirs — the handler bounds
+    // both by reach and by the kinds their sections see. When an exception is
+    // raised, and who is told, is the Admin's.
+    if path == "/api/v1/exceptions" || path.starts_with("/api/v1/exceptions/") {
+        return if path == "/api/v1/exceptions/settings" && !method.eq_ignore_ascii_case("GET") {
+            Role::Admin
+        } else {
+            Role::Supervisor
+        };
+    }
     // The generic record surface, before everything else, because it is the
     // one family of routes whose answer is not a property of the path.
     //

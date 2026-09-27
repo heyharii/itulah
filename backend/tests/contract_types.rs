@@ -448,6 +448,20 @@ fn the_wire_types_are_written_for_the_browser() {
         StoreActionHistory,
         StoreActionEntry,
     );
+    // The store exceptions list: what goes wrong in stores, per store and
+    // for all of them within reach, and the thresholds that decide it.
+    for_contract!(
+        &config,
+        ExceptionList,
+        ExceptionItem,
+        ExceptionLink,
+        ExceptionSummary,
+        ExceptionKindCount,
+        ExceptionUnitCount,
+        AcknowledgeExceptionRequest,
+        ExceptionSettings,
+        ExceptionSettingsView,
+    );
     // Where the words go on a bank's own giro leaf.
     inventory_backend::cloud::postgres::GiroPrintTemplate::export_all(&config)
         .unwrap_or_else(|e| panic!("GiroPrintTemplate: {e}"));

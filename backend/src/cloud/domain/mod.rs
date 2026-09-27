@@ -57,6 +57,8 @@ mod sales;
 mod settlement_report;
 mod statement_intake;
 mod store_cash;
+/// Store exceptions: the kinds, who owns them, who sees them (0646-0648).
+pub mod store_exception;
 // lane-A
 pub mod sales_posting;
 /// People's next generation: roster swaps, change proposals, the onboarding

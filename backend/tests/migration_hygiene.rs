@@ -282,8 +282,15 @@ const RESERVED: &[(u32, u32, &str)] = &[
     (
         641,
         642,
-        "held for another lane in flight on 28 Sep 2026 when the remote-actions \
-         lane was given 0643-0645 for a store's Actions menu",
+        "left unused on 28 Sep 2026: held for lanes in flight when the \
+         remote-actions lane (0643) and the store exceptions lane (0646-0648) \
+         were given their numbers, and none of them needed these",
+    ),
+    (
+        644,
+        645,
+        "left unused on 28 Sep 2026: the remote-actions lane was given \
+         0643-0645 and needed only 0643",
     ),
 ];
 

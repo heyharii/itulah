@@ -206,6 +206,14 @@ pub const SECTION_RULES: &[SectionRule] = &[
     // Sep 2026): the section lets `stores` through, and acting is further
     // held to an Admin, the owner or IT in `http/stores.rs`.
     rule("/api/v1/stores", &["stores"], Reads::Same),
+    // The store exceptions list (0646-0648): a store's people, and the head
+    // office sections whose kinds it holds. Which kinds each sees, and which
+    // units, the handler decides by section and by reach.
+    rule(
+        "/api/v1/exceptions",
+        &["stores", "finance", "inventory", "operations"],
+        Reads::Same,
+    ),
     // ── procurement ────────────────────────────────────────────────────
     rule(
         "/api/v1/purchase-orders",
