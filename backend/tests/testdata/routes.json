@@ -164,6 +164,11 @@ cloud	GET	/api/v1/finance/statement-intake	Supervisor	-
 cloud	GET	/api/v1/finance/statement-sources	Supervisor	-
 cloud	GET	/api/v1/finance/trial-balance	Supervisor	-
 cloud	GET	/api/v1/finance/unbilled	Supervisor	-
+cloud	GET	/api/v1/flow-templates	Cashier	-
+cloud	GET	/api/v1/flow-templates/catalogue	Cashier	-
+cloud	GET	/api/v1/flow-templates/{id}	Cashier	-
+cloud	GET	/api/v1/flows	Cashier	-
+cloud	GET	/api/v1/flows/{id}	Cashier	-
 cloud	GET	/api/v1/full-and-final-statements	Cashier	-
 cloud	GET	/api/v1/grievance-types	Cashier	-
 cloud	GET	/api/v1/grievances	Cashier	-
@@ -282,6 +287,7 @@ cloud	PATCH	/api/v1/discussions/{id}	Cashier	discussion
 cloud	PATCH	/api/v1/discussions/{id}/posts/{post_id}	Cashier	discussion
 cloud	PATCH	/api/v1/finance/bank-lines/{id}	Admin	bank_line
 cloud	PATCH	/api/v1/finance/giro-print-templates/{id}	Admin	-
+cloud	PATCH	/api/v1/flow-templates/{id}	Admin	-
 cloud	PATCH	/api/v1/letters/{letter_id}	Supervisor	letter
 cloud	PATCH	/api/v1/payment-terms/templates/{code}	Supervisor	-
 cloud	PATCH	/api/v1/payment-terms/terms/{code}	Supervisor	-
@@ -453,6 +459,13 @@ cloud	POST	/api/v1/finance/periods/close	Admin	-
 cloud	POST	/api/v1/finance/periods/{id}/reopen	Admin	fiscal_period
 cloud	POST	/api/v1/finance/statement-intake/run	Admin	-
 cloud	POST	/api/v1/finance/statement-sources	Admin	-
+cloud	POST	/api/v1/flow-templates	Admin	-
+cloud	POST	/api/v1/flow-templates/validate	Admin	-
+cloud	POST	/api/v1/flow-templates/{id}/versions	Admin	-
+cloud	POST	/api/v1/flows	Cashier	-
+cloud	POST	/api/v1/flows/resume	Cashier	-
+cloud	POST	/api/v1/flows/{id}/confirm	Cashier	-
+cloud	POST	/api/v1/flows/{id}/preview	Cashier	-
 cloud	POST	/api/v1/full-and-final-statements	Supervisor	-
 cloud	POST	/api/v1/full-and-final-statements/{id}/cancellation	Supervisor	-
 cloud	POST	/api/v1/full-and-final-statements/{id}/settlement	Supervisor	-

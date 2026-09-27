@@ -51,6 +51,9 @@ pub mod fleet;
 /// statement. See `domain::exit`.
 pub mod exit;
 pub mod files;
+/// Flow templates (Admin's) and the flow documents that run them: the hub's
+/// "Alur barang". See `domain::flow`.
+pub mod flows;
 pub mod ga;
 pub mod finance;
 pub mod giro_print;
@@ -391,6 +394,38 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/organisation/units/{unit}/pic",
         get(unit_register::pic_history).post(unit_register::appoint_pic),
     )
+    // Flows of goods as templates (0615-0619). Reading a template is
+    // anybody's; writing one is Admin's, at the path and in the handler.
+    // Starting a document and acting on its stages are checked against the
+    // template's own starter and performer roles, so the path lets any
+    // signed-in operator through. Spelled here rather than merged from
+    // `http/flows.rs` so the route catalogue, which reads this function,
+    // sees them.
+    .route(
+        "/api/v1/flow-templates",
+        get(flows::list_templates).post(flows::create_template),
+    )
+    .route("/api/v1/flow-templates/catalogue", get(flows::catalogue))
+    .route(
+        "/api/v1/flow-templates/validate",
+        post(flows::validate_template),
+    )
+    .route(
+        "/api/v1/flow-templates/{id}",
+        get(flows::template_detail).patch(flows::update_template),
+    )
+    .route(
+        "/api/v1/flow-templates/{id}/versions",
+        post(flows::save_version),
+    )
+    .route(
+        "/api/v1/flows",
+        get(flows::list_documents).post(flows::start_document),
+    )
+    .route("/api/v1/flows/resume", post(flows::resume_stage))
+    .route("/api/v1/flows/{id}", get(flows::document_detail))
+    .route("/api/v1/flows/{id}/preview", post(flows::preview_actions))
+    .route("/api/v1/flows/{id}/confirm", post(flows::confirm_actions))
     // Units of measure and what each is worth in another — one LUSIN is
     // twelve PCS. One read for both, because a picker offering a unit is
     // useless without its factor. No delete on either: a unit a document

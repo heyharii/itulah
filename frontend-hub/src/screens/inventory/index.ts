@@ -4,6 +4,7 @@ import { AsOf } from "@/screens/inventory/as-of"
 import { Availability } from "@/screens/inventory/availability"
 import { Control } from "@/screens/inventory/control"
 import { Counts } from "@/screens/inventory/counts"
+import { Flows } from "@/screens/inventory/flows"
 import { Missing } from "@/screens/inventory/missing"
 import { Movements } from "@/screens/inventory/movements"
 import { Observations } from "@/screens/inventory/observations"
@@ -31,4 +32,5 @@ export const screens: ScreenMap = {
   "/inventory/control": Control,
   "/inventory/time-machine": TimeMachine,
   "/inventory/units": Units,
+  "/inventory/flows": Flows,
 }

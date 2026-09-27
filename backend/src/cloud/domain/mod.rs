@@ -18,6 +18,11 @@ mod employment;
 /// The end of employment: the interview at the door, and the one statement
 /// that closes a leaver's books. See `exit`.
 mod exit;
+/// Flows of goods as templates: the stage catalogue (code), the template an
+/// Admin edits (data) and the typed actions a flow document is made of. Read
+/// as `domain::flow::…` rather than glob-exported, so its `Stage…` and
+/// `Flow…` names never meet another module's.
+pub mod flow;
 /// The forms the register is filled in on, and the fields each accepts — the
 /// validation half of `asset_class.build` (migration 0356). See `ga`.
 mod ga;

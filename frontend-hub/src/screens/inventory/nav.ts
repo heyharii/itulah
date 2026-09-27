@@ -10,6 +10,7 @@ import {
   Ruler,
   Scale,
   ShieldCheck,
+  Workflow,
 } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
@@ -86,6 +87,15 @@ export const inventoryNav: AppModule = {
           path: "/inventory/units",
           label: "Units & conversions",
           icon: Ruler,
+        },
+        // Flow templates (0615-0619): the order of stages each route of goods
+        // runs, who raises its plan and who does each stage. Sought by name —
+        // an Admin setting up a new route goes looking for it — so it is a
+        // sub-item. The label is the owner's.
+        {
+          path: "/inventory/flows",
+          label: "Alur barang",
+          icon: Workflow,
         },
         {
           path: "/inventory/missing",
