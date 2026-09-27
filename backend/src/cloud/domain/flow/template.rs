@@ -170,10 +170,11 @@ impl FlowRoute {
 ///
 /// A closed vocabulary, because each maps to a rung of the one ladder
 /// (`CASHIER < SUPERVISOR < ADMIN`) and to the kind of unit the person works
-/// at. The ladder cannot yet tell a merchandiser from a buyer — both are head
-/// office supervisors — so the rung is what is enforced today and the
-/// function is what is recorded; the day people carry a function, only
-/// [`FlowRole::holds`] changes.
+/// at. Since 0633 people carry a function: a job role lists the flow roles it
+/// holds, and a person is checked against that list (`Actor::holds`) — a
+/// buyer is no longer a merchandiser because both are supervisors. The rung
+/// answer below is kept for what has no job role to ask: a replayed action,
+/// judged as it was recorded, and a node acting as its stage's performer.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum FlowRole {
@@ -255,9 +256,10 @@ impl FlowRole {
         }
     }
 
-    /// Whether somebody on this rung may act in this role. The rung only, for
-    /// the reason in the type's doc; which unit they are posted at is the
-    /// caller's to check against the document's sites.
+    /// Whether somebody on this rung may act in this role — for an actor with
+    /// no job role to ask (see the type's doc). A person is asked through
+    /// `Actor::holds`; which unit they are posted at is the caller's to check
+    /// against the document's sites.
     pub fn holds(self, rung: Role) -> bool {
         rung >= self.min_role()
     }

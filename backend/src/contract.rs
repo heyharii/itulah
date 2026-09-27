@@ -116,13 +116,23 @@ pub struct LoginResponse {
     pub user: SessionUser,
 }
 
-/// `GET /api/v1/auth/me` at Cloud.
+/// `GET /api/v1/auth/me` at Cloud — and what accepting an invitation answers,
+/// since it signs the person in.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CloudMe {
     pub username: String,
     pub display_name: String,
+    /// The rung, which the job role names.
     pub role: Role,
+    /// The job role (0633): `STORE_MANAGER`, and how the hub names it.
+    pub role_code: String,
+    pub role_name: String,
+    /// The hub sections this person may use — every one for OWNER and ADMIN.
+    /// The hub hides the rest; the server refuses them either way.
+    pub sections: Vec<String>,
+    /// GET only (the auditor): the hub hides every button that writes.
+    pub read_only: bool,
 }
 
 /// `GET /api/v1/auth/me` at an Edge.
@@ -233,6 +243,8 @@ pub struct CreateUserRequest {
     pub username: String,
     pub display_name: String,
     pub password: String,
+    /// The rung. The account is given that rung's default job role (0633);
+    /// `POST /auth/users/{id}/role` with a `role_code` gives it its real one.
     pub role: Role,
 }
 
@@ -250,7 +262,16 @@ pub struct SetUserActiveRequest {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct SetUserRoleRequest {
-    pub role: Role,
+    /// The job role (0633) — what a role change is now. The rung follows it,
+    /// and so do the servers the person signs in at (0635).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub role_code: Option<String>,
+    /// A bare rung, from a screen that predates job roles: it gives that
+    /// rung's default job role. Ignored when `role_code` is sent.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub role: Option<Role>,
 }
 
 /// Giving somebody access to one Edge, changing their role there, or rotating
@@ -297,6 +318,11 @@ pub struct ProvisionAccountRequest {
     pub password: String,
     /// The rung at the centre.
     pub role: Role,
+    /// The job role (0633). When given, the rung follows it and `role` is
+    /// ignored; the servers the role and posting reach are granted with it.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub role_code: Option<String>,
     /// Access to one node, when the person works at one. Absent for head
     /// office, who sign in at the centre and at no till.
     pub edge: Option<ProvisionEdgeAccess>,

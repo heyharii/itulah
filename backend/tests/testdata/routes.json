@@ -13,6 +13,7 @@ cloud	DELETE	/api/v1/letters/templates/{template_id}	Supervisor	-
 cloud	DELETE	/api/v1/letters/{letter_id}	Supervisor	letter
 cloud	DELETE	/api/v1/push/subscriptions	Cashier	-
 cloud	DELETE	/api/v1/records/{kind}/{id}/tags/{code}	PerRecord	handler
+cloud	DELETE	/api/v1/roles/{code}	Admin	-
 cloud	DELETE	/api/v1/vocabulary/{kind}/{code}	Supervisor	handler
 cloud	GET	/api/v1/article-setups	Cashier	-
 cloud	GET	/api/v1/article-setups/unidentified	Cashier	-
@@ -248,6 +249,7 @@ cloud	GET	/api/v1/reports/saved	Cashier	-
 cloud	GET	/api/v1/reports/saved/{id}	Cashier	-
 cloud	GET	/api/v1/returns	Cashier	-
 cloud	GET	/api/v1/returns/{id}	Cashier	-
+cloud	GET	/api/v1/roles	Cashier	-
 cloud	GET	/api/v1/roster	Cashier	-
 cloud	GET	/api/v1/sales	Cashier	-
 cloud	GET	/api/v1/sales/{id}	Cashier	-
@@ -588,6 +590,7 @@ cloud	PUT	/api/v1/commercial/campaigns/{campaign_id}/target	Supervisor	campaign
 cloud	PUT	/api/v1/finance/journal/drafts/{id}	Admin	journal_draft
 cloud	PUT	/api/v1/finance/statement-sources/{id}	Admin	statement_source
 cloud	PUT	/api/v1/records/{kind}/{id}/tags/{code}	PerRecord	handler
+cloud	PUT	/api/v1/roles/{code}	Admin	-
 cloud	PUT	/api/v1/setup/company	Admin	-
 dc	GET	/api/v1/dc/allotment-lines/{allotment_line_id}/position	-	-
 dc	GET	/api/v1/dc/destinations	-	-

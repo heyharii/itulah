@@ -54,11 +54,30 @@ pub struct FlowActionInput {
     pub details: Value,
 }
 
-/// Who is acting, and on which rung.
+/// Who is acting, on which rung, and which flow roles their job holds.
 #[derive(Clone, Debug)]
 pub struct Actor {
     pub id: String,
     pub rung: Role,
+    /// The flow roles the actor's job role holds (0633) — every role for an
+    /// OWNER or ADMIN.
+    ///
+    /// `None` is judged by the rung, as every stage was before job roles: a
+    /// replayed action (the history stores the rung it was done on, and a
+    /// replay must not refuse what was lawfully done then), and a node's own
+    /// step, which acts as its stage's performer.
+    pub flow_roles: Option<Vec<super::template::FlowRole>>,
+}
+
+impl Actor {
+    /// Whether this actor may act as `role`: their job role holds it, or — for
+    /// an actor judged by rung — the rung reaches it.
+    pub fn holds(&self, role: super::template::FlowRole) -> bool {
+        match &self.flow_roles {
+            Some(held) => held.contains(&role),
+            None => role.holds(self.rung),
+        }
+    }
 }
 
 #[derive(Debug, Error, Eq, PartialEq)]
@@ -304,7 +323,7 @@ fn may_perform(stage: &StageRuntime, actor: &Actor) -> Result<(), FlowError> {
         ));
     }
     let performer = stage.stage.performer;
-    if !performer.holds(actor.rung) {
+    if !actor.holds(performer) {
         return Err(FlowError::Forbidden(format!(
             "{} is done by {}; {} does not hold that role",
             stage.kind().spec().label,

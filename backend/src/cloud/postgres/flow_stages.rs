@@ -1432,9 +1432,12 @@ async fn node_performer_tx(
     let unit = UnitId::try_new(unit)
         .map_err(|error| AppError::Conflict(format!("unit {unit}: {error}")))?;
     Ok((
+        // The node acts as the stage's performer: judged by that role's rung,
+        // with no job role of its own to ask.
         Actor {
             id,
             rung: stage.stage.performer.min_role(),
+            flow_roles: None,
         },
         Reach::Only(unit),
     ))

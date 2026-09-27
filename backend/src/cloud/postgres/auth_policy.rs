@@ -118,6 +118,8 @@ pub struct RelaySubject {
     /// The rung their assignment grants at the relaying node. A relayed call
     /// acts with the lower of the two.
     pub edge_role: Role,
+    /// Their job role (0633).
+    pub job: crate::cloud::domain::job_role::JobGrant,
 }
 
 /// The person a node says it is relaying for — only if they may sign in there.
@@ -134,9 +136,11 @@ pub async fn relay_subject(
     user_id: Uuid,
 ) -> Result<RelaySubject, AppError> {
     let row = sqlx::query(
-        "SELECT u.username, u.display_name, u.role, a.edge_role
+        "SELECT u.username, u.display_name, u.role, a.edge_role,
+                u.role_code, r.name AS role_name, r.flow_roles, r.sections, r.read_only
            FROM app_user u
            JOIN edge_identity_assignment a ON a.user_id = u.id
+           LEFT JOIN job_role r ON r.code = u.role_code
           WHERE a.origin_id = $1 AND u.id = $2 AND a.active AND u.active",
     )
     .bind(origin_id)
@@ -158,6 +162,7 @@ pub async fn relay_subject(
         display_name: row.get("display_name"),
         role: rung("role")?,
         edge_role: rung("edge_role")?,
+        job: super::job_grant_of(&row)?,
     })
 }
 
@@ -228,6 +233,11 @@ pub async fn upsert_edge_assignment(
              -- No password on an existing grant means keep the one it has:
              -- changing somebody's role is not taking their password away.
              credential_hash=COALESCE($4,edge_identity_assignment.credential_hash),
+             -- A password typed here makes the grant a hand grant (0635): the
+             -- derivation leaves it alone from now on. Without one, a derived
+             -- grant stays derived — its credential is the login's own.
+             source=CASE WHEN $4 IS NULL THEN edge_identity_assignment.source
+                         ELSE 'MANUAL' END,
              -- Deliberately NOT active=true. Rotating somebody's Edge PIN and
              -- restoring their access are two different decisions, and this
              -- upsert is how a PIN gets rotated. Forcing active here meant an
@@ -1198,7 +1208,12 @@ pub async fn publish_auth_policy(
     let mut tx = pool.begin().await?;
     let version = allocate_policy_version(&mut tx, origin_id).await?;
     let user_rows = sqlx::query(
-        "SELECT a.user_id,u.username,u.display_name,a.edge_role,a.credential_hash,
+        // A derived grant (0635) carries no credential of its own: the server
+        // is sent the login's own verifier, read now, so a password changed
+        // since the last publication is the one it checks from this one on.
+        "SELECT a.user_id,u.username,u.display_name,a.edge_role,
+                CASE WHEN a.source='ROLE' THEN u.password_hash
+                     ELSE a.credential_hash END credential_hash,
                 (a.active AND u.active) active,
                 (a.auth_version+u.auth_version) auth_version,a.offline_ttl_seconds
          FROM edge_identity_assignment a JOIN app_user u ON u.id=a.user_id
@@ -1304,6 +1319,13 @@ pub async fn publish_auth_policy(
         .bind(command_id)
         .execute(pool)
         .await?;
+    // Told. A change that lands after this snapshot was read marks it due
+    // again, so clearing only a marker older than the snapshot keeps it.
+    sqlx::query("DELETE FROM edge_auth_policy_due WHERE origin_id=$1 AND since<=$2")
+        .bind(origin_id)
+        .bind(issued_at)
+        .execute(pool)
+        .await?;
     Ok(json!({
         "snapshot_id":snapshot.snapshot_id,
         "version":version,
@@ -1321,15 +1343,23 @@ pub async fn publish_auth_policy(
 /// delay. Errors are returned per origin so the caller can log and continue.
 pub async fn due_auth_policy_origins(pool: &PgPool) -> Result<Vec<String>, AppError> {
     let rows = sqlx::query(
-        "SELECT DISTINCT origin_id FROM (
-             SELECT origin_id FROM edge_identity_assignment
-             UNION SELECT origin_id FROM rfid_device
-         ) assigned
-         WHERE NOT EXISTS (
-             SELECT 1 FROM edge_auth_snapshot_state state
-             WHERE state.origin_id=assigned.origin_id
-               AND state.last_issued_at>now()-interval '12 hours'
-         ) ORDER BY origin_id",
+        // Due by age (the lease), or because its sign-in list changed and the
+        // publication that would have told it failed or never ran (0635).
+        "SELECT origin_id FROM (
+             SELECT DISTINCT origin_id FROM (
+                 SELECT origin_id FROM edge_identity_assignment
+                 UNION SELECT origin_id FROM rfid_device
+             ) assigned
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM edge_auth_snapshot_state state
+                 WHERE state.origin_id=assigned.origin_id
+                   AND state.last_issued_at>now()-interval '12 hours'
+             )
+             UNION
+             SELECT due.origin_id FROM edge_auth_policy_due due
+               JOIN sync_origin_credential o
+                 ON o.origin_id=due.origin_id AND o.inventory_enabled
+         ) due ORDER BY origin_id",
     )
     .fetch_all(pool)
     .await?;
@@ -1353,4 +1383,106 @@ pub async fn publish_auth_policies_for_user(
         published.push(publish_auth_policy(pool, &origin_id, actor).await?);
     }
     Ok(published)
+}
+
+// ── who signs in where, derived from role and posting (0635) ─────────────
+
+/// Bring the derived grants of one login — or of everybody, for `None` — in
+/// line with their job role and their posting, inside the caller's
+/// transaction. Answers the servers whose sign-in list changed; each is also
+/// marked due, so a publication that fails later is retried by the lease
+/// agent rather than forgotten.
+///
+/// The rule itself is SQL (`node_access_reconcile`, 0635), so the migration
+/// that first applied it and every later call apply the same one.
+pub async fn reconcile_node_access_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: Option<Uuid>,
+    actor: &str,
+) -> Result<Vec<String>, AppError> {
+    Ok(sqlx::query_scalar(
+        "SELECT origin_id FROM node_access_reconcile($1::uuid, $2) AS origin_id",
+    )
+    .bind(user_id)
+    .bind(actor)
+    .fetch_all(&mut **tx)
+    .await?)
+}
+
+/// [`reconcile_node_access_tx`] in a transaction of its own.
+pub async fn reconcile_node_access(
+    pool: &PgPool,
+    user_id: Option<Uuid>,
+    actor: &str,
+) -> Result<Vec<String>, AppError> {
+    let mut tx = pool.begin().await?;
+    let origins = reconcile_node_access_tx(&mut tx, user_id, actor).await?;
+    tx.commit().await?;
+    Ok(origins)
+}
+
+/// Re-derive the grants of one login and tell the servers whose list
+/// changed. Never fails the write that called it: that change is recorded,
+/// and a server not told now is told by the lease agent (it stays due).
+pub async fn follow_login(pool: &PgPool, user_id: Uuid, actor: &str) {
+    match reconcile_node_access(pool, Some(user_id), actor).await {
+        Ok(origins) => publish_node_access(pool, &origins, actor).await,
+        Err(error) => {
+            tracing::warn!(%user_id, %error, "could not re-derive who signs in where");
+        }
+    }
+}
+
+/// [`follow_login`] for the login bound to an employment record, when one is
+/// — for a posting or a binding that has just changed.
+pub async fn follow_posting(pool: &PgPool, employee_id: &str, actor: &str) {
+    let user_id: Result<Option<Uuid>, sqlx::Error> =
+        sqlx::query_scalar("SELECT id FROM app_user WHERE employee_id = $1")
+            .bind(employee_id)
+            .fetch_optional(pool)
+            .await;
+    match user_id {
+        Ok(Some(user_id)) => follow_login(pool, user_id, actor).await,
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(%employee_id, %error, "could not re-derive who signs in where");
+        }
+    }
+}
+
+/// Tell every server this login signs in at by role (0635) — after its
+/// password changed, since those servers check the login's own verifier.
+pub async fn tell_derived_servers(pool: &PgPool, user_id: Uuid, actor: &str) {
+    // Marked due first, so a publication that fails here is retried by the
+    // lease agent instead of leaving the old verifier at the server.
+    let origins: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
+        "INSERT INTO edge_auth_policy_due (origin_id)
+         SELECT DISTINCT origin_id FROM edge_identity_assignment
+          WHERE user_id = $1 AND source = 'ROLE'
+         ON CONFLICT (origin_id) DO UPDATE SET since = edge_auth_policy_due.since
+         RETURNING origin_id",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await;
+    match origins {
+        Ok(origins) => publish_node_access(pool, &origins, actor).await,
+        Err(error) => {
+            tracing::warn!(%user_id, %error, "could not list the servers a login signs in at");
+        }
+    }
+}
+
+/// Publish the policy of every server named, logging rather than failing: the
+/// servers stay marked due until a publication lands.
+pub async fn publish_node_access(pool: &PgPool, origins: &[String], actor: &str) {
+    for origin_id in origins {
+        if let Err(error) = publish_auth_policy(pool, origin_id, actor).await {
+            tracing::warn!(
+                %origin_id,
+                %error,
+                "a server's sign-in list changed and it could not be told yet"
+            );
+        }
+    }
 }

@@ -1025,9 +1025,21 @@ async fn write_employee(
 /// Register a new employment record as a candidate.
 pub async fn register_employee(pool: &PgPool, employee: &Employee) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
+    register_employee_tx(&mut tx, employee).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// [`register_employee`] inside the caller's transaction — for a caller that
+/// makes the record together with something that must not exist without it:
+/// an invitation (0634), or a store opened with its manager.
+pub async fn register_employee_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    employee: &Employee,
+) -> Result<(), AppError> {
     let taken: Option<String> = sqlx::query_scalar("SELECT id FROM employee WHERE code = $1")
         .bind(employee.code().as_str())
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?;
     if let Some(taken) = taken {
         return Err(AppError::Conflict(format!(
@@ -1035,8 +1047,21 @@ pub async fn register_employee(pool: &PgPool, employee: &Employee) -> Result<(),
             employee.code()
         )));
     }
-    write_employee(&mut tx, employee).await?;
-    tx.commit().await?;
+    write_employee(tx, employee).await
+}
+
+/// Write an employee whose machine has moved, inside the caller's
+/// transaction. For a HIRE recorded as part of something else — accepting an
+/// invitation (0634). A departure goes through [`save_employee`], which opens
+/// the exit interview with it.
+pub async fn save_employee_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    employee: &Employee,
+) -> Result<(), AppError> {
+    write_employee(tx, employee).await?;
+    if employee.status() == EmploymentStatus::Terminated {
+        enqueue_exit_interview(tx, employee).await?;
+    }
     Ok(())
 }
 
@@ -1126,9 +1151,30 @@ pub async fn replace_assignments(
     timeline: &AssignmentTimeline,
 ) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
+    replace_assignments_tx(&mut tx, employee_id, timeline).await?;
+    tx.commit().await?;
+    // Where somebody is posted decides which servers they sign in at (0635):
+    // a transfer moves their store access with them, here, rather than
+    // leaving it for somebody to remember in System > Access.
+    let actor = timeline
+        .spans()
+        .last()
+        .map(|span| span.authorization().actor().to_string())
+        .unwrap_or_else(|| "system:posting".to_owned());
+    super::follow_posting(pool, employee_id, &actor).await;
+    Ok(())
+}
+
+/// [`replace_assignments`] inside the caller's transaction. The caller then
+/// owns telling the servers (`reconcile_node_access_tx`).
+pub async fn replace_assignments_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: &str,
+    timeline: &AssignmentTimeline,
+) -> Result<(), AppError> {
     sqlx::query("DELETE FROM employee_assignment WHERE employee_id = $1")
         .bind(employee_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     for span in timeline.spans() {
         let authorized = serde_json::to_value(span.authorization())?;
@@ -1143,10 +1189,9 @@ pub async fn replace_assignments(
         .bind(span.from())
         .bind(span.to())
         .bind(&authorized)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     }
-    tx.commit().await?;
     Ok(())
 }
 
@@ -1380,6 +1425,8 @@ pub async fn link_account(
         .await?;
     record_link(&mut tx, employee_id, user_id, "LINK", authorization).await?;
     tx.commit().await?;
+    // Bound, the login now works where the record is posted (0635).
+    super::follow_login(pool, user_id, &authorization.actor().to_string()).await;
     Ok(())
 }
 
@@ -1419,6 +1466,9 @@ pub async fn release_account(
         .await?;
     record_link(&mut tx, employee_id, user_id, "RELEASE", authorization).await?;
     tx.commit().await?;
+    // Released, the login is posted nowhere, so the servers its posting
+    // reached stop taking it (0635).
+    super::follow_login(pool, user_id, &authorization.actor().to_string()).await;
     Ok(username)
 }
 

@@ -87,6 +87,7 @@ pub mod punch;
 pub mod push;
 pub mod records;
 pub mod reports;
+pub mod roles;
 pub mod roster;
 // lane-A
 pub mod advance;
@@ -631,6 +632,12 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/auth/edge-policies/{origin_id}/publish",
         post(auth::publish_edge_policy),
+    )
+    // Job roles (0633).
+    .route("/api/v1/roles", get(roles::list))
+    .route(
+        "/api/v1/roles/{code}",
+        put(roles::put).delete(roles::delete),
     )
     .route("/api/v1/sync/status", get(sync_status))
     .route("/api/v1/sync/ingest", post(sync_ingest))
@@ -2534,11 +2541,8 @@ async fn create_allotment(
     Extension(principal): Extension<self::auth::Principal>,
     Json(r): Json<CreateAllotmentRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    // Who raised it, with their rung: the route's template checks it may.
-    let actor = crate::cloud::domain::flow::Actor {
-        id: principal.username.clone(),
-        rung: principal.role,
-    };
+    // Who raised it, with their job role: the route's template checks it may.
+    let actor = principal.flow_actor();
     let body = infrastructure::create_allotment_as(&s.db, r, Some(&actor)).await?;
     if let Some(allotment_id) = id_in(&body, "id") {
         acted_on.set(RecordKind::Allotment, allotment_id);
@@ -4099,10 +4103,7 @@ async fn raise_purchase_order(
     Extension(principal): Extension<self::auth::Principal>,
     Json(request): Json<infrastructure::NewPurchaseOrder>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let actor = crate::cloud::domain::flow::Actor {
-        id: principal.username.clone(),
-        rung: principal.role,
-    };
+    let actor = principal.flow_actor();
     let (purchase_order_id, command_id, target) =
         infrastructure::create_purchase_order_as(&s.db, &request, Some(&actor)).await?;
     // The order's first line of history. The path cannot say this — there was
