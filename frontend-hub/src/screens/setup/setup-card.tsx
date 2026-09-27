@@ -12,6 +12,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useSheet } from "@/lib/sheets"
 import { CompanySheet } from "@/screens/setup/company-sheet"
+import { InviteSheet } from "@/screens/people/invite-sheet"
 import { deferSetup } from "@/screens/setup/defer"
 
 /// What is left before the stores can trade, on the home screen.
@@ -34,17 +35,17 @@ interface TaskCopy {
   /// Where it is done. None yet for the two whose screens do not exist.
   readonly to?: string
   /// Or the sheet it is done in, over this page.
-  readonly sheet?: "company"
+  readonly sheet?: "company" | "team"
 }
 
 const TASKS: Record<SetupTaskId, TaskCopy> = {
   team: {
     title: "Invite your team",
     detail: () =>
-      "Finance, the warehouse, and a supervisor for each store. Cashiers sign in on the store's own devices.",
+      "Finance, the warehouse, and a manager for each store — each gets a link to set their own password. Cashiers sign in on the store's own devices.",
     when: "before stores open",
     urgent: true,
-    to: "/system/access",
+    sheet: "team",
   },
   store_nodes: {
     title: "Pair the store servers",
@@ -54,7 +55,7 @@ const TASKS: Record<SetupTaskId, TaskCopy> = {
         : "Enter the pairing code on each store's server.",
     when: "before stores open",
     urgent: true,
-    to: "/system",
+    to: "/system/servers",
   },
   payments: {
     title: "Turn on QRIS & debit",
@@ -100,6 +101,7 @@ const HIDDEN_KEY = "central.hub.setup-card-hidden"
 export function SetupCard({ className }: { className?: string }) {
   const setup = useSetupStatus()
   const company = useSheet("company")
+  const invite = useSheet("invite")
   const [hidden, setHidden] = useState(() => {
     try {
       return localStorage.getItem(HIDDEN_KEY) === "1"
@@ -172,7 +174,11 @@ export function SetupCard({ className }: { className?: string }) {
             task={task}
             copy={copy}
             onOpen={
-              copy.sheet === "company" ? () => company.open(true) : undefined
+              copy.sheet === "company"
+                ? () => company.open(true)
+                : copy.sheet === "team"
+                  ? () => invite.open(true)
+                  : undefined
             }
           />
         ))}
@@ -182,6 +188,7 @@ export function SetupCard({ className }: { className?: string }) {
         open={company.isOpen}
         onClose={company.close}
       />
+      <InviteSheet open={invite.isOpen} onClose={invite.close} />
     </>
   )
 }

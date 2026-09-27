@@ -4,6 +4,7 @@ import {
   ChartColumn,
   Clock4,
   Fingerprint,
+  Link2,
   LayoutGrid,
   MessageSquareWarning,
   Receipt,
@@ -115,6 +116,15 @@ export const peopleNav: AppModule = {
           label: "New employees",
           icon: UserPlus,
           hidden: true,
+        },
+        {
+          /// Who has been sent a link to set their own password, and whether
+          /// they have used it. The "Invite people" sheet it opens is also
+          /// reachable from System › Users & roles and from Home's setup card
+          /// — one composer, three doors.
+          path: "/people/invitations",
+          label: "Invitations",
+          icon: Link2,
         },
       ],
     },
