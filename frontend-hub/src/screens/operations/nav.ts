@@ -1,5 +1,4 @@
 import {
-  ArchiveRestore,
   Boxes,
   FileText,
   ListChecks,
@@ -175,9 +174,8 @@ export const operationsNav: AppModule = {
       /// supplier, the next is a delivery from a shop, and neither list
       /// should have to explain the other's rows to be read.
       ///
-      /// Inspect and Putaway are what a received return, and a tagged job,
-      /// do next: good goods to the racks, damaged to reject; goods already
-      /// on the racks recorded as physically shelved.
+      /// Inspect is what a received return does next: good goods back to the
+      /// racks, damaged to reject.
       label: "Returns",
       items: [
         {
@@ -189,11 +187,6 @@ export const operationsNav: AppModule = {
           path: "/operations/intake/inspect",
           label: "Inspect returns",
           icon: Search,
-        },
-        {
-          path: "/operations/intake/putaway",
-          label: "Putaway",
-          icon: ArchiveRestore,
         },
       ],
     },
