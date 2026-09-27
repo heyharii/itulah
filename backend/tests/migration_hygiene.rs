@@ -279,6 +279,13 @@ const RESERVED: &[(u32, u32, &str)] = &[
         "left unused by the roles-and-invitations lane, which was given \
          0633-0636 on 28 Sep 2026 and needed three numbers",
     ),
+    (
+        641,
+        645,
+        "held by the other lanes in flight on 28 Sep 2026 when the store \
+         exceptions lane was given 0646-0648; delete this entry once their \
+         files land",
+    ),
 ];
 
 #[test]
