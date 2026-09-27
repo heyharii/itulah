@@ -192,6 +192,9 @@ mod store_money;
 /// Opening a store: its readiness checks, head office's decision, and
 /// installing its server from the store's page. See the module.
 mod stores;
+/// A store page's Actions menu: head office acting on a store's server and
+/// devices, each action followed until it finishes. See migration 0643.
+mod store_actions;
 mod supplier_banks;
 mod supplier_contacts;
 mod suppliers;
@@ -347,6 +350,7 @@ pub use statements::*;
 pub use stock_ledger::*;
 pub use store_money::*;
 pub use stores::*;
+pub use store_actions::*;
 pub use supplier_banks::*;
 pub use supplier_contacts::*;
 pub use suppliers::*;

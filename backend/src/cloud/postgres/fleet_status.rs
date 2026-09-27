@@ -133,6 +133,11 @@ pub struct FleetSettings {
     #[serde(default)]
     pub quiet_until: Option<String>,
     pub history_days: i32,
+    /// How long a store action waits for its server to pick it up before it
+    /// expires (`store_actions.rs`, 0643). Left out of a PUT, it keeps what
+    /// it was.
+    #[serde(default)]
+    pub action_expiry_minutes: Option<i32>,
 }
 
 impl Default for FleetSettings {
@@ -158,6 +163,7 @@ impl Default for FleetSettings {
             quiet_from: None,
             quiet_until: None,
             history_days: 100,
+            action_expiry_minutes: Some(30),
         }
     }
 }
@@ -216,6 +222,9 @@ impl FleetSettings {
         range("reader_silent_minutes", self.reader_silent_minutes, 5, 1440)?;
         range("escalate_after_minutes", self.escalate_after_minutes, 1, 1440)?;
         range("history_days", self.history_days, 91, 400)?;
+        if let Some(minutes) = self.action_expiry_minutes {
+            range("action_expiry_minutes", minutes, 5, 1440)?;
+        }
         if i64::from(self.behind_alert_minutes) * 60 < i64::from(self.synced_within_seconds) {
             return Err(AppError::Validation(
                 "behind_alert_minutes must not be shorter than synced_within_seconds".into(),
@@ -288,7 +297,7 @@ pub async fn fleet_settings(
                 notify_roles, notify_unit_pic, escalate_to_roles,
                 to_char(quiet_from, 'HH24:MI') AS quiet_from,
                 to_char(quiet_until, 'HH24:MI') AS quiet_until,
-                history_days, updated_by, updated_at
+                history_days, action_expiry_minutes, updated_by, updated_at
            FROM fleet_setting WHERE singleton",
     )
     .fetch_optional(executor)
@@ -321,6 +330,7 @@ pub async fn fleet_settings(
             quiet_from: row.try_get("quiet_from")?,
             quiet_until: row.try_get("quiet_until")?,
             history_days: row.try_get("history_days")?,
+            action_expiry_minutes: row.try_get("action_expiry_minutes")?,
         },
         updated_by: row.try_get("updated_by")?,
         updated_at: row.try_get("updated_at")?,
@@ -347,9 +357,9 @@ pub async fn fleet_update_settings(
              alert_on_printer_fault, alert_on_backup, backup_max_age_hours,
              alert_on_reader_silent, reader_silent_minutes, escalate_after_minutes,
              notify_roles, notify_unit_pic, escalate_to_roles, quiet_from, quiet_until,
-             history_days, updated_by, updated_at)
+             history_days, updated_by, updated_at, action_expiry_minutes)
          VALUES (true, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-                 $17::time, $18::time, $19, $20, now())
+                 $17::time, $18::time, $19, $20, now(), COALESCE($21, 30))
          ON CONFLICT (singleton) DO UPDATE SET
              synced_within_seconds = EXCLUDED.synced_within_seconds,
              behind_alert_minutes = EXCLUDED.behind_alert_minutes,
@@ -370,6 +380,7 @@ pub async fn fleet_update_settings(
              quiet_from = EXCLUDED.quiet_from,
              quiet_until = EXCLUDED.quiet_until,
              history_days = EXCLUDED.history_days,
+             action_expiry_minutes = COALESCE($21, fleet_setting.action_expiry_minutes),
              updated_by = EXCLUDED.updated_by,
              updated_at = EXCLUDED.updated_at",
     )
@@ -393,6 +404,7 @@ pub async fn fleet_update_settings(
     .bind(quiet(&settings.quiet_until))
     .bind(settings.history_days)
     .bind(actor)
+    .bind(settings.action_expiry_minutes)
     .execute(pool)
     .await?;
     fleet_settings(pool).await
@@ -486,6 +498,24 @@ fn part(
         code: code.to_owned(),
         sentence: sentence.into(),
         detail,
+    }
+}
+
+/// A server restarting because head office asked (a store's Actions menu,
+/// `store_actions.rs`) is in maintenance while it is gone: its server and
+/// sync parts turn grey — which the history does not count as down and no
+/// alert fires on — and say so, instead of red.
+fn in_maintenance(parts: &mut [FleetPart], server_component: &str, requested_by: &str) {
+    for part in parts.iter_mut() {
+        let ours = part.component == server_component
+            || (server_component == "server" && part.component == "sync");
+        if ours && part.state == PART_BAD {
+            part.state = PART_UNKNOWN;
+            part.code = "MAINTENANCE".to_owned();
+            part.sentence = format!(
+                "Restarting at head office's request ({requested_by}); back in a moment."
+            );
+        }
     }
 }
 
@@ -1857,6 +1887,7 @@ pub async fn evaluate_fleet(
     let outages = load_last_outages(pool, now).await?;
     let offsets = load_site_offsets(pool, now).await?;
     let head_office_offset = super::sites::business_utc_offset_minutes(pool, None, now).await?;
+    let restarting = super::store_actions::restarting_origins(pool).await?;
 
     let newest_version = nodes
         .iter()
@@ -1891,19 +1922,20 @@ pub async fn evaluate_fleet(
                     "Server {}",
                     node.node_label.clone().unwrap_or_else(|| node.origin_id.clone())
                 );
-                row.parts.push(server_part(
-                    &format!("server:{}", node.origin_id),
-                    &label,
-                    node,
-                    offline,
-                    offset,
-                    now,
-                ));
+                let component = format!("server:{}", node.origin_id);
+                let mut part = vec![server_part(&component, &label, node, offline, offset, now)];
+                if let Some(by) = restarting.get(&node.origin_id) {
+                    in_maintenance(&mut part, &component, by);
+                }
+                row.parts.extend(part);
                 continue;
             }
         }
         seen_sites.insert(node.site_id.clone());
         let mut parts = node_parts(node, &freshness, settings, newest_version.as_deref(), offset, now);
+        if let Some(by) = restarting.get(&node.origin_id) {
+            in_maintenance(&mut parts, "server", by);
+        }
         for device in registered.iter().filter(|device| device.site_id == node.site_id) {
             parts.push(registered_device_part(device, offset, now));
         }

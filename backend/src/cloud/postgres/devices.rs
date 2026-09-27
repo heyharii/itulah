@@ -543,6 +543,22 @@ pub async fn request_device_status(
     request: DeviceStatusRequest,
     actor: &str,
 ) -> Result<RegistryDevice, AppError> {
+    let mut tx = pool.begin().await?;
+    device_status_tx(&mut tx, device_id, request, actor, None).await?;
+    tx.commit().await?;
+    registry_device(pool, device_id).await
+}
+
+/// [`request_device_status`] in the caller's transaction, so a store action
+/// (`store_actions.rs`) is recorded with the command that carries it.
+/// Returns the command's id.
+pub(super) async fn device_status_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    device_id: &str,
+    request: DeviceStatusRequest,
+    actor: &str,
+    expires_at: Option<DateTime<Utc>>,
+) -> Result<Uuid, AppError> {
     let status = request.status.trim().to_ascii_uppercase();
     if !wire::is_status(&status) {
         return Err(AppError::Validation(format!(
@@ -559,7 +575,6 @@ pub async fn request_device_status(
         ));
     }
 
-    let mut tx = pool.begin().await?;
     let row: Option<(String, String, String, Option<bool>)> = sqlx::query_as(
         "SELECT d.kind, d.status, d.origin_id, (h.status ? 'device_list')
            FROM device d
@@ -568,7 +583,7 @@ pub async fn request_device_status(
             FOR UPDATE OF d",
     )
     .bind(device_id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await?;
     let Some((kind, current, origin_id, takes_commands)) = row else {
         // A terminal head office registered is in the register without being
@@ -577,7 +592,7 @@ pub async fn request_device_status(
             "SELECT kind FROM device_register WHERE device_id = $1 AND source <> 'NODE'",
         )
         .bind(device_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?;
         return Err(match linked {
             Some(kind) => AppError::Conflict(switched_elsewhere(&kind)),
@@ -614,11 +629,11 @@ pub async fn request_device_status(
     };
     let payload = serde_json::to_value(&command)?;
     let command_id = super::sync::issue_command_tx(
-        &mut tx,
+        tx,
         COMMAND_DEVICE_STATUS_SET,
         &payload,
         actor,
-        None,
+        expires_at,
         std::slice::from_ref(&origin_id),
     )
     .await?;
@@ -634,7 +649,7 @@ pub async fn request_device_status(
     .bind(now)
     .bind(&reason)
     .bind(command_id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
     sqlx::query(
         "INSERT INTO device_status_event (device_id, source, from_status, to_status, actor, reason, at)
@@ -646,10 +661,9 @@ pub async fn request_device_status(
     .bind(actor)
     .bind(&reason)
     .bind(now)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
-    tx.commit().await?;
-    registry_device(pool, device_id).await
+    Ok(command_id)
 }
 
 /// `POST /api/v1/devices/{device_id}/test-print`: accepted, and on its way.
@@ -675,6 +689,19 @@ pub async fn request_test_print(
     actor: &str,
 ) -> Result<TestPrintRequested, AppError> {
     let mut tx = pool.begin().await?;
+    let (_, request_id) = test_print_tx(&mut tx, device_id, actor, None).await?;
+    tx.commit().await?;
+    Ok(TestPrintRequested { request_id })
+}
+
+/// [`request_test_print`] in the caller's transaction, for a store action
+/// (`store_actions.rs`). Returns the command's id and the ask's.
+pub(super) async fn test_print_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    device_id: &str,
+    actor: &str,
+    expires_at: Option<DateTime<Utc>>,
+) -> Result<(Uuid, Uuid), AppError> {
     let row: Option<(String, String, String, String, Option<bool>)> = sqlx::query_as(
         "SELECT d.kind, d.status, d.origin_id, d.label,
                 (h.status -> 'capabilities' ? $2)
@@ -685,14 +712,14 @@ pub async fn request_test_print(
     )
     .bind(device_id)
     .bind(TEST_PRINT_CAPABILITY)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await?;
     let Some((kind, status, origin_id, label, takes_it)) = row else {
         let linked: Option<String> = sqlx::query_scalar(
             "SELECT kind FROM device_register WHERE device_id = $1 AND source <> 'NODE'",
         )
         .bind(device_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?;
         return Err(match linked {
             Some(kind) => AppError::Conflict(format!(
@@ -731,12 +758,12 @@ pub async fn request_test_print(
         requested_at: now,
     };
     let payload = serde_json::to_value(&command)?;
-    super::sync::issue_command_tx(
-        &mut tx,
+    let command_id = super::sync::issue_command_tx(
+        tx,
         COMMAND_DEVICE_TEST_PRINT,
         &payload,
         actor,
-        None,
+        expires_at,
         std::slice::from_ref(&origin_id),
     )
     .await?;
@@ -750,8 +777,7 @@ pub async fn request_test_print(
     .bind(now)
     .bind(actor)
     .bind(request_id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
-    tx.commit().await?;
-    Ok(TestPrintRequested { request_id })
+    Ok((command_id, request_id))
 }

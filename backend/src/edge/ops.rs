@@ -447,6 +447,11 @@ async fn restart(
                 );
             })
             .await;
+            // A moment for the heartbeat `mark` just woke to tell head office
+            // the silence that follows is this restart.
+            if action.is_some() {
+                tokio::time::sleep(Duration::from_secs(3)).await;
+            }
             let _ = stop.send(StopReason::Restart);
             return;
         }
