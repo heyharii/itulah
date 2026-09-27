@@ -19,6 +19,7 @@ export type {
   OpenStoreRequest,
   StoreCheck,
   StoreDetail,
+  StoreList,
   StorePic,
   StoreReadiness,
   StoreServer,
@@ -79,10 +80,12 @@ export const storesKeys = {
   flowNotices: (open: boolean) => ["stores", "flow-notices", open] as const,
 }
 
-export function listStores(signal?: AbortSignal): Promise<StoreSummary[]> {
-  return node
-    .get<StoreList>("/api/v1/stores", { signal })
-    .then((body) => body.items)
+/// Every store within the caller's reach, and whether they may manage any of
+/// them (`can_manage` — an Admin at head office; open new stores, install a
+/// server). The list itself is already narrowed to reach by the server, so a
+/// store's manager simply never sees another store's row here.
+export function listStores(signal?: AbortSignal): Promise<StoreList> {
+  return node.get<StoreList>("/api/v1/stores", { signal })
 }
 
 export function storeDetail(

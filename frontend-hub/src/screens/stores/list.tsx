@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
-import { Link, type LinkProps } from "@tanstack/react-router"
+import { Link, useNavigate, type LinkProps } from "@tanstack/react-router"
 import { Plus } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -38,6 +38,7 @@ import { OpenStoresSheet } from "@/screens/setup/open-stores-sheet"
 export function StoresList() {
   const opening = useSheet("new-stores")
   const [search, setSearch] = useState("")
+  const navigate = useNavigate()
 
   const stores = useQuery({
     queryKey: storesKeys.list(),
@@ -47,24 +48,47 @@ export function StoresList() {
     refetchInterval: 30_000,
   })
 
+  const items = stores.data?.items ?? []
+  const canManage = stores.data?.can_manage ?? false
+
+  // A supervisor or a store manager whose reach is one unit never sees a
+  // list to choose from — head office's own reach reads as `Every`, so
+  // landing here at all with exactly one row and no management rights means
+  // that row is the caller's own store. Go straight to its page rather than
+  // a one-row list nobody would otherwise choose from.
+  const solePosting =
+    !canManage && items.length === 1 ? items[0].unit_id : null
+  useEffect(() => {
+    if (solePosting === null) return
+    void navigate({
+      to: `/stores/${encodeURIComponent(solePosting)}` as LinkProps["to"],
+      replace: true,
+    })
+  }, [solePosting, navigate])
+
   const rows = useMemo(() => {
-    const all = stores.data ?? []
     const text = search.trim().toLowerCase()
-    if (text === "") return all
-    return all.filter(
+    if (text === "") return items
+    return items.filter(
       (store) =>
         store.name.toLowerCase().includes(text) ||
         store.code.toLowerCase().includes(text) ||
         (store.city ?? "").toLowerCase().includes(text)
     )
-  }, [stores.data, search])
+  }, [items, search])
+
+  if (solePosting !== null) return null
 
   return (
     <PageContent>
       <PageHeader
         crumb="Stores"
         title="Stores"
-        sub="Open a new store, pair its server, and watch every shop from one page."
+        sub={
+          canManage
+            ? "Open a new store, pair its server, and watch every shop from one page."
+            : "Your own store, and its server."
+        }
         actions={
           <>
             <Input
@@ -73,10 +97,12 @@ export function StoresList() {
               placeholder="Search stores"
               className="h-8 w-48"
             />
-            <Button variant="primary" onClick={() => opening.open(true)}>
-              <Plus className="size-4" />
-              Open a new store
-            </Button>
+            {canManage && (
+              <Button variant="primary" onClick={() => opening.open(true)}>
+                <Plus className="size-4" />
+                Open a new store
+              </Button>
+            )}
           </>
         }
       />
@@ -86,10 +112,11 @@ export function StoresList() {
           loading: "Reading the stores…",
           render: () =>
             rows.length === 0 ? (
-              (stores.data ?? []).length === 0 ? (
+              items.length === 0 ? (
                 <EmptyState>
-                  No store has been opened yet. "Open a new store" makes its
-                  unit, its shop site and its stock pools together.
+                  {canManage
+                    ? `No store has been opened yet. "Open a new store" makes its unit, its shop site and its stock pools together.`
+                    : "No store is posted to you yet."}
                 </EmptyState>
               ) : (
                 <EmptyState>No store matches that search.</EmptyState>

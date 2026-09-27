@@ -19,7 +19,7 @@ import { Section } from "@/screens/stores/shared"
 /// exists for — the mock's Overview tab.
 export function OverviewTab({ detail }: { detail: StoreDetailAnswer }) {
   const client = useQueryClient()
-  const { store, address, checks, can_open } = detail
+  const { store, address, checks, can_open, can_manage } = detail
 
   const open = useMutation({
     mutationFn: (note: string) =>
@@ -61,27 +61,33 @@ export function OverviewTab({ detail }: { detail: StoreDetailAnswer }) {
               ))}
             </div>
           </Section>
-          <div className="mt-4">
-            <ConfirmButton
-              label={<>Open store 🎉</>}
-              variant="primary"
-              disabled={!can_open}
-              title={`Open ${store.name}?`}
-              description="This turns the store on for trading — tills can start ringing up sales the moment it is open. There is no undo; closing a store again is a separate decision."
-              confirmLabel="Open store"
-              reason={{
-                label: "Note (optional)",
-                optional: true,
-                placeholder: "Anything worth recording",
-              }}
-              onConfirm={(note) => open.mutateAsync(note)}
-            />
-            {!can_open && (
-              <p className="mt-2 text-meta text-mute">
-                Available once every check marked required above is green.
-              </p>
-            )}
-          </div>
+          {/* Opening is an Admin's alone (`can_manage` — `screens/system/servers.tsx`
+              doc, `lib/queries/stores.ts`); a store's own manager reads this
+              checklist but the button is not theirs to press, and the server
+              would refuse it either way. */}
+          {can_manage && (
+            <div className="mt-4">
+              <ConfirmButton
+                label={<>Open store 🎉</>}
+                variant="primary"
+                disabled={!can_open}
+                title={`Open ${store.name}?`}
+                description="This turns the store on for trading — tills can start ringing up sales the moment it is open. There is no undo; closing a store again is a separate decision."
+                confirmLabel="Open store"
+                reason={{
+                  label: "Note (optional)",
+                  optional: true,
+                  placeholder: "Anything worth recording",
+                }}
+                onConfirm={(note) => open.mutateAsync(note)}
+              />
+              {!can_open && (
+                <p className="mt-2 text-meta text-mute">
+                  Available once every check marked required above is green.
+                </p>
+              )}
+            </div>
+          )}
         </Card>
       )}
     </div>
