@@ -380,9 +380,11 @@ fn pending_of(app: &tauri::AppHandle) -> Result<Pending, String> {
 #[tauri::command]
 pub fn join_current(joining: tauri::State<'_, Joining>) -> Option<JoinView> {
     let held = joining.0.lock().expect("join state");
-    held.pending
+    let view = held
+        .pending
         .as_ref()
-        .map(|pending| waiting(pending, held.approver.as_ref()))
+        .map(|pending| waiting(pending, held.approver.as_ref()));
+    view
 }
 
 /// Ask `base_url` to let this till join.
@@ -439,7 +441,8 @@ pub async fn join_begin(app: tauri::AppHandle, base_url: String) -> Result<JoinV
         let joining = app.state::<Joining>();
         let mut held = joining.0.lock().expect("join state");
         held.pending = Some(pending.clone());
-        Ok(waiting(&pending, held.approver.as_ref()))
+        let view = waiting(&pending, held.approver.as_ref());
+        Ok(view)
     })
     .await
 }
