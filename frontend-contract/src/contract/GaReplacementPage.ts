@@ -5,4 +5,10 @@ import type { GaReplacementRow } from "./GaReplacementRow";
 /**
  * A page of the replacement list.
  */
-export type GaReplacementPage = { rows: Array<GaReplacementRow>, total: number, facets: GaReplacementFacets, };
+export type GaReplacementPage = { rows: Array<GaReplacementRow>, 
+/**
+ * Opaque. Pass it back as `cursor` for the next page; absent means this
+ * was the last one.
+ */
+next_cursor: string | null, 
+total: number, facets: GaReplacementFacets, };

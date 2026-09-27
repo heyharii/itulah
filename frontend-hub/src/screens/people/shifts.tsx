@@ -56,7 +56,6 @@ export function ShiftPatterns() {
 
   return (
     <>
-
       <Card className="mb-4 overflow-hidden">
         <CardHeader>
           <CardTitle>In use</CardTitle>
@@ -172,7 +171,7 @@ function Row({
             <Button
               size="sm"
               variant="primary"
-              disabled={retire.isPending}
+              pending={retire.isPending}
               onClick={() => retire.mutate()}
             >
               Cancel
@@ -245,14 +244,18 @@ function DefinePattern() {
           </Banner>
         )}
 
-        <Field label="Code" hint="What a roster day names. It never changes.">
+        <Field
+          label="Code"
+          hint="What a roster day names. It never changes."
+          required
+        >
           <Input
             value={draft.id}
             onChange={(event) => setDraft({ ...draft, id: event.target.value })}
             placeholder="PAGI"
           />
         </Field>
-        <Field label="Name">
+        <Field label="Name" required>
           <Input
             value={draft.name}
             onChange={(event) =>
@@ -262,7 +265,7 @@ function DefinePattern() {
           />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Starts" hint="24-hour clock, HH:MM.">
+          <Field label="Starts" hint="24-hour clock, HH:MM." required>
             <Input
               value={draft.startsAt}
               onChange={(event) =>
@@ -271,7 +274,7 @@ function DefinePattern() {
               placeholder="09:00"
             />
           </Field>
-          <Field label="Ends">
+          <Field label="Ends" required>
             <Input
               value={draft.endsAt}
               onChange={(event) =>
@@ -316,7 +319,8 @@ function DefinePattern() {
         <div>
           <Button
             variant="primary"
-            disabled={!ready || define.isPending}
+            pending={define.isPending}
+            disabled={!ready}
             onClick={() => define.mutate()}
           >
             Define

@@ -80,9 +80,12 @@ pub struct AppConfig {
     /// deployment can point at its own proxy without a rebuild.
     pub assistant_base_url: String,
     /// Which model answers, in the gateway's own naming. Configurable because
-    /// a deployment may want a cheaper one, defaulted in code because a model
-    /// id is not something an operator should have to know to start the
-    /// server.
+    /// a deployment may want a different one, defaulted in code because a
+    /// model id is not something an operator should have to know to start the
+    /// server. The default is Gemma 4 31B: it calls tools, it reasons, and on
+    /// OpenRouter it is served by hosts that retain nothing — which the
+    /// assistant insists on (`cloud/http/assistant.rs`), so a replacement must
+    /// be served that way too.
     pub assistant_model: String,
     /// The PO intake extraction doors (`intake::po`). A node without them
     /// still imports Excel and text-layer PDFs; scans fail honestly.
@@ -219,7 +222,7 @@ impl AppConfig {
                 .trim_end_matches('/')
                 .to_owned(),
             assistant_model: env_opt("ASSISTANT_MODEL")
-                .unwrap_or_else(|| "anthropic/claude-opus-5".into()),
+                .unwrap_or_else(|| "google/gemma-4-31b-it".into()),
             po_import: crate::cloud::intake::po::PoImportConfig::from_env(),
         })
     }
@@ -1362,6 +1365,22 @@ pub struct ReturnQuery {
     /// Why it came back. One reason.
     #[serde(default)]
     pub reason: Option<String>,
+    /// Who took it back. One login.
+    #[serde(default)]
+    pub actor_id: Option<String>,
+    /// The first local business day (WIB) to include.
+    #[serde(default)]
+    pub from: Option<NaiveDate>,
+    /// The last local business day (WIB) to include — inclusive.
+    #[serde(default)]
+    pub to: Option<NaiveDate>,
+    /// Refunds of at least this much, in the same whole-rupiah "minor" the
+    /// row carries.
+    #[serde(default)]
+    pub min_refund: Option<i64>,
+    /// Refunds of at most this much.
+    #[serde(default)]
+    pub max_refund: Option<i64>,
     /// `at`, `number`, `refund` or `site`. Anything else is `at` rather than a
     /// 400, so a stale bookmark still opens.
     #[serde(default)]
@@ -1431,6 +1450,10 @@ pub struct SalesWindowQuery {
     /// How many receipts to list. The totals above them are computed over the
     /// whole span regardless, so a truncated list never makes the summary lie.
     pub limit: Option<i64>,
+    /// A `transactions_next_cursor` from the previous answer, verbatim: the
+    /// receipts continue after it, newest first. Absent is the first page.
+    #[serde(default)]
+    pub cursor: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

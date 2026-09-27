@@ -349,6 +349,7 @@ function OrderSheet({
           <Field
             label="Why"
             hint="Recorded against the withdrawal, and required."
+            required
           >
             <Input
               value={reason}
@@ -359,7 +360,8 @@ function OrderSheet({
           <div>
             <Button
               variant="danger"
-              disabled={reason.trim() === "" || withdraw.isPending}
+              pending={withdraw.isPending}
+              disabled={reason.trim() === ""}
               onClick={() => withdraw.mutate()}
             >
               Take the order back
@@ -424,7 +426,7 @@ function OrderOvertime() {
       <div className="flex flex-col gap-3 px-4 pb-4">
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
 
-        <Field label="Who">
+        <Field label="Who" required>
           <Select
             value={draft.employeeId}
             onChange={(next) => setDraft({ ...draft, employeeId: next })}
@@ -437,7 +439,7 @@ function OrderOvertime() {
             ))}
           </Select>
         </Field>
-        <Field label="Date">
+        <Field label="Date" required>
           <Day
             value={draft.onDate}
             onChange={(next) => setDraft({ ...draft, onDate: next })}
@@ -463,6 +465,7 @@ function OrderOvertime() {
         </Field>
         <Field
           label="Minutes"
+          required
           hint="Never hours: a fractional hour cannot round-trip."
         >
           <Input
@@ -480,6 +483,7 @@ function OrderOvertime() {
         <Field
           label="Why"
           hint="Recorded against the instruction, and required."
+          required
         >
           <Input
             value={draft.reason}
@@ -492,7 +496,8 @@ function OrderOvertime() {
         <div>
           <Button
             variant="primary"
-            disabled={!ready || issue.isPending}
+            pending={issue.isPending}
+            disabled={!ready}
             onClick={() => issue.mutate()}
           >
             Order it

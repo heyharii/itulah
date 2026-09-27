@@ -107,7 +107,7 @@ export function RepairSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title={row === undefined ? "Perbaikan" : row.title}
+      title={row === undefined ? "Repair" : row.title}
       caption={
         row === undefined ? undefined : (
           <>
@@ -132,13 +132,13 @@ export function RepairSheet({
                 onClick={() => setApproving(true)}
               >
                 {mine
-                  ? "Pembuat tidak bisa menyetujui sendiri"
-                  : "Setujui budget"}
+                  ? "Creator cannot approve their own request"
+                  : "Approve budget"}
               </Button>
             )}
             {nexts.length > 0 && (
               <Button variant="soft" onClick={() => setMoving(true)}>
-                Pindah tahap
+                Move stage
               </Button>
             )}
           </>
@@ -171,28 +171,28 @@ export function RepairSheet({
           : [
               {
                 value: "detail",
-                label: "Detail",
+                label: "Details",
                 content: <RepairDetail row={row} />,
               },
               {
                 value: "cost",
-                label: "Biaya",
+                label: "Cost",
                 content: <RepairCost row={row} />,
               },
               {
                 value: "accounts",
-                label: "Akun",
+                label: "Accounts",
                 content: <RepairAccounts row={row} />,
               },
               {
                 value: "documents",
-                label: "Dokumen",
+                label: "Documents",
                 content: <Documents kind="repair" id={row.repair_id} />,
               },
             ]
       }
     >
-      {repair.isLoading && <LoadingState>Membuka perbaikannya…</LoadingState>}
+      {repair.isLoading && <LoadingState>Opening the repair…</LoadingState>}
       {repair.error instanceof Error && (
         <Banner tone="bad">{repair.error.message}</Banner>
       )}
@@ -208,14 +208,14 @@ function RepairDetail({ row }: { row: GaRepairRow }) {
     <div className="flex flex-col gap-5">
       <section>
         <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Detail
+          Details
         </h4>
         <Facts>
-          <Fact term="Aset">{row.asset_name ?? "Tanpa aset"}</Fact>
-          <Fact term="Site">{row.site_id}</Fact>
-          <Fact term="Objek">{row.objek_name}</Fact>
+          <Fact term="Asset">{row.asset_name ?? "No asset"}</Fact>
+          <Fact term="Location">{row.site_id}</Fact>
+          <Fact term="Object">{row.objek_name}</Fact>
           <Fact term="Vendor">{row.supplier_name}</Fact>
-          <Fact term="Kontrak">
+          <Fact term="Contract">
             {row.contract_id === null ? (
               "—"
             ) : (
@@ -224,22 +224,22 @@ function RepairDetail({ row }: { row: GaRepairRow }) {
               </span>
             )}
           </Fact>
-          <Fact term="Dilaporkan">{day(row.failure_at)}</Fact>
-          <Fact term="Selesai">
+          <Fact term="Reported">{day(row.failure_at)}</Fact>
+          <Fact term="Done">
             {row.completed_at === null ? "—" : day(row.completed_at)}
           </Fact>
           {row.approved_by !== null && (
-            <Fact term="Disetujui oleh">
+            <Fact term="Approved by">
               {row.approved_by} · {day(row.approved_at)}
             </Fact>
           )}
-          <Fact term="Dicatat oleh">{row.created_by}</Fact>
-          {row.notes !== null && <Fact term="Catatan">{row.notes}</Fact>}
+          <Fact term="Recorded by">{row.created_by}</Fact>
+          {row.notes !== null && <Fact term="Notes">{row.notes}</Fact>}
         </Facts>
       </section>
       <section>
         <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Tahap
+          Stage
         </h4>
         <StageLine flow={REPAIR_FLOW} status={row.status} />
       </section>
@@ -255,7 +255,7 @@ function RepairCost({ row }: { row: GaRepairRow }) {
       <div className="grid grid-cols-3 gap-3">
         <figure>
           <figcaption className="text-eyebrow font-medium text-body">
-            Estimasi
+            Estimate
           </figcaption>
           <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
             {money(row.estimated_cost_minor)}
@@ -263,21 +263,21 @@ function RepairCost({ row }: { row: GaRepairRow }) {
         </figure>
         <figure>
           <figcaption className="text-eyebrow font-medium text-body">
-            Budget disetujui
+            Approved budget
           </figcaption>
           <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
             {money(row.approved_budget_minor)}
             {row.approved_budget_minor === null && (
               <span className="text-pill font-normal text-mute">
                 {" "}
-                · belum ada
+                · not yet set
               </span>
             )}
           </div>
         </figure>
         <figure>
           <figcaption className="text-eyebrow font-medium text-body">
-            Aktual <FinanceMark className="ml-1 align-[0.125rem]" />
+            Actual <FinanceMark className="ml-1 align-[0.125rem]" />
           </figcaption>
           <div
             className={cn(
@@ -298,16 +298,17 @@ function RepairCost({ row }: { row: GaRepairRow }) {
           />
           <span className={over ? "text-pill text-bad" : "text-pill text-mute"}>
             {over
-              ? `Di atas ${capWord} ${money(cap)}.`
-              : `${money(cap - row.actual_cost_minor)} tersisa dari ${capWord}.`}
+              ? `Over the ${capWord} of ${money(cap)}.`
+              : `${money(cap - row.actual_cost_minor)} left of the ${capWord}.`}
           </span>
         </div>
       )}
 
       <p className="text-pill text-mute">
-        Estimasi dan budget adalah fakta GA. Aktual dibaca dari bill POSTED yang
-        menunjuk perbaikan ini — baris tagihan bisa menunjuk mulai tahap 6, jadi
-        angkanya membaca nol sampai sana, bukan karena kosong.
+        Estimate and budget are GA's own facts. Actual is read from POSTED
+        bills that point to this repair — a bill line can only point from
+        stage 6 onward, so the figure reads zero until then, not because it
+        is empty.
       </p>
     </div>
   )
@@ -324,7 +325,7 @@ function RepairAccounts({ row }: { row: GaRepairRow }) {
   })
 
   if (objects.isLoading)
-    return <LoadingState>Membaca daftar objek…</LoadingState>
+    return <LoadingState>Reading the object list…</LoadingState>
 
   const object = (objects.data ?? []).find((one) => one.code === row.objek)
 
@@ -333,7 +334,7 @@ function RepairAccounts({ row }: { row: GaRepairRow }) {
       <div className="flex flex-col">
         <div className="flex items-baseline gap-3 border-b border-hairline py-2 last:border-b-0">
           <span className="w-28 shrink-0 text-meta text-body">
-            Beban ({row.objek_name})
+            Expense ({row.objek_name})
           </span>
           <span className="w-14 shrink-0 font-mono text-id text-body tabular-nums">
             {object?.account_code ?? "—"}
@@ -344,9 +345,9 @@ function RepairAccounts({ row }: { row: GaRepairRow }) {
         </div>
       </div>
       <p className="flex items-center gap-1.5 text-pill text-mute">
-        <FinanceMark className="align-[0.0625rem]" /> Diusulkan di baris bill
-        yang menunjuk perbaikan ini, dari account map untuk objek{" "}
-        {row.objek_name.toLowerCase()}. Finance tetap bisa mengganti.
+        <FinanceMark className="align-[0.0625rem]" /> Proposed on the bill
+        line that points to this repair, from the account map for the{" "}
+        {row.objek_name.toLowerCase()} object. Finance can still change it.
       </p>
     </div>
   )
@@ -384,8 +385,9 @@ function ApproveBudgetForm({
   return (
     <div className="flex items-end gap-3">
       <Field
-        label={`Budget untuk ${row.title}`}
-        aside="angka yang disetujui, bukan estimasi"
+        label={`Budget for ${row.title}`}
+        required
+        aside="the approved figure, not the estimate"
         className="flex-1"
       >
         <Money
@@ -397,13 +399,14 @@ function ApproveBudgetForm({
       </Field>
       <Button
         variant="primary"
-        disabled={budget === "" || approve.isPending}
+        pending={approve.isPending}
+        disabled={budget === ""}
         onClick={() => approve.mutate()}
       >
-        {approve.isPending ? "Menyetujui…" : "Setujui budget"}
+        {approve.isPending ? "Approving…" : "Approve budget"}
       </Button>
       <Button variant="ghost" onClick={onCancel}>
-        Batal
+        Cancel
       </Button>
     </div>
   )
@@ -443,7 +446,7 @@ function MoveRepairForm({
         <Banner tone="bad">{move.error.message}</Banner>
       )}
       <Choices
-        label="Tahap berikutnya"
+        label="Next stage"
         columns={2}
         value={to}
         onChange={setTo}
@@ -452,27 +455,28 @@ function MoveRepairForm({
           label: repairStageWords(stage),
           note:
             stage === "CANCELLED"
-              ? "Hentikan perbaikan ini; tahapannya tidak bisa lanjut setelahnya."
+              ? "Stops this repair; its stage cannot move forward after this."
               : undefined,
         }))}
       />
-      <Field label="Catatan" aside="opsional, masuk riwayat tahapan">
+      <Field label="Notes" aside="optional, added to the stage history">
         <Input
           value={note}
           onChange={(event) => setNote(event.target.value)}
-          placeholder="mis. Disetujui manajer GA"
+          placeholder="e.g. Approved by GA manager"
         />
       </Field>
       <div className="flex items-center gap-2">
         <Button
           variant="primary"
-          disabled={to === "" || move.isPending}
+          pending={move.isPending}
+          disabled={to === ""}
           onClick={() => move.mutate()}
         >
-          {move.isPending ? "Memindahkan…" : "Pindahkan"}
+          {move.isPending ? "Moving…" : "Move"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Batal
+          Cancel
         </Button>
       </div>
     </div>
@@ -518,8 +522,8 @@ export function ReplacementSheet({
       width="wide"
       title={
         row === undefined
-          ? "Penggantian"
-          : `Ganti ${row.old_asset_name ?? "aset"}`
+          ? "Replacement"
+          : `Replace ${row.old_asset_name ?? "asset"}`
       }
       caption={row === undefined ? undefined : row.reason}
       subject={
@@ -561,24 +565,24 @@ export function ReplacementSheet({
           : [
               {
                 value: "detail",
-                label: "Detail",
+                label: "Details",
                 content: <ReplacementDetail row={row} />,
               },
               {
                 value: "accounts",
-                label: "Akun",
+                label: "Accounts",
                 content: <ReplacementAccounts row={row} />,
               },
               {
                 value: "cost",
-                label: "Biaya",
+                label: "Cost",
                 content: <ReplacementCost />,
               },
             ]
       }
     >
       {replacement.isLoading && (
-        <LoadingState>Membuka penggantian…</LoadingState>
+        <LoadingState>Opening the replacement…</LoadingState>
       )}
       {replacement.error instanceof Error && (
         <Banner tone="bad">{replacement.error.message}</Banner>
@@ -615,7 +619,7 @@ function AdvanceButton({
   if (to === "INSTALLED") {
     return (
       <Button variant="soft" onClick={onOpenInstall}>
-        Lanjut: {replacementStageWords(to)}
+        Next: {replacementStageWords(to)}
       </Button>
     )
   }
@@ -623,14 +627,15 @@ function AdvanceButton({
   return (
     <Button
       variant="soft"
-      disabled={disabled || move.isPending}
+      pending={move.isPending}
+      disabled={disabled}
       onClick={() => move.mutate()}
     >
       {disabled
-        ? "Pembuat tidak bisa menyetujui sendiri"
+        ? "Creator cannot approve their own request"
         : move.isPending
-          ? "Memindahkan…"
-          : `Lanjut: ${replacementStageWords(to)}`}
+          ? "Moving…"
+          : `Next: ${replacementStageWords(to)}`}
     </Button>
   )
 }
@@ -641,15 +646,15 @@ function ReplacementDetail({ row }: { row: GaReplacementRow }) {
     <div className="flex flex-col gap-5">
       <section>
         <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Penggantian
+          Replacement
         </h4>
         <Facts>
-          <Fact term="Aset lama">{row.old_asset_name ?? "—"}</Fact>
-          <Fact term="Aset baru">
-            {row.new_asset_name ?? "— dibuat saat terpasang"}
+          <Fact term="Old asset">{row.old_asset_name ?? "—"}</Fact>
+          <Fact term="New asset">
+            {row.new_asset_name ?? "— created once installed"}
           </Fact>
-          <Fact term="Alasan">{row.reason}</Fact>
-          <Fact term="Perbaikan">
+          <Fact term="Reason">{row.reason}</Fact>
+          <Fact term="Repair">
             {row.repair_id === null ? (
               "—"
             ) : (
@@ -659,15 +664,15 @@ function ReplacementDetail({ row }: { row: GaReplacementRow }) {
             )}
           </Fact>
           <Fact term="Vendor">{row.supplier_name ?? "—"}</Fact>
-          <Fact term="Tanggal usul">{day(row.proposed_on)}</Fact>
+          <Fact term="Date proposed">{day(row.proposed_on)}</Fact>
           {row.decided_by !== null && (
-            <Fact term="Diputuskan oleh">{row.decided_by}</Fact>
+            <Fact term="Decided by">{row.decided_by}</Fact>
           )}
         </Facts>
       </section>
       <section>
         <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Tahap
+          Stage
         </h4>
         <StageLine flow={REPLACEMENT_FLOW} status={row.status} />
       </section>
@@ -694,7 +699,7 @@ function ReplacementAccounts({ row }: { row: GaReplacementRow }) {
   })
 
   if (oldAsset.isLoading)
-    return <LoadingState>Membaca aset lamanya…</LoadingState>
+    return <LoadingState>Reading the old asset…</LoadingState>
 
   const build = oldAsset.data?.asset.build
   const classCode = oldAsset.data?.asset.class_code
@@ -703,13 +708,14 @@ function ReplacementAccounts({ row }: { row: GaReplacementRow }) {
     return (
       <div className="flex flex-col gap-4">
         <div className="flex flex-col">
-          <AccountRow role="Beban replacement" code="7024" />
+          <AccountRow role="Replacement expense" code="7024" />
           <AccountRow role="Reserve" code="1100" />
         </div>
         <p className="flex items-center gap-1.5 text-pill text-mute">
-          <FinanceMark className="align-[0.0625rem]" /> OE memakai replacement:
-          biaya penggantinya dibebankan ke 7024 lewat reserve 1100; aset lamanya
-          tidak disusutkan. Dibaca lewat tagihan yang menunjuk replacement ini.
+          <FinanceMark className="align-[0.0625rem]" /> OE uses replacement:
+          the replacement cost is charged to 7024 through reserve 1100; the
+          old asset is not depreciated. Read from the bill that points to
+          this replacement.
         </p>
       </div>
     )
@@ -729,20 +735,21 @@ function ReplacementAccounts({ row }: { row: GaReplacementRow }) {
           />
         ))}
         <AccountRow
-          role="Pelepasan aset lama"
-          missing="Laba/Rugi Pelepasan Aset · belum ada di COA"
+          role="Disposal of old asset"
+          missing="Gain/Loss on Asset Disposal · not yet in the COA"
         />
       </div>
       <p className="flex items-center gap-1.5 text-pill text-mute">
-        <FinanceMark className="align-[0.0625rem]" /> Aset baru dikapitalisasi
-        lewat tagihan dengan kelas aset lamanya; aset lama dilepas di Finance.
+        <FinanceMark className="align-[0.0625rem]" /> The new asset is
+        capitalised through the bill using the old asset's class; the old
+        asset is disposed of in Finance.
       </p>
     </div>
   )
 }
 
 /// One proposed account, in the prototype's grammar: role, code, name. A
-/// missing code is a sentence, not a dash — "belum ada" is a decision
+/// missing code is a sentence, not a dash — "not yet" is a decision
 /// somebody made, and a dash would read as data nobody typed.
 function AccountRow({
   role,
@@ -776,16 +783,16 @@ function ReplacementCost() {
     <div className="flex flex-col gap-4">
       <figure>
         <figcaption className="text-eyebrow font-medium text-body">
-          Biaya <FinanceMark className="ml-1 align-[0.125rem]" />
+          Cost <FinanceMark className="ml-1 align-[0.125rem]" />
         </figcaption>
         <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
           —
         </div>
       </figure>
       <p className="text-pill text-mute">
-        Dihitung dari bill POSTED yang menunjuk replacement ini. Baris tagihan
-        bisa menunjuk mulai tahap 6; sebelum itu angkanya memang belum ada,
-        bukan nol.
+        Calculated from POSTED bills that point to this replacement. A bill
+        line can only point from stage 6 onward; before that, the figure
+        simply doesn't exist yet, not zero.
       </p>
     </div>
   )
@@ -826,7 +833,7 @@ function InstallForm({
       {move.error instanceof Error && (
         <Banner tone="bad">{move.error.message}</Banner>
       )}
-      <Field label="Aset baru" aside="kosong = server menyalin aset lamanya">
+      <Field label="New asset" aside="empty = the server copies the old asset">
         <AssetSelect
           value={newAssetId}
           onChange={setNewAssetId}
@@ -836,16 +843,16 @@ function InstallForm({
       <div className="flex items-center gap-2">
         <Button
           variant="primary"
-          disabled={move.isPending}
+          pending={move.isPending}
           onClick={() => move.mutate()}
         >
           <Check />
           {move.isPending
-            ? "Memindahkan…"
-            : `Lanjut: ${replacementStageWords(to)}`}
+            ? "Moving…"
+            : `Next: ${replacementStageWords(to)}`}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Batal
+          Cancel
         </Button>
       </div>
     </div>
@@ -889,12 +896,12 @@ export function DisposalSheet({
       onOpenChange={(next) => !next && onClose()}
       width="rail"
       title={
-        row === undefined ? "Pelepasan" : `Lepas ${row.asset_name ?? "aset"}`
+        row === undefined ? "Disposal" : `Dispose ${row.asset_name ?? "asset"}`
       }
       caption={
         row === undefined ? undefined : (
           <>
-            {disposalMethodWords(row.method)} · diajukan {day(row.requested_on)}
+            {disposalMethodWords(row.method)} · submitted {day(row.requested_on)}
           </>
         )
       }
@@ -915,13 +922,13 @@ export function DisposalSheet({
           // refusal nobody reads.
           decidable && mine ? (
             <Button variant="soft" disabled>
-              Pembuat tidak bisa memutuskan sendiri
+              Creator cannot decide on their own request
             </Button>
           ) : undefined
         ) : (
           <>
             <Button variant="soft" onClick={() => setRefusing(true)}>
-              Tolak
+              Reject
             </Button>
             <ApproveDisposalButton row={row} onDone={onClose} />
           </>
@@ -945,18 +952,18 @@ export function DisposalSheet({
           : [
               {
                 value: "detail",
-                label: "Detail",
+                label: "Details",
                 content: <DisposalDetail row={row} />,
               },
               {
                 value: "stage",
-                label: "Tahap",
+                label: "Stage",
                 content: (
                   <div className="flex flex-col gap-3">
                     <StageLine flow={DISPOSAL_FLOW} status={row.status} />
                     <p className="text-pill text-mute">
-                      Dibukukan oleh Finance setelah jurnalnya dibuat;
-                      tahapannya berhenti di sini untuk GA.
+                      Posted by Finance once the journal is made; the stage
+                      stops here for GA.
                     </p>
                   </div>
                 ),
@@ -964,7 +971,7 @@ export function DisposalSheet({
             ]
       }
     >
-      {disposal.isLoading && <LoadingState>Membuka pelepasannya…</LoadingState>}
+      {disposal.isLoading && <LoadingState>Opening the disposal…</LoadingState>}
       {disposal.error instanceof Error && (
         <Banner tone="bad">{disposal.error.message}</Banner>
       )}
@@ -996,11 +1003,11 @@ function ApproveDisposalButton({
   return (
     <Button
       variant="primary"
-      disabled={approve.isPending}
+      pending={approve.isPending}
       onClick={() => approve.mutate()}
     >
       <Check />
-      {approve.isPending ? "Menyetujui…" : "Setujui"}
+      {approve.isPending ? "Approving…" : "Approve"}
     </Button>
   )
 }
@@ -1035,7 +1042,7 @@ function RejectDisposalForm({
 
   const submit = () => {
     if (note.trim() === "") {
-      setProblem("Tulis alasannya dulu.")
+      setProblem("Enter a reason first.")
       return
     }
     reject.mutate()
@@ -1044,8 +1051,9 @@ function RejectDisposalForm({
   return (
     <div className="flex items-end gap-3">
       <Field
-        label="Alasan menolak"
-        aside="aset kembali Terdaftar"
+        label="Reason for rejecting"
+        required
+        aside="asset returns to Registered"
         problem={problem || undefined}
         className="flex-1"
       >
@@ -1055,18 +1063,18 @@ function RejectDisposalForm({
             setProblem("")
             setNote(event.target.value)
           }}
-          placeholder="mis. Tunggu keputusan ganti unit"
+          placeholder="e.g. Awaiting decision to replace the unit"
           onKeyDown={(event) => {
             if (event.key === "Enter") submit()
           }}
           autoFocus
         />
       </Field>
-      <Button variant="primary" disabled={reject.isPending} onClick={submit}>
-        {reject.isPending ? "Menolak…" : "Tolak"}
+      <Button variant="primary" pending={reject.isPending} onClick={submit}>
+        {reject.isPending ? "Rejecting…" : "Reject"}
       </Button>
       <Button variant="ghost" onClick={onCancel}>
-        Batal
+        Cancel
       </Button>
     </div>
   )
@@ -1078,34 +1086,35 @@ function DisposalDetail({ row }: { row: GaDisposalRow }) {
   return (
     <div className="flex flex-col gap-5">
       <Banner tone="warn">
-        GA tidak memposting apa pun: pembukuan laba/rugi pelepasannya milik
-        Finance, dan akun Laba/Rugi Pelepasan Aset belum ada di COA.{" "}
+        GA does not post anything: the gain/loss bookkeeping for the disposal
+        belongs to Finance, and the Gain/Loss on Asset Disposal account does
+        not yet exist in the COA.{" "}
         <FinanceMark className="align-[0.0625rem]" />
       </Banner>
 
       <section>
         <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Detail
+          Details
         </h4>
         <Facts>
-          <Fact term="Aset">{row.asset_name ?? "—"}</Fact>
-          <Fact term="Cara">{disposalMethodWords(row.method)}</Fact>
+          <Fact term="Asset">{row.asset_name ?? "—"}</Fact>
+          <Fact term="Method">{disposalMethodWords(row.method)}</Fact>
           {row.method === "SOLD" && (
-            <Fact term="Hasil penjualan">
+            <Fact term="Sale proceeds">
               {money(row.proceeds_minor)}
               {row.proceeds_minor === null && (
                 <span className="text-pill font-normal text-mute">
                   {" "}
-                  · belum ada angkanya
+                  · no figure yet
                 </span>
               )}
             </Fact>
           )}
-          <Fact term="Alasan">{row.reason}</Fact>
-          <Fact term="Diajukan">{day(row.requested_on)}</Fact>
-          <Fact term="Diajukan oleh">{row.created_by}</Fact>
+          <Fact term="Reason">{row.reason}</Fact>
+          <Fact term="Submitted">{day(row.requested_on)}</Fact>
+          <Fact term="Submitted by">{row.created_by}</Fact>
           {row.approved_by !== null && (
-            <Fact term="Diputuskan oleh">
+            <Fact term="Decided by">
               {row.approved_by} · {day(row.approved_at)}
             </Fact>
           )}
@@ -1134,8 +1143,9 @@ function Documents({ kind, id }: { kind: string; id: string }) {
     <div className="flex flex-col gap-4">
       {(documents.data ?? []).length === 0 ? (
         <p className="text-meta text-body">
-          Belum ada dokumen. Foto sebelum-sesudah, laporan teknisi, BAST servis
-          — ditempel di sini dan terindeks di Library.
+          No documents yet. Before-and-after photos, technician reports,
+          service handover certificates — attached here and indexed in the
+          Library.
         </p>
       ) : (
         <ul className="flex flex-col">
@@ -1155,8 +1165,8 @@ function Documents({ kind, id }: { kind: string; id: string }) {
               </span>
               <span className="shrink-0 text-pill text-mute tabular-nums">
                 {document.expires_on === null
-                  ? "tanpa masa berlaku"
-                  : `s/d ${day(document.expires_on)}`}
+                  ? "no expiry"
+                  : `until ${day(document.expires_on)}`}
               </span>
             </li>
           ))}
@@ -1177,7 +1187,7 @@ function Documents({ kind, id }: { kind: string; id: string }) {
         <div>
           <Button variant="soft" onClick={() => setAdding(true)}>
             <Paperclip />
-            Tempel dokumen
+            Attach document
           </Button>
         </div>
       )}
@@ -1205,7 +1215,7 @@ function AttachForm({
 
   const save = useMutation({
     mutationFn: () => {
-      if (file === null) throw new Error("Pilih berkasnya dulu.")
+      if (file === null) throw new Error("Choose a file first.")
       return uploadDocument(file, {
         title: blank(form.title),
         doc_type: blank(form.doc_type),
@@ -1227,38 +1237,38 @@ function AttachForm({
         <Banner tone="bad">{save.error.message}</Banner>
       )}
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Berkasnya">
+        <Field label="File" required>
           <Input
             type="file"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
         </Field>
-        <Field label="Jenis kertas" aside="laporan, BAST, foto">
+        <Field label="Document type" aside="report, handover certificate, photo">
           <Input
             value={form.doc_type ?? ""}
             onChange={(event) => set("doc_type", event.target.value)}
           />
         </Field>
-        <Field label="Nomor">
+        <Field label="Number">
           <Input
             value={form.doc_number ?? ""}
             onChange={(event) => set("doc_number", event.target.value)}
           />
         </Field>
-        <Field label="Yang menerbitkan">
+        <Field label="Issued by">
           <Input
             value={form.issuer ?? ""}
             onChange={(event) => set("issuer", event.target.value)}
           />
         </Field>
-        <Field label="Diterbitkan">
+        <Field label="Issued on">
           <Input
             type="date"
             value={form.issued_on ?? ""}
             onChange={(event) => set("issued_on", event.target.value)}
           />
         </Field>
-        <Field label="Berlaku sampai" aside="kosong = tanpa masa berlaku">
+        <Field label="Valid until" aside="empty = no expiry">
           <Input
             type="date"
             value={form.expires_on ?? ""}
@@ -1269,13 +1279,14 @@ function AttachForm({
       <div className="mt-3 flex items-center gap-2">
         <Button
           variant="primary"
-          disabled={file === null || save.isPending}
+          pending={save.isPending}
+          disabled={file === null}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Mengunggah…" : "Simpan dokumen"}
+          {save.isPending ? "Uploading…" : "Save document"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Batal
+          Cancel
         </Button>
       </div>
     </div>
@@ -1302,8 +1313,8 @@ function AssetSelect({
   })
 
   return (
-    <Select value={value} onChange={onChange} aria-label="Aset">
-      <option value="">Pilih aset terdaftar…</option>
+    <Select value={value} onChange={onChange} aria-label="Asset">
+      <option value="">Choose a registered asset…</option>
       {(assets.data?.rows ?? [])
         .filter(
           (one) =>

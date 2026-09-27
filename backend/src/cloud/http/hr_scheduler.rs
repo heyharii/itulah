@@ -11,9 +11,13 @@ use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{actions, required_role_for_action, role_allows},
-    postgres::{self as infrastructure, SchedulerJobResult, ScheduledRunView},
+    postgres::{self as infrastructure, ScheduledRunPage, SchedulerJobResult},
 };
-use axum::{extract::State, routing::{get, post}, Extension, Json, Router};
+use axum::{
+    extract::State,
+    routing::{get, post},
+    Extension, Json, Router,
+};
 use chrono::NaiveDate;
 use serde::Deserialize;
 
@@ -30,20 +34,22 @@ fn require(principal: &Principal, action_key: &str) -> Result<(), AppError> {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunQuery {
-    /// How many of the newest claims to show.
+    /// How many claims one page holds.
     #[serde(default)]
     pub limit: Option<i64>,
+    /// A `next_cursor` from the previous page, verbatim.
+    #[serde(default)]
+    pub cursor: Option<String>,
 }
 
-/// What the clock has done, newest first.
+/// What the clock has done, newest first, a page at a time.
 pub async fn list_runs(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     axum::extract::Query(query): axum::extract::Query<RunQuery>,
-) -> Result<Json<Vec<ScheduledRunView>>, AppError> {
+) -> Result<Json<ScheduledRunPage>, AppError> {
     require(&principal, actions::HR_SCHEDULER_READ)?;
-    let limit = query.limit.unwrap_or(50);
-    infrastructure::recent_runs(&state.db, limit)
+    infrastructure::runs_page(&state.db, query.cursor.as_deref(), query.limit)
         .await
         .map(Json)
 }

@@ -196,6 +196,7 @@ fn is_public(path: &str) -> bool {
             // A shop server's heartbeat: proven by its own `x-sync-key` in
             // the handler (`http::fleet`), like `/sync/ingest`.
             | "/api/v1/sync/heartbeat"
+            | "/api/v1/sync/diagnostics"
             | "/api/v1/sync/enroll/status"
             // The two routes a unit's attendance station reaches, both guarded
             // by the same per-origin `x-sync-key` as `/sync/ingest` and both
@@ -378,6 +379,13 @@ fn gate_role_with(
         )));
     }
     Ok(())
+}
+
+/// Would the path gate let this rung through? For a screen that has to say
+/// "not yours" before somebody acts rather than after, by the same rule the
+/// gate applies — Finance's overrides included.
+pub async fn gate_allows(state: &AppState, method: &str, path: &str, role: Role) -> bool {
+    role_allows(needed_role(method, path, &permission_overrides(state).await), role)
 }
 
 /// Attach the principal, after holding any `actor_id` in the body to it.

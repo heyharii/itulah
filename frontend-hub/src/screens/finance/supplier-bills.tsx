@@ -1,5 +1,10 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
@@ -33,9 +38,8 @@ import {
   NoAccessState,
   NoMatch,
   Problem,
-  Truncated,
 } from "@/components/ui/states"
-import { useFilters } from "@/lib/filters"
+import { useFilters, type Filter } from "@/lib/filters"
 import { count, day, label, money, toneFor } from "@/lib/format"
 import {
   billDetail,
@@ -54,6 +58,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet, type SheetKey } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import {
   EXPENSE_LINE_CLASSES,
   parseMinor,
@@ -176,6 +181,9 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     accessorKey: "invoice_number",
     header: "Invoice",
     size: 150,
+    // The server orders by date, due, supplier, total and outstanding; see
+    // `BILL_SORTS`. The number is searched, not sorted.
+    enableSorting: false,
     cell: ({ row }) => (
       <span className="flex min-w-0 flex-col gap-1">
         <span className="font-mono text-id text-body">
@@ -216,12 +224,14 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     size: 130,
     // The client's own name for it. The id stays in `title`, because that is
     // what the account codes carry and what a support call will be about.
+    enableSorting: false,
     cell: ({ row }) => <SiteName id={row.original.site_id} />,
   },
   {
     accessorKey: "status",
     header: "Status",
     size: 130,
+    enableSorting: false,
     meta: { filter: { kind: "option", format: label } },
     cell: ({ row }) => (
       <Pill tone={toneFor(row.original.status)}>
@@ -254,6 +264,7 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     accessorKey: "paid_minor",
     header: "Paid",
     size: 140,
+    enableSorting: false,
     meta: { align: "right" },
     // What has actually left the bank against this bill — POSTED payments
     // only, summed on read. A bill nobody has paid draws a dash rather than
@@ -454,7 +465,7 @@ function LineRefs({ line }: { line: SupplierBillLine }) {
       )}
       {line.contract_id !== null && (
         <GaRef
-          to="/contracts/sewa"
+          to="/contracts"
           sheetKey="contract"
           value={line.contract_id}
           label="Kontrak"
@@ -501,6 +512,7 @@ const expenseColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     id: "lines",
     header: "Lines",
     size: 80,
+    enableSorting: false,
     meta: { align: "right" },
     cell: ({ row }) => <LineCount id={row.original.invoice_id} />,
   },
@@ -607,15 +619,51 @@ const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
 /// hand. It is a fourth tab and not a filter on Expenses for that reason.
 type BillTab = "merchandise" | "expenses" | "ga" | "unbilled"
 
-/// What the bill read asks for, named here rather than left to the default
-/// inside `listBills` — a ceiling the screen cannot see is one the banner
-/// below would eventually disagree with.
+/// How many bills one page of a register tab asks for. A step, not a
+/// ceiling: the table asks for the next page as its last rows scroll into
+/// view. The unbilled tab does not page — `GET /finance/unbilled` takes no
+/// limit and answers whole.
+const PAGE = 100
+
+/// The columns the server can order a bill list by, the word it knows each
+/// one as, and whether the direction flips on the way.
 ///
-/// It is not a page size. The location filter, the merchandise/expense split,
-/// the search box and every column heading all narrow what is already here, so
-/// this is the number past which two of the three tabs are about a slice. The
-/// third is not: `GET /finance/unbilled` takes no limit and answers whole.
-const CAP = 200
+/// `days_overdue` is the one that flips: the server has no "overdue" sort,
+/// but it has `due`, which orders by the date the balance next falls due —
+/// and the most overdue bill is the one whose due date is earliest. Every
+/// other column carries `enableSorting: false`.
+const BILL_SORTS: Record<string, { sort: string; flip?: boolean }> = {
+  supplier: { sort: "supplier" },
+  due_date: { sort: "due" },
+  total_minor: { sort: "total" },
+  outstanding_minor: { sort: "outstanding" },
+  days_overdue: { sort: "due", flip: true },
+}
+
+/// The sort, the search and the status clause as the request that answers
+/// them. Status is the one column clause `GET /bills` can take; the same
+/// clause still runs in the browser, where it can only agree.
+function billScope(
+  sorting: SortingState,
+  filters: readonly Filter[],
+  needle: string
+): { sort?: string; dir?: string; status?: string; q?: string } {
+  const by = sorting[0]
+  const known = by === undefined ? undefined : BILL_SORTS[by.id]
+  const desc = known?.flip === true ? by?.desc !== true : by?.desc === true
+  const status = filters.find(
+    (filter) =>
+      filter.column === "status" &&
+      filter.operator === "isAnyOf" &&
+      filter.values.length > 0
+  )
+  return {
+    sort: known?.sort,
+    dir: known !== undefined && desc ? "desc" : undefined,
+    status: status?.values.join(","),
+    q: needle === "" ? undefined : needle,
+  }
+}
 
 export function SupplierBills() {
   const [tab, setTab] = useState<BillTab>("merchandise")
@@ -642,26 +690,84 @@ export function SupplierBills() {
     { id: "days_waiting", desc: true },
   ])
 
-  const bills = useQuery({
-    queryKey: financeKeys.bills(null),
-    queryFn: ({ signal }) =>
-      listBills({ limit: CAP }, signal).then((page) => page.rows),
+  /// Three lists, one panel, two keys.
+  ///
+  /// One panel because there is only ever one — it is the shell's right column
+  /// and a single URL flag, so the tab decides which model it is driving
+  /// rather than each tab drawing its own.
+  ///
+  /// Two keys because two of the three are the same shape. Merchandise and
+  /// Expenses share every column id, so a clause set on one is meaningful on
+  /// the other and rides across in `?f=`. Unbilled deliveries are a different
+  /// shape entirely — no status, no supplier name, a different date — and
+  /// share `?f=` with nobody: on one key its clauses and the bills' would take
+  /// turns overwriting each other, since each model writes back only the
+  /// clauses it recognises.
+  const billFilters = useFilters(billColumns)
+  const expenseFilters = useFilters(expenseColumns)
+  const waitFilters = useFilters(unbilledColumns, "f2")
+
+  /// Debounced, because every keystroke is a round trip over the bills.
+  const needle = useDebounced(query.trim(), 400)
+
+  // Each tab pages on its own, narrowed on the SERVER by kind, location,
+  // search, status and order. They used to be one read of the newest two
+  // hundred bills split by kind and location in the browser, which left the
+  // expense tab holding whatever expense bills happened to fall in that page.
+  const billAsk = {
+    ...billScope(billSort, billFilters.filters, needle),
+    kind: "MERCHANDISE",
+    site: site || undefined,
+    limit: PAGE,
+  }
+  const bills = useInfiniteQuery({
+    queryKey: [...financeKeys.bills(null, site || null), "pages", billAsk],
+    queryFn: ({ pageParam, signal }) =>
+      listBills({ ...billAsk, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched. Without
+    // it every keystroke empties the table to a loading line.
+    placeholderData: (previous) => previous,
   })
-  /// The inbox, narrowed on the SERVER. It shares no cache entry with the list
-  /// above because it is a different answer: `draft_from=GA` asks the node for
-  /// the drafts Operations filed, which the in-memory kind split cannot
-  /// recover — a returned GA draft is still DRAFT and still expense, and one
-  /// page of two hundred bills may not hold it at all.
-  const gaBills = useQuery({
-    queryKey: financeKeys.bills("DRAFT", null, "GA"),
-    queryFn: ({ signal }) =>
-      listBills({ status: "DRAFT", draftFrom: "GA", limit: CAP }, signal).then(
-        (page) => page.rows
-      ),
+  const expenseAsk = {
+    ...billScope(expenseSort, expenseFilters.filters, needle),
+    kind: "EXPENSE",
+    site: site || undefined,
+    limit: PAGE,
+  }
+  const expenses = useInfiniteQuery({
+    queryKey: [...financeKeys.bills(null, site || null), "pages", expenseAsk],
+    queryFn: ({ pageParam, signal }) =>
+      listBills({ ...expenseAsk, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
+  })
+  /// The inbox, narrowed on the SERVER: `draft_from=GA` asks the node for the
+  /// drafts Operations filed. Its status is fixed at DRAFT, so a status clause
+  /// on the shared expense model narrows it in the browser only.
+  const gaAsk = {
+    ...billScope(expenseSort, [], needle),
+    status: "DRAFT",
+    draftFrom: "GA",
+    site: site || undefined,
+    limit: PAGE,
+  }
+  const gaBills = useInfiniteQuery({
+    queryKey: [
+      ...financeKeys.bills("DRAFT", site || null, "GA"),
+      "pages",
+      gaAsk,
+    ],
+    queryFn: ({ pageParam, signal }) =>
+      listBills({ ...gaAsk, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
     // Fetched when the inbox is opened, not on every visit to this screen:
     // most mornings nobody is looking at what GA filed, and a fourth list is
-    // a fourth request. The bill sheet reuses this key when it has to open a
-    // GA row the register did not carry, so arriving from there is warm too.
+    // a fourth request.
     enabled: tab === "ga",
   })
   const unbilled = useQuery({
@@ -674,28 +780,23 @@ export function SupplierBills() {
       payablesAging({ as_of: asOf.value, site: site || undefined }, signal),
   })
 
-  // The location filter is applied here and not on the wire: `GET /bills`
-  // takes a status, a supplier and a limit, and no site. The ageing beside it
-  // *is* narrowed on the server, which is why one control drives two things
-  // that look the same and are not — and why the chip says which date and
-  // which location the report on screen belongs to.
-  // Both bill lists come out of one read and one cache key. `GET /bills` takes
-  // no `kind`, and asking for one would be a second loading state and a second
-  // cache entry for a partition of a list already in memory — the same argument
-  // that took `?unassessed=true` off the asset register.
-  const atSite = useMemo(
-    () =>
-      (bills.data ?? []).filter((row) => site === "" || row.site_id === site),
-    [bills.data, site]
-  )
   const billRows = useMemo(
-    () => atSite.filter((row) => row.kind !== "EXPENSE"),
-    [atSite]
+    () => bills.data?.pages.flatMap((page) => page.rows) ?? [],
+    [bills.data]
   )
   const expenseRows = useMemo(
-    () => atSite.filter((row) => row.kind === "EXPENSE"),
-    [atSite]
+    () => expenses.data?.pages.flatMap((page) => page.rows) ?? [],
+    [expenses.data]
   )
+  const gaRows = useMemo(
+    () => gaBills.data?.pages.flatMap((page) => page.rows) ?? [],
+    [gaBills.data]
+  )
+  /// The server's own counts — every bill each tab's request matches, never
+  /// the length of the pages loaded so far.
+  const expenseHeld = expenses.data?.pages[0]?.total ?? 0
+  const gaHeld = gaBills.data?.pages[0]?.total ?? 0
+  /// Unbilled deliveries answer whole, so the location is applied here.
   const waitRows = useMemo(
     () =>
       (unbilled.data ?? []).filter(
@@ -704,20 +805,18 @@ export function SupplierBills() {
     [unbilled.data, site]
   )
 
-  /// The GA inbox, narrowed by location in the browser the way the other two
-  /// bill lists are — `GET /bills` takes a site too, but sharing one location
-  /// control across every tab is what keeps the chip in the toolbar honest.
-  const gaRows = useMemo(
-    () =>
-      (gaBills.data ?? []).filter((row) => site === "" || row.site_id === site),
-    [gaBills.data, site]
-  )
-
-  /// Read off the answer and never off either tab's rows, which the location
-  /// filter and the kind split have already thinned. Four expense bills out of
-  /// a full two hundred is still four out of an unknown number of them.
-  const truncated = (bills.data ?? []).length >= CAP
-  const gaTruncated = (gaBills.data ?? []).length >= CAP
+  /// Whether the search or a column clause is narrowing a bill tab —
+  /// "nothing recorded" and "nothing matches" have different fixes.
+  const billNarrowed = needle !== "" || billFilters.filters.length > 0
+  const expenseNarrowed = needle !== "" || expenseFilters.filters.length > 0
+  const clearBills = () => {
+    setQuery("")
+    billFilters.clear()
+  }
+  const clearExpenses = () => {
+    setQuery("")
+    expenseFilters.clear()
+  }
 
   /// Every `GET /api/v1/finance/…` is behind SUPERVISOR, so a cashier signed
   /// into the hub is refused all three of these lists rather than served empty
@@ -730,23 +829,9 @@ export function SupplierBills() {
     />
   )
 
-  /// Three lists, one panel, two keys.
-  ///
-  /// One panel because there is only ever one — it is the shell's right column
-  /// and a single URL flag, so the tab decides which model it is driving
-  /// rather than each tab drawing its own.
-  ///
-  /// Two keys because two of the three are the same dataset. Merchandise and
-  /// Expenses are one read split by kind and share every column id, so a
-  /// clause set on one is meaningful on the other and rides across in `?f=`.
-  /// Unbilled deliveries are a different shape entirely — no status, no
-  /// supplier name, a different date — and share `?f=` with nobody: on one key
-  /// its clauses and the bills' would take turns overwriting each other, since
-  /// each model writes back only the clauses it recognises.
-  const billFilters = useFilters(billColumns)
-  const expenseFilters = useFilters(expenseColumns)
-  const waitFilters = useFilters(unbilledColumns, "f2")
-
+  // The bill tables take their order and their search from the request, so
+  // neither is done again here: sorting or searching the pages in hand and
+  // calling it the register is the mistake infinite scroll invites.
   const billTable = useTable(
     useMemo(
       () => ({
@@ -756,19 +841,12 @@ export function SupplierBills() {
         getRowId: (row: SupplierBill) => row.invoice_id,
         state: {
           columnFilters: billFilters.columnFilters,
-          globalFilter: query,
           sorting: billSort,
         },
+        manualSorting: true,
         onSortingChange: setBillSort,
-        onGlobalFilterChange: setQuery,
       }),
-      [
-        billRows,
-        billFilters.columns,
-        billFilters.columnFilters,
-        query,
-        billSort,
-      ]
+      [billRows, billFilters.columns, billFilters.columnFilters, billSort]
     )
   )
 
@@ -781,17 +859,15 @@ export function SupplierBills() {
         getRowId: (row: SupplierBill) => row.invoice_id,
         state: {
           columnFilters: expenseFilters.columnFilters,
-          globalFilter: query,
           sorting: expenseSort,
         },
+        manualSorting: true,
         onSortingChange: setExpenseSort,
-        onGlobalFilterChange: setQuery,
       }),
       [
         expenseRows,
         expenseFilters.columns,
         expenseFilters.columnFilters,
-        query,
         expenseSort,
       ]
     )
@@ -811,17 +887,15 @@ export function SupplierBills() {
         getRowId: (row: SupplierBill) => row.invoice_id,
         state: {
           columnFilters: expenseFilters.columnFilters,
-          globalFilter: query,
           sorting: expenseSort,
         },
+        manualSorting: true,
         onSortingChange: setExpenseSort,
-        onGlobalFilterChange: setQuery,
       }),
       [
         gaRows,
         expenseFilters.columns,
         expenseFilters.columnFilters,
-        query,
         expenseSort,
       ]
     )
@@ -953,11 +1027,11 @@ export function SupplierBills() {
           { value: "merchandise", label: "Merchandise" },
           {
             value: "expenses",
-            label: `Expenses${expenseRows.length > 0 ? ` · ${expenseRows.length}` : ""}`,
+            label: `Expenses${expenseHeld > 0 ? ` · ${count(expenseHeld)}` : ""}`,
           },
           {
             value: "ga",
-            label: `Dari GA${gaRows.length > 0 ? ` · ${gaRows.length}` : ""}`,
+            label: `Dari GA${gaHeld > 0 ? ` · ${count(gaHeld)}` : ""}`,
           },
           {
             value: "unbilled",
@@ -1097,18 +1171,14 @@ export function SupplierBills() {
             </Card>
           )}
 
-          {/* Under the ageing rather than over it, because the ageing is the
-              server's own and is not capped — the warning belongs to the list
-              it is true of, and putting it at the top of the page would have
-              read as being about both. */}
-          {truncated && <Truncated limit={CAP} noun="bills" />}
-
           <Card className="overflow-hidden">
             {queryState(bills, {
               loading: "Loading the bills…",
               refused,
               render: () =>
-                billRows.length === 0 ? (
+                billRows.length === 0 && billNarrowed ? (
+                  <NoMatch what="bills" onClear={clearBills} />
+                ) : billRows.length === 0 ? (
                   <EmptyState>
                     {site === ""
                       ? "No supplier invoice has been recorded yet."
@@ -1119,16 +1189,11 @@ export function SupplierBills() {
                     table={billTable}
                     onRowClick={(row) => bill.open(row.invoice_id)}
                     isSelected={(row) => row.invoice_id === bill.value}
-                    // The count is what separates "nothing has been invoiced
-                    // here" — the sentence above — from "plenty has, and none
-                    // of it matches what you typed".
-                    empty={
-                      <NoMatch
-                        what="bills"
-                        held={billRows.length}
-                        onClear={() => setQuery("")}
-                      />
-                    }
+                    // What the column clauses leave of the pages in hand. The
+                    // table keeps asking for pages while this shows, so it is
+                    // only final once the list has been read to its end.
+                    empty={<NoMatch what="bills" onClear={clearBills} />}
+                    more={bills}
                     // The ageing card takes the top of the page, so the
                     // table's own scroll region gives it back rather than
                     // running off the bottom of the window.
@@ -1162,16 +1227,14 @@ export function SupplierBills() {
             </AppLink>
             , not trade payable.
           </Banner>
-          {/* The same read, so the same warning — and it is worse here: the
-              merchandise bills are the bulk of the answer, so the expenses are
-              the rows most likely to be the ones that fell past the cap. */}
-          {truncated && <Truncated limit={CAP} noun="bills" className="mb-3" />}
           <Card className="overflow-hidden">
-            {queryState(bills, {
+            {queryState(expenses, {
               loading: "Loading the bills…",
               refused,
               render: () =>
-                expenseRows.length === 0 ? (
+                expenseRows.length === 0 && expenseNarrowed ? (
+                  <NoMatch what="expense bills" onClear={clearExpenses} />
+                ) : expenseRows.length === 0 ? (
                   <EmptyState>
                     {site === ""
                       ? "No expense bill has been recorded yet. Record one with “Record bill” and switch its kind to Expense."
@@ -1183,12 +1246,9 @@ export function SupplierBills() {
                     onRowClick={(row) => bill.open(row.invoice_id)}
                     isSelected={(row) => row.invoice_id === bill.value}
                     empty={
-                      <NoMatch
-                        what="expense bills"
-                        held={expenseRows.length}
-                        onClear={() => setQuery("")}
-                      />
+                      <NoMatch what="expense bills" onClear={clearExpenses} />
                     }
+                    more={expenses}
                     className="max-h-[calc(100vh-25rem)]"
                   />
                 ),
@@ -1208,19 +1268,20 @@ export function SupplierBills() {
             baris-barisnya akan menunjukkan akun usulan GA dan rujukan ke
             recordnya.
           </Banner>
-          {gaTruncated && (
-            <Truncated limit={CAP} noun="drafts" className="mb-3" />
-          )}
           <Card className="overflow-hidden">
             {queryState(gaBills, {
               loading: "Memuat draft dari GA…",
               refused,
               render: () => {
-                /// The server's own count, before the location select and the
-                /// search box thin it — the difference between "GA has sent
-                /// nothing" and "there are drafts and none of them show".
-                const held = (gaBills.data ?? []).length
-                if (held === 0) {
+                /// The server's own count for what was asked — the difference
+                /// between "GA has sent nothing" and "there are drafts and none
+                /// of them match".
+                if (gaHeld === 0 && needle !== "") {
+                  return (
+                    <NoMatch what="draft dari GA" onClear={clearExpenses} />
+                  )
+                }
+                if (gaHeld === 0) {
                   return (
                     <EmptyState>
                       Tidak ada draft dari GA. Tagihan yang diajukan GA akan
@@ -1236,12 +1297,9 @@ export function SupplierBills() {
                     // "GA has sent nothing" is the sentence above; this is
                     // "there are some, and none of them match what you typed".
                     empty={
-                      <NoMatch
-                        what="draft dari GA"
-                        held={held}
-                        onClear={() => setQuery("")}
-                      />
+                      <NoMatch what="draft dari GA" onClear={clearExpenses} />
                     }
+                    more={gaBills}
                     className="max-h-[calc(100vh-25rem)]"
                   />
                 )
@@ -1261,11 +1319,9 @@ export function SupplierBills() {
             . The figure is accepted quantity at the agreed price — what the
             supplier will charge if they charge what was agreed.
           </Banner>
-          {/* No `<Truncated>` on this tab, and that is the finding rather than
-              an omission: `unbilledReceipts()` sends no `limit`, so the
-              exposure in the banner above is a total. Drawing the warning here
-              too would have taught a reader to discount a figure that is
-              sound. */}
+          {/* The one tab that does not page, and that is the finding rather
+              than an omission: `unbilledReceipts()` sends no `limit`, so the
+              list is whole and the exposure in the banner above is a total. */}
           <Card className="overflow-hidden">
             {queryState(unbilled, {
               loading: "Looking for unbilled deliveries…",
@@ -1351,18 +1407,27 @@ function BillSheet({
   const inbox = useQuery({
     queryKey: financeKeys.bills("DRAFT", null, "GA"),
     queryFn: ({ signal }) =>
-      listBills({ status: "DRAFT", draftFrom: "GA", limit: CAP }, signal).then(
+      listBills({ status: "DRAFT", draftFrom: "GA" }, signal).then(
         (page) => page.rows
       ),
     enabled: id !== null && bills.isSuccess && listed === undefined,
   })
-  const bill = listed ?? inbox.data?.find((row) => row.invoice_id === id)
+  const fromLists = listed ?? inbox.data?.find((row) => row.invoice_id === id)
 
-  // What the bill was for, read one bill at a time. Only for an expense bill:
+  // What the bill was for, read one bill at a time. For an expense bill:
   // a merchandise bill has no lines by construction — what it debits is decided
   // by the posting rule, not by the person keying it — so asking would be a
   // request whose only possible answer is an empty array.
-  const detail = useBill(id, bill?.kind === "EXPENSE")
+  //
+  // And for any bill neither list carries. Both are pages of two hundred, and
+  // the register pages now, so a bill opened from a cross-link or a pasted URL
+  // can be older than either; the per-bill read answers it whatever its age.
+  const detail = useBill(
+    id,
+    fromLists?.kind === "EXPENSE" ||
+      (inbox.isSuccess && fromLists === undefined)
+  )
+  const bill = fromLists ?? detail.data
   const lines = detail.data?.lines ?? bill?.lines ?? null
 
   const against = (payments.data ?? [])
@@ -1417,7 +1482,8 @@ function BillSheet({
               // Held is a refusal the server makes, and paying the reader the
               // sentence before they press is better than a red banner after.
               // No warning ever reaches this button: warnings are not blocks.
-              disabled={post.isPending || held}
+              pending={post.isPending}
+              disabled={held}
               onClick={() => post.mutate()}
             >
               {post.isPending ? "Posting…" : "Post to the books"}
@@ -1432,12 +1498,10 @@ function BillSheet({
           bill === undefined ? (
             // The register does not carry it and the inbox is still answering:
             // saying "no bill is recorded" now would be a lie in progress.
-            inbox.isPending || inbox.isFetching ? (
+            inbox.isPending || inbox.isFetching || detail.isFetching ? (
               <LoadingState>Loading the bill…</LoadingState>
             ) : (
-              <EmptyState>
-                No bill is recorded under that id on this list.
-              </EmptyState>
+              <EmptyState>No bill is recorded under that id.</EmptyState>
             )
           ) : (
             <div className="flex flex-col gap-5">
@@ -1823,7 +1887,7 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
           </div>
         ) : holdDraft ? (
           <div className="mt-3 flex flex-col gap-3">
-            <Field label="Alasan ditahan" aside="wajib">
+            <Field label="Alasan ditahan" required>
               <Input
                 value={holdReason}
                 onChange={(event) => setHoldReason(event.target.value)}
@@ -1832,13 +1896,14 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
             </Field>
             {/* Optional, and it means what it says: an empty date is "held
                 until somebody decides", not "held forever". */}
-            <Field label="Rencana lepas" aside="opsional">
+            <Field label="Rencana lepas">
               <Day value={releaseDate} onChange={setReleaseDate} />
             </Field>
             <div className="flex justify-end">
               <Button
                 variant="soft"
-                disabled={holdReason.trim() === "" || hold.isPending}
+                pending={hold.isPending}
+                disabled={holdReason.trim() === ""}
                 onClick={() => hold.mutate()}
               >
                 {hold.isPending ? "Menahan…" : "Tahan tagihan"}
@@ -1863,7 +1928,7 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
             statusnya tetap DRAFT — ini pengembalian, bukan penghapusan.
           </span>
           <div className="mt-3 flex flex-col gap-3">
-            <Field label="Alasan dikembalikan" aside="wajib">
+            <Field label="Alasan dikembalikan" required>
               <Textarea
                 rows={2}
                 value={returnReason}
@@ -1874,7 +1939,8 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
             <div className="flex justify-end">
               <Button
                 variant="soft"
-                disabled={returnReason.trim() === "" || sendBack.isPending}
+                pending={sendBack.isPending}
+                disabled={returnReason.trim() === ""}
                 onClick={() => sendBack.mutate()}
               >
                 {sendBack.isPending ? "Mengembalikan…" : "Kembalikan ke GA"}
@@ -2191,7 +2257,8 @@ function RecordSheet({
               </span>
               <Button
                 variant="primary"
-                disabled={!totals.ready || record.isPending}
+                pending={record.isPending}
+                disabled={!totals.ready}
                 onClick={() => form.handleSubmit()}
               >
                 {record.isPending ? "Recording…" : "Record"}
@@ -2248,7 +2315,7 @@ function RecordSheet({
         <div className="grid grid-cols-2 gap-3">
           <form.Field name="invoiceNumber">
             {(field) => (
-              <Field label="Invoice number">
+              <Field label="Invoice number" required>
                 <Input
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -2259,7 +2326,7 @@ function RecordSheet({
           </form.Field>
           <form.Field name="siteId">
             {(field) => (
-              <Field label="Location">
+              <Field label="Location" required>
                 {/* Was a text box placeheld "e.g. DC01", which no site id in
                     the data resembles. The server refuses an unknown one; this
                     is how nobody has to meet that refusal. */}
@@ -2279,7 +2346,7 @@ function RecordSheet({
               master list's rather than somebody's typing. */}
           <form.Field name="supplierId">
             {(field) => (
-              <Field label="Supplier" className="col-span-2">
+              <Field label="Supplier" required className="col-span-2">
                 <SupplierPicker
                   value={field.state.value}
                   onPick={(supplier) => {
@@ -2292,7 +2359,7 @@ function RecordSheet({
           </form.Field>
           <form.Field name="invoiceDate">
             {(field) => (
-              <Field label="Invoice date">
+              <Field label="Invoice date" required>
                 <Day
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -2303,7 +2370,7 @@ function RecordSheet({
           </form.Field>
           <form.Field name="dueDate">
             {(field) => (
-              <Field label="Due date" hint="Optional.">
+              <Field label="Due date">
                 <Day
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -2316,6 +2383,7 @@ function RecordSheet({
             {(field) => (
               <Field
                 label="Subtotal"
+                required
                 problem={
                   field.state.value.trim() !== "" &&
                   parseMinor(field.state.value) === null
@@ -2529,6 +2597,7 @@ function ExpenseLines({
           <div className="grid grid-cols-[10rem_minmax(0,1fr)] gap-2">
             <Field
               label="Amount"
+              required
               problem={
                 line.amount.trim() !== "" && parseMinor(line.amount) === null
                   ? "Not a number."
@@ -2541,7 +2610,7 @@ function ExpenseLines({
                 placeholder="0"
               />
             </Field>
-            <Field label="Memo" hint="Optional; what this line was.">
+            <Field label="Memo" hint="What this line was.">
               <Input
                 value={line.memo}
                 onChange={(event) => edit(index, { memo: event.target.value })}

@@ -291,6 +291,141 @@ pub async fn ga_supply_requests(
     rows.iter().map(to_supply_row).collect()
 }
 
+/// A page of the supply register, and the shape of everything it was drawn
+/// from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct GaSupplyPage {
+    pub rows: Vec<GaSupplyRequestRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    pub next_cursor: Option<String>,
+    /// Every request the site, the stages and the search match.
+    pub total: i64,
+    /// How the requests in the site and the search split by stage, ignoring
+    /// which stages are ticked — what the screen's strip counts.
+    pub statuses: Vec<super::GaMaintenanceFacet>,
+}
+
+/// Where the previous page stopped: the last request's id.
+#[derive(Serialize, Deserialize)]
+struct GaSupplyCursor {
+    request_id: Uuid,
+}
+
+/// The supply register a page at a time: the same rows [`ga_supply_requests`]
+/// answers, walked by a keyset on `(created_at, request_id)`, newest first.
+///
+/// A separate reader rather than a cursor on the array: the array is what a
+/// shop's till and the site hub read, and an envelope would change their
+/// answer under them.
+pub async fn ga_supply_page(
+    pool: &PgPool,
+    scope: GaSupplyScope,
+    cursor: Option<&str>,
+) -> Result<GaSupplyPage, AppError> {
+    let site = scope
+        .site_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string);
+    let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
+    let needle = scope
+        .needle
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{text}%"));
+    let limit = scope.limit.clamp(1, MAX_GA_SUPPLY_LIMIT);
+    let after = cursor
+        .map(super::decode_cursor::<GaSupplyCursor>)
+        .transpose()?
+        .map(|cursor| cursor.request_id);
+    let sql = format!(
+        "{GA_SUPPLY_SELECT}
+          WHERE ($1::text IS NULL OR q.site_id = $1)
+            AND ($2::text[] IS NULL OR q.status = ANY($2))
+            AND ($3::text IS NULL OR q.item ILIKE $3
+                 OR q.requested_by ILIKE $3
+                 OR q.po_reference ILIKE $3)
+            AND ($4::uuid IS NULL
+                 OR (q.created_at, q.request_id) <
+                    (SELECT x.created_at, x.request_id
+                       FROM ga_supply_request x WHERE x.request_id = $4))
+          ORDER BY q.created_at DESC, q.request_id DESC
+          LIMIT $5"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(&site)
+        .bind(&statuses)
+        .bind(&needle)
+        .bind(after)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+    let out = rows.iter().map(to_supply_row).collect::<Result<Vec<_>, _>>()?;
+    let next_cursor = match out.last() {
+        Some(last) if out.len() as i64 == limit => Some(super::encode_cursor(&GaSupplyCursor {
+            request_id: last.request_id,
+        })?),
+        _ => None,
+    };
+
+    // The stage counts read the SEARCHED set, ignoring the ticked stages; the
+    // total reads the filtered one — the split every facet here keeps.
+    let counted = sqlx::query(
+        "WITH searched AS (
+             SELECT q.status FROM ga_supply_request q
+              WHERE ($1::text IS NULL OR q.site_id = $1)
+                AND ($3::text IS NULL OR q.item ILIKE $3
+                     OR q.requested_by ILIKE $3
+                     OR q.po_reference ILIKE $3)
+         )
+         SELECT 'status' AS kind, status AS value, COUNT(*)::bigint AS n
+           FROM searched GROUP BY status
+          UNION ALL
+         SELECT 'all', '', COUNT(*)::bigint
+           FROM searched WHERE $2::text[] IS NULL OR status = ANY($2)",
+    )
+    .bind(&site)
+    .bind(&statuses)
+    .bind(&needle)
+    .fetch_all(pool)
+    .await?;
+    let mut total = 0i64;
+    let mut by_status = Vec::new();
+    for row in &counted {
+        let kind: String = row.try_get("kind")?;
+        let count: i64 = row.try_get("n")?;
+        if kind == "status" {
+            by_status.push(super::GaMaintenanceFacet {
+                value: row.try_get("value")?,
+                label: None,
+                count,
+            });
+        } else {
+            total = count;
+        }
+    }
+    by_status.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    Ok(GaSupplyPage {
+        rows: out,
+        next_cursor,
+        total,
+        statuses: by_status,
+    })
+}
+
+/// One request, by id — what the request sheet opens, wherever in the
+/// register the request sits.
+pub async fn ga_supply_request(
+    pool: &PgPool,
+    request_id: Uuid,
+) -> Result<GaSupplyRequestRow, AppError> {
+    read_supply_request(pool, request_id).await
+}
+
 /// The seven categories, in the order the picker offers them.
 pub async fn ga_supply_categories(pool: &PgPool) -> Result<Vec<GaSupplyCategory>, AppError> {
     let rows = sqlx::query(

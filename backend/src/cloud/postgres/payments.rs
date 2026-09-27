@@ -237,6 +237,16 @@ pub struct PaymentScope {
     pub cursor: Option<String>,
     /// Absent asks for everything, unpaged.
     pub limit: Option<i64>,
+    /// The payment-date window, both ends inclusive. Absent is unbounded on
+    /// that side.
+    ///
+    /// Part of the SEARCHED set rather than a filter, so the facet counts are
+    /// counted inside the window too — "GIRO 14" beside a month's payments
+    /// means fourteen giro payments that month. The register used to apply
+    /// the window in the browser over one capped page, which could only ever
+    /// narrow what it already held.
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
 }
 
 /// Where the previous page stopped — as a ROW, not as a position. The
@@ -351,9 +361,20 @@ fn payment_rows() -> String {
           -- Our number and the bank's. `reference` is what somebody holding a
           -- statement actually has in front of them, and it is the reason this
           -- search exists at all.
+          -- And the parties it settled: a payment has no supplier of its own,
+          -- so the name is looked for on the bills it was allocated to. The
+          -- register used to search the names in the browser, over whatever
+          -- page it held; it pages now, so the search has to be here.
           WHERE ($1::text IS NULL
                  OR p.payment_number ILIKE $1
-                 OR p.reference ILIKE $1)"
+                 OR p.reference ILIKE $1
+                 OR EXISTS (
+                        SELECT 1 FROM supplier_payment_allocation al
+                          JOIN supplier_invoice i USING (invoice_id)
+                         WHERE al.payment_id = p.payment_id
+                           AND i.supplier_name ILIKE $1))
+            AND ($5::date IS NULL OR p.payment_date >= $5)
+            AND ($6::date IS NULL OR p.payment_date <= $6)"
     )
 }
 
@@ -431,16 +452,18 @@ pub async fn payment_page(pool: &PgPool, scope: PaymentScope) -> Result<PaymentP
              SELECT * FROM searched WHERE {PAYMENT_FILTERS}
          )
          SELECT * FROM kept
-          WHERE $5::uuid IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE payment_id = $5)
+          WHERE $7::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE payment_id = $7)
           ORDER BY {order}
-          LIMIT $6"
+          LIMIT $8"
     );
     let rows = sqlx::query(&sql)
         .bind(&needle)
         .bind(&statuses)
         .bind(&sites)
         .bind(&suppliers)
+        .bind(scope.from)
+        .bind(scope.to)
         .bind(cursor.as_ref().map(|c| c.payment_id))
         // No limit means no limit, which is what `NULL` means to `LIMIT`.
         .bind(limit)
@@ -465,8 +488,15 @@ pub async fn payment_page(pool: &PgPool, scope: PaymentScope) -> Result<PaymentP
         .collect::<Result<_, AppError>>()?;
     attach_allocations(pool, &mut payments).await?;
 
-    let (total, total_minor, facets) =
-        payment_facets(pool, needle.as_deref(), &statuses, &sites, &suppliers).await?;
+    let (total, total_minor, facets) = payment_facets(
+        pool,
+        needle.as_deref(),
+        &statuses,
+        &sites,
+        &suppliers,
+        (scope.from, scope.to),
+    )
+    .await?;
     Ok(PaymentPage {
         rows: payments,
         next_cursor,
@@ -489,6 +519,7 @@ async fn payment_facets(
     statuses: &Option<Vec<String>>,
     sites: &Option<Vec<String>>,
     suppliers: &Option<Vec<String>>,
+    (from, to): (Option<NaiveDate>, Option<NaiveDate>),
 ) -> Result<(i64, i64, PaymentFacets), AppError> {
     let rows_sql = payment_rows();
     let sql = format!(
@@ -509,6 +540,8 @@ async fn payment_facets(
         .bind(statuses)
         .bind(sites)
         .bind(suppliers)
+        .bind(from)
+        .bind(to)
         .fetch_all(pool)
         .await?;
 

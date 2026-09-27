@@ -279,6 +279,10 @@ pub async fn list_files(
                JOIN stored_file f ON f.file_id = a.file_id
                JOIN discussion_post p ON p.post_id = a.post_id
                JOIN discussion_thread t ON t.thread_id = p.thread_id
+              -- A withdrawn post takes its files with it; the thread's own
+              -- route refuses them, so listing them here would be a tile
+              -- that cannot be opened.
+              WHERE p.withdrawn_at IS NULL
            ) reachable
           ORDER BY at DESC
           LIMIT $2"

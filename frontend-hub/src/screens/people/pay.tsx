@@ -60,7 +60,7 @@ export function Pay() {
   return (
     <PageContent>
       <PageHeader
-        crumb="People · Pay"
+        crumb="People · Payroll"
         title="Pay agreements"
         sub="What somebody is on, from when, and who agreed it."
         actions={
@@ -200,10 +200,10 @@ function AgreePay({ employeeId }: { employeeId: string }) {
           cannot be filed behind the latest — a backdated raise is paid as a
           rapel, not by rewriting a month already settled.
         </Banner>
-        <Field label="Effective from">
+        <Field label="Effective from" required>
           <Day value={effectiveFrom} onChange={setEffectiveFrom} />
         </Field>
-        <Field label="Base" hint="Whole rupiah.">
+        <Field label="Base" hint="Whole rupiah." required>
           <Input
             type="number"
             min={1}
@@ -211,7 +211,11 @@ function AgreePay({ employeeId }: { employeeId: string }) {
             onChange={(event) => setBase(event.target.value)}
           />
         </Field>
-        <Field label="Why" hint="Recorded against the agreement, and required.">
+        <Field
+          label="Why"
+          hint="Recorded against the agreement, and required."
+          required
+        >
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -221,11 +225,9 @@ function AgreePay({ employeeId }: { employeeId: string }) {
         <div>
           <Button
             variant="primary"
+            pending={agree.isPending}
             disabled={
-              effectiveFrom === "" ||
-              Number(base) <= 0 ||
-              reason.trim() === "" ||
-              agree.isPending
+              effectiveFrom === "" || Number(base) <= 0 || reason.trim() === ""
             }
             onClick={() => agree.mutate()}
           >
@@ -276,26 +278,34 @@ function SetAccount({ employeeId }: { employeeId: string }) {
           transfer is rejected on a name mismatch, and one rejection fails the
           whole payroll file.
         </Banner>
-        <Field label="Bank">
+        <Field label="Bank" required>
           <Input
             value={bank}
             onChange={(event) => setBank(event.target.value)}
             placeholder="BCA"
           />
         </Field>
-        <Field label="Account number" hint="Digits only. Shown back as four.">
+        <Field
+          label="Account number"
+          hint="Digits only. Shown back as four."
+          required
+        >
           <Input
             value={number}
             onChange={(event) => setNumber(event.target.value)}
           />
         </Field>
-        <Field label="Account holder">
+        <Field label="Account holder" required>
           <Input
             value={holder}
             onChange={(event) => setHolder(event.target.value)}
           />
         </Field>
-        <Field label="Why" hint="Recorded against the amendment, and required.">
+        <Field
+          label="Why"
+          hint="Recorded against the amendment, and required."
+          required
+        >
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -305,12 +315,12 @@ function SetAccount({ employeeId }: { employeeId: string }) {
         <div>
           <Button
             variant="primary"
+            pending={save.isPending}
             disabled={
               bank.trim() === "" ||
               number.trim() === "" ||
               holder.trim() === "" ||
-              reason.trim() === "" ||
-              save.isPending
+              reason.trim() === ""
             }
             onClick={() => save.mutate()}
           >

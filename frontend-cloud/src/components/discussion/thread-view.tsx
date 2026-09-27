@@ -323,6 +323,8 @@ function ReplyBox({
       reply(threadId, {
         body: body.trim(),
         attachments: uploads.ready.map((file) => file.file_id),
+        reply_to_seq: null,
+        idempotency_key: null,
       }),
     onSuccess: () => {
       setBody("")

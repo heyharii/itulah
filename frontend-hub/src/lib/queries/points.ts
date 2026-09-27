@@ -33,21 +33,30 @@ export interface PointsAccount {
 }
 
 export interface PointsAccounts {
+  /// One page, largest balance first.
   readonly items: readonly PointsAccount[]
-  /// Summed over the rows RETURNED, which is why it is not called a total: a
-  /// page of the account book is not the book.
-  readonly outstanding_points_on_this_page: number
+  /// Opaque. Pass it back as `cursor` for the next page; `null` means this was
+  /// the last one.
+  readonly next_cursor: string | null
+  /// The three below are over the whole account book, not the page — so a
+  /// screen can state them before the last page has been read.
+  readonly account_count: number
+  /// The cached balances summed: what the tills would quote, and so what the
+  /// business owes.
+  readonly outstanding_points: number
   readonly accounts_not_reconciling: number
+}
+
+export interface PointsLedgerPage {
+  /// Newest first.
+  readonly items: readonly PointsEntry[]
+  readonly next_cursor: string | null
 }
 
 /// Where an entry came from. The database constrains this list, and exactly one
 /// of `sale_id` / `return_id` / `redemption_id` is set to match.
 export type PointsEntryType =
-  | "OPENING"
-  | "EARN"
-  | "RETURN_REVERSAL"
-  | "REDEEM_TO_VOUCHER"
-  | "ADJUSTMENT"
+  "OPENING" | "EARN" | "RETURN_REVERSAL" | "REDEEM_TO_VOUCHER" | "ADJUSTMENT"
 
 export interface PointsEntry {
   readonly entry_id: string
@@ -67,34 +76,43 @@ export interface PointsEntry {
 
 export const pointsKeys = {
   all: ["points"] as const,
-  accounts: (limit: number) => ["points", "accounts", limit] as const,
-  ledger: (customerId: string | null, limit: number) =>
-    ["points", "ledger", customerId, limit] as const,
+  /// Infinite queries: the key names the list, never the cursor — the pages
+  /// live under it.
+  accounts: () => ["points", "accounts"] as const,
+  ledger: (customerId: string | null) =>
+    ["points", "ledger", customerId] as const,
 }
 
+/// One page of the account book. `cursor` is the previous page's
+/// `next_cursor`, verbatim; absent for the first.
 export function listPointsAccounts(
-  limit = 200,
+  { cursor, limit = 200 }: { cursor?: string; limit?: number },
   signal?: AbortSignal
 ): Promise<PointsAccounts> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) params.set("cursor", cursor)
   return node.get<PointsAccounts>(
-    `/api/v1/members/points?limit=${limit}`,
+    `/api/v1/members/points?${params.toString()}`,
     { signal }
   )
 }
 
+/// One page of the ledger, the estate's or one member's.
 export function listPointsLedger(
-  customerId: string | null,
-  limit = 200,
+  {
+    customerId,
+    cursor,
+    limit = 200,
+  }: { customerId: string | null; cursor?: string; limit?: number },
   signal?: AbortSignal
-): Promise<readonly PointsEntry[]> {
+): Promise<PointsLedgerPage> {
   const params = new URLSearchParams({ limit: String(limit) })
   if (customerId) params.set("customer_id", customerId)
-  return node
-    .get<{ items: PointsEntry[] }>(
-      `/api/v1/members/points-ledger?${params.toString()}`,
-      { signal }
-    )
-    .then((body) => body.items)
+  if (cursor) params.set("cursor", cursor)
+  return node.get<PointsLedgerPage>(
+    `/api/v1/members/points-ledger?${params.toString()}`,
+    { signal }
+  )
 }
 
 /// The five entry types in the words a reader uses.

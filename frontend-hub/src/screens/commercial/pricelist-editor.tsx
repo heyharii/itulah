@@ -1,14 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { Percent, Tag } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Field, Input, Money } from "@/components/ui/field"
+import { Field, Input, Money, Select } from "@/components/ui/field"
 import { Choices, type Tile } from "@/components/ui/form"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
+import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, ErrorState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
+import { describeChangeKind, type ChangeKind } from "@/lib/queries/changes"
 import {
   BookWrittenNotPublished,
   commercialKeys,
@@ -18,11 +21,13 @@ import {
   NOTHING_TO_PUBLISH,
   writeAndPublish,
   type CommercialChannel,
+  type CreatePriceBookRequest,
   type MarkdownInput,
   type OfferRuleInput,
   type PublishReceipt,
   type TaxRuleInput,
 } from "@/lib/queries/commercial"
+import { toast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 import { Question } from "@/screens/commercial/controls"
 import { Named } from "@/screens/commercial/parts"
@@ -39,6 +44,43 @@ const INTENTS: readonly Tile<"SALE" | "FIXED">[] = [
   { value: "SALE", label: "Sale price", icon: Percent },
   { value: "FIXED", label: "Permanent price", icon: Tag },
 ]
+
+/// How a sale price is given: one figure for every cell, or a cut off each
+/// cell's own price.
+const SALE_MODES = [
+  { value: "PRICE", label: "Fixed price" },
+  { value: "PERCENT", label: "% off" },
+] as const
+
+/// A whole-percent cut off one price, rounded to the nearest Rp 100 —
+/// integer arithmetic throughout, so no float ever becomes a price.
+function percentOff(currentMinor: number, off: number): number {
+  return Math.round((currentMinor * (100 - off)) / 10000) * 100
+}
+
+/// How many rows of a preview to draw before "and N more".
+const PREVIEW = 8
+
+/// The kinds a person can declare. `UNCLASSIFIED` is what the server calls a
+/// change nobody declared, so it is never offered.
+type DeclaredKind = Exclude<ChangeKind, "UNCLASSIFIED">
+const DECLARED_KINDS: readonly DeclaredKind[] = [
+  "REGULAR_PRICE",
+  "MARKDOWN",
+  "CLEARANCE",
+  "CORRECTION",
+]
+
+/// The kind a batch most likely is, read off what it carries. Only a
+/// default: Markdown and Clearance look identical in the data, so the sheet
+/// lets the person say which.
+function kindOf(edits: readonly PendingEdit[]): DeclaredKind {
+  const sales = edits.filter((one) => one.kind === "markdown").length
+  const prices = edits.length - sales
+  if (prices === 0) return "MARKDOWN"
+  if (sales === 0) return "REGULAR_PRICE"
+  return sales >= prices ? "MARKDOWN" : "REGULAR_PRICE"
+}
 
 /// Writing prices from the grid.
 ///
@@ -269,6 +311,32 @@ export function SalePriceSheet({
   /// question people arrive with is one question — "what should this cost?" —
   /// and only the answer's *duration* decides which record it becomes.
   const [intent, setIntent] = useState<"SALE" | "FIXED">("SALE")
+  /// One figure for every cell, or a cut off each cell's own price.
+  const [mode, setMode] = useState<"PRICE" | "PERCENT">("PRICE")
+  const [pct, setPct] = useState("")
+  const byPercent = intent === "SALE" && mode === "PERCENT"
+
+  /// Whole percent, 1 to 99. A cut of nothing or of everything is not a sale.
+  const off = /^\d{1,2}$/.test(pct.trim()) ? Number(pct.trim()) : null
+  const offValid = off !== null && off >= 1 && off <= 99
+  const pctProblem =
+    pct.trim() === "" || offValid ? undefined : "A whole percent, 1 to 99."
+
+  /// Each cell's own sale price under "% off". `null` where the cell has no
+  /// price to take a percentage of — those are left out, not guessed.
+  const computed = cells.map((cell) => ({
+    cell,
+    next:
+      !offValid || cell.currentMinor === null
+        ? null
+        : percentOff(cell.currentMinor, off!),
+  }))
+  const unpricedCells = computed.filter((one) => one.cell.currentMinor === null)
+  /// Cells a cut would not actually lower — a small price rounded up to the
+  /// next hundred.
+  const notLower = computed.filter(
+    (one) => one.next !== null && one.next >= one.cell.currentMinor!
+  )
 
   const typed = minorOf(price)
   /// The dearest thing in the selection. The comparison has to hold for every
@@ -301,7 +369,32 @@ export function SalePriceSheet({
   /// the composer can be opened empty and filled in. Only a sale price has to
   /// be a number before this sheet can do anything with it.
   const ready =
-    cells.length > 0 && (intent === "FIXED" || (typed !== null && !untilBroken))
+    cells.length > 0 &&
+    (intent === "FIXED" ||
+      (!untilBroken &&
+        (byPercent
+          ? computed.some((one) => one.next !== null)
+          : typed !== null)))
+
+  /// What stands beside the button: a second look, never a refusal.
+  const caution = byPercent
+    ? [
+        notLower.length > 0
+          ? `${count(notLower.length)} cell${notLower.length === 1 ? "" : "s"} would not go down.`
+          : null,
+        unpricedCells.length > 0
+          ? `${count(unpricedCells.length)} without a price ${unpricedCells.length === 1 ? "is" : "are"} left out.`
+          : null,
+      ]
+        .filter((one) => one !== null)
+        .join(" ")
+    : intent === "SALE" && above
+      ? "Higher than the current price."
+      : ""
+
+  /// What each cell would become, for the preview.
+  const nextOf = (index: number): number | null =>
+    byPercent ? computed[index].next : typed
 
   return (
     <Sheet
@@ -324,7 +417,7 @@ export function SalePriceSheet({
         // Held in the bar until published; nothing reaches a till from here.
         <div className="flex items-center justify-between gap-3">
           <span className="min-w-0 truncate text-[0.875rem] text-warn-fg">
-            {intent === "SALE" && above ? "Higher than the current price." : ""}
+            {caution}
           </span>
           <Button
             variant="primary"
@@ -338,15 +431,31 @@ export function SalePriceSheet({
                 setIntent("SALE")
                 return
               }
+              // Each cell carries its own figure, so "% off" is one edit per
+              // cell at that cell's own price — nothing is grouped.
               onApply(
-                cells.map((cell) => ({
-                  ...cell,
-                  kind: "markdown" as const,
-                  priceMinor: typed!,
-                  until: untilAt,
-                }))
+                byPercent
+                  ? computed.flatMap(({ cell, next }) =>
+                      next === null
+                        ? []
+                        : [
+                            {
+                              ...cell,
+                              kind: "markdown" as const,
+                              priceMinor: next,
+                              until: untilAt,
+                            },
+                          ]
+                    )
+                  : cells.map((cell) => ({
+                      ...cell,
+                      kind: "markdown" as const,
+                      priceMinor: typed!,
+                      until: untilAt,
+                    }))
               )
               setPrice("")
+              setPct("")
               setUntil("")
             }}
           >
@@ -356,15 +465,40 @@ export function SalePriceSheet({
       }
     >
       <div className="flex flex-col gap-4">
-        <Field label="New price" problem={problem}>
-          <Money
-            value={price}
-            onChange={setPrice}
-            autoFocus
-            prefix="Rp"
-            placeholder="95.000"
-          />
-        </Field>
+        {intent === "SALE" && (
+          <Segmented options={SALE_MODES} value={mode} onChange={setMode} />
+        )}
+
+        {byPercent ? (
+          <Field
+            label="Percent off"
+            required
+            problem={pctProblem}
+            aside="each cell's own price, to the nearest Rp 100"
+          >
+            <Input
+              value={pct}
+              inputMode="numeric"
+              autoFocus
+              placeholder="20"
+              onChange={(event) => setPct(event.target.value)}
+            />
+          </Field>
+        ) : (
+          <Field
+            label="New price"
+            required={intent === "SALE"}
+            problem={problem}
+          >
+            <Money
+              value={price}
+              onChange={setPrice}
+              autoFocus
+              prefix="Rp"
+              placeholder="95.000"
+            />
+          </Field>
+        )}
 
         {/* The typed figure decides nothing about which is allowed. A sale
             price is written for the whole style at that shop — every colour
@@ -388,7 +522,7 @@ export function SalePriceSheet({
             is a clearance that runs until the stock is gone. */}
         {intent === "SALE" && (
           <Field
-            label="Sale ends (optional)"
+            label="Sale ends"
             problem={
               untilBroken ? "That is not a date this can read." : undefined
             }
@@ -401,26 +535,52 @@ export function SalePriceSheet({
           </Field>
         )}
 
+        {/* A preview, not the whole selection: a row or a column picked at
+            once can be hundreds of cells, and the figures that need a second
+            look are counted in the footer. */}
         <MiniTable head={["Cell", { label: "Now", align: "right" }, "New"]}>
-          {cells.map((cell) => (
-            <MiniRow key={cellKey(cell.articleCode, cell.siteId)}>
-              <MiniCell>
-                <Named
-                  name={cell.articleName ?? cell.articleCode}
-                  code={`${cell.articleCode} · ${cell.siteLabel}`}
-                />
-              </MiniCell>
-              <MiniCell align="right">
-                <span className="text-mute">{money(cell.currentMinor)}</span>
-              </MiniCell>
-              <MiniCell align="right">
-                <span className={typed === null ? "text-mute" : "text-ink"}>
-                  {typed === null ? "—" : money(typed)}
-                </span>
-              </MiniCell>
-            </MiniRow>
-          ))}
+          {cells.slice(0, PREVIEW).map((cell, index) => {
+            const next = nextOf(index)
+            const up =
+              next !== null &&
+              cell.currentMinor !== null &&
+              next >= cell.currentMinor
+            return (
+              <MiniRow key={cellKey(cell.articleCode, cell.siteId)}>
+                <MiniCell>
+                  <Named
+                    name={cell.articleName ?? cell.articleCode}
+                    code={`${cell.articleCode} · ${cell.siteLabel}`}
+                  />
+                </MiniCell>
+                <MiniCell align="right">
+                  <span className="text-mute tabular-nums">
+                    {money(cell.currentMinor)}
+                  </span>
+                </MiniCell>
+                <MiniCell align="right">
+                  <span
+                    className={cn(
+                      "tabular-nums",
+                      next === null
+                        ? "text-mute"
+                        : up && intent === "SALE"
+                          ? "text-warn-fg"
+                          : "text-ink"
+                    )}
+                  >
+                    {next === null ? "—" : money(next)}
+                  </span>
+                </MiniCell>
+              </MiniRow>
+            )
+          })}
         </MiniTable>
+        {cells.length > PREVIEW && (
+          <p className="-mt-2 text-[0.875rem] text-mute">
+            and {count(cells.length - PREVIEW)} more
+          </p>
+        )}
       </div>
     </Sheet>
   )
@@ -453,8 +613,17 @@ export function PublishSheet({
   onPublished: (receipts: readonly PublishReceipt[]) => void
 }) {
   const client = useQueryClient()
+  const navigate = useNavigate()
   const actor = useActor()
   const [name, setName] = useState("")
+  /// Problems are said once the name box is left or Publish was pressed —
+  /// never in red before anything has been touched.
+  const [nameLeft, setNameLeft] = useState(false)
+  const [tried, setTried] = useState(false)
+  /// What kind of change this is, as the person declares it. `null` follows
+  /// the default read off the batch; the server can never be told later.
+  const [declared, setDeclared] = useState<DeclaredKind | null>(null)
+  const kind = declared ?? kindOf(edits)
   const [from, setFrom] = useState(() => localInput(new Date()))
   const [until, setUntil] = useState("")
   /// The hours the prices in this book are actually down, if not all of them.
@@ -629,25 +798,30 @@ export function PublishSheet({
       // make somebody publish three books to say three things.
       effective_to: edit.until,
     }))
-    return writeAndPublish({
-      ...NOTHING_TO_PUBLISH,
-      version,
-      // Every book in a run is named for the day it starts. They arrive in a
-      // shop's activation log as separate entries, and three lines reading
-      // "Autumn repricing" would leave nobody able to tell which one their
-      // till had taken.
-      name:
-        books.length === 1
-          ? name.trim()
-          : `${name.trim()} · ${day(book.from!)}`,
-      effective_from: book.from!,
-      effective_to: effectiveTo,
-      tax_rules: taxRulesOf(book.prices),
-      offer_rules: offerRules,
-      markdowns,
-      actor_id: actor,
-      idempotency_key: crypto.randomUUID(),
-    })
+    /// `change_type` can only be said now: a published book refuses every
+    /// later update.
+    const request: CreatePriceBookRequest =
+      {
+        ...NOTHING_TO_PUBLISH,
+        version,
+        // Every book in a run is named for the day it starts. They arrive in a
+        // shop's activation log as separate entries, and three lines reading
+        // "Autumn repricing" would leave nobody able to tell which one their
+        // till had taken.
+        name:
+          books.length === 1
+            ? name.trim()
+            : `${name.trim()} · ${day(book.from!)}`,
+        change_type: kind,
+        effective_from: book.from!,
+        effective_to: effectiveTo,
+        tax_rules: taxRulesOf(book.prices),
+        offer_rules: offerRules,
+        markdowns,
+        actor_id: actor,
+        idempotency_key: crypto.randomUUID(),
+      }
+    return writeAndPublish(request)
   }
 
   /// The books that actually went out, kept across the failure of a later one.
@@ -681,8 +855,35 @@ export function PublishSheet({
       // each shop now is, and the limits the usage report joins against.
       // Naming five keys here would be naming every key this module has.
       client.invalidateQueries({ queryKey: commercialKeys.all })
+      // A receipt that reached nobody is the page banner's to say; a toast
+      // there would read as success.
+      const shops = new Set(receipts.flatMap((one) => one.delivered_to)).size
+      const first = receipts[0]
+      if (shops > 0 && first !== undefined) {
+        toast.success(
+          receipts.length === 1
+            ? `“${name.trim()}” published`
+            : `“${name.trim()}” published as ${count(receipts.length)} price changes`,
+          {
+            description: `Sent to ${count(shops)} shop${shops === 1 ? "" : "s"}.`,
+            action: {
+              label: "View rollout",
+              // The route tree is generated, so Router has no literal union
+              // to check `to` against — the same cast `AppLink` carries.
+              onClick: () =>
+                void navigate({
+                  to: "/commercial/changes",
+                  search: { book: first.id },
+                } as never),
+            },
+          }
+        )
+      }
       onPublished(receipts)
       setName("")
+      setNameLeft(false)
+      setTried(false)
+      setDeclared(null)
       setUntil("")
     },
   })
@@ -701,15 +902,24 @@ export function PublishSheet({
     // as one book on the sheet's own date, which is the opposite of what was
     // being typed.
     books.every((book) => book.from !== null) &&
-    edits.length > 0 &&
-    !publish.isPending
+    edits.length > 0
 
-  /// What is holding the button, said beside it.
+  const nameProblem =
+    (nameLeft || tried) && name.trim() === ""
+      ? "Give this price change a name."
+      : undefined
+  const startProblem =
+    tried && effectiveFrom === null ? "Set when it starts." : undefined
+
+  /// What is holding the button, said beside it — once Publish was pressed.
+  /// Signing in is not a field anybody can fix, so it is said at once.
   const problem =
     actor === ""
       ? "Sign in to publish."
-      : name.trim() === ""
-        ? "Give this book a name."
+      : !tried
+        ? undefined
+        : name.trim() === ""
+        ? "Give this price change a name."
         : effectiveFrom === null
           ? "Set when it starts."
           : windowBroken
@@ -730,7 +940,6 @@ export function PublishSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       title="Publish these prices"
-      id={`v${nextVersion}`}
       footer={
         <div className="flex items-center justify-between gap-3">
           <span
@@ -753,10 +962,15 @@ export function PublishSheet({
           </span>
           <Button
             variant="primary"
-            disabled={!ready}
-            onClick={() => publish.mutate()}
+            pending={publish.isPending}
+            disabled={edits.length === 0 || actor === ""}
+            onClick={() => {
+              // Pressed before it could go: say why, beside the fields.
+              setTried(true)
+              if (ready) publish.mutate()
+            }}
           >
-            {publish.isPending ? "Publishing…" : "Publish to the fleet"}
+            {publish.isPending ? "Publishing…" : "Publish to all shops"}
           </Button>
         </div>
       }
@@ -767,13 +981,11 @@ export function PublishSheet({
           // the world: those versions are live at the tills now, and retrying
           // must not send them again.
           <Banner tone="warn">
-            {sent.map((one) => `v${one.version}`).join(" and ")}{" "}
+            {count(sent.length)} of these price changes{" "}
             {sent.length === 1 ? "is" : "are"} already published and at the
-            tills. Only the {count(books.length - sent.length)} book
-            {books.length - sent.length === 1 ? "" : "s"} after{" "}
+            tills. Only the {count(books.length - sent.length)} after{" "}
             {sent.length === 1 ? "it" : "them"} failed — discard the prices that
-            did go out before trying again, or this will publish them twice
-            under two version numbers.
+            did go out before trying again, or this will publish them twice.
           </Banner>
         )}
 
@@ -789,8 +1001,8 @@ export function PublishSheet({
             price where they name one and leave the rest standing. */}
         {books.length > 1 && (
           <Banner tone="info">
-            Published as {count(books.length)} books, v{nextVersion}–v
-            {nextVersion + books.length - 1}, one per start date.
+            This goes out as {count(books.length)} price changes, one per start
+            date.
           </Banner>
         )}
 
@@ -803,20 +1015,43 @@ export function PublishSheet({
           </Banner>
         )}
 
-        <Field label="Name">
+        <Field label="Name" required problem={nameProblem}>
           <Input
             value={name}
             autoFocus
             placeholder="Weekend clearance"
             onChange={(event) => setName(event.target.value)}
+            onBlur={() => setNameLeft(true)}
           />
+        </Field>
+
+        {/* The kind is what Changes files this under, and it cannot be set
+            after publishing. Defaulted from what the batch carries; Markdown
+            and Clearance look the same in the data, so the person says. */}
+        <Field
+          label="Kind"
+          required
+          aside={
+            declared === null ? "suggested from what this carries" : undefined
+          }
+        >
+          <Select
+            value={kind}
+            onChange={(next) => setDeclared(next as DeclaredKind)}
+          >
+            {DECLARED_KINDS.map((one) => (
+              <option key={one} value={one}>
+                {describeChangeKind(one)}
+              </option>
+            ))}
+          </Select>
         </Field>
 
         {/* Before the start the tills keep charging what the last book gave
             them. The end is optional; each sale price can also end earlier on
             its own. */}
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Starts">
+          <Field label="Starts" required problem={startProblem}>
             <Input
               type="datetime-local"
               value={from}
@@ -824,7 +1059,7 @@ export function PublishSheet({
             />
           </Field>
           <Field
-            label="Ends (optional)"
+            label="Ends"
             problem={
               windowBroken ? "The end has to be after the start." : undefined
             }
@@ -842,7 +1077,7 @@ export function PublishSheet({
             label on the garment will not. */}
         {sales.length > 0 && (
           <Field
-            label="Sale hours (optional)"
+            label="Sale hours"
             problem={slotBroken ? "Give both hours, or neither." : undefined}
           >
             <div className="flex items-center gap-2">

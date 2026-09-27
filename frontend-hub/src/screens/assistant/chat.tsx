@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from "react"
 
 import { Transcript } from "@/components/assistant/chat"
 import { Composer } from "@/components/assistant/composer"
+import { Barred, BudgetSpent } from "@/components/assistant/panel"
 import { useAssistant } from "@/components/assistant/state"
+import { AppLink } from "@/components/ui/app-link"
 import { History } from "@/screens/assistant/history"
 import { atLeast, useLayout } from "@/lib/layout"
 import {
@@ -76,6 +78,8 @@ export function AssistantChat() {
 
   const empty = exchanges.length === 0 && !loading
   const off = capabilities.data?.enabled === false
+  const barred = capabilities.data?.allowed === false
+  const spent = capabilities.data?.budget?.exhausted === true
   // Only the narrow bar draws this, and only from the list that is already
   // cached for the sidebar — asking the server for one title would be a second
   // request for a string this app is holding two components away.
@@ -103,8 +107,14 @@ export function AssistantChat() {
 
         {off ? (
           <Missing />
+        ) : barred ? (
+          <div className="grid flex-1 place-items-center px-6">
+            <div className="max-w-[26rem] text-center">
+              <Barred />
+            </div>
+          </div>
         ) : empty ? (
-          <Opening />
+          <Opening spent={spent} />
         ) : (
           <>
             <div className="min-h-0 flex-1 overflow-y-auto">
@@ -119,9 +129,13 @@ export function AssistantChat() {
               <div className="mx-auto w-full max-w-[46rem]">
                 <Composer autoFocus />
                 <p className="mt-2 px-1 text-[0.875rem] text-mute">
-                  {busy
-                    ? "Working…"
-                    : "Enter sends · ⇧Enter for a new line · answers are drawn from live reads"}
+                  {spent ? (
+                    <BudgetSpent />
+                  ) : busy ? (
+                    "Working…"
+                  ) : (
+                    "Enter sends · ⇧Enter for a new line · answers are drawn from live reads"
+                  )}
                 </p>
               </div>
             </div>
@@ -138,7 +152,7 @@ export function AssistantChat() {
 /// server's — written beside the tools that answer them — because the useful
 /// suggestion is the one somebody did not know they could ask, and a list
 /// written in the browser goes stale the week a tool is added.
-function Opening() {
+function Opening({ spent }: { spent: boolean }) {
   const { send } = useAssistant()
   const identity = useIdentity()
   const brief = useBrief()
@@ -187,10 +201,22 @@ function Opening() {
         )}
 
         <p className="mt-5 px-2 text-[0.875rem] leading-relaxed text-mute">
-          It reads this node — stock, prices, takings, the ledger, and anything
-          else in the database — and writes nothing. Every read it makes is
-          shown under the answer.
+          {spent ? (
+            <BudgetSpent />
+          ) : (
+            <>
+              It reads this node — stock, prices, takings, the ledger, and
+              anything else in the database — and writes nothing. Every read it
+              makes is shown under the answer.
+            </>
+          )}
         </p>
+        <AppLink
+          to="/assistant/glossary"
+          className="mt-1 inline-block px-2 text-[0.875rem] text-mute underline-offset-2 hover:text-ink hover:underline"
+        >
+          The words it reads your questions with
+        </AppLink>
       </div>
     </div>
   )

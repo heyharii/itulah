@@ -2,6 +2,6 @@
 import type { SaleReturnFacet } from "./SaleReturnFacet";
 
 /**
- * The two things the returns list can be narrowed by.
+ * The closed sets the returns list can be narrowed by, each counted.
  */
-export type SaleReturnFacets = { sites: Array<SaleReturnFacet>, reasons: Array<SaleReturnFacet>, };
+export type SaleReturnFacets = { sites: Array<SaleReturnFacet>, reasons: Array<SaleReturnFacet>, actors: Array<SaleReturnFacet>, };

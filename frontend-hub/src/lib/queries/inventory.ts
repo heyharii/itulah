@@ -474,10 +474,37 @@ export interface Reconciliation {
   readonly received: TransferEvidence | null
 }
 
-export interface ReconciliationList {
+/// What the reconciliation report can be asked for — every parameter
+/// `GET /api/v1/inventory/reconciliations` answers.
+export interface ReconciliationScope {
+  /// Free text over the tag, the SKU, the shipment and both ends of the route.
+  readonly q?: string
+  /// One status, or `ATTENTION` for the three that block certification.
+  readonly status?: string
+  readonly destination_store_id?: string
+  /// The sending node's OWN site id — `dc-01`, not the centre's `dc`.
+  readonly source_dc_id?: string
+  /// `status` (the house order: attention first), `destination`, `epc` or
+  /// `occurred_at`.
+  readonly sort?: string
+  readonly desc?: boolean
+  /// From a previous page's `next_cursor`.
+  readonly cursor?: string
+}
+
+/// A page of the report. `summary` is the whole fleet's, unaffected by the
+/// filters; `total` and `facets` are over what the search matches.
+export interface ReconciliationPage {
   readonly as_of: string
   readonly summary: ReconciliationSummary
-  readonly items: readonly Reconciliation[]
+  readonly rows: readonly Reconciliation[]
+  readonly next_cursor: string | null
+  readonly total: number
+  readonly facets: {
+    readonly statuses: readonly InventoryFacet[]
+    readonly destinations: readonly InventoryFacet[]
+    readonly sources: readonly InventoryFacet[]
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1346,8 +1373,8 @@ export const inventoryKeys = {
   all: ["inventory"] as const,
   fleet: () => ["inventory", "fleet-pools"] as const,
   pool: (id: string) => ["inventory", "pools", id] as const,
-  availability: (poolId: string, search: string, cursor: string) =>
-    ["inventory", "availability", poolId, search, cursor] as const,
+  availability: (poolId: string, search: string, shortfall: boolean) =>
+    ["inventory", "availability", poolId, search, shortfall] as const,
   /// `held` is part of the key and not a detail of the fetch: the held answer
   /// is a few dozen rows and the whole-catalogue answer is a few thousand, and
   /// a screen that asked for one must never be handed the other out of cache.
@@ -1355,7 +1382,10 @@ export const inventoryKeys = {
     ["inventory", "availability", "whole", poolId, held] as const,
   asOf: (at: string, siteId: string, poolId: string) =>
     ["inventory", "as-of", at, siteId, poolId] as const,
-  reconciliations: () => ["inventory", "reconciliations"] as const,
+  reconciliations: (scope?: ReconciliationScope) =>
+    scope === undefined
+      ? (["inventory", "reconciliations"] as const)
+      : (["inventory", "reconciliations", scope] as const),
 
   allotments: () => ["inventory", "allotments"] as const,
   allotmentList: (type: string, status: string) =>
@@ -1377,11 +1407,14 @@ export const inventoryKeys = {
     ["inventory", "counts", "scoped", scope] as const,
   count: (id: string) => ["inventory", "counts", id] as const,
 
-  observations: (poolId: string, epc: string) =>
-    ["inventory", "observations", poolId, epc] as const,
+  observations: (scope: SightingScope) =>
+    ["inventory", "observations", scope] as const,
   anomalies: () => ["inventory", "observation-anomalies"] as const,
 
-  missing: () => ["inventory", "missing"] as const,
+  missing: (scope?: MissingScope) =>
+    scope === undefined
+      ? (["inventory", "missing"] as const)
+      : (["inventory", "missing", "scoped", scope] as const),
 
   /// The ledger, under the question that was asked of it. Scoped and unscoped
   /// spellings share a prefix, so one `invalidateQueries` on `movements()`
@@ -1459,18 +1492,25 @@ export function inventoryAsOf(
     .then((page) => ({ ...page, items: page.rows }))
 }
 
+/// One page of a pool's availability, in SKU-code order, walking the SKU-code
+/// `next_cursor`. `shortfall` keeps only the SKUs promised beyond what the
+/// pool holds — narrowed by the server, so it is every one of them.
 export function availability(
-  sourcePoolId: string,
-  query: string,
-  cursor: string,
+  scope: {
+    readonly sourcePoolId: string
+    readonly query: string
+    readonly shortfall: boolean
+    readonly cursor?: string
+  },
   signal?: AbortSignal
 ) {
   return node.get<Availability>(
     `/api/v1/inventory/availability${search({
-      source_pool_id: sourcePoolId,
-      q: query,
-      cursor,
+      source_pool_id: scope.sourcePoolId,
+      q: scope.query,
+      cursor: scope.cursor,
       limit: 200,
+      shortfall: scope.shortfall ? "true" : undefined,
     })}`,
     { signal }
   )
@@ -1677,23 +1717,63 @@ export function countDetail(id: string, signal?: AbortSignal) {
   return node.get<CountDetail>(`/api/v1/inventory/counts/${id}`, { signal })
 }
 
-/// What one sweep list asks for, exported so the screen's "this was cut off"
-/// banner and this request cannot disagree about the number. The pool and the
-/// EPC go on the wire; everything else the screen asks of these rows is asked
-/// of THESE rows, which is exactly what the banner exists to say.
-export const OBSERVATIONS_LIMIT = 300
+/// What the sighting list can be asked for — every parameter
+/// `GET /api/v1/inventory/observations` answers.
+export interface SightingScope {
+  /// The centre's pool id. An outbound rollup also matches its leaves.
+  readonly pool_id?: string
+  /// One tag, exactly.
+  readonly epc?: string
+  /// Free text over the tag, the SKU code, the reader and its session.
+  readonly q?: string
+  readonly device_id?: string
+  readonly site_id?: string
+  /// `last_seen_at` (the house order, newest first), `first_seen_at`,
+  /// `received_at`, `read_count` or `epc`.
+  readonly sort?: string
+  /// The house order is already newest first, so on `last_seen_at` this asks
+  /// for the list read the OTHER way — as the ledger's does.
+  readonly desc?: boolean
+  readonly limit?: number
+  /// From a previous page's `next_cursor`.
+  readonly cursor?: string
+}
 
-export function listObservations(
-  poolId: string,
-  epc: string,
-  signal?: AbortSignal
-) {
-  return node
-    .get<{ rows: Observation[] }>(
-      `/api/v1/inventory/observations${search({ pool_id: poolId, epc, limit: OBSERVATIONS_LIMIT })}`,
-      { signal }
-    )
-    .then((body) => body.rows)
+/// A page of sightings, and the exact shape of everything it was drawn from.
+export interface SightingPage {
+  readonly rows: readonly Observation[]
+  /// Null at the end of the list.
+  readonly next_cursor: string | null
+  /// Every sighting the pool, the tag, the search and the filters match.
+  readonly total: number
+  readonly facets: {
+    readonly pools: readonly InventoryFacet[]
+    readonly devices: readonly InventoryFacet[]
+    readonly methods: readonly InventoryFacet[]
+  }
+}
+
+/// One page of the sweep list. The server clamps at 500.
+export const SIGHTINGS_PAGE = 200
+
+/// The sightings: searched, filtered, sorted and paged by the server, walked
+/// with `next_cursor`.
+export function sightingsPage(scope: SightingScope, signal?: AbortSignal) {
+  return node.get<SightingPage>(
+    `/api/v1/inventory/observations${search({
+      pool_id: scope.pool_id,
+      epc: scope.epc,
+      q: scope.q,
+      device_id: scope.device_id,
+      site_id: scope.site_id,
+      sort: scope.sort,
+      // Only the word the server looks for; anything else is the house order.
+      dir: scope.desc === true ? "desc" : undefined,
+      limit: scope.limit ?? SIGHTINGS_PAGE,
+      cursor: scope.cursor,
+    })}`,
+    { signal }
+  )
 }
 
 /// What the ledger can be asked for.
@@ -1814,37 +1894,75 @@ export function observationAnomalies(signal?: AbortSignal) {
     .then((body) => body.items)
 }
 
-/// Everything open, not the first page of it.
-///
-/// The limit is the server's own maximum and it is here on purpose: the route
-/// used to answer with five hundred rows and no way to ask for more, and the
-/// screen counts what it holds. Asking for the same five hundred keeps that
-/// count meaning exactly what it meant. The envelope's `total` is what should
-/// eventually replace it — a screen that says "200 open" when there are nine
-/// hundred is no better than one that says "500".
-export function listMissing(signal?: AbortSignal): Promise<MissingItem[]> {
-  return node
-    .get<{ rows: MissingItem[] }>(
-      `/api/v1/inventory/missing${search({ limit: 500 })}`,
-      { signal }
-    )
-    .then((body) => body.rows)
+/// What the missing list can be asked for — every parameter
+/// `GET /api/v1/inventory/missing` answers.
+export interface MissingScope {
+  /// Free text over the tag, the barcode, the SKU code, the pool id and label.
+  readonly q?: string
+  /// The centre's pool id.
+  readonly pool_id?: string
+  readonly site_id?: string
+  /// `COUNTED` or `NEVER` — whether any official count has ever held it.
+  readonly counted?: string
+  /// `missing_since` (the house order, oldest first), `quantity`, `pool`,
+  /// `last_observation` or `epc`.
+  readonly sort?: string
+  readonly desc?: boolean
+  readonly limit?: number
+  /// From a previous page's `next_cursor`.
+  readonly cursor?: string
 }
 
-export function listReconciliations(
+/// A page of what cannot be found, and the exact shape of all of it.
+export interface MissingPage {
+  readonly rows: readonly MissingItem[]
+  /// Null at the end of the list.
+  readonly next_cursor: string | null
+  /// Every missing subject the search and the filters match.
+  readonly total: number
+  readonly facets: {
+    readonly pools: readonly InventoryFacet[]
+    readonly sites: readonly InventoryFacet[]
+    readonly counted: readonly InventoryFacet[]
+  }
+}
+
+/// One page of what is missing: searched, filtered, sorted and paged by the
+/// server, walked with `next_cursor`. The server clamps at 500.
+export function missingPage(scope: MissingScope, signal?: AbortSignal) {
+  return node.get<MissingPage>(
+    `/api/v1/inventory/missing${search({
+      q: scope.q,
+      pool_id: scope.pool_id,
+      site_id: scope.site_id,
+      counted: scope.counted,
+      sort: scope.sort,
+      dir: scope.desc === true ? "desc" : undefined,
+      limit: scope.limit ?? 200,
+      cursor: scope.cursor,
+    })}`,
+    { signal }
+  )
+}
+
+/// One page of the transfer reconciliation report, walking `next_cursor`.
+export function reconciliationsPage(
+  scope: ReconciliationScope,
   signal?: AbortSignal
-): Promise<ReconciliationList> {
-  return node
-    .get<{
-      readonly as_of: string
-      readonly summary: ReconciliationSummary
-      readonly rows: readonly Reconciliation[]
-    }>("/api/v1/inventory/reconciliations", { signal })
-    .then((page) => ({
-      as_of: page.as_of,
-      summary: page.summary,
-      items: page.rows,
-    }))
+) {
+  return node.get<ReconciliationPage>(
+    `/api/v1/inventory/reconciliations${search({
+      q: scope.q,
+      status: scope.status,
+      destination_store_id: scope.destination_store_id,
+      source_dc_id: scope.source_dc_id,
+      sort: scope.sort,
+      dir: scope.desc === true ? "desc" : undefined,
+      limit: 200,
+      cursor: scope.cursor,
+    })}`,
+    { signal }
+  )
 }
 
 /// The ledger's health, and where it and the projection disagree.

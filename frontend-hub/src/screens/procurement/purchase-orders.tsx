@@ -327,7 +327,10 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     size: 130,
     meta: { card: "metric" },
     cell: ({ row }) => {
-      const pct = share(row.original.received_value_minor, row.original.net_minor)
+      const pct = share(
+        row.original.received_value_minor,
+        row.original.net_minor
+      )
       return (
         <span
           className="flex items-center gap-2"
@@ -1003,15 +1006,20 @@ function OrderSheet({
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
   const cancel = useMutation({
-    mutationFn: (orderId: string) =>
-      cancelPurchaseOrder(orderId, null, idempotency.key),
+    mutationFn: ({ orderId, reason }: { orderId: string; reason: string }) =>
+      cancelPurchaseOrder(
+        orderId,
+        reason === "" ? null : reason,
+        idempotency.key
+      ),
     onSuccess: (done) => {
       idempotency.rotate()
       void client.invalidateQueries({ queryKey: procurementKeys.orders() })
       void client.invalidateQueries({ queryKey: procurementKeys.suppliers() })
       toast.success(`${done.po_number} cancelled`)
     },
-    onError: (problem: Error) => toast.error(problem.message),
+    // A refusal is said inside the confirmation that asked for it — see
+    // `ConfirmButton` — not in a toast over a screen that has moved on.
   })
 
   return (
@@ -1064,7 +1072,18 @@ function OrderSheet({
                 variant="ghost"
                 pending={cancel.isPending}
                 className="h-8 px-2.5 text-[0.875rem]"
-                onConfirm={() => cancel.mutate(detail.data.purchase_order_id)}
+                reason={{
+                  label: "Why",
+                  optional: true,
+                  placeholder: "Supplier cannot deliver this season",
+                  hint: "Kept on the cancelled order.",
+                }}
+                onConfirm={(reason) =>
+                  cancel.mutateAsync({
+                    orderId: detail.data.purchase_order_id,
+                    reason,
+                  })
+                }
               />
             )}
             <AppLink
@@ -1180,7 +1199,9 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
     <div className="flex flex-col gap-5">
       <Facts>
         <Fact term="Supplier">{order.supplier_name ?? "—"}</Fact>
-        <Fact term="Date created">{day(order.issued_at ?? order.created_at)}</Fact>
+        <Fact term="Date created">
+          {day(order.issued_at ?? order.created_at)}
+        </Fact>
         <Fact term="Delivery date">
           <span className={late ? "font-medium text-bad-fg" : undefined}>
             {order.expected_arrival === null
@@ -1330,13 +1351,15 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
       {/* No payment terms: payment is Finance's to arrange (the owner,
           2026-09-26). */}
 
-      {order.notes !== null && order.notes !== undefined && order.notes.trim() !== "" && (
-        <Section title="Notes">
-          <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
-            {order.notes.trim()}
-          </p>
-        </Section>
-      )}
+      {order.notes !== null &&
+        order.notes !== undefined &&
+        order.notes.trim() !== "" && (
+          <Section title="Notes">
+            <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+              {order.notes.trim()}
+            </p>
+          </Section>
+        )}
 
       <OrderHistory order={order} />
     </div>
@@ -1365,7 +1388,9 @@ function OrderHistory({ order }: { order: PurchaseOrderDetail }) {
             </div>
             <ul className="mt-1.5 flex flex-col gap-1">
               {revision.changes.length === 0 ? (
-                <li className="text-[0.875rem] text-mute">Saved without changes.</li>
+                <li className="text-[0.875rem] text-mute">
+                  Saved without changes.
+                </li>
               ) : (
                 revision.changes.map((change, index) => (
                   <li key={index} className="text-[0.875rem] text-ink">

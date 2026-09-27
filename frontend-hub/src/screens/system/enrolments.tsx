@@ -163,14 +163,14 @@ function ClaimRow({
       <div className="flex gap-2">
         <Button
           variant="primary"
-          disabled={approve.isPending || refuse.isPending}
+          pending={approve.isPending || refuse.isPending}
           onClick={() => approve.mutate()}
         >
           {approve.isPending ? "Approving…" : "The numbers match — approve"}
         </Button>
         <Button
           variant="quiet"
-          disabled={approve.isPending || refuse.isPending}
+          pending={approve.isPending || refuse.isPending}
           onClick={() => refuse.mutate()}
         >
           Refuse
@@ -205,7 +205,7 @@ function CodeRow({ row }: { row: Enrolment }) {
         <Button
           size="sm"
           variant="quiet"
-          disabled={revoke.isPending}
+          pending={revoke.isPending}
           onClick={() => revoke.mutate()}
         >
           Revoke
@@ -290,7 +290,8 @@ export function InstallSheet({
           {!issued && (
             <Button
               variant="primary"
-              disabled={siteId === "" || issue.isPending}
+              pending={issue.isPending}
+              disabled={siteId === ""}
               onClick={() => issue.mutate()}
             >
               {issue.isPending ? "Issuing…" : "Issue code"}
@@ -361,6 +362,7 @@ export function InstallSheet({
           </div>
           <Field
             label="Site"
+            required
             hint="A site that already has a server gets a replacement: the old machine is locked out once the new one is approved."
           >
             <Select value={siteId} onChange={setSiteId}>

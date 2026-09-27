@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.itulah.kasir.data.Money
+import id.itulah.kasir.data.PaymentMethod
 import id.itulah.kasir.data.Tender
 import id.itulah.kasir.pos.BasketLine
 
@@ -78,6 +79,8 @@ fun TenderScreen(
     /// are grouped by garment here because a column 45% wide listing thirty
     /// identical shirts is a column nobody reads.
     lines: List<BasketLine>,
+    /// Finance's payment methods (or the till's built-in fallback list).
+    methods: List<PaymentMethod> = PaymentMethod.FALLBACK,
     busy: Boolean,
     /// What went wrong the last time this screen tried to take the money.
     ///
@@ -89,9 +92,24 @@ fun TenderScreen(
     onCancel: () -> Unit,
     onConfirm: (List<Tender>) -> Unit,
 ) {
-    var method by remember { mutableStateOf("CASH") }
+    // One tile per tender type; a type with several methods (Debit → BCA,
+    // Mandiri…) then asks which one. VOUCHER is offered as before and still
+    // carries no hold or code from this screen (the tablet's known limitation).
+    var type by remember { mutableStateOf("CASH") }
+    var pick by remember { mutableStateOf<PaymentMethod?>(null) }
+    val groups = methods.ifEmpty { PaymentMethod.FALLBACK }.groupBy { it.tenderType }
+    val group = groups[type] ?: groups.values.first()
+    val chosen = pick?.takeIf { it in group } ?: group.singleOrNull()
+    // What the node calls it (`CASH`, `CARD`, `QRIS`, `EWALLET`, `VOUCHER`).
+    val method = (chosen ?: group.first()).wireMethod
     var typed by remember { mutableStateOf("") }
     var taken by remember { mutableStateOf(listOf<Tender>()) }
+    // The approval code off the EDC slip or the wallet's screen, pos-desktop's
+    // rule: every card, QRIS and e-wallet tender carries one, so the bank
+    // reconciliation can find the sale. The keypad types into whichever of
+    // the two fields was tapped last.
+    var approval by remember { mutableStateOf("") }
+    var target by remember { mutableStateOf(Field.AMOUNT) }
 
     val settled = taken.sumOf { it.amountMinor }
     val outstanding = (totalMinor - settled).coerceAtLeast(0)
@@ -111,6 +129,13 @@ fun TenderScreen(
         (previewCash - (totalMinor - previewNonCash).coerceAtLeast(0)).coerceAtLeast(0)
     val covered = outstanding == 0L
     val partial = !covered && entered > 0 && entered < outstanding
+    val needsApproval = method in APPROVED
+    val approvalMissing = needsApproval && approval.length < 4
+    val typingApproval = needsApproval && target == Field.APPROVAL
+    // "BCA · 884213", as pos-desktop writes it: the receipt prints the
+    // reference and not the acquirer.
+    fun referenceFor(one: PaymentMethod): String? =
+        if (!needsApproval) null else one.acquirer?.let { "$it · $approval" } ?: approval
 
     // CASH-only shortcuts, pos-desktop's rule: exactly what is owed, then the
     // next note up that a customer is likely to be holding.
@@ -153,14 +178,36 @@ fun TenderScreen(
                             KeyRow(gap = 9.dp) {
                                 // Blue, not ink. The accent means *selected* and
                                 // nothing else.
-                                Tender.METHODS.take(4).forEach { candidate ->
+                                groups.forEach { (tenderType, members) ->
                                     ChoiceTile(
-                                        methodLabel(candidate),
-                                        selected = candidate == method,
-                                        onClick = { method = candidate },
+                                        if (members.size == 1) members[0].name else typeLabel(tenderType),
+                                        selected = members === group,
+                                        onClick = { type = tenderType; pick = null; approval = ""; target = Field.AMOUNT },
                                         modifier = Modifier.weight(1f),
                                         height = 58.dp,
                                     )
+                                }
+                            }
+                        }
+
+                        if (group.size > 1) {
+                            Column {
+                                SectionLabel("Bank / mesin EDC")
+                                Spacer(Modifier.height(8.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    group.chunked(4).forEach { row ->
+                                        KeyRow {
+                                            row.forEach { candidate ->
+                                                ChoiceTile(
+                                                    candidate.name,
+                                                    selected = candidate == chosen,
+                                                    onClick = { pick = candidate; approval = "" },
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                            }
+                                            repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -175,7 +222,12 @@ fun TenderScreen(
                                     .fillMaxWidth()
                                     .height(68.dp)
                                     .background(Canvas, RoundedCornerShape(RInner))
-                                    .border(1.dp, if (typed.isBlank()) Hairline2 else Accent, RoundedCornerShape(RInner))
+                                    .border(
+                                        1.dp,
+                                        if (!typingApproval && typed.isNotBlank()) Accent else Hairline2,
+                                        RoundedCornerShape(RInner),
+                                    )
+                                    .clickable { target = Field.AMOUNT }
                                     .padding(horizontal = 18.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -188,7 +240,49 @@ fun TenderScreen(
                             }
                         }
 
-                        Keypad(onDigit = { typed = (typed + it).trimStart('0') }, onBackspace = { typed = typed.dropLast(1) })
+                        if (needsApproval) {
+                            Column {
+                                SectionLabel("Kode approval")
+                                Spacer(Modifier.height(8.dp))
+                                // Drawn like the amount, for the same reason: the
+                                // keypad is the way in, so no IME covers the till.
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp)
+                                        .background(Canvas, RoundedCornerShape(RInner))
+                                        .border(
+                                            1.dp,
+                                            if (typingApproval) Accent else Hairline2,
+                                            RoundedCornerShape(RInner),
+                                        )
+                                        .clickable { target = Field.APPROVAL }
+                                        .padding(horizontal = 18.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        approval.ifBlank { "Ketuk, lalu ketik dari struk EDC" },
+                                        style = if (approval.isBlank()) Type.meta.copy(color = Faint)
+                                        else Type.metric.copy(fontSize = 21.sp, color = Ink, fontFamily = FontFamily.Monospace),
+                                    )
+                                }
+                            }
+                        }
+
+                        Keypad(
+                            onDigit = {
+                                if (typingApproval) {
+                                    // Under twelve digits: the node refuses anything
+                                    // that could be a card number.
+                                    approval = (approval + it).take(MAX_APPROVAL)
+                                } else {
+                                    typed = (typed + it).trimStart('0')
+                                }
+                            },
+                            onBackspace = {
+                                if (typingApproval) approval = approval.dropLast(1) else typed = typed.dropLast(1)
+                            },
+                        )
 
                         // Denominations beside the keypad: the note in the
                         // customer's hand is one of a few, and tapping it is one
@@ -224,6 +318,8 @@ fun TenderScreen(
                 PrimaryButton(
                     text = when {
                         covered -> "Selesaikan transaksi"
+                        chosen == null -> "Pilih bank dulu"
+                        approvalMissing -> "Isi kode approval dulu"
                         partial -> "Bayar sebagian ${Money.format(entered)}"
                         else -> "Bayar ${Money.format(offered)} & selesaikan"
                     },
@@ -233,17 +329,19 @@ fun TenderScreen(
                             covered -> onConfirm(taken)
                             // Part of it, in this method: record and stay, because
                             // the rest still has to be taken somehow.
-                            partial -> {
-                                taken = taken + Tender(method, entered)
+                            partial -> chosen?.let {
+                                taken = taken + it.tender(entered, referenceFor(it))
                                 typed = ""
+                                approval = ""
+                                target = Field.AMOUNT
                             }
                             // The ordinary sale: one tender, and the money is taken
                             // and the sale closed by the same tap.
-                            else -> onConfirm(taken + Tender(method, offered))
+                            else -> chosen?.let { onConfirm(taken + it.tender(offered, referenceFor(it))) }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = offered > 0 || covered,
+                    enabled = covered || (offered > 0 && chosen != null && !approvalMissing),
                     busy = busy,
                     height = 66.dp,
                     fontSize = 17.sp,
@@ -313,7 +411,11 @@ fun TenderScreen(
                                 .padding(horizontal = 12.dp, vertical = 11.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            Text(methodLabel(tender.method), style = Type.meta.copy(color = Text))
+                            Text(
+                                methods.firstOrNull { it.code.isNotBlank() && it.code == tender.paymentMethodCode }?.name
+                                    ?: methodLabel(tender.method),
+                                style = Type.meta.copy(color = Text),
+                            )
                             Text(
                                 Money.format(tender.amountMinor),
                                 style = Type.meta.copy(color = Ink, fontWeight = FontWeight.SemiBold),
@@ -350,14 +452,32 @@ fun TenderScreen(
 
 private fun ceilTo(value: Long, step: Long): Long = ((value + step - 1) / step) * step
 
+/** Which drawn field the keypad types into. */
+private enum class Field { AMOUNT, APPROVAL }
+
+/** The tenders that carry an approval code (pos-desktop's `needsReference`,
+ *  less the voucher, which this screen still takes without a hold). */
+private val APPROVED = setOf("CARD", "QRIS", "EWALLET")
+
+/** Eleven characters at most: twelve digits reads as a card number to the node. */
+private const val MAX_APPROVAL = 11
+
 /** The words pos-desktop puts on each method. The wire keeps the codes. */
 private fun methodLabel(method: String): String = when (method) {
     "CASH" -> "Tunai"
     "CARD" -> "Kartu"
     "QRIS" -> "QRIS"
+    "EWALLET" -> "E-Wallet"
     "VOUCHER" -> "Voucher"
     "OTHER" -> "Lainnya"
     else -> method
+}
+
+/** A tile that groups several of Finance's methods, named by its tender type. */
+private fun typeLabel(tenderType: String): String = when (tenderType) {
+    "DEBIT_CARD" -> "Debit"
+    "CREDIT_CARD" -> "Kredit"
+    else -> methodLabel(tenderType)
 }
 
 /** `.due-line` — Sisa or Kembalian, the number between this customer and the next. */

@@ -45,6 +45,17 @@ VALUES ('payroll_deduction',
         'where a deduction from pay is owed or recovered (0466)')
 ON CONFLICT (role) DO NOTHING;
 
+-- A setting key is now named for the module that reads it
+-- (`payroll.thr_accrual_months`; `sales.`, `store_expense.`, `journal.` and
+-- `sync.` keys follow in 0468–0474). 0373 allowed one bare word, which
+-- refused the very insert below, so this migration could never apply. The
+-- shape is kept — lowercase words of letters, digits and underscores — and
+-- the words may now be joined by dots.
+ALTER TABLE finance_setting
+    DROP CONSTRAINT IF EXISTS finance_setting_setting_key_check,
+    ADD CONSTRAINT finance_setting_setting_key_check
+        CHECK (setting_key ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$');
+
 INSERT INTO finance_setting (setting_key, value_numeric, unit, note, set_by)
 VALUES ('payroll.thr_accrual_months', 12, 'months',
         'THR is accrued as base pay divided by this many months on every slip; 0 turns the accrual off.',

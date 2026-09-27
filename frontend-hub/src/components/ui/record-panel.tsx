@@ -1,5 +1,6 @@
 import { Collapsible } from "@base-ui/react/collapsible"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, type LinkProps } from "@tanstack/react-router"
 import { ChevronRight, Plus, X } from "lucide-react"
 import { useState } from "react"
 
@@ -305,11 +306,25 @@ function Comments({
 /// Documents filed against it and threads arguing about it.
 ///
 /// A line rather than two more lists: both already have screens of their own,
-/// and the useful thing on a sheet is knowing they exist.
+/// and the useful thing on a sheet is knowing they exist — and getting to
+/// them. The discussions link lands on the board narrowed to THIS record, and
+/// the board's "Open a thread" starts one about it, which is how a question
+/// about an order gets asked from the order rather than from memory.
+///
+/// The collaboration surfaces themselves are records for the log's sake and
+/// not things a thread hangs on, so they get no link.
+const NOT_DISCUSSED = new Set([
+  "discussion",
+  "conversation",
+  "assistant_conversation",
+  "notification",
+])
+
 function Elsewhere({ info }: { info: RecordInfo }) {
   const documents = info.documents.length
   const threads = info.threads.length
-  if (documents === 0 && threads === 0) return null
+  const discussable = !NOT_DISCUSSED.has(info.subject_kind)
+  if (documents === 0 && threads === 0 && !discussable) return null
   return (
     <p className="text-[0.875rem] text-mute">
       {documents > 0 && (
@@ -317,11 +332,24 @@ function Elsewhere({ info }: { info: RecordInfo }) {
           {documents} {documents === 1 ? "document" : "documents"} filed
         </span>
       )}
-      {documents > 0 && threads > 0 && <span> · </span>}
-      {threads > 0 && (
-        <span>
-          {threads} {threads === 1 ? "discussion" : "discussions"}
-        </span>
+      {documents > 0 && discussable && <span> · </span>}
+      {discussable && (
+        <Link
+          // The board is a declared route; the cast is the one `AppLink`
+          // makes, and it is here only because this link carries two keys.
+          to={"/discussions" as LinkProps["to"]}
+          search={
+            {
+              about: info.subject_kind,
+              aboutId: info.subject_id,
+            } as never
+          }
+          className="font-medium text-accent hover:underline"
+        >
+          {threads === 0
+            ? "Discuss this record"
+            : `${threads} ${threads === 1 ? "discussion" : "discussions"}`}
+        </Link>
       )}
     </p>
   )

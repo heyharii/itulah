@@ -685,6 +685,7 @@ function AddLinkForm({
                   ? "Qualifier"
                   : sourceTypeLabel(sourceType)
               }
+              required={sourceType !== "COMPANY"}
               aside={
                 sourceType === "COMPANY"
                   ? "Which bank, which class"
@@ -718,7 +719,7 @@ function AddLinkForm({
             </Select>
           </Field>
           {scope === "SITE" && (
-            <Field label="Site">
+            <Field label="Site" required>
               <LocationSelect
                 value={site}
                 onChange={setSite}
@@ -726,7 +727,7 @@ function AddLinkForm({
               />
             </Field>
           )}
-          <Field label="Note" aside="Optional">
+          <Field label="Note">
             <Input
               value={note}
               onChange={(event) => setNote(event.target.value)}
@@ -751,11 +752,9 @@ function AddLinkForm({
             <Button
               variant="primary"
               size="sm"
+              pending={add.isPending}
               disabled={
-                !accountChoiceReady(choice) ||
-                !scopeReady ||
-                !sourceReady ||
-                add.isPending
+                !accountChoiceReady(choice) || !scopeReady || !sourceReady
               }
               onClick={() => add.mutate()}
             >
@@ -972,7 +971,7 @@ function LinkRow({
         <Button
           size="sm"
           variant="quiet"
-          disabled={remove.isPending}
+          pending={remove.isPending}
           onClick={() => remove.mutate(false)}
         >
           Remove
@@ -986,7 +985,7 @@ function LinkRow({
             <Button
               size="sm"
               variant="danger"
-              disabled={remove.isPending}
+              pending={remove.isPending}
               onClick={() => remove.mutate(true)}
             >
               Remove anyway
@@ -1022,7 +1021,8 @@ function LinkRow({
             <Button
               variant="primary"
               size="sm"
-              disabled={!accountChoiceReady(choice) || change.isPending}
+              pending={change.isPending}
+              disabled={!accountChoiceReady(choice)}
               onClick={() => change.mutate()}
             >
               {change.isPending ? "Saving…" : "Move link"}

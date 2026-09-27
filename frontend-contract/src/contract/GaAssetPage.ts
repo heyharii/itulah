@@ -5,4 +5,9 @@ import type { GaAssetRow } from "./GaAssetRow";
 /**
  * A page of GA's register, and how big the whole answer is.
  */
-export type GaAssetPage = { rows: Array<GaAssetRow>, total: number, facets: GaAssetFacets, };
+export type GaAssetPage = { rows: Array<GaAssetRow>, 
+/**
+ * Opaque. Pass it back as `cursor` for the next page; absent means this
+ * was the last one.
+ */
+next_cursor: string | null, total: number, facets: GaAssetFacets, };

@@ -1,5 +1,10 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type {
   ColumnDef,
   ExpandedState,
@@ -27,7 +32,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { ago, count, label as humanise, moment } from "@/lib/format"
@@ -39,8 +44,8 @@ import {
   idempotencyKey,
   inventoryKeys,
   listCounts,
-  listObservations,
   poolDetail,
+  sightingsPage,
   type FleetPool,
   type PoolItem,
 } from "@/lib/queries/inventory"
@@ -983,7 +988,9 @@ function PoolSheet({
             <div className="flex flex-wrap gap-1.5">
               <Tag>{pool.summary.group}</Tag>
               <Tag>{pool.summary.pool_code}</Tag>
-              {pool.summary.is_rollup && <Tag tone="warn">SUM OF ITS SHOPS</Tag>}
+              {pool.summary.is_rollup && (
+                <Tag tone="warn">SUM OF ITS SHOPS</Tag>
+              )}
             </div>
 
             <Facts>
@@ -1216,7 +1223,7 @@ function PoolSheet({
                 </form.Field>
                 <form.Field name="destination">
                   {(field) => (
-                    <Field label="Actually in">
+                    <Field label="Actually in" required>
                       <Choice
                         value={field.state.value}
                         onChange={field.handleChange}
@@ -1229,7 +1236,7 @@ function PoolSheet({
                 </form.Field>
                 <form.Field name="quantity">
                   {(field) => (
-                    <Field label="Quantity">
+                    <Field label="Quantity" required>
                       <Input
                         type="number"
                         min={1}
@@ -1244,7 +1251,7 @@ function PoolSheet({
                 </form.Field>
                 <form.Field name="reason">
                   {(field) => (
-                    <Field label="Reason">
+                    <Field label="Reason" required>
                       <Input
                         value={field.state.value}
                         onBlur={field.handleBlur}
@@ -1260,6 +1267,7 @@ function PoolSheet({
                   {(field) => (
                     <Field
                       label="Evidence"
+                      required
                       hint="A photograph, a count id, a note number. The server refuses a correction without one."
                     >
                       <Input
@@ -1287,7 +1295,8 @@ function PoolSheet({
                     <Button
                       type="submit"
                       variant="primary"
-                      disabled={!ready || correct.isPending}
+                      pending={correct.isPending}
+                      disabled={!ready}
                     >
                       {correct.isPending ? "Posting…" : "Correct placement"}
                     </Button>
@@ -1414,9 +1423,13 @@ function PoolSightingsSheet({
   id: string | null
   onClose: () => void
 }) {
-  const reads = useQuery({
-    queryKey: inventoryKeys.observations(id ?? "", ""),
-    queryFn: ({ signal }) => listObservations(id!, "", signal),
+  const scope = { pool_id: id ?? "" }
+  const reads = useInfiniteQuery({
+    queryKey: inventoryKeys.observations(scope),
+    queryFn: ({ pageParam, signal }) =>
+      sightingsPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled: id !== null,
   })
 
@@ -1430,8 +1443,9 @@ function PoolSightingsSheet({
     >
       {queryState(reads, {
         loading: "Reading the sightings…",
-        render: (items) =>
-          items.length === 0 ? (
+        render: (data) => {
+          const items = data.pages.flatMap((page) => page.rows)
+          return items.length === 0 ? (
             <EmptyState>
               No tag has been read here. Observed counts distinct tags a reader
               saw inside the window, and nothing has swept this pool in it.
@@ -1471,8 +1485,11 @@ function PoolSightingsSheet({
                   </tr>
                 ))}
               </MiniTable>
+              {/* Inside the sheet body, which is the box that scrolls. */}
+              <LoadMore query={reads} />
             </div>
-          ),
+          )
+        },
       })}
     </Sheet>
   )

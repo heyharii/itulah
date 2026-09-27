@@ -313,7 +313,8 @@ function AmendmentSheet({
             <Button
               variant="danger"
               className="flex-1"
-              disabled={actor === "" || decide.isPending}
+              pending={decide.isPending}
+              disabled={actor === ""}
               onClick={() => decide.mutate("Rejected")}
             >
               Reject
@@ -321,7 +322,8 @@ function AmendmentSheet({
             <Button
               variant="primary"
               className="flex-1"
-              disabled={actor === "" || decide.isPending}
+              pending={decide.isPending}
+              disabled={actor === ""}
               onClick={() => decide.mutate("Approved")}
             >
               Approve the invoice

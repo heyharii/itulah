@@ -164,12 +164,17 @@ async function chat() {
     `first seq ${sent.seq}, resend seq ${resent.seq}`,
   )
 
-  const after = await api(`/api/v1/chat/conversations/${room.conversation_id}/messages`)
+  // Everything past the line before ours. A plain read is the newest page
+  // only, so comparing two of its lengths stops meaning anything once the
+  // room holds more than a page.
+  const after = await api(
+    `/api/v1/chat/conversations/${room.conversation_id}/messages?after=${sent.seq - 1}`,
+  )
   check(
     "chat - exactly one copy is stored",
-    after.length === before.length + 1 &&
-      after.filter((m) => m.body === body).length === 1,
-    `${before.length} -> ${after.length} messages`,
+    after.filter((m) => m.body === body).length === 1 &&
+      after.filter((m) => m.seq === sent.seq).length === 1,
+    `${before.length} before, ${after.length} since seq ${sent.seq - 1}`,
   )
 
   const events = await api(`/api/v1/chat/events?after=${Math.max(sent.seq - 1, 0)}`)

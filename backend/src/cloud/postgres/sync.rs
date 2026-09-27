@@ -4958,6 +4958,9 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
         return Err(AppError::Validation("command_type is required".into()));
     }
     match command_type {
+        kind if crate::sync::node_ops::is_node_op(kind) => {
+            crate::sync::node_ops::validate(kind, payload).map_err(AppError::Validation)?;
+        }
         COMMAND_ACTIVATE_PUBLICATION => {
             parse_activate_publication(payload).map_err(AppError::Validation)?;
         }
@@ -5005,6 +5008,9 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
         INVENTORY_STORE_INBOUND_ANNOUNCE_V1 => {
             // A shop that cannot read it blocks its command stream.
             parse_store_inbound_announcement(payload).map_err(AppError::Validation)?;
+        }
+        crate::cloud::domain::COMMAND_PAYMENT_METHODS_REPLACE => {
+            crate::cloud::domain::parse_payment_method_book(payload).map_err(AppError::Validation)?;
         }
         crate::cloud::domain::COMMAND_ATTENDANCE_BOOK_REPLACE => {
             // Refused at the issuing desk rather than at the unit, for the

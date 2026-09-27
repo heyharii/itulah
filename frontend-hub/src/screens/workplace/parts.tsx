@@ -5,6 +5,7 @@ import { ArrowUp, Download, Paperclip, X } from "lucide-react"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { LoadMore, type Pageable } from "@/components/ui/states"
 import { cn } from "@/lib/utils"
 import { avatarTone, bytes, fileKind, initials } from "@/screens/workplace/lib"
 
@@ -129,6 +130,7 @@ export function VirtualList<T>({
   children,
   className,
   stickToEnd = false,
+  more,
 }: {
   items: readonly T[]
   /// A first guess only; every rendered row reports its real height back.
@@ -138,6 +140,9 @@ export function VirtualList<T>({
   className?: string
   /// Open at the newest, the way a conversation is read.
   stickToEnd?: boolean
+  /// The infinite query behind `items`: the next page is asked for as the
+  /// foot of THIS box comes into view — see `<LoadMore>`.
+  more?: Pageable
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const virtualizer = useVirtualizer({
@@ -176,6 +181,7 @@ export function VirtualList<T>({
           </div>
         ))}
       </div>
+      {more !== undefined && <LoadMore query={more} />}
     </div>
   )
 }
@@ -199,7 +205,7 @@ export function VirtualList<T>({
 ///
 /// A layout effect, not an effect: this runs between React's write and the
 /// browser's paint, so nobody sees the box at the wrong height first.
-function useAutoSize(value: string, rows: number) {
+export function useAutoSize(value: string, rows: number) {
   const box = useRef<HTMLTextAreaElement>(null)
 
   useLayoutEffect(() => {
@@ -233,9 +239,12 @@ export interface PendingAttachment {
 export function AttachButton({
   onAttach,
   disabled = false,
+  multiple = false,
 }: {
   onAttach: (file: File) => void
   disabled?: boolean
+  /// Let the picker take several files at once; each is handed over in turn.
+  multiple?: boolean
 }) {
   const picker = useRef<HTMLInputElement>(null)
   return (
@@ -243,10 +252,13 @@ export function AttachButton({
       <input
         ref={picker}
         type="file"
+        multiple={multiple}
         className="hidden"
         onChange={(event) => {
-          const file = event.target.files?.[0]
-          if (file) onAttach(file)
+          for (const file of Array.from(event.target.files ?? [])) {
+            onAttach(file)
+            if (!multiple) break
+          }
           // Cleared so picking the same file twice still fires a change.
           event.target.value = ""
         }}

@@ -32,16 +32,16 @@ import type {
 ///
 /// # Tabs, and why bills are not GA's tab to act on
 ///
-/// Detail is GA's own fact. Tagihan and Tagihan rutin are Finance's answers
+/// Details is GA's own fact. Bills and Recurring bills are Finance's answers
 /// pointed back at this contract through `contract_id` — read here so the
 /// person renewing the deal can see what it has been costing, and marked
 /// Finance's because the ledger behind them is not this register's. Raising a
 /// bill from here is tahap 6; until then this sheet reads Finance's figures
 /// and acts on GA's half only.
 ///
-/// # Pemakaian exists for one group
+/// # Usage exists for one group
 ///
-/// A meter is a Langganan fact: listrik, air, telepon. A rent contract has no
+/// A meter is a Subscriptions fact: listrik, air, telepon. A rent contract has no
 /// meter, so the tab is not drawn for it — a tab that always says "no
 /// readings" is a tab asking to be ignored.
 export function ContractHubSheet({
@@ -70,7 +70,7 @@ export function ContractHubSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title={hub.data === undefined ? "Kontrak" : partyOf(hub.data.contract)}
+      title={hub.data === undefined ? "Contract" : partyOf(hub.data.contract)}
       id={
         hub.data === undefined
           ? undefined
@@ -92,7 +92,7 @@ export function ContractHubSheet({
         hub.data === undefined ? undefined : (
           <>
             <StandingPill row={hub.data.contract} />
-            {hub.data.contract.archived && <Pill tone="neutral">Arsip</Pill>}
+            {hub.data.contract.archived && <Pill tone="neutral">Archived</Pill>}
           </>
         )
       }
@@ -100,7 +100,7 @@ export function ContractHubSheet({
         hub.data === undefined || hub.data.contract.archived ? undefined : (
           <Button variant="soft" onClick={() => setArchiving(true)}>
             <Archive />
-            Arsipkan
+            Archive
           </Button>
         )
       }
@@ -119,12 +119,12 @@ export function ContractHubSheet({
           : [
               {
                 value: "detail",
-                label: "Detail",
+                label: "Details",
                 content: <DetailTab hub={hub.data} />,
               },
               {
                 value: "bills",
-                label: "Tagihan (Finance)",
+                label: "Bills (Finance)",
                 content: (
                   <BillsTab row={hub.data.contract} bills={hub.data.bills} />
                 ),
@@ -135,7 +135,7 @@ export function ContractHubSheet({
                 ? [
                     {
                       value: "usage",
-                      label: "Pemakaian",
+                      label: "Usage",
                       content: (
                         <UsageTab
                           contractId={hub.data.contract.contract_id}
@@ -147,12 +147,12 @@ export function ContractHubSheet({
                 : []),
               {
                 value: "templates",
-                label: "Tagihan rutin (Finance)",
+                label: "Recurring bills (Finance)",
                 content: <TemplatesTab templates={hub.data.templates} />,
               },
               {
                 value: "documents",
-                label: "Dokumen",
+                label: "Documents",
                 content: (
                   <DocumentsTab
                     row={hub.data.contract}
@@ -163,7 +163,7 @@ export function ContractHubSheet({
             ]
       }
     >
-      {hub.isLoading && <LoadingState>Membuka kontraknya…</LoadingState>}
+      {hub.isLoading && <LoadingState>Opening the contract…</LoadingState>}
       {hub.error instanceof Error && (
         <Banner tone="bad">{hub.error.message}</Banner>
       )}
@@ -177,7 +177,7 @@ export function ContractHubSheet({
 function DetailTab({ hub }: { hub: GaContractHub }) {
   const contract = hub.contract
 
-  // Resolved for the contract's own site; a scope contract (semua toko) is
+  // Resolved for the contract's own site; a scope contract (all stores) is
   // read at the server's default, which is where Finance reads it too.
   const types = useQuery({
     queryKey: gaKeys.contractTypes(contract.site_id),
@@ -198,50 +198,50 @@ function DetailTab({ hub }: { hub: GaContractHub }) {
 
       <section>
         <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Detail kontrak
+          Contract details
         </h4>
         <Facts>
-          <Fact term="Pihak">
+          <Fact term="Party">
             {partyOf(contract)}
             {contract.counterparty_name !== null && (
               <span className="text-pill font-normal text-mute">
                 {" "}
-                · teks, bukan supplier
+                · text, not a vendor
               </span>
             )}
           </Fact>
-          <Fact term="Jenis">{contract.contract_type_name}</Fact>
+          <Fact term="Type">{contract.contract_type_name}</Fact>
           {contract.objek_name !== null && (
-            <Fact term="Objek">{contract.objek_name}</Fact>
+            <Fact term="Object">{contract.objek_name}</Fact>
           )}
-          <Fact term="Site / cakupan">{siteOf(contract)}</Fact>
-          <Fact term="Periode">
+          <Fact term="Location">{siteOf(contract)}</Fact>
+          <Fact term="Term">
             {span(contract.starts_on, contract.ends_on)}
           </Fact>
           {contract.customer_number !== null && (
-            <Fact term="ID pelanggan">{contract.customer_number}</Fact>
+            <Fact term="Customer no.">{contract.customer_number}</Fact>
           )}
-          <Fact term="Ditandatangani">
+          <Fact term="Signed">
             {contract.is_signed
               ? contract.signed_by === null
-                ? "Ya"
-                : `Ya · oleh ${contract.signed_by}`
-              : "Belum"}
+                ? "Yes"
+                : `Yes · by ${contract.signed_by}`
+              : "Not yet"}
           </Fact>
-          <Fact term="Nilai kontrak">
+          <Fact term="Contract value">
             {money(contract.contract_value_minor)}
             {contract.contract_value_minor === null && (
               <span className="text-pill font-normal text-mute">
                 {" "}
-                · tidak ada nilai kontrak
+                · no contract value
               </span>
             )}
           </Fact>
-          <Fact term="Pengingat">
-            {`${contract.reminder_days} hari sebelum habis`}
+          <Fact term="Reminder">
+            {`${contract.reminder_days} days before expiry`}
           </Fact>
           {contract.notes !== null && (
-            <Fact term="Keterangan">{contract.notes}</Fact>
+            <Fact term="Notes">{contract.notes}</Fact>
           )}
         </Facts>
       </section>
@@ -263,12 +263,12 @@ function MissingAccountBox({
 }) {
   let sentence: string
   if (contractType === "SEWA_KENDARAAN") {
-    sentence = `Biaya Sewa Kendaraan belum ada di COA; tagihannya bisa dicatat ke akun bayar dimuka${prepaid === null ? "" : ` (${prepaid})`}, tapi pelepasannya tertahan. Keputusan Finance.`
+    sentence = `Vehicle rental expense is not yet in the COA; bills can be recorded to the prepaid account${prepaid === null ? "" : ` (${prepaid})`}, but releasing it stays on hold. Finance's decision.`
   } else if (contractType === "JASA_MAINTENANCE") {
-    sentence = `Beban kontrak maintenance mengikuti objek yang dirawat (repair_expense); pemetaannya dibuka bersama modul Perbaikan. Sementara itu tagihannya bisa dicatat ke akun bayar dimuka${prepaid === null ? "" : ` (${prepaid})`}.`
+    sentence = `Maintenance contract expense follows the object being maintained (repair_expense); its mapping ships together with the Repairs module. In the meantime, bills can be recorded to the prepaid account${prepaid === null ? "" : ` (${prepaid})`}.`
   } else {
     sentence =
-      "Jenis kontrak ini belum punya akun beban di account map untuk site ini. Finance yang memetakannya; sampai itu, tagihan di bawah jenis ini tertahan di akun bayar dimuka."
+      "This contract type doesn't have an expense account in the account map for this site yet. Finance maps it; until then, bills under this type stay in the prepaid account."
   }
   return <Banner tone="warn">{sentence}</Banner>
 }
@@ -291,8 +291,8 @@ function BillsTab({
         <figure>
           <figcaption className="text-eyebrow font-medium text-body">
             {row.group_code === "DISEWAKAN"
-              ? "Diterima s/d hari ini"
-              : "Ditagih s/d hari ini"}{" "}
+              ? "Received to date"
+              : "Billed to date"}{" "}
             <FinanceMark />
           </figcaption>
           <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
@@ -301,7 +301,7 @@ function BillsTab({
         </figure>
         <figure>
           <figcaption className="text-eyebrow font-medium text-body">
-            {row.group_code === "DISEWAKAN" ? "Belum diterima" : "Sisa"}{" "}
+            {row.group_code === "DISEWAKAN" ? "Not yet received" : "Remaining"}{" "}
             <FinanceMark />
           </figcaption>
           <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
@@ -309,7 +309,7 @@ function BillsTab({
             {row.remaining_minor === null && (
               <span className="text-pill font-normal text-mute">
                 {" "}
-                · tanpa nilai kontrak
+                · no contract value
               </span>
             )}
           </div>
@@ -324,17 +324,17 @@ function BillsTab({
         <div className="min-w-[26rem]">
           <MiniTable
             head={[
-              "Nomor",
-              { label: "Tanggal", align: "left" },
-              { label: "Jumlah", align: "right" },
-              { label: "Akun", align: "left" },
+              "Number",
+              { label: "Date", align: "left" },
+              { label: "Amount", align: "right" },
+              { label: "Account", align: "left" },
             ]}
           >
             {bills.length === 0 ? (
               <MiniRow>
                 <MiniCell colSpan={4}>
                   <span className="text-meta text-mute">
-                    Belum ada tagihan yang menunjuk kontrak ini.
+                    No bills point to this contract yet.
                   </span>
                 </MiniCell>
               </MiniRow>
@@ -363,10 +363,9 @@ function BillsTab({
       </div>
 
       <p className="text-pill text-mute">
-        Dihitung dari baris tagihan POSTED yang menunjuk kontrak ini. Sampai
-        tahap 6 tak ada baris tagihan yang bisa menunjuk, jadi angkanya membaca
-        nol. Periode prepaid adalah periode tagihannya sendiri, bukan periode
-        kontrak.
+        Calculated from POSTED bill lines that point to this contract. Until
+        stage 6, no bill line can point here yet, so the figure reads zero.
+        The prepaid period is the bill's own period, not the contract's.
       </p>
     </div>
   )
@@ -392,13 +391,13 @@ function UsageTab({
     <div className="flex flex-col gap-4">
       {readings.length === 0 ? (
         <p className="text-meta text-body">
-          Belum ada bacaan. Angka meter dicatat GA sekali sebulan, dari angka
-          awal ke angka akhir; selisihnya adalah pemakaiannya.
+          No readings yet. GA records the meter reading once a month, from the
+          opening figure to the closing figure; the difference is the usage.
         </p>
       ) : (
         <div>
           <div className="text-eyebrow font-medium text-body">
-            Pemakaian per bulan · {readings[readings.length - 1].unit}
+            Usage per month · {readings[readings.length - 1].unit}
           </div>
           <div className="mt-3 flex items-end gap-3">
             {readings.map((one) => (
@@ -425,9 +424,9 @@ function UsageTab({
       )}
 
       <p className="text-pill text-mute">
-        Angka meter dicatat GA per bulan; nominal tagihannya dibaca dari
-        Finance. Merekam bulan yang sudah ada mengganti angkanya, bukan menambah
-        baris.
+        GA records the meter figure per month; the bill amount is read from
+        Finance. Recording a month that already exists replaces its figures,
+        rather than adding a row.
       </p>
 
       {recording ? (
@@ -440,7 +439,7 @@ function UsageTab({
       ) : (
         <div>
           <Button variant="soft" onClick={() => setRecording(true)}>
-            Catat bacaan
+            Record reading
           </Button>
         </div>
       )}
@@ -457,7 +456,7 @@ function abbr(value: number): string {
     : count(value)
 }
 
-/// One reading: the month, the unit, awal → akhir, and when it was read.
+/// One reading: the month, the unit, opening → closing, and when it was read.
 ///
 /// Errors only ever name the field that is wrong, appear on the submit that
 /// finds the problem and disappear the moment that field is edited again —
@@ -506,16 +505,16 @@ function ReadingForm({
 
   const submit = () => {
     const next: Record<string, string> = {}
-    if ((form.period ?? "") === "") next.period = "Isi bulan bacaannya."
-    if ((form.unit ?? "").trim() === "") next.unit = "Isi satuannya."
-    if ((form.opening ?? "") === "") next.opening = "Isi angka awalnya."
-    if ((form.closing ?? "") === "") next.closing = "Isi angka akhirnya."
+    if ((form.period ?? "") === "") next.period = "Enter the reading month."
+    if ((form.unit ?? "").trim() === "") next.unit = "Enter the unit."
+    if ((form.opening ?? "") === "") next.opening = "Enter the opening figure."
+    if ((form.closing ?? "") === "") next.closing = "Enter the closing figure."
     if (
       (form.opening ?? "") !== "" &&
       (form.closing ?? "") !== "" &&
       Number(form.closing) < Number(form.opening)
     ) {
-      next.closing = "Angka akhir tidak boleh di bawah angka awal."
+      next.closing = "The closing figure cannot be below the opening figure."
     }
     if (Object.keys(next).length > 0) {
       setProblems(next)
@@ -531,11 +530,12 @@ function ReadingForm({
       )}
       <div className="grid grid-cols-2 gap-4">
         <Field
-          label="Bulan bacaan"
+          label="Reading month"
+          required
           aside={
             last === undefined
               ? undefined
-              : `terakhir ${monthLabel(last.period)}`
+              : `last ${monthLabel(last.period)}`
           }
           problem={problems.period || undefined}
         >
@@ -545,14 +545,18 @@ function ReadingForm({
             onChange={(event) => set("period", event.target.value)}
           />
         </Field>
-        <Field label="Satuan" problem={problems.unit || undefined}>
+        <Field label="Unit" problem={problems.unit || undefined} required>
           <Input
             value={form.unit ?? ""}
             onChange={(event) => set("unit", event.target.value)}
             placeholder="kWh / m³"
           />
         </Field>
-        <Field label="Angka awal" problem={problems.opening || undefined}>
+        <Field
+          label="Opening figure"
+          problem={problems.opening || undefined}
+          required
+        >
           <Input
             inputMode="numeric"
             value={form.opening ?? ""}
@@ -560,14 +564,18 @@ function ReadingForm({
             placeholder={last === undefined ? "0" : String(last.closing)}
           />
         </Field>
-        <Field label="Angka akhir" problem={problems.closing || undefined}>
+        <Field
+          label="Closing figure"
+          problem={problems.closing || undefined}
+          required
+        >
           <Input
             inputMode="numeric"
             value={form.closing ?? ""}
             onChange={(event) => set("closing", event.target.value)}
           />
         </Field>
-        <Field label="Tanggal baca">
+        <Field label="Reading date" required>
           <Input
             type="date"
             value={form.read_on ?? ""}
@@ -576,11 +584,11 @@ function ReadingForm({
         </Field>
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <Button variant="primary" disabled={save.isPending} onClick={submit}>
-          {save.isPending ? "Menyimpan…" : "Simpan bacaan"}
+        <Button variant="primary" pending={save.isPending} onClick={submit}>
+          {save.isPending ? "Saving…" : "Save reading"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Batal
+          Cancel
         </Button>
       </div>
     </div>
@@ -605,9 +613,9 @@ function TemplatesTab({
           <MiniTable
             head={[
               "Label",
-              { label: "Estimasi", align: "right" },
-              { label: "Toleransi", align: "right" },
-              { label: "Datang tgl", align: "right" },
+              { label: "Estimate", align: "right" },
+              { label: "Tolerance", align: "right" },
+              { label: "Due day", align: "right" },
               { label: "Status", align: "left" },
             ]}
           >
@@ -615,8 +623,8 @@ function TemplatesTab({
               <MiniRow>
                 <MiniCell colSpan={5}>
                   <span className="text-meta text-mute">
-                    Belum ada tagihan rutin yang menunjuk kontrak ini. Template
-                    dibuat Finance di Tagihan rutin.
+                    No recurring bills point to this contract yet. Templates
+                    are created by Finance in Recurring bills.
                   </span>
                 </MiniCell>
               </MiniRow>
@@ -635,7 +643,7 @@ function TemplatesTab({
                   </MiniCell>
                   <MiniCell>
                     <Pill tone={template.active ? "ok" : "neutral"}>
-                      {template.active ? "Aktif" : "Nonaktif"}
+                      {template.active ? "Active" : "Inactive"}
                     </Pill>
                   </MiniCell>
                 </MiniRow>
@@ -645,9 +653,9 @@ function TemplatesTab({
         </div>
       </div>
       <p className="text-pill text-mute">
-        <FinanceMark className="mr-1 align-[0.0625rem]" /> Nominal per bulan
-        milik tagihan rutin (Finance); kontrak menyimpan nilai total yang
-        disepakati, bukan angka bulanannya.
+        <FinanceMark className="mr-1 align-[0.0625rem]" /> The monthly amount
+        belongs to the recurring bill (Finance); the contract stores the
+        agreed total value, not the monthly figure.
       </p>
     </div>
   )
@@ -672,8 +680,8 @@ function DocumentsTab({
     <div className="flex flex-col gap-4">
       {documents.length === 0 ? (
         <p className="text-meta text-body">
-          Belum ada dokumen. Perjanjian yang ditandatangani, lampiran amenemen,
-          surat pemberitahuan — ditempel di sini dan terindeks di Library.
+          No documents yet. Signed agreements, amendment attachments, notice
+          letters — attached here and indexed in the Library.
         </p>
       ) : (
         <ul className="flex flex-col">
@@ -693,8 +701,8 @@ function DocumentsTab({
               </span>
               <span className="shrink-0 text-pill text-mute tabular-nums">
                 {document.expires_on === null
-                  ? "tanpa masa berlaku"
-                  : `s/d ${day(document.expires_on)}`}
+                  ? "no expiry date"
+                  : `until ${day(document.expires_on)}`}
               </span>
             </li>
           ))}
@@ -714,7 +722,7 @@ function DocumentsTab({
         <div>
           <Button variant="soft" onClick={() => setAdding(true)}>
             <Paperclip />
-            Tempel dokumen
+            Attach document
           </Button>
         </div>
       )}
@@ -747,7 +755,7 @@ function AttachForm({
 
   const save = useMutation({
     mutationFn: () => {
-      if (file === null) throw new Error("Pilih berkasnya dulu.")
+      if (file === null) throw new Error("Choose the file first.")
       return uploadDocument(file, {
         title: blank(form.title) ?? undefined,
         doc_type: blank(form.doc_type) ?? undefined,
@@ -769,38 +777,38 @@ function AttachForm({
         <Banner tone="bad">{save.error.message}</Banner>
       )}
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Berkasnya">
+        <Field label="File" required>
           <Input
             type="file"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
         </Field>
-        <Field label="Jenis kertas" aside="perjanjian, amenemen, surat">
+        <Field label="Document type" aside="agreement, amendment, letter">
           <Input
             value={form.doc_type ?? ""}
             onChange={(event) => set("doc_type", event.target.value)}
           />
         </Field>
-        <Field label="Nomor">
+        <Field label="Number">
           <Input
             value={form.doc_number ?? ""}
             onChange={(event) => set("doc_number", event.target.value)}
           />
         </Field>
-        <Field label="Yang menerbitkan">
+        <Field label="Issuer">
           <Input
             value={form.issuer ?? ""}
             onChange={(event) => set("issuer", event.target.value)}
           />
         </Field>
-        <Field label="Diterbitkan">
+        <Field label="Issued">
           <Input
             type="date"
             value={form.issued_on ?? ""}
             onChange={(event) => set("issued_on", event.target.value)}
           />
         </Field>
-        <Field label="Berlaku sampai" aside="kosong = tanpa masa berlaku">
+        <Field label="Valid until" aside="empty = no expiry">
           <Input
             type="date"
             value={form.expires_on ?? ""}
@@ -811,13 +819,14 @@ function AttachForm({
       <div className="mt-3 flex items-center gap-2">
         <Button
           variant="primary"
-          disabled={file === null || save.isPending}
+          pending={save.isPending}
+          disabled={file === null}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Mengunggah…" : "Simpan dokumen"}
+          {save.isPending ? "Uploading…" : "Save document"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Batal
+          Cancel
         </Button>
       </div>
     </div>
@@ -856,7 +865,7 @@ function ArchiveForm({
 
   const submit = () => {
     if (reason.trim() === "") {
-      setProblem("Tulis alasannya dulu.")
+      setProblem("Write the reason first.")
       return
     }
     archive.mutate()
@@ -865,9 +874,10 @@ function ArchiveForm({
   return (
     <div className="flex items-end gap-3">
       <Field
-        label={`Arsipkan ${row.contract_number ?? row.contract_id}`}
+        label={`Archive ${row.contract_number ?? row.contract_id}`}
         problem={problem || undefined}
         className="flex-1"
+        required
       >
         <Input
           value={reason}
@@ -875,17 +885,17 @@ function ArchiveForm({
             setProblem("")
             setReason(event.target.value)
           }}
-          placeholder="mis. Perjanjian berakhir, diperbarui lewat kontrak baru"
+          placeholder="e.g. Agreement ended, renewed with a new contract"
           onKeyDown={(event) => {
             if (event.key === "Enter") submit()
           }}
         />
       </Field>
-      <Button variant="primary" disabled={archive.isPending} onClick={submit}>
-        {archive.isPending ? "Mengarsipkan…" : "Arsipkan"}
+      <Button variant="primary" pending={archive.isPending} onClick={submit}>
+        {archive.isPending ? "Archiving…" : "Archive"}
       </Button>
       <Button variant="ghost" onClick={onCancel}>
-        Batal
+        Cancel
       </Button>
     </div>
   )

@@ -280,8 +280,7 @@ function fromOrderLine(line: PurchaseOrderDetail["lines"][number]): DraftLine {
       colour: one.colour_code,
       size: one.size_code,
       quantity: String(one.quantity),
-      price:
-        one.base_price_minor === null ? "" : String(one.base_price_minor),
+      price: one.base_price_minor === null ? "" : String(one.base_price_minor),
     })),
   }
 }
@@ -418,9 +417,7 @@ function OrderReview({
     <div className="flex flex-col gap-5">
       <Facts>
         <Fact term="Supplier">{supplier === "" ? "—" : supplier}</Fact>
-        <Fact term="Delivery date">
-          {arrival === "" ? "—" : day(arrival)}
-        </Fact>
+        <Fact term="Delivery date">{arrival === "" ? "—" : day(arrival)}</Fact>
       </Facts>
 
       <Section title={`Lines (${lines.length})`} rule={false}>
@@ -876,8 +873,12 @@ export function OrderComposer({
   const unitsFor = (line: DraftLine) =>
     unitChoices.filter(
       (one) =>
-        unitFactor(one.code, line.itemUnits, units.conversions, units.baseUnit) !==
-        null
+        unitFactor(
+          one.code,
+          line.itemUnits,
+          units.conversions,
+          units.baseUnit
+        ) !== null
     )
   /// What a line tells the server about its unit, price and SKUs.
   const lineExtras = (line: DraftLine) => {
@@ -1176,7 +1177,7 @@ export function OrderComposer({
               </Button>
               <Button
                 variant="primary"
-                disabled={raise.isPending}
+                pending={raise.isPending}
                 onClick={() => raise.mutate()}
               >
                 {editing !== undefined
@@ -1214,7 +1215,7 @@ export function OrderComposer({
             down the middle of a 78rem sheet leaves the right half empty and
             pushes the table — the thing this screen is for — below the fold. */}
               <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Supplier">
+                <Field label="Supplier" required={editing === undefined}>
                   {/* Registering one is a row at the foot of the list, not a
                       button beside the box: the moment somebody discovers
                       their supplier is not in the book happens while they are
@@ -1259,13 +1260,7 @@ export function OrderComposer({
                 {/* When it is due. An order with no promised date is one nobody
                 can chase, and Outstanding — the screen whose whole job is
                 "what has not arrived" — has nothing to measure late against. */}
-                <Field
-                  label={
-                    <>
-                      Delivery date<span className="ml-0.5 text-bad">*</span>
-                    </>
-                  }
-                >
+                <Field label="Delivery date" required>
                   {/* `<Day>`, not `<input type="date">`. The native box was
                   tried here on 2026-09-13 and reversed the same day, by the
                   owner who asked for it, on the two counts its own note had
@@ -1571,14 +1566,15 @@ export function OrderComposer({
                                         quantity: event.target.value,
                                       })
                                     }
+                                    invalid={
+                                      line.variants.length === 0 &&
+                                      piecesOf(line) === 0 &&
+                                      line.quantity.trim() !== ""
+                                    }
                                     className={cn(
                                       TYPED,
                                       line.variants.length > 0 &&
-                                        "bg-soft text-body",
-                                      line.variants.length === 0 &&
-                                        piecesOf(line) === 0 &&
-                                        line.quantity.trim() !== "" &&
-                                        "border-bad"
+                                        "bg-soft text-body"
                                     )}
                                     aria-label={`Quantity of ${line.catalogue.name}`}
                                   />

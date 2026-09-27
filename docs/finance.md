@@ -322,9 +322,9 @@ pun. Itu gap `G7`.
 
 ## 8. Yang ada hari ini — layar dan endpoint
 
-**38 endpoint** di bawah `/api/v1/finance`, **12 layar**
-(`screens/finance/index.ts`), tiga kelompok yang merupakan **pekerjaan**, bukan
-endpoint:
+Endpoint di bawah `/api/v1/finance` dan layar di `screens/finance/index.ts`,
+dikelompokkan menurut **pekerjaan**, bukan menurut endpoint. Kelompok Setup,
+Opening & closing, Tax setup dan Settings mengikuti sidebar Accounting ERPNext:
 
 ```
 Overview
@@ -334,8 +334,31 @@ Work        Supplier bills · Payments · Cash & bank ·
 
 Books       Reports · Ledger
 
-Setup       Chart of accounts · Account map · Period close
+Setup       Chart of accounts · Account links · Posting readiness ·
+            Expense categories · Payment methods · Shop payment methods ·
+            Pay components · Asset classes · Accounting dimensions ·
+            Journal templates
+
+Opening &   Period close · Period closing vouchers
+closing
+
+Tax setup   Taxes (withholding templates)
+
+Settings    Finance settings · Posting policies · Permissions
 ```
+
+**Metode bayar (0468, 0474, 0477)** setara Mode of Payment ERPNext, dan
+**Shop payment methods** setara bagian Payments di POS Profile. Finance membuat
+metode bayar sekali, lengkap dengan cara settlement, MDR dan kaitan akunnya.
+Setelah itu Finance mencentang metode mana yang diterima tiap toko. Daftar per
+toko dikirim ke node toko lewat perintah `payment.methods.replace`. Kasir
+pos-desktop dan tablet membacanya dari `GET /api/v1/store/payment-methods`, dan
+node menolak penjualan dengan metode yang tidak ada di daftar tokonya. Toko yang
+belum pernah menerima daftar tetap memakai tender lamanya. Pengiriman menunggu
+setting `sync.publish_payment_methods` diubah ke 1, dan itu hanya boleh setelah
+semua node toko di-upgrade, karena node lama berhenti di perintah yang tidak ia
+kenal. E-Wallet adalah tender tersendiri di semua tabel: piutangnya ke provider
+dan akunnya sama dengan debit (`card_receivable_debit`/`revenue_debit`).
 
 Dua hal yang tampak hilang dan tidak hilang: *Position* adalah pembacaan
 "per lokasi" dari Reports, dan *Trial balance* adalah yang ditampilkan Ledger

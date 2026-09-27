@@ -27,4 +27,15 @@ truncated: boolean, limit: number,
  * What came IN over the same span, so the book reads as one page rather
  * than two screens a manager has to hold in their head.
  */
-top_ups: Array<PettyCashTopUpView>, };
+top_ups: Array<PettyCashTopUpView>, 
+/**
+ * What was handed over across the WHOLE span, and how many times —
+ * the other half's `spent_minor` and `count`, so a paged book can total
+ * both columns without adding up the lines it happens to hold.
+ */
+top_up_minor: number, top_up_count: number, 
+/**
+ * Where the next page of the merged book starts. Only a `paged` read
+ * sets it, and `None` there means the book ends here.
+ */
+next_cursor: string | null, };

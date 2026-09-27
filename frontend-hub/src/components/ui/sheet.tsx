@@ -55,6 +55,8 @@ export function Sheet({
   subject,
   footer,
   tabs,
+  tab: shown,
+  onTabChange,
   width = "rail",
   children,
   className,
@@ -77,6 +79,11 @@ export function Sheet({
     readonly label: React.ReactNode
     readonly content: React.ReactNode
   }[]
+  /// Which section is showing, when the caller needs to move it — a checklist
+  /// sending somebody to the tab where the missing thing is set. Left out, the
+  /// sheet keeps it to itself, which is what nearly every sheet wants.
+  tab?: string | null
+  onTabChange?: (tab: string) => void
   /// What the record IS, beside its name — a status pill, the words it is
   /// filed under. In the head rather than the body because it is read before
   /// anything else and does not belong to any one section.
@@ -152,11 +159,16 @@ export function Sheet({
   // caller would have to reset it every time a different record opens in the
   // same sheet — the tab you left on the last order is not a question you are
   // still asking about this one.
-  const [tab, setTab] = useState<string | null>(null)
+  const [own, setOwn] = useState<string | null>(null)
+  const tab = shown !== undefined ? shown : own
+  const setTab = (value: string) => {
+    setOwn(value)
+    onTabChange?.(value)
+  }
   // A different record opens on its first section. The identifier is what says
   // "different" — the sheet stays mounted while the list swaps records under
   // it, so nothing else would fire.
-  useEffect(() => setTab(null), [id, open])
+  useEffect(() => setOwn(null), [id, open])
   const sections = tabs
     ? [
         ...tabs,

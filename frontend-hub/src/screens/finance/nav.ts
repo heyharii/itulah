@@ -566,6 +566,11 @@ export const financeNav: AppModule = {
           icon: WalletCards,
         },
         {
+          path: "/finance/setup/shop-payment-methods",
+          label: "Shop Payment Methods",
+          icon: Store,
+        },
+        {
           path: "/finance/setup/journal-templates",
           label: "Journal Entry Templates",
           icon: Copy,

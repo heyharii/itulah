@@ -7,6 +7,7 @@ import { Meter } from "@/components/ui/meter"
 import { SubHead } from "@/components/ui/rows"
 import { ErrorState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
+import { queryState } from "@/lib/query-state"
 import {
   campaignKeys,
   campaignOutcome,
@@ -22,12 +23,14 @@ import {
 } from "@/lib/queries/commercial"
 import { cn } from "@/lib/utils"
 import {
+  bpsOfPercent,
   drawMetric,
   METRICS,
   metricOf,
   modelsFor,
   OBJECTIVES,
   objectiveOf,
+  percentOfBps,
   targetModelOf,
   type TargetUnit,
 } from "@/screens/commercial/objective"
@@ -80,90 +83,93 @@ export function CampaignOutcome({
     retry: false,
   })
 
-  const scored = outcome.data ?? null
-
   return (
     <div className="flex flex-col gap-5">
-      {outcome.isError ? (
-        <ErrorState error={outcome.error} />
-      ) : (
-        <Objective
-          campaign={campaign}
-          campaigns={campaigns}
-          outcome={scored}
-          pending={outcome.isPending}
-        />
-      )}
-
-      <div>
-        <SubHead aside={<Dates window={scored?.window ?? null} />}>
-          What it did
-        </SubHead>
-        {scored === null ? (
-          <Quiet>
-            {outcome.isPending ? "Reading the tills…" : "Nothing to read yet."}
-          </Quiet>
-        ) : scored.reading.sale_count === 0 ? (
-          <Quiet>
-            No sale in this window named this campaign. Either nothing has been
-            sold against it yet, or no shop has the book that carries it.
-          </Quiet>
-        ) : (
+      {queryState(outcome, {
+        loading: "Reading the tills…",
+        render: (scored) => (
           <>
-            {/* Three across only where three fit. A sheet is a third of the
-                glass, and "Rp 5.600.000" clipped to "Rp 5.600…" in a tile that
-                was sized for a page — a truncated amount is worse than a
-                stacked one, because it still looks like a number. */}
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-              <Figure
-                label="Promo sales"
-                value={money(scored.reading.basket_revenue_minor)}
-                note={perDay(scored.reading, scored.window)}
-              />
-              <Figure
-                label="Given away"
-                value={money(scored.reading.spend_minor)}
-                note={
-                  scored.reading.clearance_minor > 0
-                    ? `${money(scored.reading.benefit_minor)} discounted, ${money(scored.reading.clearance_minor)} cleared`
-                    : undefined
-                }
-              />
-              <Figure
-                label="Gross profit"
-                // Revenue less a cost of nought is revenue, and under the word
-                // "profit" that is the most flattering number on the panel,
-                // produced by the absence of data rather than by trading. The
-                // server answers `null` for exactly that case.
-                value={
-                  scored.reading.costed_units === 0
-                    ? "—"
-                    : money(
-                        scored.reading.basket_revenue_minor -
-                          scored.reading.cost_minor
-                      )
-                }
-                note={
-                  scored.reading.costed_units === 0
-                    ? "no cost on file"
-                    : scored.reading.costed_units < scored.reading.units
-                      ? `costed for ${count(scored.reading.costed_units)} of ${count(scored.reading.units)}`
-                      : undefined
-                }
-              />
-            </div>
-            {scored.baseline !== null && (
-              <Against
-                mine={scored.reading}
-                window={scored.window}
-                before={scored.baseline}
-              />
-            )}
+            <Objective
+              campaign={campaign}
+              campaigns={campaigns}
+              outcome={scored}
+              pending={false}
+            />
+            <Did scored={scored} />
           </>
-        )}
-      </div>
+        ),
+      })}
 
       <CampaignPlan campaignId={id} />
+    </div>
+  )
+}
+
+/// What the campaign did over its own window.
+function Did({ scored }: { scored: CampaignOutcomeView }) {
+  return (
+    <div>
+      <SubHead aside={<Dates window={scored.window} />}>
+        What it did
+      </SubHead>
+      {scored.reading.sale_count === 0 ? (
+        <Quiet>
+          No sale in this window named this campaign. Either nothing has been
+          sold against it yet, or no shop has received it.
+        </Quiet>
+      ) : (
+        <>
+          {/* Three across only where three fit. A sheet is a third of the
+              glass, and "Rp 5.600.000" clipped to "Rp 5.600…" in a tile that
+              was sized for a page — a truncated amount is worse than a
+              stacked one, because it still looks like a number. */}
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            <Figure
+              label="Promo sales"
+              value={money(scored.reading.basket_revenue_minor)}
+              note={perDay(scored.reading, scored.window)}
+            />
+            <Figure
+              label="Given away"
+              value={money(scored.reading.spend_minor)}
+              note={
+                scored.reading.clearance_minor > 0
+                  ? `${money(scored.reading.benefit_minor)} discounted, ${money(scored.reading.clearance_minor)} cleared`
+                  : undefined
+              }
+            />
+            <Figure
+              label="Gross profit"
+              // Revenue less a cost of nought is revenue, and under the word
+              // "profit" that is the most flattering number on the panel,
+              // produced by the absence of data rather than by trading. The
+              // server answers `null` for exactly that case.
+              value={
+                scored.reading.costed_units === 0
+                  ? "—"
+                  : money(
+                      scored.reading.basket_revenue_minor -
+                        scored.reading.cost_minor
+                    )
+              }
+              note={
+                scored.reading.costed_units === 0
+                  ? "no cost on file"
+                  : scored.reading.costed_units < scored.reading.units
+                    ? `costed for ${count(scored.reading.costed_units)} of ${count(scored.reading.units)}`
+                    : undefined
+              }
+            />
+          </div>
+          {scored.baseline !== null && (
+            <Against
+              mine={scored.reading}
+              window={scored.window}
+              before={scored.baseline}
+            />
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -549,23 +555,36 @@ function IntentEditor({
       METRICS[0].value
   )
   const [model, setModel] = useState(stated?.target_model ?? "REACH")
-  const [target, setTarget] = useState(
-    stated === null ? "" : String(stated.target_value)
-  )
-  const [upper, setUpper] = useState(
-    stated?.target_value_upper === null ||
-      stated?.target_value_upper === undefined
+  // A rate is typed in percent and stored in basis points, so a stored line
+  // is shown back in the unit it will be typed in.
+  const storedUnit =
+    stated === null
+      ? null
+      : (targetModelOf(stated.target_model)?.unitOf(
+          metricOf(stated.success_metric)
+        ) ?? "count")
+  const typed = (stored: number | null | undefined) =>
+    stored === null || stored === undefined
       ? ""
-      : String(stated.target_value_upper)
-  )
+      : storedUnit === "bps"
+        ? percentOfBps(stored)
+        : String(stored)
+  const [target, setTarget] = useState(() => typed(stated?.target_value))
+  const [upper, setUpper] = useState(() => typed(stated?.target_value_upper))
   const [baseline, setBaseline] = useState(baselineId ?? "")
 
   const chosen = metricOf(metric)
   const shape = targetModelOf(model)
   const offered = modelsFor(metric)
   const unit = shape?.unitOf(chosen) ?? "count"
-  const value = target.trim() === "" ? null : Number(target)
-  const ceiling = upper.trim() === "" ? null : Number(upper)
+  const asStored = (text: string) =>
+    text.trim() === ""
+      ? null
+      : unit === "bps"
+        ? bpsOfPercent(text)
+        : Number(text)
+  const value = asStored(target)
+  const ceiling = asStored(upper)
 
   const save = useMutation({
     mutationFn: async () => {
@@ -602,7 +621,7 @@ function IntentEditor({
       : value === null || Number.isNaN(value)
         ? "Set a target."
         : unit === "bps" && value > 10_000
-          ? "A target in basis points cannot pass 100%."
+          ? "A percentage target cannot pass 100%."
           : shape?.needsBaseline === true && baseline === ""
             ? "Measured against another campaign — name one."
             : shape?.needsUpper === true &&
@@ -686,24 +705,25 @@ function IntentEditor({
                     chosen?.direction === "AT_MOST" ? "at most" : "at least"
                   })`
             }
+            required
           >
             <Money
               value={target}
               onChange={setTarget}
               prefix={unit === "money" ? "Rp" : undefined}
-              suffix={unit === "bps" ? "bps" : undefined}
+              suffix={unit === "bps" ? "%" : undefined}
               placeholder="Not set"
               label="Target"
             />
           </Field>
 
           {shape?.needsUpper === true && (
-            <Field label="Band, to">
+            <Field label="Band, to" required>
               <Money
                 value={upper}
                 onChange={setUpper}
                 prefix={unit === "money" ? "Rp" : undefined}
-                suffix={unit === "bps" ? "bps" : undefined}
+                suffix={unit === "bps" ? "%" : undefined}
                 label="Upper end"
               />
             </Field>
@@ -711,7 +731,11 @@ function IntentEditor({
 
           {/* A campaign, not a period — Lebaran moves every year, so the
               month before it is ordinary trading. */}
-          <Field label="Compared with" className="sm:col-span-2">
+          <Field
+            label="Compared with"
+            required={shape?.needsBaseline === true}
+            className="sm:col-span-2"
+          >
             <Select value={baseline} onChange={setBaseline}>
               <option value="">Nothing — judge it on its own</option>
               {campaigns
@@ -743,10 +767,11 @@ function IntentEditor({
             )}
             <Button
               variant="primary"
-              disabled={problem !== undefined || save.isPending}
+              pending={save.isPending}
+              disabled={problem !== undefined}
               onClick={() => save.mutate()}
             >
-              {save.isPending ? "Saving…" : "Save objective"}
+              {save.isPending ? "Saving…" : "Save goal"}
             </Button>
           </span>
         </div>

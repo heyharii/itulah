@@ -9,6 +9,7 @@ import {
   workplaceKeys,
 } from "@/lib/queries/workplace"
 import { useIdentity } from "@/lib/session"
+import { clearOutbox, refreshMessage } from "@/screens/workplace/chat-store"
 import { eventSubject } from "@/screens/workplace/lib"
 
 /// Following the collaboration log, and being honest about the lag.
@@ -82,6 +83,7 @@ function react(batch: readonly CollaborationEvent[], client: QueryClient) {
       case "chat.message":
         void client.invalidateQueries({
           queryKey: workplaceKeys.conversations(),
+          exact: true,
         })
         // A message with an attachment is a new row on the Files screen.
         void client.invalidateQueries({ queryKey: workplaceKeys.files() })
@@ -98,14 +100,66 @@ function react(batch: readonly CollaborationEvent[], client: QueryClient) {
         }
         break
       case "chat.read":
-        // Somebody else's read mark moves nothing this browser draws except its
-        // own unread counts, which come from the conversation row.
+        // A read mark moves two things: the reader's own unread counts, which
+        // come from the conversation rows, and everybody else's "seen by",
+        // which comes from the members on the open room.
         void client.invalidateQueries({
           queryKey: workplaceKeys.conversations(),
+          exact: true,
         })
+        if (subject.conversationId !== undefined) {
+          void client.invalidateQueries({
+            queryKey: workplaceKeys.conversation(subject.conversationId),
+            exact: true,
+          })
+        }
+        break
+      case "chat.update":
+        // A message changed in place — edited, deleted, reacted to, pinned.
+        // Nobody's unread count moves, so the list is only touched for the
+        // preview line a deleted or edited last message changes.
+        void client.invalidateQueries({
+          queryKey: workplaceKeys.conversations(),
+          exact: true,
+        })
+        if (subject.conversationId !== undefined) {
+          // Just the one message, not the window it sits in: a reaction is
+          // the busiest change a room has, and re-reading every held line
+          // for each of them would be most of this screen's traffic.
+          if (subject.seq !== undefined) {
+            refreshMessage(client, subject.conversationId, subject.seq).catch(
+              () =>
+                void client.invalidateQueries({
+                  queryKey: workplaceKeys.messages(subject.conversationId ?? ""),
+                })
+            )
+          }
+          void client.invalidateQueries({
+            queryKey: workplaceKeys.pins(subject.conversationId),
+          })
+          if (subject.change === "delete") {
+            void client.invalidateQueries({
+              queryKey: workplaceKeys.conversationFiles(subject.conversationId),
+            })
+            void client.invalidateQueries({ queryKey: workplaceKeys.files() })
+          }
+        }
+        break
+      case "chat.room":
+        // The room itself changed: renamed, or somebody joined or left —
+        // possibly this reader, who is then told so by the room's own 404.
+        void client.invalidateQueries({ queryKey: workplaceKeys.conversations() })
+        void client.invalidateQueries({ queryKey: workplaceKeys.files() })
         break
       case "discussion.thread":
+        // Opened, retitled, pinned, answered, locked — every one of them
+        // changes the thread's own header as well as its row on the board.
         threadsChanged = true
+        if (subject.threadId !== undefined) {
+          void client.invalidateQueries({
+            queryKey: workplaceKeys.thread(subject.threadId),
+          })
+        }
         break
       case "discussion.post":
         threadsChanged = true
@@ -146,6 +200,7 @@ function react(batch: readonly CollaborationEvent[], client: QueryClient) {
       queryKey: ["workplace", "discussions", "list"],
     })
     void client.invalidateQueries({ queryKey: workplaceKeys.subjects() })
+    void client.invalidateQueries({ queryKey: workplaceKeys.tags() })
   }
 }
 
@@ -154,7 +209,12 @@ function react(batch: readonly CollaborationEvent[], client: QueryClient) {
 /// Mounted on more than one screen at a time is fine: the query key is shared,
 /// so Query runs one poll however many components ask for it, and the store
 /// below is what they all read.
-export function useCollaborationFeed(): CollaborationFeed {
+export function useCollaborationFeed(
+  /// How often to ask while at the head of the log. Chat asks faster than the
+  /// default while a room is open and the tab is in front — a conversation is
+  /// the one place where four seconds reads as a pause.
+  interval = 4_000
+): CollaborationFeed {
   const client = useQueryClient()
   const identity = useIdentity()
   const me = identity.data?.username ?? ""
@@ -168,6 +228,7 @@ export function useCollaborationFeed(): CollaborationFeed {
         // panel does not open on somebody else's afternoon.
         owner = me
         publish(EMPTY)
+        clearOutbox()
       }
 
       // Whether we had already reached the head *before* this batch. A batch
@@ -198,7 +259,7 @@ export function useCollaborationFeed(): CollaborationFeed {
     // tick at the head, which is where a browser spends all but its first
     // seconds.
     refetchInterval: (query) =>
-      query.state.data?.atHead === false ? 200 : 4_000,
+      query.state.data?.atHead === false ? 200 : interval,
     // A poll that failed is not news and not an error a screen should carry:
     // the next tick asks again from the same cursor, so nothing is skipped.
     retry: false,

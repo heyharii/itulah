@@ -289,7 +289,8 @@ export function SupplierBankAccountsPanel({
                   type="submit"
                   variant="soft"
                   className="flex-1"
-                  disabled={!ready || add.isPending}
+                  pending={add.isPending}
+                  disabled={!ready}
                 >
                   {add.isPending ? "Adding…" : "Add it"}
                 </Button>
@@ -523,7 +524,8 @@ export function SupplierContactsPanel({ supplierId }: { supplierId: string }) {
               type="submit"
               variant="soft"
               className="flex-1"
-              disabled={!ready || add.isPending}
+              pending={add.isPending}
+              disabled={!ready}
             >
               {add.isPending ? "Adding…" : "Add them"}
             </Button>

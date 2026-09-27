@@ -4,7 +4,8 @@
   Built by .github/workflows/store-server.yml:
 
     wix build store.wxs -arch x64 -ext WixToolset.Util.wixext
-              -d Version=1.2.3 -d BinDir=<dir with store.exe and web\> -o itulah-store.msi
+              -d Version=1.2.3 -d BinDir=<dir with store.exe and web\>
+              -d TrayScript=store-tray.ps1 -o itulah-store.msi
 
   Interactive:   double-click. Installs, starts the service, opens the setup
                  page where the shop types the code from head office.
@@ -39,6 +40,15 @@
         <Component Id="Program" Bitness="always64">
           <File Id="StoreExe" Source="$(BinDir)\store.exe" KeyPath="yes" />
         </Component>
+        <!-- The dot by the clock (store-tray.ps1): the service has no window,
+             so this is how the person at the till sees whether it is well.
+             Started at every sign-in for every account on the PC. -->
+        <Component Id="Tray" Bitness="always64">
+          <File Id="TrayScript" Source="$(TrayScript)" Name="store-tray.ps1" KeyPath="yes" />
+          <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                         Name="itulah Store tray" Type="string"
+                         Value="powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File &quot;[#TrayScript]&quot;" />
+        </Component>
         <Directory Id="WebFolder" Name="web" />
       </Directory>
     </StandardDirectory>
@@ -58,6 +68,7 @@
 
     <Feature Id="Main">
       <ComponentRef Id="Program" />
+      <ComponentRef Id="Tray" />
       <!-- The shop's web apps the node serves; harvested at build time. -->
       <Files Directory="WebFolder" Include="$(BinDir)\web\**" />
       <ComponentRef Id="MenuShortcuts" />
@@ -76,6 +87,10 @@
                   Execute="deferred" Impersonate="no" Return="ignore" />
     <!-- After an interactive first install with no code, open the setup page
          for the person sitting there. -->
+    <!-- Show the tray icon now rather than at the next sign-in. -->
+    <CustomAction Id="StartTray" Directory="INSTALLFOLDER"
+                  ExeCommand="powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File &quot;[#TrayScript]&quot;"
+                  Execute="immediate" Impersonate="yes" Return="asyncNoWait" />
     <CustomAction Id="OpenSetup" Directory="INSTALLFOLDER"
                   ExeCommand="explorer.exe http://localhost:8082/setup"
                   Execute="immediate" Impersonate="yes" Return="ignore" />
@@ -87,7 +102,9 @@
               Condition="NOT REMOVE AND ENROLL_CODE" />
       <Custom Action="InstallService" After="StageCode"
               Condition="NOT REMOVE" />
-      <Custom Action="OpenSetup" After="InstallFinalize"
+      <Custom Action="StartTray" After="InstallFinalize"
+              Condition="NOT REMOVE AND UILevel &gt;= 4" />
+      <Custom Action="OpenSetup" After="StartTray"
               Condition="NOT Installed AND NOT ENROLL_CODE AND UILevel &gt;= 4" />
     </InstallExecuteSequence>
   </Package>

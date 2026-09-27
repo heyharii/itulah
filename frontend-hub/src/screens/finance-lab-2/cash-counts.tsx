@@ -96,8 +96,7 @@ export function CashCounts() {
       }),
     [all, from, to, unit, who]
   )
-  const narrowed =
-    from !== "" || to !== "" || unit !== "" || who !== ""
+  const narrowed = from !== "" || to !== "" || unit !== "" || who !== ""
   const short = rows.filter(
     (row) => row.variance_minor !== 0 && row.entry_id === null
   ).length
@@ -169,38 +168,38 @@ export function CashCounts() {
         narrowed ? (
           <EmptyState>No count matches these filters.</EmptyState>
         ) : (
-        <EmptyState>
-          No cash account has been counted yet. Counting one is the only thing that
-          can contradict the cash ledger — there is no statement to check it
-          against.
-        </EmptyState>
+          <EmptyState>
+            No cash account has been counted yet. Counting one is the only thing
+            that can contradict the cash ledger — there is no statement to check
+            it against.
+          </EmptyState>
         )
       ) : (
         <div className="flex flex-col gap-4">
           <Card className="overflow-hidden">
-          <Grid>
-            <thead>
-              <tr>
-                <Th width="7rem">Date</Th>
-                <Th>Account</Th>
-                <Th width="9rem">Unit</Th>
-                <Th align="right" width="8.5rem">
-                  Counted
-                </Th>
-                <Th align="right" width="8.5rem">
-                  Per books
-                </Th>
-                <Th align="right" width="8.5rem">
-                  Difference
-                </Th>
-                <Th width="8rem">Counted by</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.count_id}>
-                  <Td>{day(row.counted_on)}</Td>
-                  {/* The account, and nothing under it.
+            <Grid>
+              <thead>
+                <tr>
+                  <Th width="7rem">Date</Th>
+                  <Th>Account</Th>
+                  <Th width="9rem">Unit</Th>
+                  <Th align="right" width="8.5rem">
+                    Counted
+                  </Th>
+                  <Th align="right" width="8.5rem">
+                    Per books
+                  </Th>
+                  <Th align="right" width="8.5rem">
+                    Difference
+                  </Th>
+                  <Th width="8rem">Counted by</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.count_id}>
+                    <Td>{day(row.counted_on)}</Td>
+                    {/* The account, and nothing under it.
                   
                       The reason a count was out ("Selisih kembalian, belum
                       ketemu") and the note breakdown were set in italics
@@ -208,38 +207,38 @@ export function CashCounts() {
                       four-line one and pushed the figures they explain off
                       the screen. Both are still on the record; neither is a
                       column. */}
-                  <Td>
-                    <span className="text-ink">{row.account_name}</span>
-                  </Td>
-                  <Td>{siteName(row.site_id)}</Td>
-                  <Td align="right">{money(row.counted_minor)}</Td>
-                  <Td align="right">{money(row.per_books_minor)}</Td>
-                  {/* A figure, not a word. The column is headed Difference
+                    <Td>
+                      <span className="text-ink">{row.account_name}</span>
+                    </Td>
+                    <Td>{siteName(row.site_id)}</Td>
+                    <Td align="right">{money(row.counted_minor)}</Td>
+                    <Td align="right">{money(row.per_books_minor)}</Td>
+                    {/* A figure, not a word. The column is headed Difference
                       and every other cell in it is money, so a count that
                       found none reads `0` — a pill saying "agrees" made the
                       one row nobody needs to look at the most decorated thing
                       in the table, and broke the column the eye scans down. */}
-                  <Td align="right">
-                    {row.variance_minor === 0 ? (
-                      <span className="text-mute">0</span>
-                    ) : (
-                      <span
-                        className={
-                          row.variance_minor < 0
-                            ? "font-medium text-bad-fg"
-                            : "font-medium text-warn-fg"
-                        }
-                      >
-                        {row.variance_minor > 0 ? "+" : ""}
-                        {money(row.variance_minor)}
-                      </span>
-                    )}
-                  </Td>
-                  <Td>{row.counted_by}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </Grid>
+                    <Td align="right">
+                      {row.variance_minor === 0 ? (
+                        <span className="text-mute">0</span>
+                      ) : (
+                        <span
+                          className={
+                            row.variance_minor < 0
+                              ? "font-medium text-bad-fg"
+                              : "font-medium text-warn-fg"
+                          }
+                        >
+                          {row.variance_minor > 0 ? "+" : ""}
+                          {money(row.variance_minor)}
+                        </span>
+                      )}
+                    </Td>
+                    <Td>{row.counted_by}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Grid>
           </Card>
 
           <LabNote>
@@ -358,7 +357,7 @@ function CountPanel({
               ACCOUNT at a place — the same word Bank Accounts uses for the
               other half of the money — so a screen that says "drawer" is
               naming one of three and mislabelling the rest. */}
-          <Field label="Account">
+          <Field label="Account" required>
             <Select value={drawer} onChange={setDrawer} aria-label="Account">
               <option value="">Choose one</option>
               {drawers.map((row) => (
@@ -371,14 +370,14 @@ function CountPanel({
               ))}
             </Select>
           </Field>
-          <Field label="Counted on">
+          <Field label="Counted on" required>
             <Input
               type="date"
               value={countedOn}
               onChange={(event) => setCountedOn(event.target.value)}
             />
           </Field>
-          <Field label="Counted by">
+          <Field label="Counted by" required>
             <Input
               value={countedBy}
               onChange={(event) => setCountedBy(event.target.value)}
@@ -490,9 +489,8 @@ function CountPanel({
           </Button>
           <Button
             variant="primary"
-            disabled={
-              save.isPending || chosen === undefined || countedBy.trim() === ""
-            }
+            pending={save.isPending}
+            disabled={chosen === undefined || countedBy.trim() === ""}
             onClick={() => save.mutate()}
           >
             Save the count

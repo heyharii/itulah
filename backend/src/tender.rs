@@ -43,6 +43,10 @@ pub enum PaymentMethod {
     /// 150,000 basket leaves 50,000 on the card and nothing in the shopper's
     /// hand.
     Voucher,
+    /// An e-wallet (OVO, GoPay, …): owed by its provider, named in
+    /// `acquirer`, until it pays — the payment method Finance set up for the
+    /// shop says which (0474).
+    Ewallet,
     Other,
 }
 
@@ -53,6 +57,7 @@ impl PaymentMethod {
             Self::Card => "CARD",
             Self::Qris => "QRIS",
             Self::Voucher => "VOUCHER",
+            Self::Ewallet => "EWALLET",
             Self::Other => "OTHER",
         }
     }
@@ -73,6 +78,7 @@ impl FromStr for PaymentMethod {
             "CARD" => Ok(Self::Card),
             "QRIS" => Ok(Self::Qris),
             "VOUCHER" => Ok(Self::Voucher),
+            "EWALLET" => Ok(Self::Ewallet),
             "OTHER" => Ok(Self::Other),
             _ => Err(SalesError::InvalidPaymentMethod(value.into())),
         }
@@ -187,7 +193,10 @@ pub fn validate_tenders(
             screen_reference(reference)?;
         }
         if let Some(acquirer) = tender.acquirer.as_deref() {
-            if !matches!(tender.method, PaymentMethod::Card | PaymentMethod::Qris) {
+            if !matches!(
+                tender.method,
+                PaymentMethod::Card | PaymentMethod::Qris | PaymentMethod::Ewallet
+            ) {
                 return Err(SalesError::AcquirerOnWrongTender);
             }
             let acquirer = acquirer.trim();

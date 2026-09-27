@@ -31,7 +31,11 @@ change_minor: number, card_debit_minor: number, card_credit_minor: number,
  * [`tender_of`]. Shown so that rule is visible on the screen and not only
  * in this file.
  */
-card_unattributed_minor: number, qris_minor: number, voucher_minor: number, other_minor: number, 
+card_unattributed_minor: number, qris_minor: number, 
+/**
+ * OVO, GoPay and the like (0468): owed by the provider like QRIS.
+ */
+ewallet_minor: number, voucher_minor: number, other_minor: number, 
 /**
  * Refunds raised at this unit on this day. **Not in the entry** — see the
  * module note. Shown so a day whose book and till disagree says why.

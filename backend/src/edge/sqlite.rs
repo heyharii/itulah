@@ -1164,6 +1164,9 @@ impl SqliteEdge {
         // creates rather than changes and needs no probe.
         apply_attendance_schema(&connection)?;
         apply_till_approval_schema(&connection)?;
+        // The shop's payment methods, and `sale_tender` learning EWALLET.
+        // After the voucher rebuild above, because it widens that table's CHECK.
+        super::payment_methods::apply_schema(&connection)?;
         // Inbound deliveries (`0046`): three tables, all `IF NOT EXISTS`,
         // nothing altered, so no probe.
         connection
@@ -5738,6 +5741,8 @@ impl EdgeInventory for SqliteEdge {
         // statement arrives.
         let payment = crate::tender::validate_tenders(amount_due_minor, &request.tenders)
             .map_err(|error| EdgeError::Validation(error.to_string()))?;
+        // Only a tender head office set this shop up to take (cloud 0474).
+        super::payment_methods::assert_accepted(&tx, &request.tenders)?;
         // A voucher tender spends a hold this node relayed, or nothing. Inside
         // the sale's own transaction, so the hold is spent exactly when the
         // sale exists — and a second basket naming it is refused here, at the
@@ -7056,8 +7061,17 @@ impl EdgeInventory for SqliteEdge {
         if request.reason.trim().is_empty() {
             return Err(EdgeError::Validation("a return needs a reason".into()));
         }
-        crate::tender::PaymentMethod::from_str(&request.refund_method)
+        let refund_method = crate::tender::PaymentMethod::from_str(&request.refund_method)
             .map_err(|error| EdgeError::Validation(error.to_string()))?;
+        // A voucher is spent against a hold the centre grants; paying one
+        // back out would be issuing one, which a till cannot do.
+        if refund_method == crate::tender::PaymentMethod::Voucher {
+            return Err(EdgeError::Validation(
+                "a refund cannot be paid as a voucher; pay it back in cash or to the method \
+                 the shopper paid with"
+                    .into(),
+            ));
+        }
         let request_json = Self::encode_idempotent_request(&request)?;
         let mut connection = self.lock()?;
         let tx = connection
@@ -11413,6 +11427,8 @@ mod petty_tests {
                 to: today + chrono::Duration::days(1),
                 utc_offset_minutes: Some(420),
                 limit: Some(2),
+                paged: None,
+                cursor: None,
             })
             .unwrap_or_else(|error| panic!("window: {error}"));
 

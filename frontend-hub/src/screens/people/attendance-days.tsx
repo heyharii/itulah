@@ -5,10 +5,11 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { CalendarCheck, ChevronLeft, ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
@@ -658,6 +659,12 @@ export function AttendanceDays() {
               clearable={false}
               className="h-8 w-36"
             />
+            {/* Signing off the month these days add up to. Once a month, so
+                a button here rather than a sidebar row (2026-09-27). */}
+            <AppLink to="/people/periods" variant="ghost">
+              <CalendarCheck />
+              Period close
+            </AppLink>
           </>
         }
       />

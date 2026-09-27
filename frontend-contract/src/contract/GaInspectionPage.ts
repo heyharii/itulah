@@ -5,4 +5,10 @@ import type { GaInspectionRow } from "./GaInspectionRow";
 /**
  * A page of the inspection list.
  */
-export type GaInspectionPage = { rows: Array<GaInspectionRow>, total: number, facets: GaInspectionFacets, };
+export type GaInspectionPage = { rows: Array<GaInspectionRow>, 
+/**
+ * Opaque. Pass it back as `cursor` for the next page; absent means this
+ * was the last one.
+ */
+next_cursor: string | null, 
+total: number, facets: GaInspectionFacets, };

@@ -60,7 +60,6 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { toast } from "@/lib/toast"
-import { cn } from "@/lib/utils"
 import { useDebounced } from "@/lib/use-debounced"
 import { LinkButton } from "@/screens/procurement/controls"
 import { useIdempotencyKey } from "@/screens/procurement/shared"
@@ -527,17 +526,9 @@ export function Suppliers() {
                       cardSort={false}
                       onRowClick={(row) => supplier.open(row.supplier_id)}
                       isSelected={(row) => row.supplier_id === supplier.value}
-                      onEndReached={() => {
-                        if (book.hasNextPage && !book.isFetchingNextPage)
-                          void book.fetchNextPage()
-                      }}
+                      more={book}
                       className="max-h-[calc(100vh-14rem)]"
                     />
-                    {book.isFetchingNextPage && (
-                      <p className="border-t border-hairline px-3.5 py-2.5 text-[0.875rem] text-body">
-                        Loading more suppliers…
-                      </p>
-                    )}
                   </>
                 ),
             })}
@@ -735,24 +726,6 @@ function contactsSaveable(contacts: readonly ContactDraft[]): boolean {
   return contacts.every((one) => contactProblem(one) === null)
 }
 
-const LABEL = "text-[0.875rem] font-medium text-text"
-
-/// A field's label, with the star the owner uses for "required".
-function Label({
-  children,
-  required,
-}: {
-  children: React.ReactNode
-  required?: boolean
-}) {
-  return (
-    <span className={LABEL}>
-      {children}
-      {required && <span className="ml-0.5 text-bad">*</span>}
-    </span>
-  )
-}
-
 /// The company's facts, in the owner's order: number, legal form, name,
 /// address, email, phone, NPWP, PKP.
 ///
@@ -788,7 +761,7 @@ function CompanyFields({
   return (
     <Section title="Company">
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label={<Label>Supplier number</Label>}>
+        <Field label="Supplier number">
           <Input
             value={code ?? ""}
             disabled
@@ -796,7 +769,7 @@ function CompanyFields({
             className="font-mono"
           />
         </Field>
-        <Field label={<Label>Legal form</Label>}>
+        <Field label="Legal form">
           <Select
             aria-label="Legal form"
             value={draft.legalForm}
@@ -811,7 +784,7 @@ function CompanyFields({
             ))}
           </Select>
         </Field>
-        <Field label={<Label required>Name</Label>} className="md:col-span-2">
+        <Field label="Name" required className="md:col-span-2">
           <Input
             value={draft.name}
             disabled={locked("name")}
@@ -819,10 +792,7 @@ function CompanyFields({
             placeholder="Sepatu Sejahtera"
           />
         </Field>
-        <Field
-          label={<Label required>Address</Label>}
-          className="md:col-span-2"
-        >
+        <Field label="Address" required className="md:col-span-2">
           <Textarea
             rows={2}
             value={draft.address}
@@ -833,10 +803,7 @@ function CompanyFields({
           />
         </Field>
         {!quick && (
-          <Field
-            label={<Label>Email</Label>}
-            problem={touched.email ? email : null}
-          >
+          <Field label="Email" problem={touched.email ? email : null}>
             <Input
               type="email"
               inputMode="email"
@@ -844,14 +811,13 @@ function CompanyFields({
               disabled={locked("email")}
               onChange={(event) => set({ email: event.target.value })}
               onBlur={() => touch({ email: true })}
-              aria-invalid={touched.email && email !== null}
-              className={cn(touched.email && email !== null && "border-bad")}
               placeholder="orders@sepatusejahtera.co.id"
             />
           </Field>
         )}
         <Field
-          label={<Label required>Phone number</Label>}
+          label="Phone number"
+          required
           problem={touched.phone ? phone : null}
         >
           <Input
@@ -863,17 +829,13 @@ function CompanyFields({
               set({ phone: formatPhone(event.target.value) })
             }
             onBlur={() => touch({ phone: true })}
-            aria-invalid={touched.phone && phone !== null}
-            className={cn(
-              "tabular-nums",
-              touched.phone && phone !== null && "border-bad"
-            )}
+            className="tabular-nums"
             placeholder="0887 7993 12312"
           />
         </Field>
         {!quick && (
           <Field
-            label={<Label>NPWP</Label>}
+            label="NPWP"
             aside="16 digits"
             problem={touched.npwp ? npwp : null}
           >
@@ -888,11 +850,7 @@ function CompanyFields({
                 set({ npwp: completeNpwp(draft.npwp) })
                 touch({ npwp: true })
               }}
-              aria-invalid={touched.npwp && npwp !== null}
-              className={cn(
-                "tabular-nums",
-                touched.npwp && npwp !== null && "border-bad"
-              )}
+              className="tabular-nums"
               placeholder="0012345678901000"
             />
           </Field>
@@ -981,7 +939,7 @@ function ContactsFields({
               className="flex flex-col gap-2 rounded-inner border border-hairline p-3 transition-[opacity,translate] duration-200 ease-(--ease-out) starting:translate-y-1 starting:opacity-0 motion-reduce:starting:translate-none"
             >
               <div className="grid gap-3 md:grid-cols-[1.2fr_0.8fr_1fr_1.2fr_auto] md:items-end">
-                <Field label={<Label>Name</Label>}>
+                <Field label="Name">
                   <Input
                     value={one.name}
                     onChange={(event) =>
@@ -991,7 +949,7 @@ function ContactsFields({
                     aria-label={`Contact ${index + 1} name`}
                   />
                 </Field>
-                <Field label={<Label>Role</Label>}>
+                <Field label="Role">
                   <Input
                     value={one.role}
                     onChange={(event) =>
@@ -1001,7 +959,7 @@ function ContactsFields({
                     aria-label={`Contact ${index + 1} role`}
                   />
                 </Field>
-                <Field label={<Label>Phone</Label>}>
+                <Field label="Phone">
                   <Input
                     type="tel"
                     inputMode="tel"
@@ -1014,7 +972,7 @@ function ContactsFields({
                     aria-label={`Contact ${index + 1} phone`}
                   />
                 </Field>
-                <Field label={<Label>Email</Label>}>
+                <Field label="Email">
                   <Input
                     type="email"
                     inputMode="email"
@@ -1037,7 +995,7 @@ function ContactsFields({
                   <Trash2 />
                 </Button>
               </div>
-              <Field label={<Label>Address</Label>}>
+              <Field label="Address">
                 <Input
                   value={one.address}
                   onChange={(event) =>
@@ -1160,10 +1118,9 @@ export function SupplierComposer({
     onSuccess: (supplier) => {
       void client.invalidateQueries({ queryKey: procurementKeys.suppliers() })
       idempotency.rotate()
-      toast.success(
-        `Supplier ${supplier.supplier_code} created`,
-        { description: supplierDisplayName(supplier) }
-      )
+      toast.success(`Supplier ${supplier.supplier_code} created`, {
+        description: supplierDisplayName(supplier),
+      })
       reset()
       onCreated?.(supplier)
       if (onCreated === undefined) onClose()
@@ -1182,8 +1139,7 @@ export function SupplierComposer({
     onClose()
   }
 
-  const ready =
-    saveable(draft, quick) && (quick || contactsSaveable(contacts))
+  const ready = saveable(draft, quick) && (quick || contactsSaveable(contacts))
 
   return (
     <Sheet
@@ -1198,7 +1154,8 @@ export function SupplierComposer({
           </Button>
           <Button
             variant="primary"
-            disabled={!ready || create.isPending}
+            pending={create.isPending}
+            disabled={!ready}
             onClick={() => create.mutate()}
           >
             {create.isPending ? "Saving…" : "Save"}
@@ -1390,7 +1347,9 @@ function SupplierSheet({
       open={id !== null}
       onOpenChange={(open) => !open && onClose()}
       id={supplier?.supplier_code}
-      title={supplier === undefined ? "Supplier" : supplierDisplayName(supplier)}
+      title={
+        supplier === undefined ? "Supplier" : supplierDisplayName(supplier)
+      }
       // Under the name, the two facts somebody opened this to find: where they
       // are and how to call them.
       caption={
@@ -1428,9 +1387,7 @@ function SupplierSheet({
                   id: id!,
                   address: supplier.address ?? "",
                   notes: supplier.notes ?? "",
-                  contacts: [
-                    ...(people.data ?? []).map(contactDraftOf),
-                  ],
+                  contacts: [...(people.data ?? []).map(contactDraftOf)],
                 })
               }}
             >
@@ -1448,10 +1405,10 @@ function SupplierSheet({
             </Button>
             <Button
               variant="primary"
+              pending={save.isPending}
               disabled={
                 editing.address.trim() === "" ||
-                !contactsSaveable(editing.contacts) ||
-                save.isPending
+                !contactsSaveable(editing.contacts)
               }
               onClick={() => save.mutate()}
             >
@@ -1616,10 +1573,7 @@ const GROUPS: readonly {
 ]
 
 /// Newest issued first — the order the tab and its sheet both read in.
-function newestFirst(
-  left: PurchaseOrderRow,
-  right: PurchaseOrderRow
-): number {
+function newestFirst(left: PurchaseOrderRow, right: PurchaseOrderRow): number {
   return (right.issued_at ?? "").localeCompare(left.issued_at ?? "")
 }
 
@@ -1949,7 +1903,7 @@ function SupplierCatalogue({ supplierId }: { supplierId: string }) {
         >
           <form.Field name="code">
             {(field) => (
-              <Field label={<Label>Supplier's code for it</Label>}>
+              <Field label="Supplier's code for it">
                 <Input
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -1960,7 +1914,7 @@ function SupplierCatalogue({ supplierId }: { supplierId: string }) {
           </form.Field>
           <form.Field name="name">
             {(field) => (
-              <Field label={<Label>Name</Label>}>
+              <Field label="Name">
                 <Input
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -1971,7 +1925,7 @@ function SupplierCatalogue({ supplierId }: { supplierId: string }) {
           </form.Field>
           <form.Field name="price">
             {(field) => (
-              <Field label={<Label>Unit price</Label>} hint="Rupiah.">
+              <Field label="Unit price" hint="Rupiah.">
                 <Input
                   type="number"
                   min={0}
@@ -1995,7 +1949,8 @@ function SupplierCatalogue({ supplierId }: { supplierId: string }) {
                   type="submit"
                   variant="soft"
                   className="flex-1"
-                  disabled={!ready || add.isPending}
+                  pending={add.isPending}
+                  disabled={!ready}
                 >
                   {add.isPending ? "Adding…" : "Add it"}
                 </Button>

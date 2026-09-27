@@ -172,7 +172,18 @@ export interface SegmentBook {
 /// The sorts the server names. Anything else falls back to `spent`, the house
 /// order, rather than being refused — a sort arrives from a URL somebody may
 /// have kept from an older build.
-export type MemberSort = "spent" | "name" | "card" | "joined" | "last_purchase"
+export type MemberSort =
+  | "spent"
+  | "name"
+  | "card"
+  | "joined"
+  | "last_purchase"
+  | "transactions"
+  | "atv"
+  | "units"
+  | "upt"
+  | "points"
+  | "points_spent"
 
 export interface MemberQuery {
   readonly segment?: SegmentKey
@@ -188,6 +199,10 @@ export interface MemberQuery {
   /// Absent means each key's own natural direction: money and recency read
   /// downwards, names and card numbers upwards.
   readonly dir?: "asc" | "desc"
+  /// The filter bar's clauses over the `member` dataset — the same clause a
+  /// saved segment is written in. Run by the server, because the directory is
+  /// paged and a clause over the loaded rows would be a filter of the page.
+  readonly filters?: readonly SpecFilter[]
   /// A `next_cursor` from the previous page, verbatim.
   readonly cursor?: string
   readonly limit?: number
@@ -265,7 +280,9 @@ export const memberKeys = {
       query.q ?? "",
       query.sort ?? "spent",
       query.dir ?? "",
-      query.cursor ?? "",
+      // Not the cursor: the directory is an infinite query, which keeps its
+      // pages under one key.
+      JSON.stringify(query.filters ?? []),
     ] as const,
   segments: () => ["members", "segments"] as const,
 }
@@ -280,6 +297,8 @@ export function listMembers(
   if (query.q) params.set("q", query.q)
   if (query.sort) params.set("sort", query.sort)
   if (query.dir) params.set("dir", query.dir)
+  if (query.filters && query.filters.length > 0)
+    params.set("filters", JSON.stringify(query.filters))
   if (query.cursor) params.set("cursor", query.cursor)
   if (query.limit !== undefined) params.set("limit", String(query.limit))
   const encoded = params.toString()
@@ -450,8 +469,8 @@ export function retireSegment(id: string, signal?: AbortSignal): Promise<void> {
 /// What a definition would match, before anybody saves it.
 ///
 /// The server counts it, and that is not an optimisation: the directory screen
-/// loads a page of a thousand members, and a count taken over that page would
-/// be a count of the page. It would also disagree with the card afterwards,
+/// loads the directory a page at a time, and a count taken over the pages in
+/// hand would be a count of those pages. It would also disagree with the card afterwards,
 /// which is the one comparison a reader is guaranteed to make.
 export function previewSegment(
   definition: SegmentDefinition,

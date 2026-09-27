@@ -11,6 +11,8 @@ import {
   moduleForPath,
   type AppModule,
 } from "@/lib/navigation"
+import { officeFor, systemFor } from "@/lib/apps"
+import { useIdentity } from "@/lib/session"
 import { homeNav } from "@/screens/home/nav"
 import { meNav } from "@/screens/me/nav"
 import { systemNav } from "@/screens/system/nav"
@@ -53,6 +55,10 @@ export function Rail({
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const here = domainForPath(pathname)
   const active = moduleForPath(pathname)
+  // Which doors this caller is offered: the launcher's rule, so a cashier's
+  // desk shows Home and their own Profile rather than ten locked departments.
+  const role = useIdentity().data?.role
+  const office = officeFor(role)
 
   // The tile somebody just pressed, and the path they pressed it on. The
   // router only commits the new location once the screen's code and data
@@ -116,7 +122,7 @@ export function Rail({
         )}
         {[
           { id: homeNav.id, label: homeNav.label, icon: House, to: "/" },
-          ...domains.map((domain) => ({
+          ...(office ? domains : []).map((domain) => ({
             id: domain.id,
             label: domain.label,
             icon: domain.icon,
@@ -165,8 +171,10 @@ export function Rail({
       <div className="flex shrink-0 flex-col items-center gap-1 border-t border-rail-hair px-1.5 pt-2 pb-3">
         <div className="grid grid-cols-2 gap-1">
           {[
-            ...asides.filter((aside) => !topBarAsides.includes(aside)),
-            systemNav,
+            ...(office
+              ? asides.filter((aside) => !topBarAsides.includes(aside))
+              : []),
+            ...(systemFor(role) ? [systemNav] : []),
             // Profile — the phone's fourth tab — is the desk's fourth tile:
             // your own attendance, leave and pay, one press from anywhere.
             meNav,

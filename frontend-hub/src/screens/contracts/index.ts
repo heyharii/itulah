@@ -4,17 +4,9 @@ import { Contracts } from "@/screens/contracts/contracts"
 /// Screens this module has written. Keys must be paths declared in
 /// `lib/navigation.ts`.
 ///
-/// Eight paths, one screen: the six group doors, Utilities and Cleaning are
-/// all the same register reading its question off the URL — the same shape
-/// Assets is the existing example of. A new reading is a nav entry, not a
-/// screen to write.
+/// One path: a group is a chip whose value rides in `?contract-group=`, the
+/// same shape the asset register's readings take, so a new reading is a chip
+/// and not a route.
 export const screens: ScreenMap = {
-  "/contracts/sewa": Contracts,
-  "/contracts/jasa": Contracts,
-  "/contracts/asuransi": Contracts,
-  "/contracts/izin": Contracts,
-  "/contracts/langganan": Contracts,
-  "/contracts/disewakan": Contracts,
-  "/contracts/utilities": Contracts,
-  "/contracts/cleaning": Contracts,
+  "/contracts": Contracts,
 }

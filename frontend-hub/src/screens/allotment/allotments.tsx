@@ -1121,6 +1121,7 @@ function AllotmentSheet({
                   <div className="mb-4 flex flex-col gap-3">
                     <Field
                       label="Pick against a line"
+                      required
                       hint="Partial picks are expected; press again until nothing remains."
                     >
                       <Choice
@@ -1134,7 +1135,7 @@ function AllotmentSheet({
                         className="h-9 w-full max-w-none"
                       />
                     </Field>
-                    <Field label="Quantity">
+                    <Field label="Quantity" required>
                       <Input
                         type="number"
                         min={1}
@@ -1146,11 +1147,9 @@ function AllotmentSheet({
                     </Field>
                     <Button
                       variant="soft"
+                      pending={execute.isPending}
                       disabled={
-                        line === "" ||
-                        actor === "" ||
-                        Number(pickQuantity) <= 0 ||
-                        execute.isPending
+                        line === "" || actor === "" || Number(pickQuantity) <= 0
                       }
                       onClick={() => execute.mutate()}
                     >
@@ -1160,9 +1159,7 @@ function AllotmentSheet({
                 )}
 
                 <div className="flex flex-col gap-3">
-                  <Field
-                    label="Cancel what is still reserved"
-                  >
+                  <Field label="Cancel what is still reserved" required>
                     <Input
                       value={reason}
                       onChange={(event) => setReason(event.target.value)}
@@ -1171,9 +1168,8 @@ function AllotmentSheet({
                   </Field>
                   <Button
                     variant="danger"
-                    disabled={
-                      reason.trim() === "" || actor === "" || cancel.isPending
-                    }
+                    pending={cancel.isPending}
+                    disabled={reason.trim() === "" || actor === ""}
                     onClick={() => cancel.mutate()}
                   >
                     {cancel.isPending ? "Asking…" : "Cancel allotment"}

@@ -3,7 +3,7 @@ import { Plus, Printer, Search } from "lucide-react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
-import { Input, Select } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -370,36 +370,27 @@ function JournalEntrySheet({
     >
       <div className="flex flex-col gap-5">
         <div className="flex flex-wrap gap-3">
-          <label className="min-w-[9rem]">
-            <span className="mb-1 block text-eyebrow font-semibold text-mute uppercase">
-              Unit
-            </span>
+          <Field label="Unit" className="min-w-[9rem]">
             <Select value={unit} onChange={setUnit} className={FILTER_W}>
               <option value="HO">HO</option>
               <option value="C004">C004</option>
               <option value="C006">C006</option>
             </Select>
-          </label>
-          <label className="min-w-[9rem]">
-            <span className="mb-1 block text-eyebrow font-semibold text-mute uppercase">
-              Posting date
-            </span>
+          </Field>
+          <Field label="Posting date" className="min-w-[9rem]">
             <Input
               value={on}
               onChange={(e) => setOn(e.target.value)}
               placeholder="2026-08-01"
             />
-          </label>
-          <label className="min-w-[14rem] flex-1">
-            <span className="mb-1 block text-eyebrow font-semibold text-mute uppercase">
-              Memo
-            </span>
+          </Field>
+          <Field label="Memo" required className="min-w-[14rem] flex-1">
             <Input
               value={memo}
               onChange={(e) => setMemo(e.target.value)}
               placeholder="Why this entry exists"
             />
-          </label>
+          </Field>
         </div>
 
         <JournalGrid

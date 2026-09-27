@@ -34,8 +34,8 @@ export function partyOf(row: GaContractRow): string {
 export function siteOf(row: GaContractRow): string {
   if (row.site_id !== null) return row.site_id
   return row.site_scope === "ALL_STORES"
-    ? "Semua toko"
+    ? "All stores"
     : row.site_scope === "ALL_SITES"
-      ? "Semua site"
+      ? "All sites"
       : "—"
 }

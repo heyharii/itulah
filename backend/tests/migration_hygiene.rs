@@ -235,13 +235,42 @@ const RESERVED: &[(u32, u32, &str)] = &[
          lane claimed 0460 onward for account links and the chart editor",
     ),
     (
-        521,
+        478,
+        489,
+        "left to the lanes in flight on 27 Sep 2026 when the discussion lane \
+         claimed 0490: the chat lane had filed 0476 in the same minute the \
+         discussion migration was written as 0476, so it moved to a distant \
+         number rather than race for the next one (the finance-foundation \
+         lane then took 0477)",
+    ),
+    (
+        491,
+        499,
+        "left to the discussion lane, which had just claimed 0490, when the \
+         assistant lane took a distant 0500 for its cost ceiling on 27 Sep 2026 \
+         rather than race for the next number",
+    ),
+    (
+        502,
+        519,
+        "held open between the assistant lane (0500 cost ceiling, 0501 verdicts \
+         and glossary) and the setup lane, which claimed 0520 in the same hours \
+         of 27 Sep 2026",
+    ),
+    (
+        522,
         599,
         "left to the lanes in flight on 27 Sep 2026 when the unit/site lane \
          claimed 0600 onward: its three steps had been written as 0450-0452, \
          0474 and 0475 on separate branches while other sessions already held \
-         0474-0477, 0490, 0500 and 0520 uncommitted, so the whole lane moved \
-         to a distant block rather than race for the next numbers",
+         0474-0477, 0490, 0500 and 0520-0521 uncommitted, so the whole lane \
+         moved to a distant block rather than race for the next numbers",
+    ),
+    (
+        605,
+        619,
+        "held by the unit/site lane's books, routes and flow-template steps in \
+         flight on 27 Sep 2026",
     ),
 ];
 

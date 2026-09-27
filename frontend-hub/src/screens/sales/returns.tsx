@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
@@ -9,23 +9,26 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { EmptyState, Truncated } from "@/components/ui/states"
+import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { useFilters } from "@/lib/filters"
+import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, money, moment } from "@/lib/format"
 import {
   listReturns,
   returnDetail,
   storeopsKeys,
   type ReturnRow,
+  type ReturnScope,
 } from "@/lib/queries/storeops"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 
 /// The refund desk: what went back over the counter and what it cost.
 ///
@@ -39,6 +42,12 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 /// reads this list to check. The sale it was taken against is a click away in
 /// the sheet rather than a column here, and it is a real link: a refund with no
 /// route back to what was sold is the dead end DESIGN.md forbids.
+///
+/// **The question goes to the server.** This screen used to fetch the newest
+/// 500 refunds and search, sort and filter them in the browser under a banner
+/// admitting it. `GET /returns` already paged by cursor; the search, the order
+/// and every chip below are its parameters now, and the list walks
+/// `next_cursor` as it scrolls.
 
 const columns: ColumnDef<TableSetup, ReturnRow>[] = [
   {
@@ -57,12 +66,6 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     accessorKey: "site_id",
     header: "Store",
     size: 130,
-    /// Faceted from these rows, which is the only spelling that can match
-    /// them: the centre and the box standing in a place do not always agree
-    /// on its name — the warehouse is `ho` to the centre and `dc-01` to its
-    /// own edge node — and a list fetched from anywhere else would offer a
-    /// value with a count beside it that selects nothing.
-    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.site_id}</span>
     ),
@@ -71,23 +74,23 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     accessorKey: "reason",
     header: "Reason",
     size: 260,
-    // Prose somebody typed at a counter. A search box reads it better than a
-    // facet of two hundred distinct sentences ever could.
+    // Prose somebody typed at a counter. The search box reads it; an order
+    // over free text is not a question anybody asks.
+    enableSorting: false,
     cell: ({ row }) => <span className="text-text">{row.original.reason}</span>,
   },
   {
     accessorKey: "actor_id",
     header: "Taken by",
     size: 150,
-    /// A closed set in practice — the people standing at the counters — and
-    /// "who refunded this" is the question a supervisor opens this list with.
-    meta: { filter: { kind: "option" } },
+    // Filtered, not sorted: the server has no order for it, and sorting the
+    // pages in hand would call a screenful the list.
+    enableSorting: false,
   },
   {
     accessorKey: "created_at",
     header: "When",
     size: 160,
-    meta: { filter: { kind: "date" } },
     cell: ({ row }) => moment(row.original.created_at),
   },
   {
@@ -95,15 +98,7 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     header: "Refunded",
     size: 140,
     // The decision metric: money going back out of the till.
-    /// **No `scale`, despite the `_minor` in the name.** `lib/format.ts` says
-    /// it plainly — IDR has no minor unit in practice, so the server's "minor"
-    /// is already whole rupiah and `money()` prints it undivided. A
-    /// `scale: 100` here would turn "refunds over 500000" into "refunds over
-    /// fifty million" and show an empty list under a chip claiming the first.
-    meta: {
-      align: "right",
-      filter: { kind: "number", unit: "Rp" },
-    },
+    meta: { align: "right" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         {money(row.original.refund_total_minor)}
@@ -112,11 +107,102 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
   },
 ]
 
-/// What this screen asks for, named once so the banner and the request cannot
-/// disagree. The search and the sort both run in the BROWSER over whatever
-/// this fetched, and so do the filters — so this is also the number past which
-/// the screen stops being able to answer the question it appears to answer.
-const CAP = 500
+/// Which column means which of the four orders `GET /returns` names. A column
+/// not in here is `enableSorting: false` on its definition.
+const SORTS: Record<string, NonNullable<ReturnScope["sort"]>> = {
+  return_number: "number",
+  site_id: "site",
+  created_at: "at",
+  refund_total_minor: "refund",
+}
+
+/// The chips this list can carry, and only those: each is a parameter the
+/// endpoint answers, with its operators cut to what the request can hold.
+const FIELDS: readonly FilterField[] = [
+  {
+    column: "site_id",
+    label: "Store",
+    /// Counted by the server over the refunds themselves, which is the only
+    /// spelling that can match them: the centre and the box standing in a
+    /// place do not always agree on its name — the warehouse is `ho` to the
+    /// centre and `dc-01` to its own edge node.
+    spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+  },
+  {
+    column: "actor_id",
+    label: "Taken by",
+    /// A closed set in practice — the people standing at the counters — and
+    /// "who refunded this" is the question a supervisor opens this list with.
+    spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+  },
+  {
+    column: "created_at",
+    label: "When",
+    /// Local business days, the server's boundary (WIB), not the browser's.
+    spec: {
+      kind: "date",
+      single: true,
+      operators: ["is", "onOrAfter", "onOrBefore", "between"],
+    },
+  },
+  {
+    column: "refund_total_minor",
+    label: "Refunded",
+    /// **No `scale`, despite the `_minor` in the name.** `lib/format.ts` says
+    /// it plainly — IDR has no minor unit in practice, so the server's "minor"
+    /// is already whole rupiah and the bound goes on the wire as typed.
+    spec: {
+      kind: "number",
+      unit: "Rp",
+      single: true,
+      operators: ["gte", "lte", "between"],
+    },
+  },
+]
+
+/// The chips as the parameters the endpoint answers.
+function scopeFromFilters(filters: readonly Filter[]): ReturnScope {
+  const scope: { -readonly [K in keyof ReturnScope]: ReturnScope[K] } = {}
+  const amount = (raw: string | undefined) => {
+    const parsed = Number(raw)
+    return raw === undefined || raw === "" || !Number.isFinite(parsed)
+      ? undefined
+      : Math.round(parsed)
+  }
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0) continue
+    const [first, second] = values
+    if (column === "site_id" && operator === "isAnyOf") scope.siteId = first
+    else if (column === "actor_id" && operator === "isAnyOf")
+      scope.actorId = first
+    else if (column === "created_at") {
+      if (operator === "is") {
+        scope.from = first
+        scope.to = first
+      } else if (operator === "onOrAfter") scope.from = first
+      else if (operator === "onOrBefore") scope.to = first
+      else if (operator === "between" && second !== undefined) {
+        // Either order: a range typed backwards still means the same days.
+        scope.from = first <= second ? first : second
+        scope.to = first <= second ? second : first
+      }
+    } else if (column === "refund_total_minor") {
+      if (operator === "gte") scope.minRefund = amount(first)
+      else if (operator === "lte") scope.maxRefund = amount(first)
+      else if (operator === "between") {
+        const [low, high] = [amount(first), amount(second)]
+        if (low !== undefined && high !== undefined) {
+          scope.minRefund = Math.min(low, high)
+          scope.maxRefund = Math.max(low, high)
+        }
+      }
+    }
+  }
+  return scope
+}
+
+/// A page the size the server defaults to. The table virtualises past 150.
+const PAGE = 100
 
 export function Returns() {
   const [query, setQuery] = useState("")
@@ -125,31 +211,74 @@ export function Returns() {
     { id: "refund_total_minor", desc: true },
   ])
 
-  const returns = useQuery({
-    queryKey: storeopsKeys.returns(),
-    queryFn: ({ signal }) => listReturns({ limit: CAP }, signal),
+  const filters = useFilterState(FIELDS)
+
+  // Debounced, because every keystroke is a query over every refund.
+  const needle = useDebounced(query.trim(), 400)
+  const scope = useMemo<ReturnScope>(() => {
+    const by = sorting[0]
+    const sort = by === undefined ? undefined : SORTS[by.id]
+    return {
+      ...scopeFromFilters(filters.filters),
+      ...(needle === "" ? {} : { q: needle }),
+      ...(sort === undefined
+        ? {}
+        : {
+            sort,
+            dir: by?.desc === false ? ("asc" as const) : ("desc" as const),
+          }),
+      limit: PAGE,
+    }
+  }, [filters.filters, needle, sorting])
+
+  const returns = useInfiniteQuery({
+    queryKey: storeopsKeys.returnsPage(scope),
+    queryFn: ({ pageParam, signal }) =>
+      listReturns({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays while the next is fetched, so a keystroke
+    // does not empty the table to a loading line.
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => returns.data?.rows ?? [], [returns.data])
+  const rows = useMemo(
+    () => returns.data?.pages.flatMap((page) => page.rows) ?? [],
+    [returns.data]
+  )
+  /// Every page carries the whole matched set's total and facets; the first
+  /// is read so they do not flicker while the next page lands.
+  const head = returns.data?.pages[0]
 
-  const filters = useFilters(columns)
+  /// The same fields, carrying the server's tally over everything the search
+  /// matches — never a count of the rows that happen to be loaded.
+  const counted = useMemo<FilterField[]>(() => {
+    const facets = head?.facets
+    if (!facets) return [...FIELDS]
+    return FIELDS.map((field) =>
+      field.column === "site_id"
+        ? { ...field, spec: { ...field.spec, counted: facets.sites } }
+        : field.column === "actor_id"
+          ? { ...field, spec: { ...field.spec, counted: facets.actors } }
+          : field
+    )
+  }, [head])
+
+  const narrowed = needle !== "" || filters.filters.length > 0
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: filters.columns,
+        columns,
         getRowId: (row: ReturnRow) => row.id,
-        state: {
-          columnFilters: filters.columnFilters,
-          globalFilter: query,
-          sorting,
-        },
+        state: { sorting },
+        // The rows arrive in the order the request asked for.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, sorting]
     )
   )
 
@@ -163,21 +292,24 @@ export function Returns() {
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search"
-            className="h-8 w-48"
+            placeholder="Search number or reason"
+            className="h-8 w-56"
           />
         }
       />
 
       <Toolbar>
-        <FilterPanel model={filters} table={table} />
+        <FilterPanel model={{ ...filters, fields: counted }} />
       </Toolbar>
 
-      {/* Only when the answer came back exactly as large as the question. A
-          shorter answer proves there was nothing more to send; this length
-          proves nothing either way — and a refund total read off a filtered
-          slice of it is a figure somebody would quote. */}
-      {rows.length >= CAP && <Truncated limit={CAP} noun="returns" />}
+      {/* The server's figures over everything the search and the chips match,
+          whatever has been scrolled into view. */}
+      {head !== undefined && (
+        <KpiStrip>
+          <Kpi label="Returns" value={count(head.total)} />
+          <Kpi label="Refunded" value={money(head.refund_total_minor)} />
+        </KpiStrip>
+      )}
 
       <Card className="overflow-hidden">
         {queryState(returns, {
@@ -185,21 +317,17 @@ export function Returns() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                Nothing has been taken back yet. A return is raised against a
-                completed sale, from that sale&apos;s own record.
+                {narrowed
+                  ? "No return matches this search and the filters in force."
+                  : "Nothing has been taken back yet. A return is raised against a completed sale, from that sale's own record."}
               </EmptyState>
             ) : (
               <DataTable<ReturnRow>
                 table={table}
                 onRowClick={(row) => refund.open(row.id)}
                 isSelected={(row) => row.id === refund.value}
-                empty={
-                  <>
-                    None of the {rows.length.toLocaleString("id-ID")} returns
-                    loaded match this search and the filters in force.
-                  </>
-                }
-                className="max-h-[calc(100vh-14rem)]"
+                more={returns}
+                className="max-h-[calc(100vh-20rem)]"
               />
             ),
         })}

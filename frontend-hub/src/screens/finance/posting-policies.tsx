@@ -203,7 +203,7 @@ function Switches() {
               </Grid>
             )}
             <div className="flex flex-wrap items-end gap-2 border-t border-hairline p-4">
-              <Field label="Document kind" className="w-56">
+              <Field label="Document kind" required className="w-56">
                 <Input
                   value={kind}
                   onChange={(event) =>
@@ -222,7 +222,8 @@ function Switches() {
                 </Select>
               </Field>
               <Button
-                disabled={kind.trim() === "" || one.isPending}
+                pending={one.isPending}
+                disabled={kind.trim() === ""}
                 onClick={() =>
                   one.mutate({
                     source_kind: kind.trim(),
@@ -361,7 +362,7 @@ function SourceRules() {
                         <Button
                           size="sm"
                           variant="quiet"
-                          disabled={remove.isPending}
+                          pending={remove.isPending}
                           onClick={() => remove.mutate(rule)}
                         >
                           Remove
@@ -383,11 +384,12 @@ function SourceRules() {
           kind out, and wins over an ALLOW.
         </p>
         <Problem error={add.error} />
-        <Field label="Account">
+        <Field label="Account" required>
           <ChosenAccount value={account} onChange={setAccount} />
         </Field>
         <Field
           label="Document kind"
+          required
           hint="journal_entry.source_kind, e.g. CASH_SHIFT"
         >
           <Input
@@ -401,13 +403,13 @@ function SourceRules() {
             <option value="DENY">Deny — never this kind</option>
           </Select>
         </Field>
-        <Field label="Category" aside="Optional">
+        <Field label="Category">
           <Input
             value={category}
             onChange={(event) => setCategory(event.target.value)}
           />
         </Field>
-        <Field label="Note" aside="Optional">
+        <Field label="Note">
           <Input
             value={note}
             onChange={(event) => setNote(event.target.value)}
@@ -416,7 +418,8 @@ function SourceRules() {
         <div className="flex justify-end">
           <Button
             variant="primary"
-            disabled={account === null || kind.trim() === "" || add.isPending}
+            pending={add.isPending}
+            disabled={account === null || kind.trim() === ""}
             onClick={() => add.mutate()}
           >
             {add.isPending ? "Saving…" : "Save rule"}
@@ -495,7 +498,7 @@ function HeadOfficeAccounts() {
                         <Button
                           size="sm"
                           variant="quiet"
-                          disabled={remove.isPending}
+                          pending={remove.isPending}
                           onClick={() => remove.mutate(row.account_code)}
                         >
                           Remove
@@ -519,7 +522,7 @@ function HeadOfficeAccounts() {
           and lenders are head office's to settle.
         </p>
         <Problem error={add.error} />
-        <Field label="Account">
+        <Field label="Account" required>
           <ChosenAccount value={account} onChange={setAccount} />
         </Field>
         <Field label="Kind">
@@ -531,7 +534,7 @@ function HeadOfficeAccounts() {
             ))}
           </Select>
         </Field>
-        <Field label="Why">
+        <Field label="Why" required>
           <Input
             value={note}
             onChange={(event) => setNote(event.target.value)}
@@ -540,7 +543,8 @@ function HeadOfficeAccounts() {
         <div className="flex justify-end">
           <Button
             variant="primary"
-            disabled={account === null || note.trim() === "" || add.isPending}
+            pending={add.isPending}
+            disabled={account === null || note.trim() === ""}
             onClick={() => add.mutate()}
           >
             {add.isPending ? "Saving…" : "Save"}

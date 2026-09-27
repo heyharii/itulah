@@ -335,8 +335,10 @@ function IntoRoom({
   const [search, setSearch] = useState("")
 
   const threads = useQuery({
-    queryKey: workplaceKeys.threads({}),
-    queryFn: ({ signal }) => listThreads({}, signal),
+    // Every thread the list can hold, not the board's first page: this is a
+    // picker, and a thread that is not in it cannot be chosen.
+    queryKey: workplaceKeys.threads({ limit: 200 }),
+    queryFn: ({ signal }) => listThreads({ limit: 200 }, signal),
   })
   const conversations = useQuery({
     queryKey: workplaceKeys.conversations(),
@@ -398,7 +400,11 @@ function IntoRoom({
         <Banner tone="bad">{place.error.message}</Banner>
       )}
 
-      <Field label="Say what it is" hint="A thread refuses an empty reply.">
+      <Field
+        label="Say what it is"
+        hint="A thread refuses an empty reply."
+        required
+      >
         <Textarea
           rows={2}
           value={note}
@@ -450,7 +456,8 @@ function IntoRoom({
         </span>
         <Button
           variant="primary"
-          disabled={room === null || note.trim() === "" || place.isPending}
+          pending={place.isPending}
+          disabled={room === null || note.trim() === ""}
           onClick={() => place.mutate()}
         >
           {place.isPending ? "Filing…" : "Put it there"}
@@ -597,7 +604,7 @@ function IntoDrawer({
         </span>
         <Button
           variant="primary"
-          disabled={file.isPending}
+          pending={file.isPending}
           onClick={() => file.mutate()}
         >
           {file.isPending ? "Filing…" : "File it"}

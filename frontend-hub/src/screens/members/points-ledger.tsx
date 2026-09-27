@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
+import { useMemo } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
@@ -7,7 +8,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Tag } from "@/components/ui/tag"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadMore } from "@/components/ui/states"
 import { count, moment } from "@/lib/format"
 import {
   describeEntryType,
@@ -50,11 +51,22 @@ function causeOf(entry: PointsEntry): { what: string; id: string } | null {
 export function PointsLedger() {
   const customer = useSheet("customer")
 
-  const list = useQuery({
-    queryKey: pointsKeys.ledger(customer.value ?? null, PAGE),
-    queryFn: ({ signal }) =>
-      listPointsLedger(customer.value ?? null, PAGE, signal),
+  /// Newest first, a page at a time as the foot of the list comes into view.
+  const list = useInfiniteQuery({
+    queryKey: pointsKeys.ledger(customer.value ?? null),
+    queryFn: ({ pageParam, signal }) =>
+      listPointsLedger(
+        { customerId: customer.value ?? null, cursor: pageParam, limit: PAGE },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   })
+
+  const entries = useMemo(
+    () => list.data?.pages.flatMap((page) => page.items) ?? [],
+    [list.data]
+  )
 
   return (
     <PageContent>
@@ -87,7 +99,7 @@ export function PointsLedger() {
       <Card className="overflow-hidden">
         {queryState(list, {
           loading: "Reading the points ledger…",
-          render: (entries) =>
+          render: () =>
             entries.length === 0 ? (
               <EmptyState>
                 {customer.value === undefined
@@ -95,73 +107,78 @@ export function PointsLedger() {
                   : "This member has no entries. Their balance, if they have one, came from nowhere — which is a fault worth reporting rather than an empty page."}
               </EmptyState>
             ) : (
-              <MiniTable
-                head={[
-                  { label: "When", align: "left" },
-                  "Member",
-                  { label: "What", align: "left" },
-                  { label: "Points", align: "right" },
-                  { label: "Caused by", align: "right" },
-                ]}
-              >
-                {entries.map((entry) => (
-                  <MiniRow key={entry.entry_id}>
-                    <MiniCell>
-                      <span className="text-[0.875rem] text-body">
-                        {moment(entry.created_at)}
-                      </span>
-                    </MiniCell>
-                    <MiniCell>
-                      <span className="block truncate text-ink">
-                        {entry.display_name ?? entry.customer_id}
-                      </span>
-                    </MiniCell>
-                    <MiniCell>
-                      <span className="text-body">
-                        {describeEntryType(entry.entry_type)}
-                      </span>
-                      {entry.reason !== null && (
-                        <span className="block truncate text-[0.875rem] text-mute">
-                          {entry.reason}
+              <>
+                <MiniTable
+                  head={[
+                    { label: "When", align: "left" },
+                    "Member",
+                    { label: "What", align: "left" },
+                    { label: "Points", align: "right" },
+                    { label: "Caused by", align: "right" },
+                  ]}
+                >
+                  {entries.map((entry) => (
+                    <MiniRow key={entry.entry_id}>
+                      <MiniCell>
+                        <span className="text-[0.875rem] text-body">
+                          {moment(entry.created_at)}
                         </span>
-                      )}
-                    </MiniCell>
-                    <MiniCell align="right">
-                      {/* Signed and coloured, so the column reads as
+                      </MiniCell>
+                      <MiniCell>
+                        <span className="block truncate text-ink">
+                          {entry.display_name ?? entry.customer_id}
+                        </span>
+                      </MiniCell>
+                      <MiniCell>
+                        <span className="text-body">
+                          {describeEntryType(entry.entry_type)}
+                        </span>
+                        {entry.reason !== null && (
+                          <span className="block truncate text-[0.875rem] text-mute">
+                            {entry.reason}
+                          </span>
+                        )}
+                      </MiniCell>
+                      <MiniCell align="right">
+                        {/* Signed and coloured, so the column reads as
                           arithmetic rather than as a list of magnitudes. */}
-                      <span
-                        className={
-                          entry.points < 0
-                            ? "text-bad tabular-nums"
-                            : "text-ok tabular-nums"
-                        }
-                      >
-                        {entry.points < 0 ? "−" : "+"}
-                        {count(Math.abs(entry.points))}
-                      </span>
-                    </MiniCell>
-                    <MiniCell align="right">
-                      {(() => {
-                        const cause = causeOf(entry)
-                        return cause === null ? (
-                          // An adjustment names no record, and that is exactly
-                          // when the actor matters: somebody did this by hand.
-                          <span className="text-[0.875rem] text-mute">
-                            by {entry.actor}
-                          </span>
-                        ) : (
-                          <span className="flex flex-col items-end leading-tight">
-                            <Pill tone="neutral">{cause.what}</Pill>
-                            <span className="font-mono text-[0.875rem] text-mute">
-                              {cause.id.slice(0, 8)}
+                        <span
+                          className={
+                            entry.points < 0
+                              ? "text-bad tabular-nums"
+                              : "text-ok tabular-nums"
+                          }
+                        >
+                          {entry.points < 0 ? "−" : "+"}
+                          {count(Math.abs(entry.points))}
+                        </span>
+                      </MiniCell>
+                      <MiniCell align="right">
+                        {(() => {
+                          const cause = causeOf(entry)
+                          return cause === null ? (
+                            // An adjustment names no record, and that is exactly
+                            // when the actor matters: somebody did this by hand.
+                            <span className="text-[0.875rem] text-mute">
+                              by {entry.actor}
                             </span>
-                          </span>
-                        )
-                      })()}
-                    </MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
+                          ) : (
+                            <span className="flex flex-col items-end leading-tight">
+                              <Pill tone="neutral">{cause.what}</Pill>
+                              <span className="font-mono text-[0.875rem] text-mute">
+                                {cause.id.slice(0, 8)}
+                              </span>
+                            </span>
+                          )
+                        })()}
+                      </MiniCell>
+                    </MiniRow>
+                  ))}
+                </MiniTable>
+                {/* Inside the card, which scrolls with the page — see
+                  `<LoadMore>`. */}
+                <LoadMore query={list} className="py-3" />
+              </>
             ),
         })}
       </Card>

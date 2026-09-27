@@ -673,8 +673,7 @@ function grantReady(
 /// Whether a node signs people in with their Cloud session. Only a DC does.
 function isDc(origins: readonly SyncOrigin[] | undefined, originId: string) {
   return (
-    origins?.find((origin) => origin.origin_id === originId)?.node_role ===
-    "DC"
+    origins?.find((origin) => origin.origin_id === originId)?.node_role === "DC"
   )
 }
 
@@ -797,14 +796,11 @@ function GrantSheet({
           >
             {(ready) => (
               <Button
-                disabled={!ready || grant.isPending}
+                pending={grant.isPending}
+                disabled={!ready}
                 onClick={() => form.handleSubmit()}
               >
-                {grant.isPending
-                  ? "Saving…"
-                  : existing
-                    ? "Save"
-                    : "Grant"}
+                {grant.isPending ? "Saving…" : existing ? "Save" : "Grant"}
               </Button>
             )}
           </form.Subscribe>
@@ -832,8 +828,8 @@ function GrantSheet({
         {existing ? (
           <Banner tone="info">
             Changing a role or a password does not restore a suspended
-            assignment. Those are two decisions, and this form only makes one
-            of them.
+            assignment. Those are two decisions, and this form only makes one of
+            them.
           </Banner>
         ) : null}
 
@@ -841,7 +837,7 @@ function GrantSheet({
           <>
             <form.Field name="originId">
               {(field) => (
-                <Field label="Node">
+                <Field label="Node" required>
                   <Select
                     value={field.state.value}
                     onChange={(next) => field.handleChange(next)}
@@ -858,7 +854,7 @@ function GrantSheet({
             </form.Field>
             <form.Field name="userId">
               {(field) => (
-                <Field label="Person">
+                <Field label="Person" required>
                   <Select
                     value={field.state.value}
                     onChange={(next) => field.handleChange(next)}
@@ -902,10 +898,9 @@ function GrantSheet({
               {(field) => (
                 <Field
                   label={
-                    dc
-                      ? "Offline password at this DC (optional)"
-                      : "Password at this node"
+                    dc ? "Offline password at this DC" : "Password at this node"
                   }
+                  required={!dc && !existing}
                   hint={
                     dc
                       ? "Not needed to sign in: the hub uses their Central Dashboard account. Set one only for signing in while the DC cannot reach the centre. Hashed on arrival and never shown again."
@@ -1029,7 +1024,8 @@ function RegisterReaderSheet({
           <form.Subscribe selector={(state) => readerReady(state.values)}>
             {(ready) => (
               <Button
-                disabled={!ready || register.isPending}
+                pending={register.isPending}
+                disabled={!ready}
                 onClick={() => form.handleSubmit()}
               >
                 {register.isPending ? "Registering…" : "Register"}
@@ -1060,6 +1056,7 @@ function RegisterReaderSheet({
           {(field) => (
             <Field
               label="Device id"
+              required
               hint="3–96 characters of A–Z, 0–9, '-', '_' or '.'. Upper-cased by the server."
             >
               <Input
@@ -1075,7 +1072,7 @@ function RegisterReaderSheet({
 
         <form.Field name="originId">
           {(field) => (
-            <Field label="Node">
+            <Field label="Node" required>
               <Select
                 value={field.state.value}
                 onChange={(next) => field.handleChange(next)}
@@ -1093,7 +1090,11 @@ function RegisterReaderSheet({
 
         <form.Field name="label">
           {(field) => (
-            <Field label="Label" hint="Where on the floor this reader stands.">
+            <Field
+              label="Label"
+              required
+              hint="Where on the floor this reader stands."
+            >
               <Input
                 value={field.state.value}
                 onBlur={field.handleBlur}
@@ -1107,6 +1108,7 @@ function RegisterReaderSheet({
           {(field) => (
             <Field
               label="Pools"
+              required
               hint="Comma separated. The node refuses any pool it does not own."
             >
               <Input
@@ -1185,7 +1187,7 @@ function RotateReaderSheet({
           </Button>
           <Button
             variant="danger"
-            disabled={rotate.isPending}
+            pending={rotate.isPending}
             onClick={() => rotate.mutate()}
           >
             {rotate.isPending ? "Rotating…" : "Rotate key"}

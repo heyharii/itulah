@@ -728,20 +728,20 @@ function NewAccountSheet({
     >
       <div className="flex flex-col gap-3">
         <Problem error={save.error} />
-        <Field label="Code">
+        <Field label="Code" required>
           <Input
             value={code}
             onChange={(event) => setCode(event.target.value)}
             className="font-mono"
           />
         </Field>
-        <Field label="Name" aside="The client's own words">
+        <Field label="Name" required aside="The client's own words">
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
         </Field>
-        <Field label="Under heading">
+        <Field label="Under heading" required>
           <HeadingPicker value={parent} onChange={setParent} />
         </Field>
         <Checkbox
@@ -802,7 +802,8 @@ function NewAccountSheet({
           </span>
           <Button
             variant="primary"
-            disabled={missing !== null || save.isPending}
+            pending={save.isPending}
+            disabled={missing !== null}
             onClick={() =>
               save.mutate({
                 kind: "CREATE",
@@ -947,7 +948,8 @@ function EditAccount({
         </Button>
         <Button
           variant="primary"
-          disabled={!anything || save.isPending}
+          pending={save.isPending}
+          disabled={!anything}
           onClick={() =>
             save.mutate({
               kind: "UPDATE",
@@ -1008,7 +1010,7 @@ function RetireOrRevive({
         </Button>
         <Button
           variant={retiring ? "danger" : "primary"}
-          disabled={save.isPending}
+          pending={save.isPending}
           onClick={() =>
             save.mutate({
               kind: retiring ? "DEACTIVATE" : "REACTIVATE",

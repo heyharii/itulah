@@ -231,10 +231,10 @@ function CloseRange({ start }: { start: string }) {
         </Receipt>
       )}
       <div className="grid grid-cols-2 gap-3">
-        <Field label="From">
+        <Field label="From" required>
           <Day value={from} onChange={setFrom} label="From" />
         </Field>
-        <Field label="To">
+        <Field label="To" required>
           <Day
             value={to}
             onChange={setTo}
@@ -243,7 +243,7 @@ function CloseRange({ start }: { start: string }) {
           />
         </Field>
       </div>
-      <Field label="Remarks" aside="Optional">
+      <Field label="Remarks">
         <Input
           value={remarks}
           onChange={(event) => setRemarks(event.target.value)}

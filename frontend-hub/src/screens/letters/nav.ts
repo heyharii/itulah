@@ -25,13 +25,14 @@ import type { AppModule } from "@/lib/navigation"
 /// already for.
 export const lettersNav: AppModule = {
   id: "letters",
-  label: "Surat",
+  label: "Letters",
   icon: FileSignature,
   home: "/letters",
-  sidebarSection: "Layanan pendukung",
+  // The documents close the GA list, below the registers (owner, 2026-09-27).
+  divider: true,
   sections: [
     {
-      items: [{ path: "/letters", label: "Surat", icon: FileSignature }],
+      items: [{ path: "/letters", label: "Letters", icon: FileSignature }],
     },
   ],
 }

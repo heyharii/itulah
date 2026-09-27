@@ -258,6 +258,8 @@ export function gaAssets(
     status?: string
     draft?: boolean
     limit?: number
+    /// The previous page's `next_cursor`, verbatim.
+    cursor?: string
   } = {},
   signal?: AbortSignal
 ): Promise<GaAssetPage> {
@@ -443,7 +445,7 @@ export function recordMeterReading(
 /// that rolls the next date forward from them; a free-text "3 bulan" could
 /// not be computed with.
 export function gaMaintenanceTasks(
-  scope: { q?: string; site?: string; limit?: number } = {},
+  scope: { site?: string; limit?: number; cursor?: string } = {},
   signal?: AbortSignal
 ): Promise<GaMaintenanceTaskPage> {
   return node.get<GaMaintenanceTaskPage>(
@@ -468,7 +470,7 @@ export function recordGaTask(
 /// The inspections, newest first — the history the schedule is checked
 /// against, and the paper a repair-from-a-finding points back at.
 export function gaInspections(
-  scope: { asset?: string; limit?: number } = {},
+  scope: { limit?: number; cursor?: string } = {},
   signal?: AbortSignal
 ): Promise<GaInspectionPage> {
   return node.get<GaInspectionPage>(`/api/v1/ga/inspections${search(scope)}`, {
@@ -490,7 +492,7 @@ export function recordGaInspection(
 
 /// The repair book.
 export function gaRepairs(
-  scope: { q?: string; site?: string; status?: string; limit?: number } = {},
+  scope: { site?: string; limit?: number; cursor?: string } = {},
   signal?: AbortSignal
 ): Promise<GaRepairPage> {
   return node.get<GaRepairPage>(`/api/v1/ga/repairs${search(scope)}`, {
@@ -554,7 +556,7 @@ export function approveGaRepairBudget(
 
 /// The replacement book — a happening on an asset, not a kind of asset.
 export function gaReplacements(
-  scope: { status?: string; limit?: number } = {},
+  scope: { limit?: number; cursor?: string } = {},
   signal?: AbortSignal
 ): Promise<GaReplacementPage> {
   return node.get<GaReplacementPage>(

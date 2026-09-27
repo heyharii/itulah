@@ -10,7 +10,7 @@ import type { GaContractRow } from "@itulah/contract"
 /// Finance holds the money — so a rupiah that appears here is always somebody
 /// else's answer read over the fence. A mark beside the figure is cheaper than
 /// a caption under the table and harder to scroll past than a footnote: the
-/// person reading "Ditagih" can see, where the number is, that the number is
+/// person reading "Billed" can see, where the number is, that the number is
 /// Finance's ledger and not this register's.
 ///
 /// Two words, not a pill with a dot and a tone: the mark carries no state, and
@@ -53,26 +53,26 @@ function Mark({
 ///
 /// The server computes the standing from the window and `reminder_days` — per
 /// contract, not one threshold — and this only translates. SEGERA_HABIS names
-/// the deadline, because "37 hari lagi" is the sentence that gets somebody to
+/// the deadline, because "Expires in 37 days" is the sentence that gets somebody to
 /// open the renewal conversation this week.
 export function StandingPill({ row }: { row: GaContractRow }) {
   switch (row.standing) {
     case "AKTIF":
-      return <Pill tone="ok">Aktif</Pill>
+      return <Pill tone="ok">Active</Pill>
     case "SEGERA_HABIS":
       return (
         <Pill tone="warn">
           {row.days_to_end === null
-            ? "Segera habis"
-            : `Habis ${count(row.days_to_end)} hari lagi`}
+            ? "Expiring soon"
+            : `Expires in ${count(row.days_to_end)} days`}
         </Pill>
       )
     case "HABIS":
-      return <Pill tone="neutral">Habis</Pill>
+      return <Pill tone="neutral">Expired</Pill>
     case "BELUM_MULAI":
-      return <Pill tone="neutral">Belum mulai</Pill>
+      return <Pill tone="neutral">Not started</Pill>
     case "DIHENTIKAN":
-      return <Pill tone="neutral">Dihentikan</Pill>
+      return <Pill tone="neutral">Terminated</Pill>
     default:
       return <Pill tone="neutral">Draft</Pill>
   }

@@ -1,6 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { CalendarPlus, ClipboardCheck, Plus } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -9,8 +14,13 @@ import { Choices, Section, Toggle } from "@/components/ui/form"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
-import { day } from "@/lib/format"
+import {
+  Banner,
+  EmptyState,
+  LoadMore,
+  type Pageable,
+} from "@/components/ui/states"
+import { count as formatCount, day } from "@/lib/format"
 import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
 import {
   gaAssets,
@@ -40,64 +50,81 @@ import { INSPECTION_RESULTS, intervalLabel } from "@/screens/maintenance/format"
 ///
 /// A schedule row is a date and a thing; no figure belongs to it. The costs
 /// live on the repairs the tasks produce, in the Perbaikan book.
+/// How many rows one page of either list asks for.
+const PAGE = 100
+
 export function Schedule() {
   const [addingTask, setAddingTask] = useState(false)
   const [addingInspection, setAddingInspection] = useState(false)
 
-  const tasks = useQuery({
-    queryKey: gaKeys.maintenanceTasks({}),
-    queryFn: ({ signal }) => gaMaintenanceTasks({ limit: 200 }, signal),
+  // Both lists page from the server in the order they are read — tasks
+  // soonest due first (undated last), inspections newest first — so neither
+  // is re-sorted here: a sort over the loaded rows would reshuffle as more
+  // arrived.
+  const tasks = useInfiniteQuery({
+    queryKey: [...gaKeys.maintenanceTasks({}), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaMaintenanceTasks({ limit: PAGE, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   })
-  const inspections = useQuery({
-    queryKey: gaKeys.inspections({}),
-    queryFn: ({ signal }) => gaInspections({ limit: 100 }, signal),
+  const inspections = useInfiniteQuery({
+    queryKey: [...gaKeys.inspections({}), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaInspections({ limit: PAGE, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   })
 
-  const taskRows = [...(tasks.data?.rows ?? [])].sort((a, b) =>
-    (a.next_due ?? "9999") < (b.next_due ?? "9999") ? -1 : 1
+  const taskRows = useMemo(
+    () => tasks.data?.pages.flatMap((page) => page.rows) ?? [],
+    [tasks.data]
   )
-  const inspectionRows = [...(inspections.data?.rows ?? [])].sort((a, b) =>
-    a.inspected_on < b.inspected_on ? 1 : -1
+  const inspectionRows = useMemo(
+    () => inspections.data?.pages.flatMap((page) => page.rows) ?? [],
+    [inspections.data]
   )
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Pemeliharaan"
-        title="Jadwal servis"
-        sub="Atur servis berkala dan catat hasil pemeriksaan aset. Temuan dapat dilanjutkan sebagai perbaikan."
+        crumb="GA"
+        title="Service schedule"
+        sub="Set up recurring service and record inspection results. A finding can be carried forward as a repair."
         actions={
           <>
             <Button variant="soft" onClick={() => setAddingTask(true)}>
               <Plus />
-              Catat tugas
+              Add task
             </Button>
             <Button variant="primary" onClick={() => setAddingInspection(true)}>
               <CalendarPlus />
-              Catat inspeksi
+              Record inspection
             </Button>
           </>
         }
       />
 
       <TableCard
-        title="Tugas"
+        title="Tasks"
         count={taskRows.length}
-        empty="Belum ada tugas berkala. Tugas dicatat untuk satu aset (servis genset) atau satu lokasi (cuci AC 13 toko)."
+        total={tasks.data?.pages[0]?.total ?? 0}
+        more={tasks}
+        empty="No recurring tasks yet. A task is recorded for one asset (genset service) or one location (AC wash across 13 stores)."
         emptyAction={
           <Button variant="ghost" onClick={() => setAddingTask(true)}>
-            Catat tugas pertama
+            Add the first task
           </Button>
         }
         loading={tasks.isPending}
       >
         <div className="min-w-[66rem]">
           <div className="grid h-10 grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-            <span>Tugas</span>
-            <span>Aset / lokasi</span>
+            <span>Task</span>
+            <span>Asset / location</span>
             <span>Interval</span>
-            <span>Berikutnya</span>
-            <span>Kontrak</span>
+            <span>Next due</span>
+            <span>Contract</span>
             <span>Status</span>
           </div>
           {taskRows.map((row) => (
@@ -121,8 +148,8 @@ export function Schedule() {
                 </span>
                 <span className="block truncate text-pill text-mute">
                   {row.asset_name !== null
-                    ? "per aset"
-                    : "per lokasi · semua titik di site"}
+                    ? "per asset"
+                    : "per location · every point at the location"}
                 </span>
               </div>
               <span className="truncate text-meta text-body tabular-nums">
@@ -146,23 +173,25 @@ export function Schedule() {
       </TableCard>
 
       <TableCard
-        title="Inspeksi terakhir"
+        title="Inspections"
         count={inspectionRows.length}
-        empty="Belum ada inspeksi. Hasil pemeriksaan dicatat di sini, dan temuannya bisa langsung jadi perbaikan."
+        total={inspections.data?.pages[0]?.total ?? 0}
+        more={inspections}
+        empty="No inspections yet. Inspection results are recorded here, and a finding can become a repair right away."
         emptyAction={
           <Button variant="ghost" onClick={() => setAddingInspection(true)}>
-            Catat inspeksi pertama
+            Record the first inspection
           </Button>
         }
         loading={inspections.isPending}
       >
         <div className="min-w-[64rem]">
           <div className="grid h-10 grid-cols-[minmax(14rem,1fr)_9rem_12rem_minmax(14rem,1fr)_10rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-            <span>Aset</span>
-            <span>Tanggal</span>
-            <span>Oleh</span>
-            <span>Temuan</span>
-            <span>Hasil</span>
+            <span>Asset</span>
+            <span>Date</span>
+            <span>By</span>
+            <span>Finding</span>
+            <span>Result</span>
           </div>
           {inspectionRows.map((row) => (
             <div
@@ -202,16 +231,26 @@ export function Schedule() {
 /// One table, in its own scrolling box — the same answer the register gives:
 /// six columns do not fit a phone, and a squeezed table overlaps its own
 /// cells while the page itself starts scrolling sideways.
+///
+/// The box scrolls DOWN too, and pages as its own foot nears view. Two
+/// infinite lists stacked on one page cannot both scroll with the page: the
+/// first would pull every one of its pages before the second came into view.
 function TableCard({
   title,
   count,
+  total,
+  more,
   empty,
   emptyAction,
   loading,
   children,
 }: {
   title: string
+  /// Rows loaded so far — what decides between the table and the empty state.
   count: number
+  /// Every row the server holds, which is what the header says.
+  total: number
+  more: Pageable
   empty: string
   emptyAction?: React.ReactNode
   loading: boolean
@@ -221,12 +260,15 @@ function TableCard({
     <Card className="overflow-hidden">
       <div className="flex items-baseline justify-between gap-3 border-b border-hairline bg-soft px-3.5 py-2.5">
         <b className="text-card-title font-semibold text-ink">{title}</b>
-        <span className="text-pill text-mute">{count}</span>
+        <span className="text-pill text-mute">{formatCount(total)}</span>
       </div>
       {loading ? null : count === 0 ? (
         <EmptyState action={emptyAction}>{empty}</EmptyState>
       ) : (
-        <div className="overflow-x-auto">{children}</div>
+        <div className="max-h-[36rem] overflow-auto">
+          {children}
+          <LoadMore query={more} />
+        </div>
       )}
     </Card>
   )
@@ -304,13 +346,13 @@ function TaskComposer({
 
   const submit = () => {
     const next: Record<string, string> = {}
-    if ((form.title ?? "").trim() === "") next.title = "Tulis tugasnya dulu."
-    if (forAsset && (form.asset ?? "") === "") next.asset = "Pilih aset dulu."
-    if (!forAsset && (form.site ?? "") === "") next.site = "Pilih site dulu."
+    if ((form.title ?? "").trim() === "") next.title = "Enter the task first."
+    if (forAsset && (form.asset ?? "") === "") next.asset = "Choose an asset first."
+    if (!forAsset && (form.site ?? "") === "") next.site = "Choose a location first."
     if ((form.value ?? "") === "" || Number(form.value) <= 0)
-      next.value = "Isi angka intervalnya."
+      next.value = "Enter the interval number."
     if (!nextDueHidden && (form.next_due ?? "") === "")
-      next.next_due = "Isi tanggal berikutnya."
+      next.next_due = "Enter the next due date."
     if (Object.keys(next).length > 0) {
       setProblems(next)
       return
@@ -323,27 +365,23 @@ function TaskComposer({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title="Tugas berkala baru"
-      caption="Satu jadwal untuk satu aset atau satu lokasi. Tanggal berikutnya dihitung server dari intervalnya."
+      title="New recurring task"
+      caption="One schedule for one asset or one location. The next due date is calculated by the server from the interval."
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="text-pill text-mute">
             {nextDueHidden
-              ? "Tugas km mengikuti odometer, bukan tanggal"
+              ? "A km task follows the odometer, not a date"
               : forAsset
-                ? "Tugas untuk satu aset"
-                : "Tugas untuk satu lokasi"}
+                ? "Task for one asset"
+                : "Task for one location"}
           </span>
           <div className="flex items-center gap-2">
             <Button variant="ghost" onClick={onClose}>
-              Batal
+              Cancel
             </Button>
-            <Button
-              variant="primary"
-              disabled={save.isPending}
-              onClick={submit}
-            >
-              {save.isPending ? "Menyimpan…" : "Simpan tugas"}
+            <Button variant="primary" pending={save.isPending} onClick={submit}>
+              {save.isPending ? "Saving…" : "Save task"}
             </Button>
           </div>
         </div>
@@ -354,35 +392,35 @@ function TaskComposer({
           <Banner tone="bad">{save.error.message}</Banner>
         )}
 
-        <Section title="Untuk">
+        <Section title="For">
           <Choices
-            label="Untuk"
+            label="For"
             columns={2}
             value={form.target ?? "ASSET"}
             onChange={(next) => set("target", next)}
             options={[
               {
                 value: "ASSET",
-                label: "Satu aset",
+                label: "One asset",
                 icon: ClipboardCheck,
-                note: "Servis untuk satu mesin: genset DC, lift barang C001.",
+                note: "Service for one machine: genset DC, goods lift C001.",
               },
               {
                 value: "SITE",
-                label: "Satu lokasi",
+                label: "One location",
                 icon: CalendarPlus,
-                note: "Satu pekerjaan untuk semua titik di satu site: cuci AC 13 toko.",
+                note: "One job covering every point at one location: AC wash across 13 stores.",
               },
             ]}
           />
           {forAsset ? (
-            <Field label="Aset" problem={problems.asset || undefined}>
+            <Field label="Asset" required problem={problems.asset || undefined}>
               <Select
                 value={form.asset ?? ""}
                 onChange={(next) => set("asset", next)}
-                aria-label="Aset"
+                aria-label="Asset"
               >
-                <option value="">Pilih…</option>
+                <option value="">Choose…</option>
                 {(assets.data?.rows ?? [])
                   .filter((one) => one.status !== "DRAFT")
                   .map((one) => (
@@ -393,13 +431,13 @@ function TaskComposer({
               </Select>
             </Field>
           ) : (
-            <Field label="Site" problem={problems.site || undefined}>
+            <Field label="Location" required problem={problems.site || undefined}>
               <Select
                 value={form.site ?? ""}
                 onChange={(next) => set("site", next)}
-                aria-label="Site"
+                aria-label="Location"
               >
-                <option value="">Pilih…</option>
+                <option value="">Choose…</option>
                 {(shape.data?.facets.sites ?? []).map((one) => (
                   <option key={one.value} value={one.value}>
                     {one.label ?? one.value}
@@ -408,29 +446,33 @@ function TaskComposer({
               </Select>
             </Field>
           )}
-          <Field label="Tugas" problem={problems.title || undefined}>
+          <Field label="Task" required problem={problems.title || undefined}>
             <Input
               value={form.title ?? ""}
               onChange={(event) => set("title", event.target.value)}
-              placeholder="mis. Servis genset DC"
+              placeholder="e.g. Genset DC service"
             />
           </Field>
         </Section>
 
-        <Section title="Interval" aside="tanggal berikutnya dihitung dari sini">
+        <Section title="Interval" aside="the next due date is calculated from this">
           <div className="grid grid-cols-[1fr_10rem] items-start gap-4">
             <Choices
-              label="Satuan interval"
+              label="Interval unit"
               columns={3}
               value={kind}
               onChange={(next) => set("kind", next)}
               options={[
-                { value: "DAYS", label: "Hari" },
-                { value: "MONTHS", label: "Bulan" },
-                { value: "KM", label: "Kilometer" },
+                { value: "DAYS", label: "Days" },
+                { value: "MONTHS", label: "Months" },
+                { value: "KM", label: "Kilometres" },
               ]}
             />
-            <Field label="Setiap" problem={problems.value || undefined}>
+            <Field
+              label="Every"
+              required
+              problem={problems.value || undefined}
+            >
               <Input
                 inputMode="numeric"
                 value={form.value ?? ""}
@@ -441,8 +483,9 @@ function TaskComposer({
           </div>
           {!nextDueHidden && (
             <Field
-              label="Berikutnya"
-              aside="dihitung ulang server tiap selesai"
+              label="Next due"
+              required
+              aside="recalculated by the server each time it's completed"
               problem={problems.next_due || undefined}
             >
               <Input
@@ -454,17 +497,17 @@ function TaskComposer({
           )}
         </Section>
 
-        <Section title="Pelaksana">
+        <Section title="Assigned to">
           <Field
             label="Vendor"
-            aside="opsional; kontrak maintenance mengikat lebih kuat"
+            aside="optional; a maintenance contract carries more weight"
           >
             <Select
               value={form.vendor ?? ""}
               onChange={(next) => set("vendor", next)}
               aria-label="Vendor"
             >
-              <option value="">Belum ditentukan</option>
+              <option value="">Not yet decided</option>
               {(vendors.data?.rows ?? []).map((one) => (
                 <option key={one.supplier_id} value={one.supplier_id}>
                   {one.name}
@@ -472,11 +515,11 @@ function TaskComposer({
               ))}
             </Select>
           </Field>
-          <Field label="Catatan" aside="muncul di bawah tugas di jadwal">
+          <Field label="Notes" aside="appears below the task in the schedule">
             <Input
               value={form.notes ?? ""}
               onChange={(event) => set("notes", event.target.value)}
-              placeholder="mis. koordinasi dengan store manager"
+              placeholder="e.g. coordinate with the store manager"
             />
           </Field>
         </Section>
@@ -490,7 +533,7 @@ function TaskComposer({
 ///
 /// # The switch exists only when the answer asks for it
 ///
-/// "Baik" has no follow-up, so the switch is not drawn for it (brief §10.2).
+/// "Good" has no follow-up, so the switch is not drawn for it (brief §10.2).
 /// The two other results do, and the switch lights by default: the finding
 /// is already written in Temuan, and the repair should carry it rather than
 /// make somebody type it again. The repair appears in the Jadwal's book and
@@ -562,7 +605,7 @@ function InspectionComposer({
         inspection_id: inspection.inspection_id,
         estimated_cost_minor: null,
         failure_at: form.inspected_on ?? "",
-        notes: `Dari inspeksi ${day(inspection.inspected_on)}`,
+        notes: `From inspection ${day(inspection.inspected_on)}`,
       }).then(() => inspection)
     },
     onSuccess: () => {
@@ -581,12 +624,12 @@ function InspectionComposer({
 
   const submit = () => {
     const next: Record<string, string> = {}
-    if ((form.asset ?? "") === "") next.asset = "Pilih aset dulu."
+    if ((form.asset ?? "") === "") next.asset = "Choose an asset first."
     if ((form.findings ?? "").trim() === "")
-      next.findings = "Tulis temuannya dulu."
-    if ((form.by ?? "").trim() === "") next.by = "Isi pemeriksanya dulu."
+      next.findings = "Enter the finding first."
+    if ((form.by ?? "").trim() === "") next.by = "Enter who inspected it."
     if (needsRepair && (form.vendor ?? "") === "")
-      next.vendor = "Perbaikan butuh vendor — pilih dulu."
+      next.vendor = "A repair needs a vendor — choose one first."
     if (Object.keys(next).length > 0) {
       setProblems(next)
       return
@@ -599,27 +642,23 @@ function InspectionComposer({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title="Inspeksi baru"
-      caption="Hasil pemeriksaan satu aset. Temuan yang perlu tindakan bisa langsung jadi perbaikan."
+      title="New inspection"
+      caption="The result of inspecting one asset. A finding that needs action can become a repair right away."
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="text-pill text-mute">
             {result === "BAIK"
-              ? "Dicatat sebagai riwayat aset"
+              ? "Recorded in the asset's history"
               : needsRepair
-                ? "Temuan akan dibuatkan perbaikan"
-                : "Dicatat; perbaikannya menyusul kalau perlu"}
+                ? "A repair will be created from this finding"
+                : "Recorded; the repair follows later if needed"}
           </span>
           <div className="flex items-center gap-2">
             <Button variant="ghost" onClick={onClose}>
-              Batal
+              Cancel
             </Button>
-            <Button
-              variant="primary"
-              disabled={save.isPending}
-              onClick={submit}
-            >
-              {save.isPending ? "Menyimpan…" : "Simpan inspeksi"}
+            <Button variant="primary" pending={save.isPending} onClick={submit}>
+              {save.isPending ? "Saving…" : "Save inspection"}
             </Button>
           </div>
         </div>
@@ -630,14 +669,14 @@ function InspectionComposer({
           <Banner tone="bad">{save.error.message}</Banner>
         )}
 
-        <Section title="Aset dan waktu">
-          <Field label="Aset" problem={problems.asset || undefined}>
+        <Section title="Asset and time">
+          <Field label="Asset" required problem={problems.asset || undefined}>
             <Select
               value={form.asset ?? ""}
               onChange={(next) => set("asset", next)}
-              aria-label="Aset"
+              aria-label="Asset"
             >
-              <option value="">Pilih…</option>
+              <option value="">Choose…</option>
               {(assets.data?.rows ?? [])
                 .filter((one) => one.status !== "DRAFT")
                 .map((one) => (
@@ -648,14 +687,14 @@ function InspectionComposer({
             </Select>
           </Field>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Oleh" problem={problems.by || undefined}>
+            <Field label="By" required problem={problems.by || undefined}>
               <Input
                 value={form.by ?? ""}
                 onChange={(event) => set("by", event.target.value)}
-                placeholder="mis. Teknisi CV Sejuk Teknik"
+                placeholder="e.g. Technician from CV Sejuk Teknik"
               />
             </Field>
-            <Field label="Tanggal">
+            <Field label="Date">
               <Input
                 type="date"
                 value={form.inspected_on ?? ""}
@@ -665,9 +704,9 @@ function InspectionComposer({
           </div>
         </Section>
 
-        <Section title="Hasil" aside="kartunya yang menentukan lanjutannya">
+        <Section title="Result" aside="the card chosen decides what follows">
           <Choices
-            label="Hasil"
+            label="Result"
             columns={3}
             value={result}
             onChange={(next) => set("result", next)}
@@ -679,12 +718,16 @@ function InspectionComposer({
           />
         </Section>
 
-        <Section title="Temuan">
-          <Field label="Temuan" problem={problems.findings || undefined}>
+        <Section title="Finding">
+          <Field
+            label="Finding"
+            required
+            problem={problems.findings || undefined}
+          >
             <Input
               value={form.findings ?? ""}
               onChange={(event) => set("findings", event.target.value)}
-              placeholder="mis. Kompresor berisik, performa turun"
+              placeholder="e.g. Compressor noisy, performance dropping"
               autoFocus
             />
           </Field>
@@ -694,24 +737,25 @@ function InspectionComposer({
               <Toggle
                 on={makeRepair}
                 onToggle={() => setMakeRepair((current) => !current)}
-                label="Buat perbaikan dari temuan ini"
+                label="Create a repair from this finding"
                 note={
                   makeRepair
-                    ? "Perbaikan tercatat di buku Perbaikan dan di riwayat aset, dengan inspeksi ini sebagai buktinya."
-                    : "Temuan dicatat saja; perbaikannya dibuat lain waktu."
+                    ? "The repair is recorded in the Repairs book and in the asset's history, with this inspection as its evidence."
+                    : "The finding is recorded only; the repair can be created later."
                 }
               />
               {makeRepair && (
                 <Field
-                  label="Vendor perbaikan"
+                  label="Repair vendor"
+                  required
                   problem={problems.vendor || undefined}
                 >
                   <Select
                     value={form.vendor ?? ""}
                     onChange={(next) => set("vendor", next)}
-                    aria-label="Vendor perbaikan"
+                    aria-label="Repair vendor"
                   >
-                    <option value="">Pilih vendor…</option>
+                    <option value="">Choose a vendor…</option>
                     {(vendors.data?.rows ?? []).map((one) => (
                       <option key={one.supplier_id} value={one.supplier_id}>
                         {one.name}

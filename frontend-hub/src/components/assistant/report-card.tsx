@@ -192,7 +192,7 @@ export function ReportCard({
         ) : (
           <Button
             variant="primary"
-            disabled={save.isPending}
+            pending={save.isPending}
             className="gap-1.5"
             onClick={() =>
               save.mutate(

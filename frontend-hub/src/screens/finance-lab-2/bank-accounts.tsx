@@ -263,6 +263,7 @@ function DescribeForm({
       <div className="grid gap-3 md:grid-cols-2">
         <Field
           label="Bank"
+          required
           hint="As it will be printed: BCA, Bank Mandiri, BRI."
         >
           <Input
@@ -272,6 +273,7 @@ function DescribeForm({
         </Field>
         <Field
           label="Account number"
+          required
           hint="Typed the way the passbook groups it."
         >
           <Input
@@ -282,6 +284,7 @@ function DescribeForm({
         </Field>
         <Field
           label="Held by"
+          required
           hint="The name the account is registered under, not the trading name."
         >
           <Input
@@ -289,7 +292,7 @@ function DescribeForm({
             onChange={(event) => setHolder(event.target.value)}
           />
         </Field>
-        <Field label="Branch" hint="Optional.">
+        <Field label="Branch">
           <Input
             value={branch}
             onChange={(event) => setBranch(event.target.value)}
@@ -316,7 +319,7 @@ function DescribeForm({
         </Field>
       </div>
 
-      <Field label="Note" hint="Optional.">
+      <Field label="Note">
         <Textarea
           value={note}
           onChange={(event) => setNote(event.target.value)}

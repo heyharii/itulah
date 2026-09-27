@@ -15,6 +15,7 @@
 use crate::cloud::application::{AppError, DailyReportQuery, SalesSeriesQuery, SalesWindowQuery};
 use crate::reporting::{buckets_between, offset_of, Bucket};
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -356,6 +357,14 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     let (start, end) = crate::reporting::window_of(query.from, query.to, offset_minutes)
         .map_err(AppError::Validation)?;
     let limit = query.limit.unwrap_or(200).clamp(1, 1000);
+    // Where the previous page of receipts stopped, as the row's own sort key.
+    // Carried as values rather than re-read by id: the receipts are a union of
+    // two tables, and the pair is total over it — no two receipts share an id.
+    let after = query
+        .cursor
+        .as_deref()
+        .map(super::decode_cursor::<WindowCursor>)
+        .transpose()?;
 
     let sales = sqlx::query(
         "SELECT COALESCE(COUNT(*),0)::bigint sales_count, \
@@ -469,7 +478,8 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
                FROM edge_sale e WHERE e.occurred_at >= $2 AND e.occurred_at < $3 \
          ), selected_sales AS ( \
              SELECT * FROM all_sales WHERE ($1::text IS NULL OR site_id=$1) \
-              ORDER BY completed_at DESC LIMIT $4 \
+                AND ($5::timestamptz IS NULL OR (completed_at,id) < ($5::timestamptz,$6::uuid)) \
+              ORDER BY completed_at DESC, id DESC LIMIT $4 \
          ), line_totals AS ( \
              SELECT 'CENTRE'::text source,line.sale_id,COUNT(*)::bigint line_count,COALESCE(SUM(line.quantity),0)::bigint units \
                FROM sale_line line JOIN selected_sales sale ON sale.source='CENTRE' AND sale.id=line.sale_id GROUP BY line.sale_id \
@@ -494,14 +504,31 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
          FROM selected_sales s \
          LEFT JOIN line_totals lines ON lines.source=s.source AND lines.sale_id=s.id \
          LEFT JOIN payment_methods payments ON payments.source=s.source AND payments.sale_id=s.id \
-         ORDER BY s.completed_at DESC",
+         ORDER BY s.completed_at DESC, s.id DESC",
     )
     .bind(&site_id)
     .bind(start)
     .bind(end)
     .bind(limit)
+    .bind(after.as_ref().map(|one| one.at))
+    .bind(after.as_ref().map(|one| one.id))
     .fetch_all(pool)
     .await?;
+
+    // A short page is the last page. A full one may not be — the next request
+    // can come back empty — and that is the honest answer.
+    let transactions_next_cursor = match transactions.last() {
+        Some(row) if transactions.len() as i64 == limit => {
+            match row.get::<Option<DateTime<Utc>>, _>("completed_at") {
+                Some(at) => Some(super::encode_cursor(&WindowCursor {
+                    at,
+                    id: row.get::<Uuid, _>("id"),
+                })?),
+                None => None,
+            }
+        }
+        _ => None,
+    };
 
     let tender_of = |method: &str, rows: &[sqlx::postgres::PgRow]| -> i64 {
         rows.iter()
@@ -587,5 +614,15 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
         // look identical, and only one of them means "there is more".
         "transactions_truncated": (transactions.len() as i64) >= limit && count > limit,
         "transactions_limit": limit,
+        // Pass back as `cursor` for the receipts after these; null is the end.
+        // The totals above are the whole span on every page, not the page.
+        "transactions_next_cursor": transactions_next_cursor,
     }))
+}
+
+/// Where a page of a span's receipts stopped: the last receipt's own sort key.
+#[derive(Serialize, Deserialize)]
+struct WindowCursor {
+    at: DateTime<Utc>,
+    id: Uuid,
 }

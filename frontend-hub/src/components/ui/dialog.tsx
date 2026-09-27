@@ -3,7 +3,23 @@ import { X } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Field, Textarea } from "@/components/ui/field"
+import { Problem } from "@/components/ui/states"
 import { cn } from "@/lib/utils"
+
+/// A reason the action needs before it can be taken — "why is this order
+/// cancelled", "why is this period reopened".
+///
+/// Written for the question that is otherwise a Sheet of its own with one
+/// textarea in it. Required unless `optional` says so: a reason the server
+/// records is almost always one it refuses when blank.
+export interface Reason {
+  readonly label: string
+  readonly placeholder?: string
+  /// Under the box — where the reason ends up, who reads it.
+  readonly hint?: React.ReactNode
+  readonly optional?: boolean
+}
 
 /// A dialog asks **one question**.
 ///
@@ -26,6 +42,8 @@ export function Dialog({
   cancel = "Cancel",
   tone = "primary",
   pending = false,
+  reason,
+  problem,
   onConfirm,
 }: {
   open: boolean
@@ -39,8 +57,24 @@ export function Dialog({
   /// `danger` for anything that destroys or cannot be walked back.
   tone?: "primary" | "danger"
   pending?: boolean
-  onConfirm: () => void
+  /// Ask for a reason under the sentence; it is handed to `onConfirm`.
+  reason?: Reason
+  /// The write this dialog started, failed — said here, where it was asked
+  /// for, while the dialog is still open. Nothing when it is `null`.
+  problem?: unknown
+  onConfirm: (reason: string) => void
 }) {
+  const [said, setSaid] = useState("")
+  // A fresh box every time it opens — "adjusting state during render", so no
+  // effect runs a second render to clear it after the first drew the old one.
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setSaid("")
+  }
+  const missing =
+    reason !== undefined && reason.optional !== true && said.trim() === ""
+
   return (
     <BaseDialog.Root open={open} onOpenChange={onOpenChange}>
       <BaseDialog.Portal>
@@ -52,14 +86,32 @@ export function Dialog({
           <div className="mt-2 text-[0.875rem] leading-relaxed text-body">
             {children}
           </div>
+          {reason !== undefined && (
+            <Field
+              label={reason.label}
+              required={reason.optional !== true}
+              hint={reason.hint}
+              className="mt-4"
+            >
+              <Textarea
+                value={said}
+                rows={3}
+                autoFocus
+                placeholder={reason.placeholder}
+                onChange={(event) => setSaid(event.target.value)}
+              />
+            </Field>
+          )}
+          <Problem error={problem ?? null} className="mt-4" />
           <div className="mt-5 flex justify-end gap-2">
             <BaseDialog.Close
               render={<Button variant="ghost">{cancel}</Button>}
             />
             <Button
               variant={tone === "danger" ? "danger" : "primary"}
-              disabled={pending}
-              onClick={onConfirm}
+              pending={pending}
+              disabled={missing}
+              onClick={() => onConfirm(said.trim())}
             >
               {confirm}
             </Button>
@@ -141,6 +193,7 @@ export function ConfirmButton({
   variant = "ghost",
   disabled = false,
   pending = false,
+  reason,
   onConfirm,
   className,
 }: {
@@ -152,15 +205,27 @@ export function ConfirmButton({
   variant?: "primary" | "ghost" | "soft" | "quiet" | "danger"
   disabled?: boolean
   pending?: boolean
-  onConfirm: () => void
+  reason?: Reason
+  /// Return the write's promise — `mutation.mutateAsync(…)` — and the dialog
+  /// waits on it: it stays open and pending until it settles, shuts when it
+  /// succeeds, and says why when it fails, right under the question. Return
+  /// nothing — `mutation.mutate(…)` — and it shuts at once, as it always did,
+  /// with the failure left to the screen.
+  onConfirm: (reason: string) => void | Promise<unknown>
   className?: string
 }) {
   const [asking, setAsking] = useState(false)
+  const [waiting, setWaiting] = useState(false)
+  const [failure, setFailure] = useState<unknown>(null)
   return (
     <>
+      {/* The dialog shuts the moment it is confirmed, so the write it
+          started is waited on HERE — on the button that asked for it, which
+          otherwise sat there looking pressable while the seal went out. */}
       <Button
         variant={variant}
         disabled={disabled}
+        pending={pending || waiting}
         className={cn(className)}
         onClick={() => setAsking(true)}
       >
@@ -168,14 +233,30 @@ export function ConfirmButton({
       </Button>
       <Dialog
         open={asking}
-        onOpenChange={setAsking}
+        onOpenChange={(next) => {
+          setAsking(next)
+          setFailure(null)
+        }}
         title={title}
         confirm={confirmLabel}
         tone={tone}
-        pending={pending}
-        onConfirm={() => {
-          setAsking(false)
-          onConfirm()
+        pending={pending || waiting}
+        reason={reason}
+        problem={failure}
+        onConfirm={(said) => {
+          const result = onConfirm(said)
+          if (!(result instanceof Promise)) {
+            setAsking(false)
+            return
+          }
+          setWaiting(true)
+          setFailure(null)
+          void result
+            .then(
+              () => setAsking(false),
+              (error: unknown) => setFailure(error)
+            )
+            .finally(() => setWaiting(false))
         }}
       >
         {description}

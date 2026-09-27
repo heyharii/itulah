@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Trash2 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardStrip } from "@/components/ui/card"
@@ -133,7 +133,8 @@ export function BasketSheet({
           <div className="flex items-center gap-1.5">
             <Button
               variant="danger"
-              disabled={lines.length === 0 || empty.isPending}
+              pending={empty.isPending}
+              disabled={lines.length === 0}
               onClick={() => empty.mutate()}
             >
               <Trash2 />
@@ -255,7 +256,7 @@ export function BasketSheet({
                                 variant="quiet"
                                 size="sm"
                                 aria-label={`Take ${line.item.name} out`}
-                                disabled={remove.isPending}
+                                pending={remove.isPending}
                                 onClick={() =>
                                   remove.mutate(line.item.supplier_item_id)
                                 }

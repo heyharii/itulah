@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react"
+import { ThumbsDown, ThumbsUp } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 
 import { Artifacts } from "@/components/assistant/artifact"
 import { Prose } from "@/components/assistant/prose"
@@ -6,8 +7,10 @@ import {
   ArtifactSpaceContext,
   type ArtifactSpace,
 } from "@/components/assistant/space"
-import { type Exchange } from "@/components/assistant/state"
+import { useAssistant, type Exchange } from "@/components/assistant/state"
 import { Trace } from "@/components/assistant/trace"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/field"
 import { cn } from "@/lib/utils"
 
 /// The conversation itself, wherever it is being read.
@@ -95,6 +98,115 @@ export function Answer({ exchange }: { exchange: Exchange }) {
       )}
 
       <Artifacts runs={exchange.runs} question={exchange.question} />
+
+      <Verdicts exchange={exchange} />
     </article>
   )
+}
+
+/// Under a finished answer: whether it was right, and what it cost.
+///
+/// The thumbs are the cheapest way the person asking has to say "that figure
+/// is wrong", and a figure somebody bothered to flag is the most useful case
+/// the eval suite can be handed. A thumb down asks, once and in a line, what
+/// was wrong; pressing a lit thumb again takes the verdict back.
+function Verdicts({ exchange }: { exchange: Exchange }) {
+  const { judge } = useAssistant()
+  const [asking, setAsking] = useState(false)
+  const [note, setNote] = useState(exchange.verdictNote ?? "")
+
+  if (exchange.streaming || !exchange.answerId) return null
+
+  const up = exchange.verdict === "UP"
+  const down = exchange.verdict === "DOWN"
+  const cost = spend(exchange)
+
+  const explain = () => {
+    judge(exchange.id, "DOWN", note.trim() || undefined)
+    setAsking(false)
+  }
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center gap-0.5 text-[0.875rem] text-mute">
+        <Button
+          variant="quiet"
+          size="icon"
+          aria-label="Right"
+          title="Right"
+          aria-pressed={up}
+          className={cn(up && "[&_svg]:text-ok-fg")}
+          onClick={() => {
+            setAsking(false)
+            judge(exchange.id, up ? null : "UP")
+          }}
+        >
+          <ThumbsUp />
+        </Button>
+        <Button
+          variant="quiet"
+          size="icon"
+          aria-label="Wrong"
+          title="Wrong"
+          aria-pressed={down}
+          className={cn(down && "[&_svg]:text-bad-fg")}
+          onClick={() => {
+            if (down) {
+              setAsking(false)
+              judge(exchange.id, null)
+              return
+            }
+            judge(exchange.id, "DOWN")
+            setAsking(true)
+          }}
+        >
+          <ThumbsDown />
+        </Button>
+        {cost && <span className="ml-auto tabular-nums">{cost}</span>}
+      </div>
+
+      {asking && (
+        <div className="mt-1.5 flex gap-2">
+          <Input
+            autoFocus
+            value={note}
+            maxLength={500}
+            placeholder="What was wrong? A figure, a shop, a date…"
+            className="h-control"
+            onChange={(event) => setNote(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                explain()
+              }
+              if (event.key === "Escape") setAsking(false)
+            }}
+          />
+          <Button variant="soft" onClick={explain}>
+            Send
+          </Button>
+        </div>
+      )}
+
+      {down && !asking && exchange.verdictNote && (
+        <p className="mt-1 text-[0.875rem] text-mute">
+          Flagged: {exchange.verdictNote}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/// "gemma-4-31b-it · US$0.0041": the model without its vendor prefix, and the
+/// price at a precision that says something about a fraction of a cent.
+function spend(exchange: Exchange): string | null {
+  const parts: string[] = []
+  if (exchange.model) {
+    parts.push(exchange.model.split("/").pop() ?? exchange.model)
+  }
+  if (exchange.costUsd !== undefined) {
+    const digits = exchange.costUsd < 0.01 ? 4 : 2
+    parts.push(`US$${exchange.costUsd.toFixed(digits)}`)
+  }
+  return parts.length > 0 ? parts.join(" · ") : null
 }

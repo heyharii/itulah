@@ -683,7 +683,7 @@ function TermForm({
           <>
             <form.Field name="label">
               {(field) => (
-                <Field label="Label" problem={problems.label}>
+                <Field label="Label" required problem={problems.label}>
                   <Input
                     value={field.state.value}
                     onBlur={field.handleBlur}
@@ -705,7 +705,11 @@ function TermForm({
 
             <form.Field name="code">
               {(field) => (
-                <Field label="Code" problem={problems.code}>
+                <Field
+                  label="Code"
+                  required={term === null}
+                  problem={problems.code}
+                >
                   <Input
                     value={field.state.value}
                     onBlur={field.handleBlur}
@@ -747,8 +751,8 @@ function TermForm({
               <Button
                 type="submit"
                 variant="primary"
+                pending={save.isPending}
                 disabled={
-                  save.isPending ||
                   problems.label !== undefined ||
                   problems.code !== undefined ||
                   problems.order !== undefined

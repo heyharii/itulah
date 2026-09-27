@@ -371,7 +371,7 @@ export const searchSources: readonly SearchSource[] = [
       return threads.slice(0, 8).map((thread) => ({
         id: thread.thread_id,
         title: thread.title,
-        subtitle: thread.subject_kind,
+        subtitle: `${thread.subject_label} · ${thread.subject_id}`,
         to: "/discussions",
         sheet: { key: "thread" as const, value: thread.thread_id },
       }))

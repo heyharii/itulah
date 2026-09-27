@@ -14,6 +14,8 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
+import type { SheetSearch } from "@/lib/sheets"
+
 /// The eleven shapes a thing the company owns can come in.
 ///
 /// # Why a build and not a class
@@ -55,51 +57,71 @@ export type AssetBuild =
 /// furnishes them with, then the things that are not physical at all.
 ///
 /// `note` is what the tile says under the name, and it is the CLASSES rather
-/// than a description: "AC, lift, genset, instalasi" tells somebody which of
-/// the fifty-nine they are about to be offered, which is the only question the
-/// tile has to answer.
+/// than a description: "AC, lift, genset, installations" tells somebody which
+/// of the fifty-nine they are about to be offered, which is the only question
+/// the tile has to answer.
 export const BUILDS: readonly {
   readonly value: AssetBuild
   readonly label: string
   readonly note: string
   readonly icon: LucideIcon
 }[] = [
-  { value: "LAND", label: "Tanah", note: "Tanah hak milik, HGB", icon: Map },
+  { value: "LAND", label: "Land", note: "Freehold land, HGB", icon: Map },
   {
     value: "BUILDING",
-    label: "Bangunan",
-    note: "Bangunan utama, tambahan, mess",
+    label: "Building",
+    note: "Main buildings, extensions, staff housing",
     icon: Building,
   },
   {
     value: "TECH",
-    label: "Peralatan teknis",
-    note: "Instalasi ME, AC, lift, eskalator, genset",
+    label: "Technical equipment",
+    note: "M&E installations, AC, lifts, escalators, gensets",
     icon: Cpu,
   },
   {
     value: "VEHICLE",
-    label: "Kendaraan",
-    note: "Mobil, sepeda motor",
+    label: "Vehicle",
+    note: "Cars, motorcycles",
     icon: Car,
   },
   {
     value: "FFE",
     label: "Furniture & fixtures",
-    note: "Office, toko & gudang, interior, exterior, mess",
+    note: "Office, store & warehouse, interior, exterior, staff housing",
     icon: Armchair,
   },
-  { value: "IT", label: "Perangkat IT", note: "Komputer, laptop, printer", icon: Monitor },
-  { value: "AUDIO", label: "Audio / music", note: "Sound system", icon: Speaker },
+  {
+    value: "IT",
+    label: "IT hardware",
+    note: "Computers, laptops, printers",
+    icon: Monitor,
+  },
+  { value: "AUDIO", label: "Audio / music", note: "Sound systems", icon: Speaker },
   {
     value: "OE",
     label: "Operating equipment",
-    note: "Rak, meja, manekin, hanger",
+    note: "Racks, tables, mannequins, hangers",
     icon: Box,
   },
-  { value: "SOFTWARE", label: "Software", note: "Lisensi aplikasi", icon: AppWindow },
-  { value: "DEFERRED", label: "Pre-opening", note: "Biaya dibayar di muka", icon: Clock },
-  { value: "CIP", label: "Proyek / CIP", note: "Pekerjaan yang belum jadi aset", icon: Hammer },
+  {
+    value: "SOFTWARE",
+    label: "Software",
+    note: "Application licences",
+    icon: AppWindow,
+  },
+  {
+    value: "DEFERRED",
+    label: "Pre-opening",
+    note: "Costs paid in advance",
+    icon: Clock,
+  },
+  {
+    value: "CIP",
+    label: "Project / CIP",
+    note: "Work that is not an asset yet",
+    icon: Hammer,
+  },
 ]
 
 /// One build's entry, for the many places that need one of its three answers —
@@ -116,28 +138,25 @@ export function buildOf(build: string | undefined | null) {
   )
 }
 
-/// The seven readings of the register that are not the sidebar's three.
+/// The readings of the register, drawn as the chips above it.
 ///
-/// Register · Software · Projects are how the MONEY is filed: plant,
-/// intangibles, cost still becoming a thing. These are how the THINGS are
-/// found — "show me the machines", "show me the vehicles" — and they are the
-/// chips above the register plus a hidden route each, so a shop's facilities
-/// person can bookmark the one they always want.
-///
-/// Seven and not eleven, because four of the eleven are the sidebar's own
-/// three readings under other names: Software and Pre-opening are the
-/// Software and Projects rows, and CIP is inside Projects. A chip that
-/// duplicated a sidebar row would be two doors onto one room.
+/// Seven are how the THINGS are found — "show me the machines", "show me the
+/// vehicles" — and the last two are the groups that are not plant at all:
+/// Software is the licences, Projects the cost still becoming a thing
+/// (pre-opening and work in progress). Those two were sidebar rows until
+/// 2026-09-27; the owner asked for a shorter menu, and they were never more
+/// than the same register narrowed by build, so they are chips like the rest.
 ///
 /// Property is the one view that is two builds: land and the buildings on it
 /// are one question to a facilities person, and `asset_class` keeps them apart
 /// because the chart charges them differently.
 ///
-/// One list, read by the sidebar (for the routes), by the chips (for the
-/// counts and the icons) and by the screen (for the filter), so the seven
-/// cannot drift into being eight.
+/// `value` is the `asset-view` search parameter, typed against the list
+/// `lib/sheets.ts` accepts, so a chip cannot name a reading the URL would drop.
+/// One list, read by the chips (for the counts and the icons), by the screen
+/// (for the filter) and by the composer (for which builds it offers).
 export const BUILD_VIEWS: readonly {
-  readonly value: string
+  readonly value: NonNullable<SheetSearch["asset-view"]>
   readonly label: string
   readonly note: string
   readonly builds: readonly AssetBuild[]
@@ -146,50 +165,64 @@ export const BUILD_VIEWS: readonly {
   {
     value: "property",
     label: "Property",
-    note: "Tanah, hak guna bangunan dan bangunan milik perusahaan. Mess yang disewa bukan aset: itu kontrak Sewa.",
+    note: "Land, building rights and buildings the company owns. Rented staff housing is not an asset: it is a lease contract.",
     builds: ["LAND", "BUILDING"],
     icon: Building2,
   },
   {
     value: "technical",
-    label: "Technical Equipment",
-    note: "Instalasi ME, AC, lift, eskalator dan genset. Paling banyak dijadwalkan servis.",
+    label: "Technical",
+    note: "M&E installations, AC, lifts, escalators and gensets. The most scheduled for servicing.",
     builds: ["TECH"],
     icon: Cpu,
   },
   {
     value: "vehicles",
     label: "Vehicles",
-    note: "Mobil dan motor. STNK/KIR dan asuransinya ada di Contracts; servis dan BBM menunjuk aset ini.",
+    note: "Cars and motorcycles. Registration (STNK/KIR) and insurance are in Contracts; servicing and fuel point at the asset.",
     builds: ["VEHICLE"],
     icon: Car,
   },
   {
     value: "ffe",
-    label: "Furniture & Fixtures",
-    note: "FFE office, toko & gudang, interior, exterior dan mess: satu build, dibedakan kelasnya.",
+    label: "Furniture & fixtures",
+    note: "Office, store & warehouse, interior, exterior and staff housing FF&E: one build, told apart by class.",
     builds: ["FFE"],
     icon: Armchair,
   },
   {
     value: "it",
-    label: "IT Hardware",
-    note: "Laptop, komputer, printer. Kelas client: FFE Komputer.",
+    label: "IT hardware",
+    note: "Laptops, computers, printers. Client class: FFE Komputer.",
     builds: ["IT"],
     icon: Monitor,
   },
   {
     value: "audio",
-    label: "Audio / Music",
-    note: "Sound system toko. Kelas client: FFE Music.",
+    label: "Audio",
+    note: "Store sound systems. Client class: FFE Music.",
     builds: ["AUDIO"],
     icon: Speaker,
   },
   {
     value: "oe",
-    label: "Operating Equipment",
-    note: "Rak, meja, manekin, hanger. Tidak disusutkan: diganti lewat replacement.",
+    label: "Operating equipment",
+    note: "Racks, tables, mannequins, hangers. Not depreciated: replaced through a replacement.",
     builds: ["OE"],
     icon: Box,
+  },
+  {
+    value: "software",
+    label: "Software",
+    note: "Licences and software the company uses.",
+    builds: ["SOFTWARE"],
+    icon: AppWindow,
+  },
+  {
+    value: "projects",
+    label: "Projects",
+    note: "Pre-opening costs and work in progress, until the result is ready to be registered as an asset.",
+    builds: ["DEFERRED", "CIP"],
+    icon: Hammer,
   },
 ]

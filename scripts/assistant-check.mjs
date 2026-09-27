@@ -28,6 +28,13 @@
  *
  * Usage:
  *   node scripts/assistant-check.mjs --db itulah_assistant_demo --api http://127.0.0.1:8098
+ *   node scripts/assistant-check.mjs --db inventory --downs
+ *
+ * `--downs` runs no case. It lists the answers somebody flagged as wrong in
+ * the hub (migration 0501) — the question, the answer and what was wrong —
+ * which are the best material for the next case: somebody who knows the
+ * business already found the answer wrong, and what is left is writing the
+ * query that says what right is.
  *
  * Exits non-zero if any case fails. BLIND cases do not fail the run; they are
  * printed, because the repair for them is better seed data, not a code change.
@@ -198,6 +205,57 @@ function figuresIn(answer) {
   return new Set(
     (answer.replace(/[., ]/g, "").match(/\d+/g) ?? []).map(String)
   )
+}
+
+/**
+ * The answers flagged as wrong, newest first. See `--downs` in the usage.
+ *
+ * The question is the turn just before the answer — one row per turn is how
+ * `0102` keeps them — and the times are the shop's clock, like every figure
+ * in this file.
+ */
+function downs() {
+  const rows = execFileSync(
+    "psql",
+    [
+      "-qtA",
+      "-F",
+      "\t",
+      "-d",
+      DB,
+      "-c",
+      `SELECT to_char((a.verdict_at AT TIME ZONE 'UTC') + make_interval(mins => 420),
+                      'YYYY-MM-DD HH24:MI'),
+              regexp_replace(q.content, '\\s+', ' ', 'g'),
+              regexp_replace(left(a.content, 300), '\\s+', ' ', 'g'),
+              coalesce(regexp_replace(a.verdict_note, '\\s+', ' ', 'g'), '')
+         FROM assistant_message a
+         JOIN assistant_message q
+           ON q.conversation_id = a.conversation_id
+          AND q.seq = a.seq - 1
+          AND q.role = 'user'
+        WHERE a.verdict = 'DOWN'
+        ORDER BY a.verdict_at DESC
+        LIMIT 50`,
+    ],
+    { encoding: "utf8" }
+  ).trim()
+  if (rows === "") {
+    process.stdout.write("No answer has been flagged as wrong.\n")
+    return
+  }
+  for (const line of rows.split("\n")) {
+    const [when, question, answer, note] = line.split("\t")
+    process.stdout.write(
+      `✗ ${when}  ${question}\n        “${answer}”\n` +
+        (note ? `        wrong: ${note}\n` : "")
+    )
+  }
+}
+
+if ("downs" in options) {
+  downs()
+  process.exit(0)
 }
 
 const results = []

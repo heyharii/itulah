@@ -3,7 +3,6 @@ import {
   Banknote,
   Barcode,
   Coins,
-  Gift,
   Hash,
   Layers,
   LayoutGrid,
@@ -42,7 +41,7 @@ import {
   type PublishReceipt,
 } from "@/lib/queries/commercial"
 import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
-import { endOfDay, shift, startOfDay, today } from "@/lib/calendar"
+import { endOfDay, isoOf, shift, startOfDay, today } from "@/lib/calendar"
 import { FindMany, type Found } from "@/components/ui/find"
 import {
   Choices,
@@ -52,7 +51,15 @@ import {
   type Tile,
 } from "@/components/ui/form"
 import { More, Question, Terms } from "@/screens/commercial/controls"
-import { describeEffect, termsOf, useActor } from "@/screens/commercial/shared"
+import {
+  capsOf,
+  conditionsOf,
+  describeEffect,
+  percent,
+  scopeOf,
+  termsOf,
+  useActor,
+} from "@/screens/commercial/shared"
 import { cn } from "@/lib/utils"
 
 /// Writing a promotion.
@@ -72,9 +79,8 @@ import { cn } from "@/lib/utils"
 ///  - **A free item.** The engine grants one correctly, emitting a line the
 ///    caller must append to the sale. No caller does: a till builds its sale
 ///    from the scanned EPCs alone, so the granted shirt walks out of the shop
-///    while the stock still says it is on the shelf. It is a greyed tile
-///    carrying that whole sentence, which is the reason `<Choices>` exists: the
-///    same refusal in a dropdown could only ever read "— not available".
+///    while the stock still says it is on the shelf. So there is no tile for
+///    it: "buy two, get one free" is Buy X get Y at 100%, said on that field.
 ///  - **A campaign this book does not define.** Handled rather than refused: a
 ///    rule joining a campaign restates that campaign in the same book, because
 ///    a shop drops a rule whose campaign it does not hold.
@@ -127,7 +133,6 @@ const EFFECTS: readonly Tile<EffectKind>[] = [
   { value: "AMOUNT", label: "Amount off", icon: Banknote },
   { value: "FIXED_UNIT_PRICE", label: "Fixed price", icon: Tag },
   { value: "BUY_X_GET_Y", label: "Buy X get Y", icon: Layers },
-  { value: "FREE_ITEM", label: "Free item", icon: Gift },
   { value: "EARN_POINTS", label: "Points", icon: Coins },
 ]
 
@@ -201,63 +206,166 @@ function useVocabulary(kind: "divisions" | "tags", enabled: boolean) {
   return { choices, failed: terms.isError }
 }
 
+/// A published promotion the form starts from.
+///
+/// `change` publishes under the SAME `rule_id` in a newer book, which is how
+/// the fleet already reads an amendment — `load_rules` keeps the newest book
+/// per rule id, the same path pause and resume take — so it is a new version,
+/// never an edit of the old one. `duplicate` mints a new id.
+export interface RuleSeed {
+  readonly mode: "change" | "duplicate"
+  readonly rule: Rule
+}
+
+/// The form's answers, read off a published rule. Codes stand in for names:
+/// the rule carries only codes, and the pickers show what they are given.
+function startingPoint(seed: RuleSeed) {
+  const rule = seed.rule
+  const on = scopeOf(rule).applicability
+  const conditions = conditionsOf(rule)
+  const caps = capsOf(rule)
+  const effect = rule.effect
+  const found = (codes: readonly string[]): Found[] =>
+    codes.map((code) => ({ value: code, label: code }))
+  const text = (value: number | null | undefined) =>
+    value === null || value === undefined || value === 0 ? "" : String(value)
+  const dayOf = (iso: string | null) =>
+    iso === null ? "" : isoOf(new Date(iso))
+  return {
+    name: seed.mode === "duplicate" ? `${rule.name} (copy)` : rule.name,
+    campaignId: rule.campaign_id,
+    scopeKind: (on === null ? "WHOLE_CART" : on.on) as ScopeKind,
+    articles: on?.on === "ARTICLE" ? found(on.article_codes) : [],
+    products: on?.on === "SKU" ? found(on.sku_codes) : [],
+    divisions: on?.on === "DIVISION" ? [...on.divisions] : [],
+    tags: on?.on === "TAG" ? [...on.tags] : [],
+    members: scopeOf(rule).customers.who === "MEMBERS",
+    minQuantity: text(conditions.min_quantity),
+    minAmount: text(conditions.min_amount.minor),
+    from: dayOf(conditions.effective_from),
+    to: dayOf(conditions.effective_to),
+    effectKind: effect.kind as EffectKind,
+    percentOff: effect.kind === "PERCENT" ? String(effect.bps / 100) : "",
+    buyQuantity: effect.kind === "BUY_X_GET_Y" ? String(effect.buy) : "2",
+    getQuantity: effect.kind === "BUY_X_GET_Y" ? String(effect.get) : "1",
+    rewardPercentOff:
+      effect.kind === "BUY_X_GET_Y" ? String(effect.reward_bps / 100) : "100",
+    amount:
+      effect.kind === "AMOUNT"
+        ? String(effect.amount.minor)
+        : effect.kind === "FIXED_UNIT_PRICE"
+          ? String(effect.unit_price.minor)
+          : effect.kind === "EARN_POINTS" && effect.mode === "SPEND_RATE"
+            ? String(effect.spend_per_point.minor)
+            : "",
+    // A code unlocks one promotion. A copy that kept it would take the code
+    // over from the original.
+    couponCode: seed.mode === "duplicate" ? "" : (rule.coupon_code ?? ""),
+    budget: text(caps.budget?.minor),
+    maxUses: text(caps.max_uses),
+    maxPerCustomer: text(rule.max_uses_per_customer),
+    priority: String(rule.priority),
+    markdownPolicy: (rule.markdown_policy ?? "EXCLUDE") as MarkdownPolicy,
+    exclusiveScope: (rule.exclusive_scope ?? "BASKET") as ExclusiveScope,
+    pointsCombination: (rule.points_combination ??
+      "HIGHEST") as PointsCombination,
+  }
+}
+
 export function RuleForm({
   open,
   campaigns,
   nextVersion,
+  seed = null,
+  campaignPreset = null,
   onClose,
   onPublished,
 }: {
   open: boolean
   campaigns: readonly CampaignRow[]
   nextVersion: number
+  /// Where the answers start. Read once, on mount — the caller keys the form
+  /// by it.
+  seed?: RuleSeed | null
+  /// The campaign to preselect, from `?campaign=` on the way in.
+  campaignPreset?: string | null
   onClose: () => void
   onPublished: (receipt: PublishReceipt) => void
 }) {
   const client = useQueryClient()
   const actor = useActor()
+  const [start] = useState(() => (seed === null ? null : startingPoint(seed)))
 
-  const [name, setName] = useState("")
-  const [campaignId, setCampaignId] = useState<string | null>(null)
-  const [scopeKind, setScopeKind] = useState<ScopeKind>("ARTICLE")
+  const [name, setName] = useState(start?.name ?? "")
+  const [campaignId, setCampaignId] = useState<string | null>(
+    start !== null ? start.campaignId : campaignPreset
+  )
+  const [scopeKind, setScopeKind] = useState<ScopeKind>(
+    start?.scopeKind ?? "ARTICLE"
+  )
   // One held list per scope, rather than one shared box of text. Switching
   // from articles to divisions and back should not have thrown away the
   // articles,
   // and with a single `codes` string it always did.
-  const [articles, setArticles] = useState<readonly Found[]>([])
-  const [products, setProducts] = useState<readonly Found[]>([])
-  const [divisions, setDivisions] = useState<readonly string[]>([])
-  const [tags, setTags] = useState<readonly string[]>([])
-  const [members, setMembers] = useState(false)
-  const [minQuantity, setMinQuantity] = useState("")
-  const [minAmount, setMinAmount] = useState("")
-  const [from, setFrom] = useState("")
-  const [to, setTo] = useState("")
-  const [effectKind, setEffectKind] = useState<EffectKind>("PERCENT")
-  const [percentOff, setPercentOff] = useState("")
-  const [buyQuantity, setBuyQuantity] = useState("2")
-  const [getQuantity, setGetQuantity] = useState("1")
-  const [rewardPercentOff, setRewardPercentOff] = useState("100")
-  const [amount, setAmount] = useState("")
-  const [couponCode, setCouponCode] = useState("")
-  const [budget, setBudget] = useState("")
-  const [maxUses, setMaxUses] = useState("")
-  const [maxPerCustomer, setMaxPerCustomer] = useState("")
-  const [priority, setPriority] = useState("0")
+  const [articles, setArticles] = useState<readonly Found[]>(
+    start?.articles ?? []
+  )
+  const [products, setProducts] = useState<readonly Found[]>(
+    start?.products ?? []
+  )
+  const [divisions, setDivisions] = useState<readonly string[]>(
+    start?.divisions ?? []
+  )
+  const [tags, setTags] = useState<readonly string[]>(start?.tags ?? [])
+  const [members, setMembers] = useState(start?.members ?? false)
+  const [minQuantity, setMinQuantity] = useState(start?.minQuantity ?? "")
+  const [minAmount, setMinAmount] = useState(start?.minAmount ?? "")
+  const [from, setFrom] = useState(start?.from ?? "")
+  const [to, setTo] = useState(start?.to ?? "")
+  const [effectKind, setEffectKind] = useState<EffectKind>(
+    start?.effectKind ?? "PERCENT"
+  )
+  const [percentOff, setPercentOff] = useState(start?.percentOff ?? "")
+  const [buyQuantity, setBuyQuantity] = useState(start?.buyQuantity ?? "2")
+  const [getQuantity, setGetQuantity] = useState(start?.getQuantity ?? "1")
+  const [rewardPercentOff, setRewardPercentOff] = useState(
+    start?.rewardPercentOff ?? "100"
+  )
+  const [amount, setAmount] = useState(start?.amount ?? "")
+  const [couponCode, setCouponCode] = useState(start?.couponCode ?? "")
+  const [budget, setBudget] = useState(start?.budget ?? "")
+  const [maxUses, setMaxUses] = useState(start?.maxUses ?? "")
+  const [maxPerCustomer, setMaxPerCustomer] = useState(
+    start?.maxPerCustomer ?? ""
+  )
+  const [priority, setPriority] = useState(start?.priority ?? "0")
   /// Excluded by default, which is the locked rule and what the shop means by
   /// "not valid on sale items". Stacking on a markdown has to be chosen out
   /// loud — the other way round, it happens silently and shows up in margin.
-  const [markdownPolicy, setMarkdownPolicy] =
-    useState<MarkdownPolicy>("EXCLUDE")
+  const [markdownPolicy, setMarkdownPolicy] = useState<MarkdownPolicy>(
+    start?.markdownPolicy ?? "EXCLUDE"
+  )
   /// The whole sale by default, which is what every promotion published so far
   /// means. Narrowing an exclusive offer to its own goods is a real decision
   /// and is made here rather than inherited.
-  const [exclusiveScope, setExclusiveScope] = useState<ExclusiveScope>("BASKET")
+  const [exclusiveScope, setExclusiveScope] = useState<ExclusiveScope>(
+    start?.exclusiveScope ?? "BASKET"
+  )
   /// The best rate takes the item, which is the arithmetic the engine already
   /// did. Adding or compounding gives more points away than any published rule
   /// promised, so neither can be the default.
-  const [pointsCombination, setPointsCombination] =
-    useState<PointsCombination>("HIGHEST")
+  const [pointsCombination, setPointsCombination] = useState<PointsCombination>(
+    start?.pointsCombination ?? "HIGHEST"
+  )
+  /// Problems are said at their fields once somebody has pressed Publish, or
+  /// has left the name empty — not on the first keystroke.
+  const [tried, setTried] = useState(false)
+  const [nameLeft, setNameLeft] = useState(false)
+  /// What each SKU picked costs, from the search that found it, so the till
+  /// preview can ring up a real price instead of a sample.
+  const [skuPrices, setSkuPrices] = useState<ReadonlyMap<string, number>>(
+    () => new Map()
+  )
 
   const divisionList = useVocabulary(
     "divisions",
@@ -321,13 +429,25 @@ export function RuleForm({
   const startsAt = from === "" ? null : startOfDay(from)
   const endsAt = to === "" ? null : endOfDay(to)
   const code = couponCode.trim().toUpperCase()
+  /// The rule being changed or copied. Whatever the form has no control for —
+  /// excluded SKUs, shops, hours, a cap per basket — is carried over from it
+  /// rather than dropped.
+  const base = seed?.rule ?? null
+  const seedEffect = base?.effect ?? null
+  const changing = seed?.mode === "change"
 
   const effect: Effect | null = (() => {
     switch (effectKind) {
       case "PERCENT":
         return bps === null || !Number.isFinite(bps) || bps <= 0
           ? null
-          : { kind: "PERCENT", bps, compound: false }
+          : {
+              kind: "PERCENT",
+              bps,
+              // Kept from the rule being changed; the form has no control for it.
+              compound:
+                seedEffect?.kind === "PERCENT" ? seedEffect.compound : false,
+            }
       case "AMOUNT":
         return amountMinor === null
           ? null
@@ -337,21 +457,14 @@ export function RuleForm({
           ? null
           : { kind: "FIXED_UNIT_PRICE", unit_price: { minor: amountMinor } }
       case "BUY_X_GET_Y":
-      case "FREE_ITEM":
         return buy === null ||
           get === null ||
-          (effectKind === "BUY_X_GET_Y" &&
-            (rewardBps === null ||
-              !Number.isFinite(rewardBps) ||
-              rewardBps <= 0 ||
-              rewardBps > 10_000))
+          rewardBps === null ||
+          !Number.isFinite(rewardBps) ||
+          rewardBps <= 0 ||
+          rewardBps > 10_000
           ? null
-          : {
-              kind: "BUY_X_GET_Y",
-              buy,
-              get,
-              reward_bps: effectKind === "FREE_ITEM" ? 10_000 : rewardBps!,
-            }
+          : { kind: "BUY_X_GET_Y", buy, get, reward_bps: rewardBps }
       case "EARN_POINTS":
         return amountMinor === null
           ? null
@@ -365,18 +478,23 @@ export function RuleForm({
     }
   })()
 
+  /// Each refusal, where it belongs. The name once it has been left, the rest
+  /// once Publish has been pressed; the dates at once, since both were picked.
+  const nameProblem =
+    name.trim() === "" ? "Give the promotion a name." : undefined
+  const scopeProblem =
+    needsCodes && chosen.length === 0 ? "Choose what it applies to." : undefined
+  const effectProblem = effect === null ? "Set the discount." : undefined
+  const dateProblem =
+    endsAt !== null && startsAt !== null && endsAt <= startsAt
+      ? "The end date has to be after the start."
+      : undefined
   const problem =
-    name.trim() === ""
-      ? "Give the promotion a name."
-      : needsCodes && chosen.length === 0
-        ? "Choose what it applies to."
-        : effect === null
-          ? "Set the discount."
-          : endsAt !== null && startsAt !== null && endsAt <= startsAt
-            ? "The end date has to be after the start."
-            : actor === ""
-              ? "Sign in to publish."
-              : undefined
+    nameProblem ??
+    effectProblem ??
+    scopeProblem ??
+    dateProblem ??
+    (actor === "" ? "Sign in to publish." : undefined)
 
   const campaign = campaigns.find(
     (one) => one.campaign.campaign_id === campaignId
@@ -409,33 +527,46 @@ export function RuleForm({
           rule_id: "rule-draft",
           campaign_id: campaignId,
           name: name.trim(),
-          status: "ACTIVE",
+          // A paused promotion stays paused through a change; the switch is
+          // what resumes it.
+          status: changing && base?.status === "PAUSED" ? "PAUSED" : "ACTIVE",
           scope: {
-            applicability: applicabilityOf(scopeKind, chosen),
             excluded_sku_codes: [],
             site_ids: [],
             channels: [],
-            customers: { who: members ? "MEMBERS" : "EVERYONE" },
             effect_on: null,
+            ...(base === null ? {} : scopeOf(base)),
+            // "Everything" has no tile; a rule that said it keeps saying it
+            // until somebody picks a scope.
+            applicability:
+              base !== null &&
+              scopeOf(base).applicability === null &&
+              scopeKind === "WHOLE_CART"
+                ? null
+                : applicabilityOf(scopeKind, chosen),
+            customers: { who: members ? "MEMBERS" : "EVERYONE" },
           },
           conditions: {
-            min_quantity: minQuantity.trim() === "" ? 0 : Number(minQuantity),
             max_quantity: null,
-            min_amount: { minor: minorOf(minAmount) ?? 0 },
             max_amount: null,
-            effective_from: startsAt,
-            effective_to: endsAt,
             days: { iso_weekdays: [] },
             time_window: null,
+            ...(base === null ? {} : conditionsOf(base)),
+            min_quantity: minQuantity.trim() === "" ? 0 : Number(minQuantity),
+            min_amount: { minor: minorOf(minAmount) ?? 0 },
+            effective_from: startsAt,
+            effective_to: endsAt,
           },
           effect,
           coupon_code: code !== "" ? code : null,
-          max_discount: null,
+          max_discount: base?.max_discount ?? null,
           caps: {
             budget: budgetMinor === null ? null : { minor: budgetMinor },
-            spent: { minor: 0 },
+            // A change is the same promotion, so what it has spent so far
+            // goes with it; a copy starts from nothing.
+            spent: changing && base !== null ? capsOf(base).spent : { minor: 0 },
             max_uses: maxUses.trim() === "" ? null : Number(maxUses),
-            used: 0,
+            used: changing && base !== null ? capsOf(base).used : 0,
           },
           // Beside `caps` rather than in it: every limit in there is about the
           // promotion and is answered from the price book, while this one is
@@ -444,18 +575,18 @@ export function RuleForm({
           max_uses_per_customer:
             maxPerCustomer.trim() === "" ? null : Number(maxPerCustomer),
           priority: Number(priority) || 0,
-          stacking: "ALONE",
+          stacking: base?.stacking ?? "ALONE",
           exclusive_scope: exclusiveScope,
-          advisory: false,
+          advisory: base?.advisory ?? false,
           markdown_policy: markdownPolicy,
           // The locked basis: the goods after every discount, before tax. Not
           // a form field, because it is a policy the estate settled rather
           // than a choice a promotion makes — a rule that wanted another
           // basis would be arguing with the loyalty scheme, not configuring
           // itself.
-          earn_basis: "POST_DISCOUNT_NET",
+          earn_basis: base?.earn_basis ?? "POST_DISCOUNT_NET",
           points_combination: pointsCombination,
-          max_points: null,
+          max_points: base?.max_points ?? null,
         }
 
   /// A code as the person who picked it reads it. Built from the two lists in
@@ -472,7 +603,12 @@ export function RuleForm({
 
   const publish = useMutation({
     mutationFn: () => {
-      const ruleId = `rule-${crypto.randomUUID().slice(0, 8)}`
+      // A change keeps the id, so the newer book supersedes the old version
+      // at every till; anything else is a new promotion.
+      const ruleId =
+        changing && base !== null
+          ? base.rule_id
+          : `rule-${crypto.randomUUID().slice(0, 8)}`
       const rule: Rule = { ...draft!, rule_id: ruleId }
 
       // A campaign has to travel with the rule that names it: the server
@@ -498,13 +634,16 @@ export function RuleForm({
                 image_url: campaign.campaign.image_url,
                 headline: campaign.campaign.headline,
                 terms: campaign.campaign.terms,
+                // And its shops: left out, the restatement widens the campaign
+                // to every shop (see `campaignFor` in promotions.tsx).
+                site_ids: campaign.campaign.site_ids ?? [],
               },
             ]
 
       return writeAndPublish({
         ...NOTHING_TO_PUBLISH,
         version: nextVersion,
-        name: `Promotion: ${name.trim()}`,
+        name: `${changing ? "Change" : "Promotion"}: ${name.trim()}`,
         effective_from: startsAt ?? new Date().toISOString(),
         effective_to: null,
         rules: [rule],
@@ -551,6 +690,8 @@ export function RuleForm({
       setMinAmount("")
       setFrom("")
       setTo("")
+      setTried(false)
+      setNameLeft(false)
       onPublished(receipt)
     },
   })
@@ -577,34 +718,56 @@ export function RuleForm({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      title="New promotion"
-      id={`v${nextVersion}`}
+      title={
+        changing
+          ? "Change promotion"
+          : seed?.mode === "duplicate"
+            ? "Duplicate promotion"
+            : "New promotion"
+      }
+      id={changing ? base?.rule_id : undefined}
       width="wide"
       // Two thirds of the glass rather than the `wide` default's 46rem cap:
       // the form and the terms it reads back sit side by side.
       className="md:w-[clamp(32rem,66vw,58rem)]"
       footer={
         <div className="flex items-center justify-between gap-3">
-          {/* What is stopping the button, said BESIDE the button — the one
-              place somebody looking at a disabled Publish is looking. */}
+          {/* What is stopping the button, said BESIDE the button — once
+              somebody has pressed it. Before that, the offer in one line.
+              Wraps rather than truncates: a refusal cut off is not read. */}
           <span
             className={cn(
-              "min-w-0 truncate text-[0.875rem]",
-              problem !== undefined ? "text-bad" : "text-text"
+              "min-w-0 text-[0.875rem] leading-snug",
+              tried && problem !== undefined ? "text-bad" : "text-text"
             )}
           >
-            {problem ?? reads(effect, scopeKind, chosen, members)}
+            {tried && problem !== undefined
+              ? problem
+              : reads(effect, scopeKind, chosen, members)}
           </span>
           <Button
             variant="primary"
-            disabled={problem !== undefined || publish.isPending}
-            onClick={() => publish.mutate()}
+            pending={publish.isPending}
+            disabled={actor === ""}
+            onClick={() =>
+              problem === undefined ? publish.mutate() : setTried(true)
+            }
           >
             {publish.isPending ? "Publishing…" : "Publish"}
           </Button>
         </div>
       }
     >
+      {/* Nothing published is edited in place: this goes to every shop as
+          the promotion's next version, and theirs stops applying. */}
+      {changing && base !== null && (
+        <Banner tone="info" className="mb-4">
+          Publishing sends this to every shop as the new version of “
+          {base.name}”; the one they hold now stops applying.
+          {base.status === "PAUSED" && " It stays paused until you resume it."}
+        </Banner>
+      )}
+
       {halted !== null ? (
         <Banner tone="bad" className="mb-4">
           {halted.message}
@@ -623,11 +786,16 @@ export function RuleForm({
           <div className="flex flex-col gap-6">
             <Section title="Promotion">
               <div className="grid gap-3 @lg:grid-cols-2">
-                <Field label="Name">
+                <Field
+                  label="Name"
+                  required
+                  problem={tried || nameLeft ? nameProblem : undefined}
+                >
                   <Input
                     value={name}
                     autoFocus
                     placeholder="20% off outerwear"
+                    onBlur={() => setNameLeft(true)}
                     onChange={(event) => setName(event.target.value)}
                   />
                 </Field>
@@ -657,7 +825,11 @@ export function RuleForm({
               />
 
               {effectKind === "PERCENT" ? (
-                <Field label="Percent off">
+                <Field
+                  label="Percent off"
+                  required
+                  problem={tried ? effectProblem : undefined}
+                >
                   <Dial
                     value={percentOff}
                     onChange={setPercentOff}
@@ -669,10 +841,16 @@ export function RuleForm({
                     label="Per cent off"
                   />
                 </Field>
-              ) : effectKind === "BUY_X_GET_Y" || effectKind === "FREE_ITEM" ? (
+              ) : effectKind === "BUY_X_GET_Y" ? (
                 <>
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="Buy">
+                    <Field
+                      label="Buy"
+                      required
+                      problem={
+                        tried && buy === null ? "At least one." : undefined
+                      }
+                    >
                       <Stepper
                         value={buyQuantity}
                         onChange={setBuyQuantity}
@@ -681,7 +859,13 @@ export function RuleForm({
                         label="Units to buy in each bundle"
                       />
                     </Field>
-                    <Field label={effectKind === "FREE_ITEM" ? "Free" : "Get"}>
+                    <Field
+                      label="Get"
+                      required
+                      problem={
+                        tried && get === null ? "At least one." : undefined
+                      }
+                    >
                       <Stepper
                         value={getQuantity}
                         onChange={setGetQuantity}
@@ -691,20 +875,32 @@ export function RuleForm({
                       />
                     </Field>
                   </div>
-                  {effectKind === "BUY_X_GET_Y" && (
-                    <Field label="Discount on the items you get">
-                      <Dial
-                        value={rewardPercentOff}
-                        onChange={setRewardPercentOff}
-                        max={100}
-                        tick={10}
-                        suffix="%"
-                        marks={[25, 50, 75, 100]}
-                        placeholder="100"
-                        label="Discount on rewarded units"
-                      />
-                    </Field>
-                  )}
+                  {/* "Buy two, get one free" is this at 100% — there is no
+                      separate free-item offer (see the top of this file). */}
+                  <Field
+                    label="Discount on the items you get"
+                    aside="100% makes them free"
+                    required
+                    problem={
+                      tried &&
+                      buy !== null &&
+                      get !== null &&
+                      effectProblem !== undefined
+                        ? "Between 1% and 100%."
+                        : undefined
+                    }
+                  >
+                    <Dial
+                      value={rewardPercentOff}
+                      onChange={setRewardPercentOff}
+                      max={100}
+                      tick={10}
+                      suffix="%"
+                      marks={[25, 50, 75, 100]}
+                      placeholder="100"
+                      label="Discount on rewarded units"
+                    />
+                  </Field>
                 </>
               ) : (
                 <Field
@@ -715,6 +911,8 @@ export function RuleForm({
                         ? "Price each"
                         : "Spend per point"
                   }
+                  required
+                  problem={tried ? effectProblem : undefined}
                 >
                   <Money
                     value={amount}
@@ -753,7 +951,11 @@ export function RuleForm({
               />
 
               {scopeKind === "ARTICLE" && (
-                <Field label="Articles">
+                <Field
+                  label="Articles"
+                  required
+                  problem={tried ? scopeProblem : undefined}
+                >
                   <FindMany
                     chosen={articles}
                     onChange={setArticles}
@@ -779,14 +981,26 @@ export function RuleForm({
               )}
 
               {scopeKind === "SKU" && (
-                <Field label="SKUs">
+                <Field
+                  label="SKUs"
+                  required
+                  problem={tried ? scopeProblem : undefined}
+                >
                   <FindMany
                     chosen={products}
                     onChange={setProducts}
                     queryKey={(needle) => commercialKeys.products(needle, 20)}
                     search={(needle, signal) =>
-                      commercialProducts(needle, 20, signal).then((rows) =>
-                        rows.map((row) => ({
+                      commercialProducts(needle, 20, signal).then((rows) => {
+                        // Kept for the till preview, which rings up the
+                        // first SKU picked at its own price.
+                        setSkuPrices((known) => {
+                          const next = new Map(known)
+                          for (const row of rows)
+                            next.set(row.sku_code, row.unit_price_minor)
+                          return next
+                        })
+                        return rows.map((row) => ({
                           value: row.sku_code,
                           label: row.sku_code,
                           note: [row.article_name, row.color, row.size]
@@ -794,7 +1008,7 @@ export function RuleForm({
                             .join(" · "),
                           aside: money(row.unit_price_minor),
                         }))
-                      )
+                      })
                     }
                     placeholder="Search a SKU code, an article name or a colour"
                     label="The SKUs this promotion applies to"
@@ -806,10 +1020,13 @@ export function RuleForm({
               {scopeKind === "DIVISION" && (
                 <Field
                   label="Divisions"
+                  required
                   problem={
                     divisionList.failed
                       ? "The division list is not answering."
-                      : undefined
+                      : tried
+                        ? scopeProblem
+                        : undefined
                   }
                 >
                   <PickMany
@@ -825,10 +1042,13 @@ export function RuleForm({
               {scopeKind === "TAG" && (
                 <Field
                   label="Tags"
+                  required
                   problem={
                     tagList.failed
                       ? "The tag list is not answering."
-                      : undefined
+                      : tried
+                        ? scopeProblem
+                        : undefined
                   }
                 >
                   <PickMany
@@ -860,7 +1080,7 @@ export function RuleForm({
                     ]}
                   />
                 </Field>
-                <Field label="Ends">
+                <Field label="Ends" problem={dateProblem}>
                   <Day
                     value={to}
                     onChange={setTo}
@@ -868,10 +1088,10 @@ export function RuleForm({
                     label="The last day this promotion runs"
                     notBefore={from}
                     presets={[
-                      { label: "In a week", value: shift(from ?? today(), 7) },
+                      { label: "In a week", value: shift(from || today(), 7) },
                       {
                         label: "In a month",
-                        value: shift(from ?? today(), 30),
+                        value: shift(from || today(), 30),
                       },
                     ]}
                   />
@@ -973,7 +1193,11 @@ export function RuleForm({
                     label="Budget"
                   />
                 </Field>
-                <Field label="Max. baskets">
+                <Field
+                  label="Max. baskets"
+                  // One number, two limits: the coupon is published with it.
+                  aside={code !== "" ? "Also the code's limit" : undefined}
+                >
                   <Stepper
                     value={maxUses}
                     onChange={setMaxUses}
@@ -1013,7 +1237,7 @@ export function RuleForm({
               it is where a promotion that would never have fired gets caught.
               Pinned while the form scrolls, so it is read beside the answers
               that change it. */}
-          <div className="@3xl:sticky @3xl:top-0 @3xl:self-start">
+          <div className="flex flex-col gap-6 @3xl:sticky @3xl:top-0 @3xl:self-start">
             <Section title="Summary">
               <Terms
                 headline={
@@ -1034,10 +1258,149 @@ export function RuleForm({
                 ]}
               />
             </Section>
+
+            {/* The same offer as the cashier's receipt shows it: one line,
+                rung up. The terms above say when; this says how much. */}
+            <Section title="At the till">
+              <TillPreview
+                effect={effect}
+                item={
+                  scopeKind === "SKU" && products.length > 0
+                    ? products[0].note || products[0].label
+                    : scopeKind === "ARTICLE" && articles.length > 0
+                      ? articles[0].label
+                      : "Sample item"
+                }
+                price={
+                  scopeKind === "SKU" && products.length > 0
+                    ? (skuPrices.get(products[0].value) ?? null)
+                    : null
+                }
+                code={code}
+                members={members}
+                least={Number(minQuantity) || 0}
+                spend={minorOf(minAmount) ?? 0}
+              />
+            </Section>
           </div>
         </div>
       </div>
     </Sheet>
+  )
+}
+
+/// A price nobody will mistake for a real one when no product is chosen.
+const SAMPLE_PRICE = 199_000
+
+/// One line of the offer, rung up the way the effect computes it.
+///
+/// Presentational and approximate on purpose: it reads the effect the form
+/// is about to send and nothing else, so it can be wrong only by rounding —
+/// the till rounds per line, this rounds once.
+function TillPreview({
+  effect,
+  item,
+  price: known,
+  code,
+  members,
+  least,
+  spend,
+}: {
+  effect: Effect | null
+  item: string
+  /// The chosen SKU's own price, or `null` for the sample.
+  price: number | null
+  code: string
+  members: boolean
+  least: number
+  spend: number
+}) {
+  if (effect === null)
+    return (
+      <p className="text-[0.875rem] leading-relaxed text-mute">
+        Set the discount to see it rung up.
+      </p>
+    )
+
+  const price = known ?? SAMPLE_PRICE
+  const quantity =
+    effect.kind === "BUY_X_GET_Y" ? effect.buy + effect.get : Math.max(1, least)
+  const gross = price * quantity
+  const off = (() => {
+    switch (effect.kind) {
+      case "PERCENT":
+        return Math.round((gross * effect.bps) / 10_000)
+      case "AMOUNT":
+        return Math.min(effect.amount.minor, gross)
+      case "FIXED_UNIT_PRICE":
+        return Math.max(price - effect.unit_price.minor, 0) * quantity
+      case "BUY_X_GET_Y":
+        return Math.round((price * effect.reward_bps) / 10_000) * effect.get
+      default:
+        return 0
+    }
+  })()
+  // Below the minimum the offer does not fire, and the receipt says so.
+  const short = spend > gross
+  const discount = short ? 0 : off
+  const total = gross - discount
+  const points =
+    effect.kind === "EARN_POINTS" &&
+    effect.mode === "SPEND_RATE" &&
+    effect.spend_per_point.minor > 0 &&
+    !short
+      ? Math.floor(total / effect.spend_per_point.minor)
+      : null
+
+  return (
+    <div className="rounded-card border border-hairline bg-canvas px-4 py-3.5 font-mono text-[0.875rem] text-text tabular-nums">
+      {(code !== "" || members) && (
+        <div className="mb-2.5 border-b border-dashed border-hairline pb-2.5 text-mute">
+          {members && <p>Scan the member card</p>}
+          {code !== "" && (
+            <p>
+              Ask for code <span className="text-ink">{code}</span>
+            </p>
+          )}
+        </div>
+      )}
+      <div className="flex justify-between gap-3">
+        <span className="min-w-0 truncate">
+          {count(quantity)} × {item}
+        </span>
+        <span className="shrink-0">{money(gross)}</span>
+      </div>
+      <p className="pl-4 text-mute">
+        @ {money(price)}
+        {known === null && " · sample price"}
+      </p>
+      {discount > 0 && (
+        <div className="flex justify-between gap-3 text-ok-fg">
+          <span className="min-w-0 truncate">{describeEffect(effect)}</span>
+          <span className="shrink-0">−{money(discount)}</span>
+        </div>
+      )}
+      {short && (
+        <p className="text-warn-fg">
+          Under the {money(spend)} minimum — no discount here.
+        </p>
+      )}
+      <div className="mt-2 flex justify-between gap-3 border-t border-dashed border-hairline pt-2 font-semibold text-ink">
+        <span>Total</span>
+        <span>{money(total)}</span>
+      </div>
+      {points !== null && (
+        <div className="flex justify-between gap-3 text-mute">
+          <span>Points earned</span>
+          <span>{count(points)}</span>
+        </div>
+      )}
+      {discount > 0 && (
+        <p className="mt-1 text-mute">
+          Saved {percent(Math.round((discount / gross) * 10_000))}
+        </p>
+      )}
+    </div>
   )
 }
 

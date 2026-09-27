@@ -352,6 +352,8 @@ pub fn render(document: &ReceiptDocument, paper: PaperWidth, drawer: DrawerMode)
             "CASH" => "Tunai",
             "CARD" => "Kartu",
             "QRIS" => "QRIS",
+            "EWALLET" => "E-Wallet",
+            "VOUCHER" => "Voucher",
             _ => "Lainnya",
         };
         line(

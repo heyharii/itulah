@@ -80,7 +80,7 @@ export function AssetHubSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title={hub.data === undefined ? "Aset" : hub.data.asset.name}
+      title={hub.data === undefined ? "Asset" : hub.data.asset.name}
       id={hub.data?.asset.asset_number}
       caption={hub.data?.asset.acquired_via ?? undefined}
       subject={
@@ -98,8 +98,8 @@ export function AssetHubSheet({
               }
             >
               {hub.data.asset.finance_decision === null
-                ? "Finance belum menilai"
-                : "Finance sudah menilai"}
+                ? "Not yet assessed by Finance"
+                : "Assessed by Finance"}
             </Pill>
           </>
         )
@@ -121,7 +121,7 @@ export function AssetHubSheet({
               },
               {
                 value: "documents",
-                label: "Dokumen",
+                label: "Documents",
                 content: (
                   <DocumentsTab
                     asset={hub.data.asset}
@@ -131,7 +131,7 @@ export function AssetHubSheet({
               },
               {
                 value: "history",
-                label: "Riwayat",
+                label: "History",
                 content: (
                   <ol className="flex flex-col">
                     {hub.data.events.map((event) => (
@@ -157,13 +157,13 @@ export function AssetHubSheet({
               },
               {
                 value: "accounts",
-                label: "Akun kelas",
+                label: "Class accounts",
                 content: <AccountsTab asset={hub.data.asset} />,
               },
             ]
       }
     >
-      {hub.isLoading && <LoadingState>Membuka asetnya…</LoadingState>}
+      {hub.isLoading && <LoadingState>Opening the asset…</LoadingState>}
       {hub.error instanceof Error && (
         <Banner tone="bad">{hub.error.message}</Banner>
       )}
@@ -175,7 +175,7 @@ export function AssetHubSheet({
 ///
 /// # Three actions, one open at a time
 ///
-/// Pindahkan, Ganti and Ajukan pelepasan are the three ways an asset leaves
+/// Move, Replace and Request disposal are the three ways an asset leaves
 /// this state, and each is a form with a reason in it. They are gated on the
 /// asset being LIVE: a draft nobody has walked the floor for cannot be
 /// swapped, and an asset already replaced or disposed has no further business
@@ -229,20 +229,20 @@ function DetailTab({
           Detail
         </h4>
         <Facts>
-          <Fact term="Jenis">{build.label}</Fact>
-          <Fact term="Kelas client">{asset.class_name}</Fact>
+          <Fact term="Type">{build.label}</Fact>
+          <Fact term="Class">{asset.class_name}</Fact>
           <Fact term="Site">{asset.site_id}</Fact>
-          <Fact term="Lokasi">{asset.sub_location ?? "—"}</Fact>
-          <Fact term="Pemegang">{asset.holder ?? "—"}</Fact>
-          <Fact term="Kondisi">{conditionWords(asset.condition)}</Fact>
-          <Fact term="Serial / plat">{asset.serial_number ?? "—"}</Fact>
-          <Fact term="Diperoleh">{day(asset.acquired_on)}</Fact>
-          <Fact term="Tagihan pembelian">
-            {asset.acquired_via ?? "belum ditautkan"}
+          <Fact term="Area">{asset.sub_location ?? "—"}</Fact>
+          <Fact term="Holder">{asset.holder ?? "—"}</Fact>
+          <Fact term="Condition">{conditionWords(asset.condition)}</Fact>
+          <Fact term="Serial / plate">{asset.serial_number ?? "—"}</Fact>
+          <Fact term="Acquired">{day(asset.acquired_on)}</Fact>
+          <Fact term="Purchase bill">
+            {asset.acquired_via ?? "not yet linked"}
           </Fact>
-          <Fact term="Status Finance">
+          <Fact term="Finance status">
             {asset.finance_decision === null
-              ? "belum dinilai"
+              ? "not yet assessed"
               : asset.finance_decision}
           </Fact>
         </Facts>
@@ -270,23 +270,23 @@ function DetailTab({
 
       <section>
         <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Aksi
+          Actions
         </h4>
         {action === null && (
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="soft" onClick={() => setAction("move")}>
               <MoveRight />
-              Pindahkan
+              Move
             </Button>
             {live && (
               <>
                 <Button variant="soft" onClick={() => setAction("replace")}>
                   <Repeat />
-                  Ganti
+                  Replace
                 </Button>
                 <Button variant="soft" onClick={() => setAction("dispose")}>
                   <PackageX />
-                  Ajukan pelepasan
+                  Request disposal
                 </Button>
               </>
             )}
@@ -370,45 +370,45 @@ function CompleteDraft({ asset }: { asset: GaAssetRow }) {
   return (
     <section className="rounded-inner border border-warn-fg/30 bg-warn-bg/40 p-3.5">
       <h4 className="text-card-title font-semibold text-ink">
-        Tagihannya datang lebih dulu
+        The bill arrived first
       </h4>
       <p className="mt-1 mb-3 text-meta text-body">
-        Aset ini dibuat otomatis saat Finance memposting tagihannya. Pastikan
-        barangnya ada, lalu lengkapi lokasi dan pemegangnya.
+        This asset was created automatically when Finance posted the bill.
+        Make sure the item is there, then fill in its area and holder.
       </p>
       {save.error instanceof Error && (
         <Banner tone="bad">{save.error.message}</Banner>
       )}
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Lokasi di site">
+        <Field label="Area" required>
           <Input
             value={form.sub_location ?? ""}
             onChange={(event) => set("sub_location", event.target.value)}
-            placeholder="Lt. 1 · area kasir"
+            placeholder="Floor 1 · cashier area"
           />
         </Field>
-        <Field label="Pemegang">
+        <Field label="Holder" required>
           <Input
             value={form.holder ?? ""}
             onChange={(event) => set("holder", event.target.value)}
-            placeholder={`Kepala toko ${asset.site_id}`}
+            placeholder={`Store manager ${asset.site_id}`}
           />
         </Field>
-        <Field label="Serial / plat">
+        <Field label="Serial / plate">
           <Input
             value={form.serial_number ?? ""}
             onChange={(event) => set("serial_number", event.target.value)}
           />
         </Field>
-        <Field label="Kondisi">
+        <Field label="Condition">
           <Select
             value={form.condition ?? asset.condition}
             onChange={(next) => set("condition", next)}
-            aria-label="Kondisi"
+            aria-label="Condition"
           >
-            <option value="BAIK">Baik</option>
-            <option value="PERLU_SERVIS">Perlu servis</option>
-            <option value="RUSAK">Rusak</option>
+            <option value="BAIK">Good</option>
+            <option value="PERLU_SERVIS">Needs service</option>
+            <option value="RUSAK">Broken</option>
           </Select>
         </Field>
         {(build?.fields ?? []).map((field) => (
@@ -424,10 +424,11 @@ function CompleteDraft({ asset }: { asset: GaAssetRow }) {
       <div className="mt-3">
         <Button
           variant="primary"
-          disabled={!ready || save.isPending}
+          pending={save.isPending}
+          disabled={!ready}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Menyimpan…" : "Simpan dan daftarkan"}
+          {save.isPending ? "Saving…" : "Save and register"}
         </Button>
       </div>
     </section>
@@ -477,17 +478,17 @@ function MoveForm({
         <Banner tone="bad">{move.error.message}</Banner>
       )}
       <p className="text-meta text-body">
-        Dari <b className="text-ink">{asset.site_id}</b> ·{" "}
-        {asset.sub_location ?? "tanpa lokasi"}
+        From <b className="text-ink">{asset.site_id}</b> ·{" "}
+        {asset.sub_location ?? "no area"}
       </p>
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Ke site">
+        <Field label="To site" required>
           <Select
             value={form.to_site ?? ""}
             onChange={(next) => set("to_site", next)}
-            aria-label="Ke site"
+            aria-label="To site"
           >
-            <option value="">Pilih…</option>
+            <option value="">Select…</option>
             {sites
               .filter((one) => one !== asset.site_id)
               .map((one) => (
@@ -497,21 +498,21 @@ function MoveForm({
               ))}
           </Select>
         </Field>
-        <Field label="Lokasi di site">
+        <Field label="Area">
           <Input
             value={form.to_sub_location ?? ""}
             onChange={(event) => set("to_sub_location", event.target.value)}
-            placeholder="Gudang lt. 1"
+            placeholder="Warehouse floor 1"
           />
         </Field>
-        <Field label="Pemegang baru">
+        <Field label="New holder">
           <Input
             value={form.to_holder ?? ""}
             onChange={(event) => set("to_holder", event.target.value)}
             placeholder={asset.holder ?? ""}
           />
         </Field>
-        <Field label="Tanggal pindah">
+        <Field label="Date moved" required>
           <Input
             type="date"
             value={form.occurred_on ?? ""}
@@ -519,24 +520,25 @@ function MoveForm({
           />
         </Field>
       </div>
-      <Field label="Alasan" aside="masuk riwayat aset">
+      <Field label="Reason" required aside="goes into the asset's history">
         <Input
           value={form.reason ?? ""}
           onChange={(event) => set("reason", event.target.value)}
-          placeholder="mis. Toko C013 buka"
+          placeholder="e.g. Store C013 opening"
         />
       </Field>
       <div className="flex items-center gap-2">
         <Button
           variant="primary"
-          disabled={!ready || move.isPending}
+          pending={move.isPending}
+          disabled={!ready}
           onClick={() => move.mutate()}
         >
           <ArrowRight />
-          {move.isPending ? "Memindahkan…" : "Pindahkan"}
+          {move.isPending ? "Moving…" : "Move"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Batal
+          Cancel
         </Button>
       </div>
     </div>
@@ -607,7 +609,7 @@ function ReplaceForm({
 
   const submit = () => {
     if ((form.reason ?? "").trim() === "") {
-      setProblems({ reason: "Tulis alasannya dulu." })
+      setProblems({ reason: "Write the reason first." })
       return
     }
     save.mutate()
@@ -619,25 +621,29 @@ function ReplaceForm({
         <Banner tone="bad">{save.error.message}</Banner>
       )}
       <p className="text-meta text-body">
-        Penggantian dicatat sebagai kejadian pada aset ini; aset barunya lahir
-        saat tahapannya sampai <b className="text-ink">Terpasang</b>, di
-        Maintenance › Replacement.
+        The replacement is recorded as an event on this asset; the new asset
+        is created once its stage reaches <b className="text-ink">Installed</b>,
+        in Maintenance › Replacement.
       </p>
-      <Field label="Alasan penggantian" problem={problems.reason || undefined}>
+      <Field
+        label="Reason for replacement"
+        required
+        problem={problems.reason || undefined}
+      >
         <Input
           value={form.reason ?? ""}
           onChange={(event) => set("reason", event.target.value)}
-          placeholder="mis. Rusak berat, tidak ekonomis diperbaiki"
+          placeholder="e.g. Badly damaged, not economical to repair"
         />
       </Field>
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Perbaikan terkait" aside="opsional">
+        <Field label="Related repair">
           <Select
             value={form.repair ?? ""}
             onChange={(next) => set("repair", next)}
-            aria-label="Perbaikan terkait"
+            aria-label="Related repair"
           >
-            <option value="">Tidak ada</option>
+            <option value="">None</option>
             {ownRepairs.map((one) => (
               <option key={one.repair_id} value={one.repair_id}>
                 {one.title}
@@ -645,13 +651,13 @@ function ReplaceForm({
             ))}
           </Select>
         </Field>
-        <Field label="Vendor" aside="opsional; pemilihan aset barunya menyusul">
+        <Field label="Vendor" aside="choosing the new asset comes later">
           <Select
             value={form.vendor ?? ""}
             onChange={(next) => set("vendor", next)}
             aria-label="Vendor"
           >
-            <option value="">Belum dipilih</option>
+            <option value="">Not chosen yet</option>
             {(vendors.data?.rows ?? []).map((one) => (
               <option key={one.supplier_id} value={one.supplier_id}>
                 {one.name}
@@ -660,7 +666,7 @@ function ReplaceForm({
           </Select>
         </Field>
       </div>
-      <Field label="Tanggal usul">
+      <Field label="Date proposed" required>
         <Input
           type="date"
           value={form.proposed_on ?? ""}
@@ -668,11 +674,11 @@ function ReplaceForm({
         />
       </Field>
       <div className="flex items-center gap-2">
-        <Button variant="primary" disabled={save.isPending} onClick={submit}>
-          {save.isPending ? "Mengusulkan…" : "Usulkan penggantian"}
+        <Button variant="primary" pending={save.isPending} onClick={submit}>
+          {save.isPending ? "Proposing…" : "Propose replacement"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Batal
+          Cancel
         </Button>
       </div>
     </div>
@@ -729,7 +735,7 @@ function DisposeForm({
 
   const submit = () => {
     const next: Record<string, string> = {}
-    if ((form.reason ?? "").trim() === "") next.reason = "Tulis alasannya dulu."
+    if ((form.reason ?? "").trim() === "") next.reason = "Write the reason first."
     if (Object.keys(next).length > 0) {
       setProblems(next)
       return
@@ -743,45 +749,45 @@ function DisposeForm({
         <Banner tone="bad">{save.error.message}</Banner>
       )}
       <p className="text-meta text-body">
-        GA yang mengajukan; asetnya ditandai pelepasan sampai keputusannya, dan
-        laba/ruginya Finance yang membukukan.
+        GA files the request; the asset is flagged for disposal until a
+        decision is made, and Finance books the gain or loss.
       </p>
       <Choices
-        label="Cara pelepasan"
+        label="Disposal method"
         columns={2}
         value={method}
         onChange={(next) => set("method", next)}
         options={[
           {
             value: "SOLD",
-            label: "Dijual",
+            label: "Sold",
             icon: Banknote,
-            note: "Ada pihak yang membelinya.",
+            note: "There's a buyer for it.",
           },
           {
             value: "SCRAPPED",
             label: "Scrap",
             icon: Trash2,
-            note: "Tidak berharga lagi; dibuang.",
+            note: "No longer worth anything; thrown away.",
           },
           {
             value: "DONATED",
-            label: "Dihibahkan",
+            label: "Donated",
             icon: Users,
-            note: "Diberikan, tanpa bayaran.",
+            note: "Given away, no payment.",
           },
           {
             value: "LOST",
-            label: "Hilang",
+            label: "Lost",
             icon: TriangleAlert,
-            note: "Tidak ditemukan; dicatat rampas/rapuh.",
+            note: "Not found; recorded as stolen or destroyed.",
           },
         ]}
       />
       {method === "SOLD" && (
         <Field
-          label="Hasil penjualan"
-          aside="kalau angkanya sudah ada; kosong kalau belum"
+          label="Sale proceeds"
+          aside="if the amount is known already; leave blank if not"
         >
           <Money
             value={form.proceeds ?? ""}
@@ -790,19 +796,19 @@ function DisposeForm({
           />
         </Field>
       )}
-      <Field label="Alasan" problem={problems.reason || undefined}>
+      <Field label="Reason" required problem={problems.reason || undefined}>
         <Input
           value={form.reason ?? ""}
           onChange={(event) => set("reason", event.target.value)}
-          placeholder="mis. Rusak berat, diganti unit baru"
+          placeholder="e.g. Badly damaged, replaced with new unit"
         />
       </Field>
       <div className="flex items-center gap-2">
-        <Button variant="primary" disabled={save.isPending} onClick={submit}>
-          {save.isPending ? "Mengajukan…" : "Ajukan pelepasan"}
+        <Button variant="primary" pending={save.isPending} onClick={submit}>
+          {save.isPending ? "Requesting…" : "Request disposal"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Batal
+          Cancel
         </Button>
       </div>
     </div>
@@ -836,8 +842,9 @@ function DocumentsTab({
     <div className="flex flex-col gap-4">
       {documents.length === 0 ? (
         <p className="text-meta text-body">
-          Belum ada dokumen. Kertas yang cuma kertas — BPKB, sertifikat laik
-          operasi, garansi — ditempel di sini dan terindeks di Library.
+          No documents yet. Paper that's just paper — BPKB, operating
+          certificate, warranty — gets attached here and indexed in the
+          Library.
         </p>
       ) : (
         <ul className="flex flex-col">
@@ -857,8 +864,8 @@ function DocumentsTab({
               </span>
               <span className="shrink-0 text-pill text-mute tabular-nums">
                 {document.expires_on === null
-                  ? "tanpa masa berlaku"
-                  : `s/d ${day(document.expires_on)}`}
+                  ? "No expiry"
+                  : `Until ${day(document.expires_on)}`}
               </span>
             </li>
           ))}
@@ -878,7 +885,7 @@ function DocumentsTab({
         <div>
           <Button variant="soft" onClick={() => setAdding(true)}>
             <Paperclip />
-            Tempel dokumen
+            Attach document
           </Button>
         </div>
       )}
@@ -907,7 +914,7 @@ function AttachForm({
 
   const save = useMutation({
     mutationFn: () => {
-      if (file === null) throw new Error("Pilih berkasnya dulu.")
+      if (file === null) throw new Error("Choose the file first.")
       return uploadDocument(file, {
         title: blank(form.title) ?? undefined,
         doc_type: blank(form.doc_type) ?? undefined,
@@ -929,34 +936,34 @@ function AttachForm({
         <Banner tone="bad">{save.error.message}</Banner>
       )}
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Berkasnya">
+        <Field label="File" required>
           <Input
             type="file"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
         </Field>
         <Field
-          label="Jenis kertas"
-          hint="STNK, BPKB, sertifikat laik operasi, garansi"
+          label="Paper type"
+          hint="STNK, BPKB, operating certificate, warranty"
         >
           <Input
             value={form.doc_type ?? ""}
             onChange={(event) => set("doc_type", event.target.value)}
           />
         </Field>
-        <Field label="Nomor">
+        <Field label="Number">
           <Input
             value={form.doc_number ?? ""}
             onChange={(event) => set("doc_number", event.target.value)}
           />
         </Field>
-        <Field label="Yang menerbitkan">
+        <Field label="Issuer">
           <Input
             value={form.issuer ?? ""}
             onChange={(event) => set("issuer", event.target.value)}
           />
         </Field>
-        <Field label="Diterbitkan">
+        <Field label="Issued">
           <Input
             type="date"
             value={form.issued_on ?? ""}
@@ -964,8 +971,8 @@ function AttachForm({
           />
         </Field>
         <Field
-          label="Berlaku sampai"
-          aside="kosong = kertasnya tanpa masa berlaku"
+          label="Valid until"
+          aside="empty = the paper has no expiry"
         >
           <Input
             type="date"
@@ -977,13 +984,14 @@ function AttachForm({
       <div className="mt-3 flex items-center gap-2">
         <Button
           variant="primary"
-          disabled={file === null || save.isPending}
+          pending={save.isPending}
+          disabled={file === null}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Mengunggah…" : "Simpan dokumen"}
+          {save.isPending ? "Uploading…" : "Save document"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Batal
+          Cancel
         </Button>
       </div>
     </div>
@@ -1007,14 +1015,14 @@ function AccountsTab({ asset }: { asset: GaAssetRow }) {
     (row) => row.source_id === asset.class_code
   )
 
-  if (map.isLoading) return <LoadingState>Membaca akun Finance…</LoadingState>
+  if (map.isLoading) return <LoadingState>Reading Finance accounts…</LoadingState>
 
   if (rows.length === 0) {
     return (
       <p className="text-meta text-body">
-        Kelas ini belum punya akun di site {asset.site_id}. Finance yang
-        memetakannya; sampai itu, penyusutan kelas ini akan ditolak dengan
-        kalimat yang menyebut kelas dan site-nya.
+        This class doesn't have an account at site {asset.site_id} yet.
+        Finance maps it; until then, depreciation for this class will be
+        rejected with a message naming the class and its site.
       </p>
     )
   }
@@ -1040,19 +1048,19 @@ function AccountsTab({ asset }: { asset: GaAssetRow }) {
 export function gaStatusWords(status: string): string {
   switch (status) {
     case "DRAFT":
-      return "Draft · belum dilengkapi"
+      return "Draft · needs details"
     case "IN_PROGRESS":
-      return "Dalam pengerjaan"
+      return "In progress"
     case "IN_SERVICE":
-      return "Terdaftar"
+      return "Registered"
     case "DISPOSAL_REQUESTED":
-      return "Pelepasan diajukan"
+      return "Disposal requested"
     case "REPLACED":
-      return "Diganti"
+      return "Replaced"
     case "DISPOSED":
-      return "Sudah dilepas"
+      return "Disposed"
     default:
-      return "Terdaftar"
+      return "Registered"
   }
 }
 
@@ -1066,11 +1074,11 @@ function gaStatusTone(status: string): "ok" | "warn" | "neutral" {
 function conditionWords(condition: string): string {
   switch (condition) {
     case "PERLU_SERVIS":
-      return "Perlu servis"
+      return "Needs service"
     case "RUSAK":
-      return "Rusak"
+      return "Broken"
     default:
-      return "Baik"
+      return "Good"
   }
 }
 

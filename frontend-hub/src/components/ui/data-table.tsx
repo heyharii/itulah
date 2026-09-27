@@ -10,6 +10,7 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { Select } from "@/components/ui/field"
+import { LoadMore, type Pageable } from "@/components/ui/states"
 import { useCoarsePointer, useLayout } from "@/lib/layout"
 import { cn } from "@/lib/utils"
 import type { TableSetup } from "@/lib/table"
@@ -107,6 +108,12 @@ export interface DataTableProps<TRow> {
   /// table's own scroll box on a desk and against the page on a phone, where
   /// the cards scroll with the page.
   readonly onEndReached?: () => void
+  /// The infinite query behind the rows. The table asks for the next page
+  /// itself as the last rows come into view, and says so at its foot —
+  /// "Loading more…", or why the page did not come, with Try again. Prefer it
+  /// to `onEndReached`, which only says when a page is due and leaves the
+  /// states to the screen.
+  readonly more?: Pageable
   /// A summary row pinned under the rows — a count, a sum — keyed by column
   /// id. It floats at the foot of the table's own scroll box, so the totals
   /// stay in view however far down the list somebody has scrolled. Columns
@@ -132,6 +139,7 @@ export function DataTable<TRow>({
   rowAction,
   cardSort = true,
   onEndReached,
+  more,
   summary,
   className,
 }: DataTableProps<TRow>) {
@@ -272,7 +280,10 @@ export function DataTable<TRow>({
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) reachEnd.current?.()
       },
-      { root: cards ? null : scrollRef.current, rootMargin: "0px 0px 240px 0px" }
+      {
+        root: cards ? null : scrollRef.current,
+        rootMargin: "0px 0px 240px 0px",
+      }
     )
     observer.observe(marker)
     return () => observer.disconnect()
@@ -319,6 +330,7 @@ export function DataTable<TRow>({
           </ul>
         )}
         {wantsEnd && <div ref={endRef} aria-hidden className="h-px" />}
+        {more !== undefined && <LoadMore query={more} />}
       </div>
     )
   }
@@ -397,6 +409,15 @@ export function DataTable<TRow>({
                 return (
                   <th
                     key={header.id}
+                    aria-sort={
+                      !sortable
+                        ? undefined
+                        : sorted === "asc"
+                          ? "ascending"
+                          : sorted === "desc"
+                            ? "descending"
+                            : "none"
+                    }
                     style={
                       virtualise
                         ? { flex: `0 0 ${header.getSize()}px` }
@@ -490,9 +511,45 @@ export function DataTable<TRow>({
         )}
       </table>
       {wantsEnd && <div ref={endRef} aria-hidden className="h-px" />}
+      {more !== undefined && <LoadMore query={more} />}
     </div>
   )
 }
+
+/// A row that opens something, reachable without a mouse.
+///
+/// It was a click handler on a `<tr>` and nothing else, so the only way to
+/// open a record from the keyboard was not to have one. Now each openable row
+/// is a tab stop: Enter or Space opens it, and the arrow keys walk to the row
+/// above or below — forty tabs to reach the fortieth supplier is not a way to
+/// read a list. A key pressed on a control INSIDE the row (the verb in the
+/// status cell, a checkbox) is that control's, and is left alone.
+function openable(open: () => void) {
+  return {
+    tabIndex: 0,
+    onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.target !== event.currentTarget) return
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault()
+        open()
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        const next =
+          event.key === "ArrowDown"
+            ? event.currentTarget.nextElementSibling
+            : event.currentTarget.previousElementSibling
+        if (next instanceof HTMLElement && next.tabIndex === 0) {
+          event.preventDefault()
+          next.focus()
+        }
+      }
+    },
+  }
+}
+
+/// The ring an openable row wears under the keyboard — inset, because a row
+/// is flush with its neighbours and an outset ring is cut off by them.
+const FOCUSED =
+  "outline-none focus-visible:bg-accent-bg/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
 
 function Row({
   row,
@@ -519,10 +576,13 @@ function Row({
     <tr
       style={style}
       onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+      {...(onRowClick ? openable(() => onRowClick(row.original)) : {})}
       data-selected={selected || undefined}
+      aria-current={selected || undefined}
       className={cn(
         "group/row border-b border-hairline last:border-b-0",
         onRowClick && "cursor-pointer",
+        onRowClick && FOCUSED,
         // 48px, from `--spacing-row`. A minimum rather than a height, so a row
         // holding a wrapped cell grows instead of clipping. Not applied while
         // virtualising: there the height comes from the measurement the
@@ -707,10 +767,13 @@ function RowCard<TRow>({
   return (
     <li
       onClick={onRowClick ? () => onRowClick(row.original as TRow) : undefined}
+      {...(onRowClick ? openable(() => onRowClick(row.original as TRow)) : {})}
       data-selected={selected || undefined}
+      aria-current={selected || undefined}
       className={cn(
         "flex flex-col gap-1.5 border-b border-hairline px-3.5 py-3 last:border-b-0",
         onRowClick && "cursor-pointer",
+        onRowClick && FOCUSED,
         // Selection is a tint here too. `active:` rather than `hover:`: a
         // finger has no hover, and a row that stays tinted after a tap because
         // the browser synthesised one reads as still selected.

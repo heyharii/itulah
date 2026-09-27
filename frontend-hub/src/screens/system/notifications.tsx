@@ -1,4 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -8,13 +12,13 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
 import { Segmented } from "@/components/ui/segmented"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count, label, moment } from "@/lib/format"
 import {
-  listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  notificationsPage,
   systemKeys,
 } from "@/lib/queries/system"
 import { queryState } from "@/lib/query-state"
@@ -55,9 +59,19 @@ export function Notifications() {
   const client = useQueryClient()
   const [slice, setSlice] = useState<Slice>("all")
 
-  const page = useQuery({
-    queryKey: systemKeys.notifications(),
-    queryFn: ({ signal }) => listNotifications(50, signal),
+  /// Walked a page at a time. The Unread slice is asked of the server, so it
+  /// is every unread notification and not the unread ones among the newest
+  /// fifty.
+  const page = useInfiniteQuery({
+    queryKey: systemKeys.notificationFeed(slice === "unread"),
+    queryFn: ({ pageParam, signal }) =>
+      notificationsPage(
+        { unread: slice === "unread", cursor: pageParam },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
   const read = useMutation({
@@ -72,14 +86,13 @@ export function Notifications() {
       client.invalidateQueries({ queryKey: systemKeys.notifications() }),
   })
 
-  const shown = useMemo(() => {
-    const items = page.data?.items ?? []
-    return slice === "unread"
-      ? items.filter((item) => item.read_at === null)
-      : items
-  }, [page.data, slice])
+  const shown = useMemo(
+    () => page.data?.pages.flatMap((one) => one.items) ?? [],
+    [page.data]
+  )
 
-  const unread = page.data?.unread ?? 0
+  /// The server's own count of everything unread, whatever is loaded.
+  const unread = page.data?.pages[0]?.unread ?? 0
 
   return (
     <PageContent>
@@ -103,7 +116,8 @@ export function Notifications() {
             />
             <Button
               variant="primary"
-              disabled={unread === 0 || readAll.isPending}
+              pending={readAll.isPending}
+              disabled={unread === 0}
               onClick={() => readAll.mutate()}
             >
               {readAll.isPending ? "Clearing…" : "Mark all read"}
@@ -115,16 +129,6 @@ export function Notifications() {
       {(readAll.isError || read.isError) && (
         <Banner tone="bad" className="mb-3">
           {saying(readAll.error ?? read.error)}
-        </Banner>
-      )}
-
-      {/* The count is not the length of the list: the server caps what it sends
-          so a screen opened after a bad week does not fetch four hundred rows,
-          and a badge that quietly said "50" would be a badge nobody trusts. */}
-      {page.data && page.data.items.length < unread && (
-        <Banner tone="info" className="mb-3">
-          Showing the most recent {count(page.data.items.length)} of{" "}
-          {count(unread)} unread. Clearing these will reveal the rest.
         </Banner>
       )}
 
@@ -207,7 +211,7 @@ export function Notifications() {
                         <Button
                           variant="quiet"
                           size="sm"
-                          disabled={read.isPending}
+                          pending={read.isPending}
                           onClick={() => read.mutate(item.notification_id)}
                         >
                           Mark read
@@ -216,6 +220,10 @@ export function Notifications() {
                     </li>
                   )
                 })}
+                {/* The page scrolls, not this card — see `<LoadMore>`. */}
+                <li className="list-none">
+                  <LoadMore query={page} />
+                </li>
               </ul>
             ),
         })}

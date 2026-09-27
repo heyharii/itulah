@@ -93,6 +93,11 @@ fn main() -> Result<(), BoxError> {
             Ok(())
         }
         "run" => {
+            // An update installed a newer build in the data directory: become
+            // it before anything else starts (`edge/update.rs`).
+            if let Some(dir) = &data_dir {
+                inventory_backend::edge::update::hand_over(dir);
+            }
             let _logs = node::init_logging(data_dir.as_deref());
             let exit =
                 runtime()?.block_on(node::run(data_dir, node::terminal_or_supervisor_stop()))?;

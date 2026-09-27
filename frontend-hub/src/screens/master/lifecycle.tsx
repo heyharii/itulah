@@ -139,7 +139,7 @@ export function MasterLifecycle({
         <div className="flex flex-wrap items-center gap-2.5">
           <Button
             variant={active ? "soft" : "primary"}
-            disabled={change.isPending || remove.isPending}
+            pending={change.isPending || remove.isPending}
             onClick={() => change.mutate(!active)}
           >
             {change.isPending
@@ -154,7 +154,7 @@ export function MasterLifecycle({
               <>
                 <Button
                   variant="danger"
-                  disabled={remove.isPending}
+                  pending={remove.isPending}
                   onClick={() => remove.mutate()}
                 >
                   {remove.isPending ? "Deleting…" : "Delete permanently"}

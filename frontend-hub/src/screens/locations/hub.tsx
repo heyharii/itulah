@@ -35,9 +35,9 @@ import type {
 /// own detail leads, because filling in an address is the one act this sheet
 /// exists for.
 ///
-/// # Utilitas is not a fourth list
+/// # Utilities is not a fourth list
 ///
-/// `utilities` is the site's Langganan contracts — the same rows as contracts,
+/// `utilities` is the site's Subscriptions contracts — the same rows as contracts,
 /// with the meter reading carried on each. The server splits them because that
 /// is how a facilities person asks, and this draws them with the meter beside
 /// them rather than as a second kind of record.
@@ -63,7 +63,7 @@ export function LocationHubSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title={row === undefined ? "Lokasi" : row.site_name}
+      title={row === undefined ? "Location" : row.site_name}
       id={siteId}
       caption={
         row === undefined
@@ -79,48 +79,48 @@ export function LocationHubSheet({
           : [
               {
                 value: "detail",
-                label: "Detail",
+                label: "Details",
                 content: <DetailTab hub={hub.data} />,
               },
               {
                 value: "assets",
-                label: "Aset",
+                label: "Assets",
                 content: <AssetsTab assets={hub.data.assets} />,
               },
               {
                 value: "contracts",
-                label: "Kontrak",
+                label: "Contracts",
                 content: <ContractsTab contracts={hub.data.contracts} />,
               },
               {
                 value: "utilities",
-                label: "Utilitas",
+                label: "Utilities",
                 content: <UtilitiesTab utilities={hub.data.utilities} />,
               },
               {
                 value: "repairs",
-                label: "Perbaikan",
+                label: "Repairs",
                 content: <RepairsTab repairs={hub.data.repairs} />,
               },
               {
                 value: "schedule",
-                label: "Jadwal",
+                label: "Schedule",
                 content: <ScheduleTab tasks={hub.data.tasks} />,
               },
               {
                 value: "supplies",
-                label: "Permintaan barang",
+                label: "Supply requests",
                 content: <SuppliesTab supplies={hub.data.supplies} />,
               },
               {
                 value: "billing",
-                label: "Tagihan (Finance)",
+                label: "Bills (Finance)",
                 content: <BillingTab row={hub.data.location} />,
               },
             ]
       }
     >
-      {hub.isLoading && <LoadingState>Membuka tempatnya…</LoadingState>}
+      {hub.isLoading && <LoadingState>Opening the place…</LoadingState>}
       {hub.error instanceof Error && (
         <Banner tone="bad">{hub.error.message}</Banner>
       )}
@@ -130,8 +130,8 @@ export function LocationHubSheet({
 
 /// The facilities detail, and the one write this screen owns.
 ///
-/// A place with no detail row says so and offers Lengkapi; one that has been
-/// filled in offers Ubah. Both open the same form, because "fill in" and
+/// A place with no detail row says so and offers Complete; one that has been
+/// filled in offers Edit details. Both open the same form, because "fill in" and
 /// "correct" are the same act on a row that upserts by `site_id`.
 function DetailTab({ hub }: { hub: GaLocationHub }) {
   const location = hub.location
@@ -149,9 +149,9 @@ function DetailTab({ hub }: { hub: GaLocationHub }) {
           <div className="flex items-center gap-2">
             <MapPin className="size-4 shrink-0 stroke-[1.7] text-line-ico" />
             <p className="text-meta text-body">
-              Tempat ini sudah terdaftar — alamat, jenis dan kontaknya belum
-              diisi. Lengkapi detailnya supaya orang yang mengirim barang atau
-              teknisi tahu harus ke mana.
+              This place is already registered — its address, type and
+              contact have not been filled in yet. Complete the details so
+              anyone delivering goods, or a technician, knows where to go.
             </p>
           </div>
         </section>
@@ -159,22 +159,22 @@ function DetailTab({ hub }: { hub: GaLocationHub }) {
 
       <section>
         <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Detail tempat
+          Place details
         </h4>
         <Facts>
-          <Fact term="Nama">{location.site_name}</Fact>
-          <Fact term="Kode">{location.site_id}</Fact>
-          <Fact term="Jenis">{location.kind ?? location.site_kind}</Fact>
-          <Fact term="Alamat">{location.address ?? "—"}</Fact>
-          <Fact term="Luas">
+          <Fact term="Name">{location.site_name}</Fact>
+          <Fact term="Code">{location.site_id}</Fact>
+          <Fact term="Type">{location.kind ?? location.site_kind}</Fact>
+          <Fact term="Address">{location.address ?? "—"}</Fact>
+          <Fact term="Floor area">
             {location.floor_area_sqm === null
               ? "—"
               : `${count(location.floor_area_sqm)} m²`}
           </Fact>
-          <Fact term="Kontak">{location.contact_name ?? "—"}</Fact>
-          <Fact term="Telepon">{location.contact_phone ?? "—"}</Fact>
+          <Fact term="Contact">{location.contact_name ?? "—"}</Fact>
+          <Fact term="Phone">{location.contact_phone ?? "—"}</Fact>
           {location.notes !== null && (
-            <Fact term="Catatan">{location.notes}</Fact>
+            <Fact term="Notes">{location.notes}</Fact>
           )}
         </Facts>
       </section>
@@ -188,7 +188,7 @@ function DetailTab({ hub }: { hub: GaLocationHub }) {
       ) : (
         <div>
           <Button variant="soft" onClick={() => setEditing(true)}>
-            {empty ? "Lengkapi" : "Ubah detail"}
+            {empty ? "Complete" : "Edit details"}
           </Button>
         </div>
       )}
@@ -255,7 +255,7 @@ function LocationEditForm({
       (form.area ?? "").trim() !== "" &&
       !/^\d+$/.test((form.area ?? "").trim())
     ) {
-      next.area = "Isi angka saja, tanpa titik."
+      next.area = "Numbers only, no full stops."
     }
     if (Object.keys(next).length > 0) {
       setProblems(next)
@@ -270,16 +270,16 @@ function LocationEditForm({
         <Banner tone="bad">{save.error.message}</Banner>
       )}
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Jenis tempat" aside="toko, gudang, kantor, mess">
+        <Field label="Place type" aside="store, warehouse, office, staff house">
           <Input
             value={form.kind ?? ""}
             onChange={(event) => set("kind", event.target.value)}
-            placeholder="Toko"
+            placeholder="Store"
           />
         </Field>
         <Field
-          label="Luas"
-          aside="meter persegi"
+          label="Floor area"
+          aside="square metres"
           problem={problems.area || undefined}
         >
           <Input
@@ -290,41 +290,41 @@ function LocationEditForm({
             placeholder="120"
           />
         </Field>
-        <Field label="Alamat">
+        <Field label="Address">
           <Input
             value={form.address ?? ""}
             onChange={(event) => set("address", event.target.value)}
             placeholder="Jl. … No. …, Kel. …, Kec. …"
           />
         </Field>
-        <Field label="Kontak">
+        <Field label="Contact">
           <Input
             value={form.contact_name ?? ""}
             onChange={(event) => set("contact_name", event.target.value)}
-            placeholder="Nama yang bisa dihubungi"
+            placeholder="Person to contact"
           />
         </Field>
-        <Field label="Telepon kontak">
+        <Field label="Contact phone">
           <Input
             value={form.contact_phone ?? ""}
             onChange={(event) => set("contact_phone", event.target.value)}
             placeholder="0812…"
           />
         </Field>
-        <Field label="Catatan">
+        <Field label="Notes">
           <Input
             value={form.notes ?? ""}
             onChange={(event) => set("notes", event.target.value)}
-            placeholder="mis. mess disewa, satu kontrak beberapa toko"
+            placeholder="e.g. staff house is rented, one contract covers several stores"
           />
         </Field>
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <Button variant="primary" disabled={save.isPending} onClick={submit}>
-          {save.isPending ? "Menyimpan…" : "Simpan detail"}
+        <Button variant="primary" pending={save.isPending} onClick={submit}>
+          {save.isPending ? "Saving…" : "Save details"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Batal
+          Cancel
         </Button>
       </div>
     </div>
@@ -337,8 +337,8 @@ function AssetsTab({ assets }: { assets: readonly GaAssetRow[] }) {
   if (assets.length === 0) {
     return (
       <p className="text-meta text-body">
-        Belum ada aset di tempat ini. Aset dicatat dari register saat barangnya
-        datang, dan site-nya ikut tercatat di sana.
+        No assets at this place yet. Assets are recorded from the register
+        when the item arrives, and the site is recorded there too.
       </p>
     )
   }
@@ -361,7 +361,7 @@ function AssetsTab({ assets }: { assets: readonly GaAssetRow[] }) {
               </span>
             </span>
             <span className="shrink-0 text-pill text-mute">
-              {asset.holder ?? "tanpa pemegang"}
+              {asset.holder ?? "no holder"}
             </span>
             <ChevronRight className="size-4 shrink-0 stroke-[1.7] text-faint" />
           </AppLink>
@@ -378,8 +378,8 @@ function ContractsTab({ contracts }: { contracts: readonly GaContractRow[] }) {
   if (contracts.length === 0) {
     return (
       <p className="text-meta text-body">
-        Tidak ada kontrak yang menunjuk tempat ini. Kontrak dicatat dari
-        perjanjiannya di GA › Contracts.
+        No contracts point to this place. Contracts are recorded from the
+        agreement in GA › Contracts.
       </p>
     )
   }
@@ -388,7 +388,7 @@ function ContractsTab({ contracts }: { contracts: readonly GaContractRow[] }) {
       {contracts.map((contract) => (
         <li key={contract.contract_id}>
           <AppLink
-            to="/contracts/sewa"
+            to="/contracts"
             sheet={{ key: "contract", value: contract.contract_id }}
             className="flex items-center gap-3 border-b border-hairline py-2.5 transition-colors last:border-b-0 hover:bg-soft-2"
           >
@@ -417,8 +417,8 @@ function UtilitiesTab({ utilities }: { utilities: readonly GaContractRow[] }) {
   if (utilities.length === 0) {
     return (
       <p className="text-meta text-body">
-        Tidak ada langganan di tempat ini — listrik, air atau telepon belum
-        tercatat sebagai kontrak Langganan.
+        No utilities at this place — electricity, water or phone have not
+        yet been recorded as a Subscriptions contract.
       </p>
     )
   }
@@ -427,7 +427,7 @@ function UtilitiesTab({ utilities }: { utilities: readonly GaContractRow[] }) {
       {utilities.map((contract) => (
         <li key={contract.contract_id}>
           <AppLink
-            to="/contracts/utilities"
+            to="/contracts"
             sheet={{ key: "contract", value: contract.contract_id }}
             className="flex items-center gap-3 border-b border-hairline py-2.5 transition-colors last:border-b-0 hover:bg-soft-2"
           >
@@ -444,13 +444,13 @@ function UtilitiesTab({ utilities }: { utilities: readonly GaContractRow[] }) {
             </span>
             <span className="shrink-0 text-right text-pill text-mute tabular-nums">
               {contract.last_usage === null ? (
-                "belum ada bacaan"
+                "no reading yet"
               ) : (
                 <>
                   {count(contract.last_usage)} {contract.last_unit}
                   <span className="block">
                     {contract.billed_minor === 0
-                      ? "belum ditagih"
+                      ? "not billed yet"
                       : money(contract.billed_minor)}
                   </span>
                 </>
@@ -468,7 +468,7 @@ function UtilitiesTab({ utilities }: { utilities: readonly GaContractRow[] }) {
 function RepairsTab({ repairs }: { repairs: readonly GaRepairRow[] }) {
   if (repairs.length === 0) {
     return (
-      <p className="text-meta text-body">Tidak ada perbaikan di tempat ini.</p>
+      <p className="text-meta text-body">No repairs at this place.</p>
     )
   }
   return (
@@ -485,7 +485,7 @@ function RepairsTab({ repairs }: { repairs: readonly GaRepairRow[] }) {
                 {repair.title}
               </span>
               <span className="block truncate text-pill text-mute">
-                {repair.asset_name ?? "tanpa aset"}
+                {repair.asset_name ?? "no asset"}
               </span>
             </span>
             <RepairStagePill status={repair.status} />
@@ -503,8 +503,8 @@ function ScheduleTab({ tasks }: { tasks: readonly GaMaintenanceTaskRow[] }) {
   if (tasks.length === 0) {
     return (
       <p className="text-meta text-body">
-        Tidak ada jadwal servis untuk tempat ini. Jadwal dibuat di Maintenance ›
-        Jadwal, untuk satu tempat atau satu aset.
+        No service schedule for this place. Schedules are created in
+        Maintenance › Schedule, for one place or one asset.
       </p>
     )
   }
@@ -521,7 +521,7 @@ function ScheduleTab({ tasks }: { tasks: readonly GaMaintenanceTaskRow[] }) {
             </span>
             <span className="block truncate text-pill text-mute">
               {intervalLabel(task.interval_kind, task.interval_value)}
-              {task.asset_id === null ? "" : " · per aset"}
+              {task.asset_id === null ? "" : " · per asset"}
             </span>
           </span>
           <TaskStatePill nextDue={task.next_due} />
@@ -540,7 +540,7 @@ function SuppliesTab({
   if (supplies.length === 0) {
     return (
       <p className="text-meta text-body">
-        Tidak ada permintaan barang dari tempat ini.
+        No supply requests from this place.
       </p>
     )
   }
@@ -582,22 +582,22 @@ function BillingTab({ row }: { row: GaLocationRow }) {
     <div className="flex flex-col gap-4">
       <figure>
         <figcaption className="text-eyebrow font-medium text-body">
-          Tagihan bulan ini <FinanceMark className="ml-1 align-[0.125rem]" />
+          Billed this month <FinanceMark className="ml-1 align-[0.125rem]" />
         </figcaption>
         <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
           {money(row.billed_this_month_minor)}
         </div>
       </figure>
       <p className="text-pill text-mute">
-        Dihitung dari baris tagihan POSTED yang ber-site di tempat ini, dan
-        site-nya dibaca dari record GA yang dirujuknya (kontrak, perbaikan,
-        aset, permintaan). Angka ini milik Finance; GA hanya membacanya.
+        Calculated from POSTED bill lines with a site at this place, where
+        the site is read from the GA record it references (contract, repair,
+        asset, request). This figure belongs to Finance; GA only reads it.
       </p>
       <Facts>
-        <Fact term="Permintaan barang">{count(row.supply_request_count)}</Fact>
-        <Fact term="Jadwal jatuh tempo">{count(row.due_task_count)}</Fact>
-        <Fact term="Perbaikan terbuka">{count(row.open_repair_count)}</Fact>
-        <Fact term="Kontrak">{count(row.contract_count)}</Fact>
+        <Fact term="Supply requests">{count(row.supply_request_count)}</Fact>
+        <Fact term="Due schedules">{count(row.due_task_count)}</Fact>
+        <Fact term="Open repairs">{count(row.open_repair_count)}</Fact>
+        <Fact term="Contracts">{count(row.contract_count)}</Fact>
       </Facts>
     </div>
   )

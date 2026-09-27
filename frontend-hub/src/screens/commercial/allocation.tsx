@@ -3,8 +3,9 @@ import { ApiError } from "@itulah/contract/client"
 
 import { Switch } from "@/components/ui/form"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
-import { Banner, ErrorState } from "@/components/ui/states"
+import { ErrorState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
+import { queryState } from "@/lib/query-state"
 import {
   allocationKeys,
   capAllocation,
@@ -17,7 +18,7 @@ import { Quiet } from "@/screens/commercial/parts"
 
 /// A promotion's or campaign's limit, split between the shops — the hard cap.
 ///
-/// Off, every shop enforces the fleet's count, which a shop that has been
+/// Off, every shop enforces the all-shops count, which a shop that has been
 /// offline all afternoon holds from lunchtime. On, each shop is granted an
 /// allowance and stops at it on its own sales, whether or not it can reach
 /// head office; the allowances never add up to more than the limit. Half the
@@ -83,18 +84,25 @@ export function HardCap({
       </SubHead>
 
       {toggle.isError && (
-        <Banner tone="bad" className="mb-2.5">
-          {(toggle.error as Error).message}
-        </Banner>
+        <div className="mb-2.5">
+          <ErrorState error={toggle.error} />
+        </div>
       )}
 
-      {split.isError ? (
-        <ErrorState error={split.error} />
-      ) : data === undefined ? null : !enabled ? (
-        <Quiet>Every shop enforces the fleet&rsquo;s count.</Quiet>
-      ) : (
-        <Allowances split={data} />
-      )}
+      {queryState(split, {
+        loading: "Reading the split…",
+        render: (fetched) => {
+          const shown = toggle.data ?? fetched
+          return shown.enabled ? (
+            <Allowances split={shown} />
+          ) : (
+            <Quiet>
+              Off — each shop stops at the shared limit, counted across all
+              shops as of its last sync.
+            </Quiet>
+          )
+        },
+      })}
     </div>
   )
 }
@@ -107,27 +115,31 @@ function Allowances({ split }: { split: CapAllocation }) {
   )
   return (
     <div className="flex flex-col gap-2">
-      <MiniTable
-        head={[
-          "Shop",
-          ...(budget
-            ? [
-                { label: "Allowance", align: "right" as const },
-                { label: "Given away", align: "right" as const },
-              ]
-            : []),
-          ...(uses
-            ? [
-                { label: "Baskets", align: "right" as const },
-                { label: "Used", align: "right" as const },
-              ]
-            : []),
-        ]}
-      >
-        {held.map((shop) => (
-          <Row key={shop.origin_id} shop={shop} budget={budget} uses={uses} />
-        ))}
-      </MiniTable>
+      {held.length === 0 ? (
+        <Quiet>No shop has been granted an allowance yet.</Quiet>
+      ) : (
+        <MiniTable
+          head={[
+            "Shop",
+            ...(budget
+              ? [
+                  { label: "Allowance", align: "right" as const },
+                  { label: "Given away", align: "right" as const },
+                ]
+              : []),
+            ...(uses
+              ? [
+                  { label: "Baskets", align: "right" as const },
+                  { label: "Used", align: "right" as const },
+                ]
+              : []),
+          ]}
+        >
+          {held.map((shop) => (
+            <Row key={shop.origin_id} shop={shop} budget={budget} uses={uses} />
+          ))}
+        </MiniTable>
+      )}
       <div className="flex flex-wrap justify-end gap-x-4 text-meta text-body tabular-nums">
         {split.budget_pool !== null && (
           <span>Not yet granted: {money(split.budget_pool)}</span>

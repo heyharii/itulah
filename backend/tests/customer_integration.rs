@@ -316,6 +316,7 @@ async fn history_pages_from_a_cursor_and_ends(pool: PgPool) {
             limit: Some(2),
             before_occurred_at: first.next_before_occurred_at,
             before_sale_id: first.next_before_sale_id,
+            ..Default::default()
         },
     )
     .await
@@ -340,6 +341,7 @@ async fn history_pages_from_a_cursor_and_ends(pool: PgPool) {
             limit: Some(2),
             before_occurred_at: second.next_before_occurred_at,
             before_sale_id: second.next_before_sale_id,
+            ..Default::default()
         },
     )
     .await
@@ -359,6 +361,7 @@ async fn history_pages_from_a_cursor_and_ends(pool: PgPool) {
             limit: Some(2),
             before_occurred_at: None,
             before_sale_id: first.next_before_sale_id,
+            ..Default::default()
         },
     )
     .await;

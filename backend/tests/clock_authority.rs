@@ -80,7 +80,6 @@ const ALLOWED: &[(&str, &str)] = &[
     ("src/cloud/postgres/corrections.rs", "audit pending: correction document dates"),
     ("src/cloud/postgres/counts.rs", "audit pending: count stamps"),
     ("src/cloud/postgres/coupons.rs", "audit pending: coupon hold expiry"),
-    ("src/cloud/postgres/discussion.rs", "audit pending: discussion stamps"),
     ("src/cloud/postgres/eligibility.rs", "audit pending: eligibility freeze"),
     ("src/cloud/postgres/ledger.rs", "audit pending: ledger as-of defaults"),
     ("src/cloud/postgres/letters.rs", "audit pending: letter month bucket (plan §4: align with doc_date)"),

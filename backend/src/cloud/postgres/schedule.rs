@@ -28,7 +28,7 @@ use crate::cloud::domain::{
 };
 use crate::cloud::postgres::{self as infrastructure, NewNotification};
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::{BTreeMap, BTreeSet};
@@ -158,20 +158,65 @@ pub async fn record_manual_run(
     Ok(())
 }
 
-/// The newest claims, for the screen that says whether the clock is doing its
-/// work.
-pub async fn recent_runs(pool: &PgPool, limit: i64) -> Result<Vec<ScheduledRunView>, AppError> {
-    let limit = limit.clamp(1, 200);
+/// A page of the run ledger, newest first.
+#[derive(Clone, Debug, Serialize)]
+pub struct ScheduledRunPage {
+    pub rows: Vec<ScheduledRunView>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    pub next_cursor: Option<String>,
+}
+
+/// Where the previous page stopped, as the row's own primary key. The seek
+/// re-reads that row's `started_at` rather than trusting one carried here.
+#[derive(Serialize, Deserialize)]
+struct ScheduledRunCursor {
+    job: String,
+    run_key: String,
+}
+
+/// The claims, newest first, a page at a time — for the screen that says
+/// whether the clock is doing its work.
+///
+/// Every order ends in the primary key `(job, run_key)`, so no two rows can
+/// compare equal and a keyset cannot repeat or lose the ones that tie on
+/// `started_at` — which a pass that claims several jobs in one instant does.
+/// All three descend together: a row expression compares in one direction.
+pub async fn runs_page(
+    pool: &PgPool,
+    cursor: Option<&str>,
+    limit: Option<i64>,
+) -> Result<ScheduledRunPage, AppError> {
+    let limit = limit.unwrap_or(50).clamp(1, 200);
+    let cursor = cursor
+        .map(super::decode_cursor::<ScheduledRunCursor>)
+        .transpose()?;
     let rows = sqlx::query(
         "SELECT job, run_key, outcome, detail, started_at, finished_at
            FROM scheduled_job_run
-          ORDER BY started_at DESC, job, run_key
-          LIMIT $1",
+          WHERE $1::text IS NULL
+             OR (started_at, job, run_key) < (
+                  SELECT started_at, job, run_key FROM scheduled_job_run
+                   WHERE job = $1 AND run_key = $2)
+          ORDER BY started_at DESC, job DESC, run_key DESC
+          LIMIT $3",
     )
+    .bind(cursor.as_ref().map(|c| c.job.clone()))
+    .bind(cursor.as_ref().map(|c| c.run_key.clone()))
     .bind(limit)
     .fetch_all(pool)
     .await?;
-    rows.iter()
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => {
+            Some(super::encode_cursor(&ScheduledRunCursor {
+                job: row.try_get("job")?,
+                run_key: row.try_get("run_key")?,
+            })?)
+        }
+        _ => None,
+    };
+    let rows = rows
+        .iter()
         .map(|row| {
             Ok(ScheduledRunView {
                 job: row.try_get("job")?,
@@ -182,7 +227,8 @@ pub async fn recent_runs(pool: &PgPool, limit: i64) -> Result<Vec<ScheduledRunVi
                 finished_at: row.try_get("finished_at")?,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, AppError>>()?;
+    Ok(ScheduledRunPage { rows, next_cursor })
 }
 
 // ── the estate the scheduler walks ───────────────────────────────────────
@@ -350,11 +396,7 @@ pub async fn run_leave_accrual(
             Ok(policy) => policy,
             Err(_) => {
                 no_policy += 1;
-                let key = format!(
-                    "accrual:{}:{}:no-policy",
-                    employee_id,
-                    on.format("%Y-%m")
-                );
+                let key = format!("accrual:{}:{}:no-policy", employee_id, on.format("%Y-%m"));
                 if claim_run(pool, schedule::jobs::LEAVE_ACCRUAL, &key).await? {
                     finish_run(
                         pool,
@@ -754,9 +796,9 @@ pub async fn run_period_nudges(
             detail: json!({ "reason": "the month being worked is not late yet" }),
         });
     };
-    let month_first = month_end.with_day(1).ok_or_else(|| {
-        AppError::Configuration("a month end without a first day".to_owned())
-    })?;
+    let month_first = month_end
+        .with_day(1)
+        .ok_or_else(|| AppError::Configuration("a month end without a first day".to_owned()))?;
     let run_key = schedule::month_key("period", month_first);
     claimed(
         pool,

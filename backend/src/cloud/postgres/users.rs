@@ -412,7 +412,8 @@ pub struct UserFacet {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct UserFacets {
     pub roles: Vec<UserFacet>,
-    /// `ACTIVE` and `DISABLED`. A disabled account is kept rather than deleted
+    /// `ACTIVE`, `LEFT_OPEN` (open, but its employee has left) and
+    /// `DISABLED`. A disabled account is kept rather than deleted
     /// — usernames are never released — so the count is the only way to see how
     /// many of them there are.
     pub states: Vec<UserFacet>,
@@ -458,6 +459,11 @@ pub struct UserScope {
     /// Where the person behind the login is posted.
     #[serde(default)]
     pub unit_id: Option<String>,
+    /// `ACTIVE`, `LEFT_OPEN` or `DISABLED` — the three-way state the facet
+    /// counts. `LEFT_OPEN` is an open login whose employee has been
+    /// terminated. Composes with `active`, which it refines.
+    #[serde(default)]
+    pub state: Option<String>,
     /// `username`, `role`, `created` or `last_login`. Anything else is
     /// `username` rather than a 400, so a stale bookmark still opens.
     #[serde(default)]
@@ -518,7 +524,12 @@ const USER_ROWS: &str = "
            u.employee_id, e.code AS employee_code, e.status AS employee_status,
            p.full_name AS employee_name,
            a.unit_id, unit.name AS unit_name,
-           CASE WHEN u.active THEN 'ACTIVE' ELSE 'DISABLED' END AS state,
+           -- Three states, not two: an open login for somebody whose
+           -- employment has ended is a working credential for a person who
+           -- has gone, and it is the row the console is opened to find.
+           CASE WHEN u.active AND e.status = 'TERMINATED' THEN 'LEFT_OPEN'
+                WHEN u.active THEN 'ACTIVE'
+                ELSE 'DISABLED' END AS state,
            COALESCE(u.last_login_at, TIMESTAMPTZ '-infinity') AS login_key
       FROM app_user u
       LEFT JOIN employee e ON e.id = u.employee_id
@@ -540,6 +551,7 @@ const USER_FILTERS: &str = "
     WHERE ($2::text IS NULL OR role = $2)
       AND ($3::bool IS NULL OR active = $3)
       AND ($4::text IS NULL OR unit_id = $4)
+      AND ($5::text IS NULL OR state = $5)
 ";
 
 /// Every login, one page at a time, beside exactly how many there are.
@@ -597,15 +609,16 @@ pub async fn list_users(pool: &PgPool, scope: UserScope) -> Result<UserList, App
              SELECT * FROM searched {USER_FILTERS}
          )
          SELECT * FROM kept
-          WHERE $5::uuid IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $5)
+          WHERE $6::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $6)
           ORDER BY {order}
-          LIMIT $6"
+          LIMIT $7"
     ))
     .bind(&needle)
     .bind(&scope.role)
     .bind(scope.active)
     .bind(&scope.unit_id)
+    .bind(&scope.state)
     .bind(cursor.as_ref().map(|one| one.id))
     .bind(limit)
     .fetch_all(pool)
@@ -664,6 +677,7 @@ pub async fn list_users(pool: &PgPool, scope: UserScope) -> Result<UserList, App
     .bind(&scope.role)
     .bind(scope.active)
     .bind(&scope.unit_id)
+    .bind(&scope.state)
     .fetch_all(pool)
     .await?;
 

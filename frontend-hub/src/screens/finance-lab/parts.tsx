@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/chart"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Button } from "@/components/ui/button"
-import { Input, Select } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
 import { MiniCell, MiniTable, SubHead } from "@/components/ui/rows"
@@ -674,11 +674,27 @@ export function NewRecord({
     >
       <div className="flex flex-col gap-4">
         {fields.map((f) => (
-          <label key={f.name} className="block">
-            <span className="mb-1 block text-eyebrow font-semibold text-mute uppercase">
-              {f.label}
-              {f.required && <span className="text-bad-fg"> *</span>}
-            </span>
+          <Field
+            key={f.name}
+            label={f.label}
+            required={f.required}
+            hint={
+              f.hint || (f.kind === "money" && values[f.name]) ? (
+                <>
+                  {f.hint && <span className="block">{f.hint}</span>}
+                  {f.kind === "money" && values[f.name] && (
+                    <span className="block text-body">
+                      {rp(
+                        Math.round(
+                          Number(values[f.name].replace(/[^\d]/g, "")) * 100
+                        )
+                      )}
+                    </span>
+                  )}
+                </>
+              ) : undefined
+            }
+          >
             {f.kind === "select" ? (
               <Select
                 value={values[f.name] ?? ""}
@@ -698,17 +714,7 @@ export function NewRecord({
                 placeholder={f.placeholder}
               />
             )}
-            {f.hint && (
-              <span className="mt-1 block text-meta text-mute">{f.hint}</span>
-            )}
-            {f.kind === "money" && values[f.name] && (
-              <span className="mt-1 block text-meta text-body">
-                {rp(
-                  Math.round(Number(values[f.name].replace(/[^\d]/g, "")) * 100)
-                )}
-              </span>
-            )}
-          </label>
+          </Field>
         ))}
         {problem && (
           <Banner tone="bad">

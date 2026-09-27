@@ -6,11 +6,14 @@ import { useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
+import { Checkbox, Input } from "@/components/ui/field"
 import { DockedFilters } from "@/components/ui/list-chrome"
 import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import {
   matches,
@@ -18,19 +21,27 @@ import {
   type FilterField,
   type FilterKind,
 } from "@/lib/filters"
-import { count, day } from "@/lib/format"
+import { count, day, money, moment } from "@/lib/format"
 import {
   changeKeys,
   describeChangeKind,
   describeChangeStatus,
+  eventKeys,
   listPriceChanges,
+  listPriceEvents,
   needsAttention,
   type ChangeLens,
   type PriceChange,
 } from "@/lib/queries/changes"
+import {
+  commercialFleet,
+  commercialKeys,
+  priceBookDetail,
+} from "@/lib/queries/commercial"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { Named, Quiet } from "@/screens/commercial/parts"
 
 /// Changes — the pricing work that is not finished.
 ///
@@ -123,7 +134,7 @@ const FIELDS: readonly FilterField[] = [
   },
   {
     column: "kind",
-    label: "Type",
+    label: "Kind",
     spec: {
       kind: "option",
       options: [
@@ -180,6 +191,25 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     cell: ({ row }) => (
       <span className="block max-w-[11rem] truncate text-ink">
         {row.original.name}
+      </span>
+    ),
+  },
+  {
+    // What whoever published it declared it to be. "Unclassified" is a
+    // change published before a kind could be given, and says so.
+    id: "kind",
+    accessorFn: (row) => describeChangeKind(row.kind),
+    header: "Kind",
+    size: 120,
+    cell: ({ row }) => (
+      <span
+        className={
+          row.original.kind === "UNCLASSIFIED"
+            ? "truncate text-mute"
+            : "truncate text-body"
+        }
+      >
+        {describeChangeKind(row.original.kind)}
       </span>
     ),
   },
@@ -310,9 +340,14 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
 
 export function Changes() {
   const search = useSheet("q")
+  /// One change, opened — its rollout shop by shop, and what it changes.
+  const book = useSheet("book")
   const [lens, setLens] = useState<ChangeLens>("ALL")
   const [settled, setSettled] = useState(false)
-  const [sorting, setSorting] = useState<SortingState>([])
+  // Newest first: the change just published is the one somebody came to see.
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "published", desc: true },
+  ])
 
   const list = useQuery({
     queryKey: changeKeys.list(settled),
@@ -368,7 +403,7 @@ export function Changes() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Commercial"
+        crumb="Marketing"
         title="Changes"
         sub="Price work that is not finished — a change leaves when every shop it names is charging it."
       />
@@ -393,28 +428,39 @@ export function Changes() {
               onChange={setLens}
             />
             <Toolbar.Spacer />
+            {/* In the URL like every search box here, so a filtered list can
+                be sent. The version is in the row's accessor, so "v23"
+                finds it without being printed. */}
+            <Input
+              value={search.value ?? ""}
+              onChange={(event) =>
+                event.target.value === ""
+                  ? search.close()
+                  : search.open(event.target.value)
+              }
+              placeholder="Search changes"
+              aria-label="Search changes"
+              className="h-8 w-52"
+            />
             {/* A second question for the SERVER, not a fifth tab and not a
                 clause. The four tabs narrow the work; this asks for the changes
                 that are no longer work at all, which the default list is
                 entitled to leave out entirely. */}
-            <label className="flex items-center gap-1.5 text-[0.875rem] text-mute">
-              <input
-                type="checkbox"
-                checked={settled}
-                onChange={(event) => setSettled(event.target.checked)}
-              />
-              Include settled
-            </label>
+            <Checkbox
+              checked={settled}
+              onChange={setSettled}
+              label="Include settled"
+            />
           </Toolbar>
 
           <Card className="overflow-hidden">
             {queryState(list, {
-              loading: "Reading the price books…",
+              loading: "Reading price changes…",
               render: () =>
                 rows.length === 0 ? (
                   <EmptyState>
                     {lens === "ALL" && filters.filters.length === 0
-                      ? "Nothing outstanding. Every book has reached every shop it names — tick “Include settled” for the finished ones."
+                      ? "Nothing outstanding. Every price change has reached every shop it names — tick “Include settled” for the finished ones."
                       : lens === "ATTENTION"
                         ? "Nothing needs attention."
                         : "No change matches that."}
@@ -422,6 +468,8 @@ export function Changes() {
                 ) : (
                   <DataTable<PriceChange>
                     table={table}
+                    onRowClick={(row) => book.open(row.publication_id)}
+                    isSelected={(row) => row.publication_id === book.value}
                     empty="No change matches that search."
                     className="max-h-[calc(100vh-20rem)]"
                   />
@@ -457,6 +505,354 @@ export function Changes() {
           ]}
         />
       </div>
+
+      <ChangeSheet
+        id={book.value ?? null}
+        change={all.find((one) => one.publication_id === book.value) ?? null}
+        subject={book.subject}
+        onClose={book.close}
+      />
     </PageContent>
+  )
+}
+
+// ── one change, opened ──────────────────────────────────────────────────────
+
+/// Where one shop stands with one change. Worst first: a failure is the row
+/// somebody has to do something about.
+type ShopState = "FAILED" | "PENDING" | "ACTIVE"
+
+const STATE_ORDER: Record<ShopState, number> = {
+  FAILED: 0,
+  PENDING: 1,
+  ACTIVE: 2,
+}
+
+interface ShopLine {
+  readonly siteId: string
+  readonly state: ShopState
+  /// Queued to the shop, as opposed to not reached at all. Pending only.
+  readonly sent: boolean
+  /// When the shop last said something about it, on its own clock.
+  readonly at: string | null
+  /// The shop's own words when it could not apply the change.
+  readonly detail: string | null
+}
+
+/// One change: what kind it is, when it runs, which shops have it in service,
+/// which are still waiting and which failed — and the prices it carries.
+///
+/// No endpoint answers this whole, so it is read from three that do: the
+/// change's own detail (what it carries, where it reaches), its events (what
+/// each shop did) and the shop list (names, and "all shops" when it names
+/// none).
+function ChangeSheet({
+  id,
+  change,
+  subject,
+  onClose,
+}: {
+  id: string | null
+  /// The list's row, when the list holds it. A link to a settled change with
+  /// "Include settled" off still opens, from the detail alone.
+  change: PriceChange | null
+  subject: { kind: string; id: string } | undefined
+  onClose: () => void
+}) {
+  const detail = useQuery({
+    queryKey: commercialKeys.book(id ?? ""),
+    queryFn: ({ signal }) => priceBookDetail(id!, signal),
+    enabled: id !== null,
+  })
+  const version = change?.version ?? detail.data?.version ?? null
+  /// Every event of this one change. 1000 is the server's own ceiling, and
+  /// one change's events are a few per shop.
+  const events = useQuery({
+    queryKey: eventKeys.list(version, null),
+    queryFn: ({ signal }) => listPriceEvents(version, null, 1000, signal),
+    enabled: version !== null,
+  })
+  const fleet = useQuery({
+    queryKey: commercialKeys.fleet(),
+    queryFn: ({ signal }) => commercialFleet(signal),
+  })
+
+  const shopName = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const one of fleet.data?.items ?? []) {
+      if (one.site_id !== null) map.set(one.site_id, one.label ?? one.site_id)
+    }
+    return map
+  }, [fleet.data])
+  const nameOf = (siteId: string) => shopName.get(siteId) ?? siteId
+
+  const shops = useMemo<readonly ShopLine[]>(() => {
+    const by = new Map<string, ShopLine>()
+    // The shops it is meant to reach: every shop when it names none,
+    // otherwise the ones its prices name.
+    const named = new Set<string>()
+    if (change?.reaches_every_shop === true) {
+      for (const one of fleet.data?.items ?? [])
+        if (one.site_id !== null) named.add(one.site_id)
+    } else {
+      for (const rule of [
+        ...(detail.data?.price_rules ?? []),
+        ...(detail.data?.markdowns ?? []),
+      ]) {
+        if (rule.site_id !== null) named.add(rule.site_id)
+        for (const site of rule.site_ids ?? []) named.add(site)
+      }
+    }
+    for (const siteId of named)
+      by.set(siteId, {
+        siteId,
+        state: "PENDING",
+        sent: false,
+        at: null,
+        detail: null,
+      })
+    // Newest first from the server, so the first word from a shop is its
+    // latest. In service outranks a failure, which outranks a delivery.
+    for (const event of events.data ?? []) {
+      if (event.site_id === null) continue
+      const held = by.get(event.site_id)
+      const rank =
+        event.kind === "ACTIVATED" ? 2 : event.kind === "FAILED" ? 1 : 0
+      const heldRank =
+        held === undefined
+          ? -1
+          : held.state === "ACTIVE"
+            ? 2
+            : held.state === "FAILED"
+              ? 1
+              : held.sent
+                ? 0
+                : -1
+      if (rank <= heldRank) continue
+      by.set(event.site_id, {
+        siteId: event.site_id,
+        state:
+          event.kind === "ACTIVATED"
+            ? "ACTIVE"
+            : event.kind === "FAILED"
+              ? "FAILED"
+              : "PENDING",
+        sent: true,
+        at: event.at,
+        detail: event.detail,
+      })
+    }
+    return [...by.values()].sort(
+      (left, right) =>
+        STATE_ORDER[left.state] - STATE_ORDER[right.state] ||
+        nameOf(left.siteId).localeCompare(nameOf(right.siteId))
+    )
+    // `nameOf` reads `shopName`, which is listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [change, detail.data, events.data, fleet.data, shopName])
+
+  const counted = (state: ShopState) =>
+    shops.filter((one) => one.state === state).length
+
+  /// Where a price reaches, said as a place.
+  const where = (siteId: string | null, siteIds: readonly string[] | null) =>
+    siteId !== null
+      ? nameOf(siteId)
+      : siteIds !== null && siteIds.length > 0
+        ? `${count(siteIds.length)} shops`
+        : "All shops"
+
+  const name = change?.name ?? detail.data?.name ?? "Price change"
+  const from = change?.effective_from ?? detail.data?.effective_from ?? null
+  const to = change?.effective_to ?? detail.data?.effective_to ?? null
+
+  return (
+    <Sheet
+      open={id !== null}
+      onOpenChange={(next) => !next && onClose()}
+      title={name}
+      subject={subject}
+      badge={
+        change === null ? undefined : (
+          <Pill
+            tone={
+              change.status === "ACTIVE"
+                ? "ok"
+                : change.status === "SCHEDULED"
+                  ? "info"
+                  : undefined
+            }
+            withDot
+          >
+            {describeChangeStatus(change.status)}
+          </Pill>
+        )
+      }
+    >
+      {id === null ? null : (
+        <div className="flex flex-col gap-5">
+          <Facts>
+            <Fact term="Kind">
+              {change === null ? "—" : describeChangeKind(change.kind)}
+            </Fact>
+            <Fact term="Period">
+              {day(from)}
+              {to === null ? " onwards" : ` – ${day(to)}`}
+            </Fact>
+            <Fact term="Published">
+              {day(change?.published_at ?? detail.data?.published_at ?? null)}
+              {(change?.published_by ?? detail.data?.published_by) &&
+                ` · ${change?.published_by ?? detail.data?.published_by}`}
+            </Fact>
+            <Fact term="Reaches">
+              {change === null
+                ? "—"
+                : change.reaches_every_shop
+                  ? "All shops"
+                  : `${count(change.store_count)} shops`}
+            </Fact>
+          </Facts>
+
+          <div>
+            <SubHead
+              aside={
+                shops.length === 0
+                  ? undefined
+                  : `${count(counted("ACTIVE"))} of ${count(shops.length)} in service`
+              }
+            >
+              Rollout
+            </SubHead>
+            {(events.isPending && version !== null) || detail.isPending ? (
+              <Quiet>Asking the shops…</Quiet>
+            ) : shops.length === 0 ? (
+              <Quiet>This change names no shop the centre knows about.</Quiet>
+            ) : (
+              <MiniTable
+                head={["Shop", { label: "State", align: "left" }, "Since"]}
+              >
+                {shops.map((one) => (
+                  <MiniRow key={one.siteId}>
+                    <MiniCell>
+                      <span className="block text-[0.875rem] text-ink">
+                        {nameOf(one.siteId)}
+                      </span>
+                      {one.detail !== null && one.state === "FAILED" && (
+                        <span className="block text-[0.875rem] text-bad">
+                          {one.detail}
+                        </span>
+                      )}
+                    </MiniCell>
+                    <MiniCell>
+                      <Pill
+                        tone={
+                          one.state === "FAILED"
+                            ? "bad"
+                            : one.state === "ACTIVE"
+                              ? "ok"
+                              : "warn"
+                        }
+                      >
+                        {one.state === "FAILED"
+                          ? "Failed"
+                          : one.state === "ACTIVE"
+                            ? "In service"
+                            : one.sent
+                              ? "Sent, not in service"
+                              : "Not sent yet"}
+                      </Pill>
+                    </MiniCell>
+                    <MiniCell align="right">
+                      <span className="text-[0.875rem] text-mute">
+                        {one.at === null ? "—" : moment(one.at)}
+                      </span>
+                    </MiniCell>
+                  </MiniRow>
+                ))}
+              </MiniTable>
+            )}
+          </div>
+
+          {queryState(detail, {
+            loading: "Reading what it changes…",
+            render: (data) => (
+              <>
+                {data.markdowns.length > 0 && (
+                  <div>
+                    <SubHead aside={`${count(data.markdowns.length)} rows`}>
+                      Sale prices
+                    </SubHead>
+                    <MiniTable
+                      head={[
+                        "Article",
+                        { label: "Where", align: "left" },
+                        "Price",
+                      ]}
+                    >
+                      {data.markdowns.map((one) => (
+                        <MiniRow key={one.markdown_id}>
+                          <MiniCell>
+                            <Named
+                              name={one.article_code ?? one.sku_code ?? "—"}
+                            />
+                          </MiniCell>
+                          <MiniCell>
+                            <span className="text-[0.875rem] text-body">
+                              {where(one.site_id, one.site_ids)}
+                            </span>
+                          </MiniCell>
+                          <MiniCell align="right">
+                            {money(one.replacement_unit_price_minor)}
+                          </MiniCell>
+                        </MiniRow>
+                      ))}
+                    </MiniTable>
+                  </div>
+                )}
+                {data.price_rules.length > 0 && (
+                  <div>
+                    <SubHead aside={`${count(data.price_rules.length)} rows`}>
+                      New prices
+                    </SubHead>
+                    <MiniTable
+                      head={[
+                        "Product",
+                        { label: "Where", align: "left" },
+                        "Price",
+                      ]}
+                    >
+                      {data.price_rules.map((one) => (
+                        <MiniRow
+                          key={`${one.sku_code}|${one.site_id ?? one.site_ids?.join(",") ?? "*"}|${one.channel}`}
+                        >
+                          <MiniCell>
+                            <Named
+                              name={one.article_name}
+                              code={one.sku_code}
+                            />
+                          </MiniCell>
+                          <MiniCell>
+                            <span className="text-[0.875rem] text-body">
+                              {where(one.site_id, one.site_ids)}
+                            </span>
+                          </MiniCell>
+                          <MiniCell align="right">
+                            {money(one.unit_price_minor)}
+                          </MiniCell>
+                        </MiniRow>
+                      ))}
+                    </MiniTable>
+                  </div>
+                )}
+                {data.markdowns.length === 0 &&
+                  data.price_rules.length === 0 && (
+                    <Quiet>This change carries no prices.</Quiet>
+                  )}
+              </>
+            ),
+          })}
+        </div>
+      )}
+    </Sheet>
   )
 }

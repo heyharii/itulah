@@ -34,15 +34,7 @@ export function PricingFields({
     onChange(syncPricing(pricing, change))
   return (
     <div className="grid gap-4 md:grid-cols-3">
-      <Field
-        label={
-          <>
-            Purchase price
-            {required && <span className="ml-0.5 text-bad">*</span>}
-          </>
-        }
-        aside="per pc"
-      >
+      <Field label="Purchase price" required={required} aside="per pc">
         <Money
           label="Purchase price"
           prefix="Rp"
@@ -180,7 +172,10 @@ export function VariantGrid({
                 colSpan={(hasColour ? 1 : 0) + (hasSize ? 1 : 0)}
                 className="px-3 py-2.5 text-[0.875rem] font-medium text-body"
               >
-                {count(variants.filter((one) => (digits(one.quantity) ?? 0) > 0).length)}{" "}
+                {count(
+                  variants.filter((one) => (digits(one.quantity) ?? 0) > 0)
+                    .length
+                )}{" "}
                 SKUs
               </td>
               <td className="px-3 py-2.5 text-right text-[0.875rem] font-medium text-ink tabular-nums">

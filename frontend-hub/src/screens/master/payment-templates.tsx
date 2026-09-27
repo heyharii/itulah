@@ -11,7 +11,7 @@ import { useCallback, useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Input, Select } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
@@ -139,32 +139,6 @@ function useIdempotencyKey() {
   const [key, setKey] = useState(() => crypto.randomUUID())
   const rotate = useCallback(() => setKey(crypto.randomUUID()), [])
   return { key, rotate }
-}
-
-/// A labelled control at 14px. The shared `Field` sets its label at 12px.
-function Labelled({
-  label,
-  problem,
-  aside,
-  children,
-  className,
-}: {
-  label: React.ReactNode
-  problem?: string
-  aside?: React.ReactNode
-  children: React.ReactNode
-  className?: string
-}) {
-  return (
-    <label className={cn("flex min-w-0 flex-col gap-1.5", className)}>
-      <span className="flex items-baseline justify-between gap-2">
-        <span className={cn(T14, "font-medium text-text")}>{label}</span>
-        {aside && <span className={cn(T14, "text-mute")}>{aside}</span>}
-      </span>
-      {children}
-      {problem && <span className={cn(T14, "text-bad")}>{problem}</span>}
-    </label>
-  )
 }
 
 function Status({ active }: { active: boolean }) {
@@ -696,7 +670,7 @@ function TemplateForm({
         </Banner>
       )}
 
-      <Labelled label="Name" problem={problems.label}>
+      <Field label="Name" required problem={problems.label}>
         <Input
           value={label}
           onChange={(event) => {
@@ -706,11 +680,12 @@ function TemplateForm({
           }}
           placeholder="40% advance, 60% at 30 days"
         />
-      </Labelled>
+      </Field>
 
       <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
-        <Labelled
+        <Field
           label="Code"
+          required
           problem={problems.code}
           aside={template ? "Fixed" : undefined}
         >
@@ -724,8 +699,8 @@ function TemplateForm({
             className="font-mono"
             placeholder="ADV40_NET30"
           />
-        </Labelled>
-        <Labelled label="Order" problem={problems.order}>
+        </Field>
+        <Field label="Order" problem={problems.order}>
           <Input
             type="number"
             min={0}
@@ -733,7 +708,7 @@ function TemplateForm({
             onChange={(event) => setOrder(event.target.value)}
             placeholder="Last"
           />
-        </Labelled>
+        </Field>
       </div>
 
       <div className="flex flex-col gap-3 border-t border-hairline pt-4">
@@ -874,7 +849,8 @@ function TemplateForm({
         type="submit"
         variant="primary"
         className={T14}
-        disabled={blocked || save.isPending}
+        pending={save.isPending}
+        disabled={blocked}
       >
         {save.isPending
           ? "Saving…"
@@ -901,7 +877,7 @@ function TemplateForm({
           <Button
             type="button"
             className={cn(T14, "self-start")}
-            disabled={lifecycle.isPending}
+            pending={lifecycle.isPending}
             onClick={() => lifecycle.mutate(!template.active)}
           >
             {lifecycle.isPending
@@ -1063,7 +1039,7 @@ function TermForm({
         </Banner>
       )}
 
-      <Labelled label="Name" problem={problems.label}>
+      <Field label="Name" required problem={problems.label}>
         <Input
           value={label}
           onChange={(event) => {
@@ -1072,11 +1048,12 @@ function TermForm({
           }}
           placeholder="Net 60"
         />
-      </Labelled>
+      </Field>
 
       <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
-        <Labelled
+        <Field
           label="Code"
+          required
           problem={problems.code}
           aside={term ? "Fixed" : undefined}
         >
@@ -1090,8 +1067,8 @@ function TermForm({
             className="font-mono"
             placeholder="NET_60"
           />
-        </Labelled>
-        <Labelled label="Order" problem={problems.order}>
+        </Field>
+        <Field label="Order" problem={problems.order}>
           <Input
             type="number"
             min={0}
@@ -1099,10 +1076,10 @@ function TermForm({
             onChange={(event) => setOrder(event.target.value)}
             placeholder="Last"
           />
-        </Labelled>
+        </Field>
       </div>
 
-      <Labelled label="Counted from">
+      <Field label="Counted from" required>
         <Select
           aria-label="Counted from"
           value={basis}
@@ -1114,9 +1091,9 @@ function TermForm({
             </option>
           ))}
         </Select>
-      </Labelled>
+      </Field>
 
-      <Labelled label={unit} problem={problems.offset}>
+      <Field label={unit} required problem={problems.offset}>
         <Input
           type="number"
           min={0}
@@ -1125,7 +1102,7 @@ function TermForm({
           onChange={(event) => setOffset(event.target.value)}
           className="tabular-nums"
         />
-      </Labelled>
+      </Field>
 
       <div
         className={cn(T14, "rounded-inner bg-soft-2 px-3.5 py-2.5 text-text")}
@@ -1149,7 +1126,8 @@ function TermForm({
         type="submit"
         variant="primary"
         className={T14}
-        disabled={blocked || save.isPending}
+        pending={save.isPending}
+        disabled={blocked}
       >
         {save.isPending ? "Saving…" : term === null ? "Add term" : "Save"}
       </Button>
@@ -1174,9 +1152,8 @@ function TermForm({
           <Button
             type="button"
             className={cn(T14, "self-start")}
-            disabled={
-              lifecycle.isPending || (term.active && holders.length > 0)
-            }
+            pending={lifecycle.isPending}
+            disabled={term.active && holders.length > 0}
             onClick={() => lifecycle.mutate(!term.active)}
           >
             {lifecycle.isPending

@@ -1,11 +1,12 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
+import { useMemo } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadMore, type Pageable } from "@/components/ui/states"
 import { count } from "@/lib/format"
 import { gaKeys, gaReplacements } from "@/lib/queries/ga"
 import { queryState } from "@/lib/query-state"
@@ -13,7 +14,10 @@ import { useSheet } from "@/lib/sheets"
 import { FinanceMark } from "@/screens/contracts/parts"
 import { ReplacementSheet } from "@/screens/maintenance/hub"
 import { ReplacementStagePill } from "@/screens/maintenance/parts"
-import type { GaReplacementRow } from "@itulah/contract"
+import type {
+  GaMaintenanceFacet,
+  GaReplacementRow,
+} from "@itulah/contract"
 
 /// Replacement — the swaps: one asset replaced by another, with the reason
 /// and the repair that led there.
@@ -31,44 +35,58 @@ import type { GaReplacementRow } from "@itulah/contract"
 /// What a swap COST is the bills that point at it, and the bill line that
 /// can point does not exist until tahap 6. The column carries the Finance
 /// mark and waits, the way the contract register's Ditagih does.
+/// How many replacements one page of the book asks for.
+const PAGE = 100
+
 export function Replacements() {
   const open = useSheet("replacement")
 
-  const book = useQuery({
-    queryKey: gaKeys.replacements({}),
-    queryFn: ({ signal }) => gaReplacements({ limit: 200 }, signal),
+  /// The book, a page at a time as its foot nears view.
+  const book = useInfiniteQuery({
+    queryKey: [...gaKeys.replacements({}), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaReplacements({ limit: PAGE, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
-  const rows = book.data?.rows ?? []
+  const rows = useMemo(
+    () => book.data?.pages.flatMap((page) => page.rows) ?? [],
+    [book.data]
+  )
+  const head = book.data?.pages[0]
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Pemeliharaan"
-        title="Penggantian"
-        sub="Usulan penggantian menghubungkan aset lama dengan aset baru dan alasan penggantiannya."
+        crumb="GA"
+        title="Replacements"
+        sub="A replacement proposal links the old asset with the new one and the reason for the swap."
       />
 
-      {book.data !== undefined && <SummaryStrip rows={rows} />}
+      {head !== undefined && (
+        <SummaryStrip statuses={head.facets.statuses} />
+      )}
 
       {queryState(book, {
-        loading: "Memuat daftar penggantian…",
+        loading: "Loading the replacement list…",
         render: () =>
           rows.length === 0 ? (
             <Card>
               <EmptyState
                 action={
                   <AppLink to="/assets" variant="ghost">
-                    Buka daftar aset
+                    Open the asset list
                   </AppLink>
                 }
               >
-                Belum ada penggantian diusulkan. Usulan dibuat dari hub aset —
-                buka asetnya, lalu tekan Ganti.
+                No replacements proposed yet. A proposal is created from the
+                asset hub — open the asset, then press Replace.
               </EmptyState>
             </Card>
           ) : (
-            <ReplacementTable rows={rows} onOpen={open.open} />
+            <ReplacementTable rows={rows} onOpen={open.open} more={book} />
           ),
       })}
 
@@ -82,20 +100,27 @@ export function Replacements() {
   )
 }
 
-/// The three figures the book is managed by, over the same rows the table
-/// draws.
-function SummaryStrip({ rows }: { rows: readonly GaReplacementRow[] }) {
-  const proposed = rows.filter((row) => row.status === "PROPOSED").length
-  const running = rows.filter((row) =>
-    ["APPROVED", "PURCHASED", "INSTALLED"].includes(row.status)
-  ).length
-  const done = rows.filter((row) => row.status === "CLOSED").length
+/// The three figures the book is managed by, read off the server's status
+/// counts over the WHOLE book — the table pages as it scrolls, and a strip
+/// counted over the rows it holds would change with the scroll position.
+function SummaryStrip({
+  statuses,
+}: {
+  statuses: readonly GaMaintenanceFacet[]
+}) {
+  const of = (...wanted: string[]) =>
+    statuses
+      .filter((one) => wanted.includes(one.value))
+      .reduce((sum, one) => sum + one.count, 0)
+  const proposed = of("PROPOSED")
+  const running = of("APPROVED", "PURCHASED", "INSTALLED")
+  const done = of("CLOSED")
 
   return (
     <KpiStrip className="md:grid-cols-3 xl:grid-cols-3">
-      <Kpi label="Diusulkan" value={count(proposed)} />
-      <Kpi label="Berjalan" value={count(running)} />
-      <Kpi label="Selesai" value={count(done)} />
+      <Kpi label="Proposed" value={count(proposed)} />
+      <Kpi label="In progress" value={count(running)} />
+      <Kpi label="Done" value={count(done)} />
     </KpiStrip>
   )
 }
@@ -103,9 +128,11 @@ function SummaryStrip({ rows }: { rows: readonly GaReplacementRow[] }) {
 function ReplacementTable({
   rows,
   onOpen,
+  more,
 }: {
   rows: readonly GaReplacementRow[]
   onOpen: (replacementId: string) => void
+  more: Pageable
 }) {
   return (
     <Card className="overflow-hidden">
@@ -117,13 +144,13 @@ function ReplacementTable({
         <div className="min-w-[72rem]">
           <div className="grid h-10 grid-cols-[3rem_minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_minmax(11rem,0.9fr)_10rem_8rem_8.5rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
             <span>No</span>
-            <span>Aset lama</span>
-            <span>Alasan</span>
-            <span>Perbaikan</span>
-            <span>Aset baru</span>
+            <span>Old asset</span>
+            <span>Reason</span>
+            <span>Repair</span>
+            <span>New asset</span>
             <span>Vendor</span>
             <span className="text-right">
-              Biaya <FinanceMark className="ml-1 align-[0.0625rem]" />
+              Cost <FinanceMark className="ml-1 align-[0.0625rem]" />
             </span>
             <span>Status</span>
           </div>
@@ -156,7 +183,7 @@ function ReplacementTable({
                 </span>
                 {row.new_asset_name === null && (
                   <span className="block truncate text-pill text-mute">
-                    dibuat saat terpasang
+                    created once installed
                   </span>
                 )}
               </div>
@@ -173,6 +200,9 @@ function ReplacementTable({
           ))}
         </div>
       </div>
+      {/* Outside the sideways-scrolling box, which computes as a vertical
+          scroller too — see `<LoadMore>`. The page scrolls. */}
+      <LoadMore query={more} />
     </Card>
   )
 }

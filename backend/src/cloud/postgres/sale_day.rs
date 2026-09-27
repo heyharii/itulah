@@ -108,6 +108,7 @@ enum Tender {
     CardDebit,
     CardCredit,
     Qris,
+    Ewallet,
     Voucher,
     Other,
 }
@@ -138,6 +139,8 @@ pub struct SaleDayRow {
     /// in this file.
     pub card_unattributed_minor: i64,
     pub qris_minor: i64,
+    /// OVO, GoPay and the like (0468): owed by the provider like QRIS.
+    pub ewallet_minor: i64,
     pub voucher_minor: i64,
     pub other_minor: i64,
     /// Refunds raised at this unit on this day. **Not in the entry** — see the
@@ -224,6 +227,7 @@ fn tender_of(method: &str, card_kind: Option<&str>) -> Tender {
         ("CARD", Some("CREDIT")) => Tender::CardCredit,
         ("CARD", _) => Tender::CardDebit,
         ("QRIS", _) => Tender::Qris,
+        ("EWALLET", _) => Tender::Ewallet,
         ("VOUCHER", _) => Tender::Voucher,
         // OTHER, and anything a future till invents. A tender nobody has named
         // is money that arrived: it goes to a clearing account, where it is
@@ -249,6 +253,7 @@ struct DayFacts {
     card_credit_minor: i64,
     card_unattributed_minor: i64,
     qris_minor: i64,
+    ewallet_minor: i64,
     voucher_minor: i64,
     other_minor: i64,
     refunds_minor: i64,
@@ -423,6 +428,8 @@ pub async fn sale_days(pool: &PgPool, scope: SaleDayScope) -> Result<SaleDayPage
                 card_credit_minor: row.try_get("card_credit_minor")?,
                 card_unattributed_minor: row.try_get("card_unattributed_minor")?,
                 qris_minor: row.try_get("qris_minor")?,
+                // The retired writer predates the e-wallet tender.
+                ewallet_minor: 0,
                 voucher_minor: row.try_get("voucher_minor")?,
                 other_minor: row.try_get("other_minor")?,
                 refunds_minor: refunds_of(&site_id, trading_day),
@@ -454,6 +461,7 @@ pub async fn sale_days(pool: &PgPool, scope: SaleDayScope) -> Result<SaleDayPage
             card_credit_minor: facts.card_credit_minor,
             card_unattributed_minor: facts.card_unattributed_minor,
             qris_minor: facts.qris_minor,
+            ewallet_minor: facts.ewallet_minor,
             voucher_minor: facts.voucher_minor,
             other_minor: facts.other_minor,
             refunds_minor: facts.refunds_minor,
@@ -593,6 +601,7 @@ async fn derived_tenders(
             Tender::CardDebit => facts.card_debit_minor += amount,
             Tender::CardCredit => facts.card_credit_minor += amount,
             Tender::Qris => facts.qris_minor += amount,
+            Tender::Ewallet => facts.ewallet_minor += amount,
             Tender::Voucher => facts.voucher_minor += amount,
             Tender::Other => facts.other_minor += amount,
         }

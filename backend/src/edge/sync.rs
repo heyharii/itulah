@@ -2675,6 +2675,13 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
                 crate::edge::attendance::parse_attendance_book(&command.payload).map_err(err)?;
             crate::edge::attendance::replace_book(tx, &book).map_err(|error| err(error.to_string()))
         }
+        crate::cloud::domain::COMMAND_PAYMENT_METHODS_REPLACE => {
+            // The shop's whole list, replaced; the tills read it back from
+            // `/api/v1/store/payment-methods`.
+            let book = crate::cloud::domain::parse_payment_method_book(&command.payload).map_err(err)?;
+            crate::edge::payment_methods::replace_book(tx, &book)
+                .map_err(|error| err(error.to_string()))
+        }
         INVENTORY_ALLOTMENT_ACTIVATE_V1 => {
             let payload = parse_allotment_activation(&command.payload).map_err(err)?;
             apply_allotment_activation(tx, command.command_id, &payload)
@@ -2709,6 +2716,18 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
                 crate::sync::device::parse_device_status_command(&command.payload).map_err(err)?;
             crate::edge::devices::apply_status_command(tx, &decision)
                 .map_err(|error| err(error.to_string()))
+        }
+        // Head office acting on this server: queued now, carried out after
+        // this transaction commits (`edge/ops.rs`).
+        crate::sync::node_ops::NODE_UPDATE => {
+            let update = crate::sync::node_ops::parse_update(&command.payload).map_err(err)?;
+            crate::edge::ops::enqueue_update(update);
+            Ok(())
+        }
+        kind if crate::sync::node_ops::is_node_op(kind) => {
+            let payload = crate::sync::node_ops::parse(&command.payload).map_err(err)?;
+            crate::edge::ops::enqueue(kind, payload);
+            Ok(())
         }
         // An unknown type BLOCKS rather than being skipped: it means the cloud
         // is ahead of this edge's build, and quietly discarding an instruction
@@ -3598,9 +3617,11 @@ pub fn spawn_agent(
             "edge sync agent started"
         );
         loop {
-            // Either the interval elapses or somebody pressed "send now".
+            // Either the interval elapses or somebody pressed "send now". The
+            // interval stretches while the machine is short of CPU or memory
+            // (`edge/pace.rs`); a press still sends at once.
             tokio::select! {
-                () = tokio::time::sleep(interval) => {}
+                () = tokio::time::sleep(interval * crate::edge::pace::factor()) => {}
                 () = agent.wake.notified() => {}
             }
             // Whose seqs are these? Asked before every upload and answered

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -8,8 +8,8 @@ import { Toolbar } from "@/components/ui/segmented"
 import {
   EmptyState,
   ErrorState,
+  LoadMore,
   LoadingState,
-  Truncated,
 } from "@/components/ui/states"
 import { edge } from "@/lib/api"
 import { useEdgeNodeIdentity } from "@/lib/edge-session"
@@ -93,8 +93,7 @@ export function Expenses() {
   // a slice of a wider answer held in the browser.
   const positions = useQuery({
     queryKey: financeKeys.money(null, site === "" ? null : site),
-    queryFn: ({ signal }) =>
-      moneyOverview(site === "" ? {} : { site }, signal),
+    queryFn: ({ signal }) => moneyOverview(site === "" ? {} : { site }, signal),
   })
 
   const tin = useQuery({
@@ -104,16 +103,28 @@ export function Expenses() {
     enabled: onAShop,
   })
 
-  const book = useQuery({
-    queryKey: bookKey(nodeSite, range.from, range.to),
-    queryFn: ({ signal }) =>
+  // The book as ONE list — receipts and hand-overs merged, newest first — a
+  // page at a time. `paged=true` is what asks the node for that; without it
+  // the node answers the newest hundred of each half side by side, which
+  // cannot be scrolled as one book.
+  const book = useInfiniteQuery({
+    queryKey: [...bookKey(nodeSite, range.from, range.to), "pages"],
+    queryFn: ({ pageParam, signal }) =>
       edge.get<ExpenseWindow>(
         `/api/v1/store/expenses?from=${range.from}&to=${range.to}` +
-          `&utc_offset_minutes=${-new Date().getTimezoneOffset()}&limit=100`,
+          `&utc_offset_minutes=${-new Date().getTimezoneOffset()}` +
+          `&limit=${BOOK_PAGE}&paged=true` +
+          (pageParam === undefined
+            ? ""
+            : `&cursor=${encodeURIComponent(pageParam)}`),
         { signal }
       ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
     enabled: onAShop,
   })
+  const head = book.data?.pages[0]
 
   const units = useMemo(
     () => unitsOf(positions.data?.rows ?? []),
@@ -124,7 +135,10 @@ export function Expenses() {
   // with both halves of the span on purpose — see `ExpenseWindow.top_ups` — so
   // that "what came in and what went out" is one page rather than two screens a
   // manager has to hold in their head.
-  const entries = useMemo(() => bookEntries(book.data), [book.data])
+  const entries = useMemo(
+    () => bookEntries(book.data?.pages ?? []),
+    [book.data]
+  )
 
   // Whether the unit the reader picked is the unit whose receipts this hub can
   // actually read. Everything below the position table belongs to ONE node.
@@ -382,8 +396,7 @@ export function Expenses() {
           ) : !showingBook ? (
             <EmptyState>
               The location filter is on <SiteName id={site} />, and the only
-              petty cash book this hub can read is{" "}
-              <SiteName id={nodeSite} />
+              petty cash book this hub can read is <SiteName id={nodeSite} />
               &rsquo;s — one node per unit, and the hub is proxied to one node.
               Clear the filter to see it.
             </EmptyState>
@@ -391,8 +404,13 @@ export function Expenses() {
             <LoadingState>
               Reading what the shop spent over this span…
             </LoadingState>
-          ) : book.error ? (
-            <ErrorState error={book.error} onRetry={() => void book.refetch()} />
+          ) : book.error && book.data === undefined ? (
+            // Only a first read that failed. A later page that fails keeps the
+            // book on screen and says so at its foot (`<LoadMore>`).
+            <ErrorState
+              error={book.error}
+              onRetry={() => void book.refetch()}
+            />
           ) : entries.length === 0 ? (
             <EmptyState>
               Nothing went in or out of the tin between {range.chip}. The tin
@@ -401,13 +419,6 @@ export function Expenses() {
             </EmptyState>
           ) : (
             <div className="flex flex-col gap-2.5">
-              {book.data.truncated && (
-                <Truncated
-                  limit={book.data.limit}
-                  noun="receipts"
-                  total={book.data.count}
-                />
-              )}
               <Grid>
                 <thead>
                   <tr>
@@ -428,9 +439,7 @@ export function Expenses() {
                 <tbody>
                   {entries.map((entry) => (
                     <tr key={entry.id}>
-                      <Td className="whitespace-nowrap">
-                        {moment(entry.at)}
-                      </Td>
+                      <Td className="whitespace-nowrap">{moment(entry.at)}</Td>
                       <Td>
                         <Pill tone={entry.out === 0 ? "info" : "neutral"}>
                           {entry.kind}
@@ -460,17 +469,15 @@ export function Expenses() {
                     <Td />
                     <Td />
                     <Td className="text-mute">over this span</Td>
-                    <Td align="right">
-                      {money(entries.reduce((sum, row) => sum + row.in, 0))}
-                    </Td>
-                    {/* The server's own figure for the whole span, not a sum of
-                        the rows above: the list stops at `limit` and the total
-                        does not, so summing here would under-report a busy
-                        month by exactly the rows that did not fit. */}
-                    <Td align="right">{money(book.data.spent_minor)}</Td>
+                    {/* The node's own figures for the whole span, not sums of
+                        the rows above: the book pages, and a sum here would
+                        be a figure about how far somebody had scrolled. */}
+                    <Td align="right">{money(head?.top_up_minor)}</Td>
+                    <Td align="right">{money(head?.spent_minor)}</Td>
                   </TotalRow>
                 </tbody>
               </Grid>
+              <LoadMore query={book} />
             </div>
           )}
         </section>
@@ -528,6 +535,10 @@ const pettyCashKey = (siteId: string | null) =>
 
 const bookKey = (siteId: string | null, from: string, to: string) =>
   ["edge", "petty-cash", siteId ?? "unknown", "book", from, to] as const
+
+/// One page of the petty cash book. The book scrolls on — this is the size of
+/// a step, not a ceiling. The node clamps anything above 500.
+const BOOK_PAGE = 100
 
 // ---------------------------------------------------------------------------
 // Shaping
@@ -620,10 +631,10 @@ const CATEGORY: Readonly<Record<string, string>> = {
   expense_misc: "Miscellaneous",
 }
 
-/// Both halves of the span as one book, newest first.
-function bookEntries(window: ExpenseWindow | undefined): BookEntry[] {
-  if (window === undefined) return []
-  const entries: BookEntry[] = [
+/// Both halves of the span as one book, newest first, across every page
+/// loaded so far.
+function bookEntries(pages: readonly ExpenseWindow[]): BookEntry[] {
+  const entries: BookEntry[] = pages.flatMap((window) => [
     ...window.top_ups.map((topUp) => ({
       id: topUp.id,
       at: topUp.received_at,
@@ -651,7 +662,7 @@ function bookEntries(window: ExpenseWindow | undefined): BookEntry[] {
       in: 0,
       out: expense.amount_minor,
     })),
-  ]
+  ])
   // RFC3339 in UTC at micro precision on both sides, so the strings sort the
   // way the instants do and no dates need parsing to merge two lists.
   return entries.sort((left, right) => right.at.localeCompare(left.at))

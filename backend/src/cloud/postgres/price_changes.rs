@@ -521,6 +521,28 @@ pub struct PriceEvent {
     pub price_rule_count: Option<i64>,
 }
 
+/// One page of [`price_events`].
+///
+/// `rows` keeps the name the unpaged log answered with, so a caller that reads
+/// only the first page reads exactly what it did before.
+#[derive(Clone, Debug, Serialize)]
+pub struct PriceEventPage {
+    pub rows: Vec<PriceEvent>,
+    /// Opaque. Pass it back as `cursor`; absent means this was the last page.
+    pub next_cursor: Option<String>,
+}
+
+/// Where the previous page stopped: the last row's own sort key, whole. The
+/// log is a UNION with no single key column to re-read a row by, so the seek
+/// carries the values rather than looking them up.
+#[derive(Serialize, serde::Deserialize)]
+struct PriceEventCursor {
+    at: DateTime<Utc>,
+    version: i64,
+    kind: String,
+    tie: String,
+}
+
 /// The price book's log — every event, newest first.
 ///
 /// ## Why this is a UNION rather than a table
@@ -540,12 +562,26 @@ pub struct PriceEvent {
 /// A book with `effective_to` in the FUTURE has not expired — it is scheduled
 /// to. Emitting that as an event would put tomorrow in a log of what happened,
 /// which is the one thing a log may not contain.
+///
+/// ## Paged on a keyset
+///
+/// Newest first on `(at, version, kind, tie)`, every part descending so one
+/// row comparison is the seek. `tie` is the actor with NULL read as empty: a
+/// rollout row's actor is its `origin_id`, which is half the rollout's primary
+/// key, and the two publication-wide kinds happen once per book — so the four
+/// together name one event and no page boundary can repeat or drop a row.
 pub async fn price_events(
     pool: &PgPool,
     version: Option<i64>,
     site_id: Option<&str>,
+    kinds: Option<&[String]>,
+    cursor: Option<&str>,
     limit: i64,
-) -> Result<Vec<PriceEvent>, AppError> {
+) -> Result<PriceEventPage, AppError> {
+    let limit = limit.clamp(1, 1000);
+    let cursor = cursor
+        .map(super::decode_cursor::<PriceEventCursor>)
+        .transpose()?;
     let rows = sqlx::query(
         "WITH events AS (
            -- Published: somebody cut a book and put it out.
@@ -604,17 +640,27 @@ pub async fn price_events(
             -- for Medan and being shown activations with no book in sight is a
             -- log that cannot be read.
             AND ($2::text IS NULL OR site_id = $2 OR site_id IS NULL)
-          ORDER BY at DESC, version DESC, kind
-          LIMIT $3",
+            AND ($3::text[] IS NULL OR kind = ANY($3))
+            AND ($4::timestamptz IS NULL
+                 OR (at, version, kind, COALESCE(actor, ''))
+                    < ($4, $5::bigint, $6::text, $7::text))
+          ORDER BY at DESC, version DESC, kind DESC, COALESCE(actor, '') DESC
+          LIMIT $8",
     )
     .bind(version)
     .bind(site_id)
-    .bind(limit.clamp(1, 1000))
+    .bind(kinds)
+    .bind(cursor.as_ref().map(|c| c.at))
+    .bind(cursor.as_ref().map(|c| c.version))
+    .bind(cursor.as_ref().map(|c| c.kind.as_str()))
+    .bind(cursor.as_ref().map(|c| c.tie.as_str()))
+    .bind(limit)
     .fetch_all(pool)
     .await?;
 
-    rows.iter()
-        .map(|row| {
+    let events = rows
+        .iter()
+        .map(|row| -> Result<PriceEvent, AppError> {
             let kind: String = row.try_get("kind")?;
             let publication_id: Uuid = row.try_get("id")?;
             let at: DateTime<Utc> = row.try_get("at")?;
@@ -640,7 +686,25 @@ pub async fn price_events(
                 price_rule_count: row.try_get("price_rule_count")?,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, AppError>>()?;
+
+    // A short page is the last. A full one may not be — the next ask can come
+    // back empty — which is the honest answer without a second count.
+    let next_cursor = match events.last() {
+        Some(last) if events.len() as i64 == limit => {
+            Some(super::encode_cursor(&PriceEventCursor {
+                at: last.at,
+                version: last.version,
+                kind: last.kind.clone(),
+                tie: last.actor.clone().unwrap_or_default(),
+            })?)
+        }
+        _ => None,
+    };
+    Ok(PriceEventPage {
+        rows: events,
+        next_cursor,
+    })
 }
 
 #[cfg(test)]

@@ -1,17 +1,17 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { EmptyState, Truncated } from "@/components/ui/states"
+import { EmptyState, LoadMore } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
 import {
   financeKeys,
   listBills,
   payablesAging,
-  unbilledReceipts,
+  unbilledPage,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import {
@@ -96,7 +96,10 @@ export function AccountsPayable() {
   /// What has already fallen due — the figure somebody acts on today. The
   /// not-due bucket is a forecast, not a problem.
   const due = total === null ? null : total.total_minor - total.not_due_minor
-  const openDocuments = suppliers.reduce((sum, row) => sum + row.open_document_count, 0)
+  const openDocuments = suppliers.reduce(
+    (sum, row) => sum + row.open_document_count,
+    0
+  )
   /// Already a positive debt: the server turns the credit balance the right
   /// way up, so nothing on this page flips a sign.
   const perBooks = aging.data?.books_minor ?? null
@@ -167,9 +170,7 @@ export function AccountsPayable() {
                 // different sentences and a zero would say the second one
                 // early.
                 value={difference}
-                tone={
-                  difference === null || difference === 0 ? "ok" : "warn"
-                }
+                tone={difference === null || difference === 0 ? "ok" : "warn"}
                 note={
                   difference === null
                     ? "Reading the payable account…"
@@ -253,7 +254,10 @@ function SupplierTable({
   rows: readonly PayablesAgingRow[]
   total: AgingBuckets
 }) {
-  const openDocuments = rows.reduce((sum, row) => sum + row.open_document_count, 0)
+  const openDocuments = rows.reduce(
+    (sum, row) => sum + row.open_document_count,
+    0
+  )
   return (
     <>
       <Grid>
@@ -359,27 +363,39 @@ function SupplierTable({
 ///
 /// # What this table cannot do, and says so
 ///
-/// It cannot be wound back to the reporting date and it cannot be narrowed by
-/// unit. `GET /finance/bills` takes `site`, but the browser's `listBills()`
-/// wrapper does not forward it and `financeKeys.bills()` keys on `status`
-/// alone — so passing one here would read another unit's cached answer. It
-/// takes no `as_of` at all: `outstanding_minor`, `days_overdue` and
-/// `next_due_date` are derived on read, as at now. So this is the register as
-/// it stands today, and the `<Note>` beneath it says that in words rather than
-/// letting the date box above imply otherwise.
+/// It cannot be wound back to the reporting date. `GET /finance/bills` takes
+/// no `as_of` at all: `outstanding_minor`, `days_overdue` and `next_due_date`
+/// are derived on read, as at now. So this is the register as it stands today,
+/// and the `<Note>` beneath it says that in words rather than letting the date
+/// box above imply otherwise. The unit does reach it: `site` goes on the wire
+/// and the key carries it.
+///
+/// It pages — the list scrolls on — and the total row is the server's own
+/// sum over every posted bill it matches, not a sum of the pages loaded.
 function BillTable({ asOf, site }: { asOf: string; site: string }) {
-  const bills = useQuery({
-    queryKey: financeKeys.bills("POSTED"),
-    queryFn: ({ signal }) =>
-      listBills({ status: "POSTED", limit: CAP }, signal).then(
-        (page) => page.rows
+  const bills = useInfiniteQuery({
+    queryKey: [...financeKeys.bills("POSTED", site || null), "pages"],
+    queryFn: ({ pageParam, signal }) =>
+      listBills(
+        {
+          status: "POSTED",
+          site: site || undefined,
+          limit: PAGE,
+          cursor: pageParam,
+        },
+        signal
       ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
   return queryState(bills, {
     loading: "Reading the bill register…",
-    render: (rows) =>
-      rows.length === 0 ? (
+    render: (data) => {
+      const rows = data.pages.flatMap((page) => page.rows)
+      const head = data.pages[0]
+      return rows.length === 0 ? (
         <EmptyState>
           No bill has been posted yet. A bill is recorded first and posted
           second, so a register this empty means either nothing has arrived or
@@ -387,9 +403,6 @@ function BillTable({ asOf, site }: { asOf: string; site: string }) {
         </EmptyState>
       ) : (
         <>
-          {rows.length === CAP && (
-            <Truncated limit={CAP} noun="bills" total={null} />
-          )}
           <Grid>
             <thead>
               <tr>
@@ -421,59 +434,42 @@ function BillTable({ asOf, site }: { asOf: string; site: string }) {
                 <BillRow key={bill.invoice_id} bill={bill} />
               ))}
               <TotalRow>
-                <Td>Listed here</Td>
-                <Td align="right">{count(rows.length)} bills</Td>
+                <Td>Every posted bill</Td>
+                <Td align="right">{count(head.total)} bills</Td>
                 <Td />
                 <Td />
                 <Td />
                 <Td />
-                <Td align="right">{money(sumBy(rows, "total_minor"))}</Td>
-                <Td align="right">{money(sumBy(rows, "paid_minor"))}</Td>
+                <Td align="right">{money(head.total_minor)}</Td>
                 <Td align="right">
-                  {money(sumBy(rows, "outstanding_minor"))}
+                  {money(head.total_minor - head.outstanding_minor)}
                 </Td>
+                <Td align="right">{money(head.outstanding_minor)}</Td>
               </TotalRow>
             </tbody>
           </Grid>
+          <LoadMore query={bills} />
 
           <Note>
             <b>This table is today, not {day(asOf)}.</b> Every figure on a bill
             row — what is still outstanding, how late it is, which instalment
             falls due next — is derived when the row is read, so the register
-            answers as at now and the date box above does not reach it. The
-            aged tables and the cards do:{" "}
-            <code>GET /finance/payables-aging</code> winds both sides back.{" "}
-            {site === "" ? (
-              <>
-                The unit filter does not reach it either — the endpoint takes{" "}
-                <code>site</code>, but this app&rsquo;s wrapper does not send it
-                and its cache key does not carry it, so a filtered read here
-                would be another unit&rsquo;s answer under the wrong name.
-              </>
-            ) : (
-              <>
-                The unit filter does not reach it either, so these rows are
-                every location&rsquo;s and not <SiteName id={site} />
-                &rsquo;s — the <b>Unit</b> column is the honest way to read them
-                until <code>listBills()</code> forwards <code>site</code>.
-              </>
-            )}{" "}
-            The total row says <b>listed here</b> for the same reason: it adds
-            the rows that arrived, and the authoritative outstanding is the
-            card above, which the server counted over everything.
+            answers as at now and the date box above does not reach it. The aged
+            tables and the cards do: <code>GET /finance/payables-aging</code>{" "}
+            winds both sides back. The unit filter does reach it. The total row
+            is the server&rsquo;s own count and sum over every posted bill it
+            matches, however far the list has been scrolled; <b>Paid</b> there
+            is what was invoiced less what is outstanding.
           </Note>
         </>
-      ),
+      )
+    },
   })
 }
 
-/// The ceiling this screen asks for, and the reason there is one.
-///
-/// `listBills()` defaults to 200 and pages above it. A table that silently
-/// shows the first page of a register and puts a total under it is the quiet
-/// version of a wrong number, so the ask is explicit and `<Truncated>` says so
-/// when the answer comes back exactly full.
-const CAP = 300
+/// One page of the bill register. The list scrolls on — this is the size of
+/// a step, not a ceiling.
+const PAGE = 100
 
 function BillRow({ bill }: { bill: SupplierBill }) {
   return (
@@ -566,15 +562,23 @@ function paymentTone(state: string): "ok" | "warn" | "neutral" {
 /// the purchase receipt; we have no such account to post to, which is why the
 /// figure is labelled an exposure rather than a balance.
 function UnbilledTable() {
-  const unbilled = useQuery({
-    queryKey: financeKeys.unbilled(),
-    queryFn: ({ signal }) => unbilledReceipts(signal),
+  // Paged, oldest first. The plain read of this route stops at 200 and says
+  // nothing, so a total under it was the exposure of the oldest 200.
+  const unbilled = useInfiniteQuery({
+    queryKey: [...financeKeys.unbilled(), "pages"],
+    queryFn: ({ pageParam, signal }) =>
+      unbilledPage({ cursor: pageParam, limit: PAGE }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
   return queryState(unbilled, {
     loading: "Looking for deliveries nobody has billed for…",
-    render: (rows) =>
-      rows.length === 0 ? (
+    render: (data) => {
+      const rows = data.pages.flatMap((page) => page.rows)
+      const head = data.pages[0]
+      return rows.length === 0 ? (
         <EmptyState>
           Every delivery has a bill against it. Nothing is sitting in a
           warehouse that the books do not know about.
@@ -610,22 +614,22 @@ function UnbilledTable() {
               {rows.map((receipt) => (
                 <ReceiptRow key={receipt.receipt_id} receipt={receipt} />
               ))}
+              {/* The server's count and value over every unbilled delivery,
+                  not sums of the pages loaded. Lines are not counted there,
+                  so that column is left empty rather than totalled short. */}
               <TotalRow>
                 <Td>Total exposure</Td>
+                <Td align="right">{count(head.total)} receipts</Td>
                 <Td />
                 <Td />
                 <Td />
                 <Td />
-                <Td align="right">
-                  {count(rows.reduce((sum, row) => sum + row.line_count, 0))}
-                </Td>
-                <Td align="right">
-                  {money(sumBy(rows, "value_at_order_price_minor"))}
-                </Td>
+                <Td align="right">{money(head.total_minor)}</Td>
                 <Td />
               </TotalRow>
             </tbody>
           </Grid>
+          <LoadMore query={unbilled} />
 
           <Note>
             <b>This is not in the books anywhere.</b> The client&rsquo;s chart
@@ -648,7 +652,8 @@ function UnbilledTable() {
             id, so the id is what shows.
           </Note>
         </>
-      ),
+      )
+    },
   })
 }
 
@@ -707,18 +712,6 @@ function ReceiptRow({ receipt }: { receipt: UnbilledReceipt }) {
 /// amount.
 function dueNow(buckets: AgingBuckets): number {
   return buckets.total_minor - buckets.not_due_minor
-}
-
-/// Add one field down a list of rows.
-///
-/// Only ever used on a list that arrived whole, and only on fields the server
-/// computed — the tables that use it say "listed here" over the result rather
-/// than claiming it is the population's total.
-function sumBy<K extends string>(
-  rows: readonly Record<K, number>[],
-  field: K
-): number {
-  return rows.reduce((sum, row) => sum + row[field], 0)
 }
 
 /// How late a thing is, when the number goes negative before it is due.

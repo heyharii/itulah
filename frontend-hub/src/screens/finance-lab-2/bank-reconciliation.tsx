@@ -274,7 +274,8 @@ export function BankReconciliation({
             </Button>
             <Button
               variant="ghost"
-              disabled={auto.isPending || statement === undefined}
+              pending={auto.isPending}
+              disabled={statement === undefined}
               onClick={() => auto.mutate()}
             >
               {auto.isPending ? "Reconciling…" : "Auto reconcile"}
@@ -483,9 +484,7 @@ function Row({
         {row.party_type === null ? (
           "—"
         ) : (
-          <Pill>
-            {KIND_LABEL[row.party_type] ?? row.party_type}
-          </Pill>
+          <Pill>{KIND_LABEL[row.party_type] ?? row.party_type}</Pill>
         )}
       </Td>
       <Td className={row.party_name === "" ? "text-mute" : undefined}>
@@ -886,7 +885,8 @@ function ReconcileDialog({
               </div>
               <Field
                 label="Why"
-                hint="Required. The only record of the judgement somebody made."
+                required
+                hint="The only record of the judgement somebody made."
               >
                 <Textarea
                   value={memo}

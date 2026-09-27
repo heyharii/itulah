@@ -1,18 +1,21 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadMore } from "@/components/ui/states"
 import { count, moment } from "@/lib/format"
 import {
   describeEventKind,
   eventKeys,
-  listPriceEvents,
+  priceEventPage,
   type PriceEvent,
+  type PriceEventKind,
 } from "@/lib/queries/changes"
 import { commercialFleet, commercialKeys } from "@/lib/queries/commercial"
 import { queryState } from "@/lib/query-state"
@@ -54,21 +57,57 @@ function toneOf(kind: string): "ok" | "warn" | "bad" | "info" | "neutral" {
   }
 }
 
-function inLens(event: PriceEvent, lens: string): boolean {
-  if (lens === "ALL") return true
-  if (lens === "TROUBLE")
-    return event.kind === "FAILED" || event.kind === "EXPIRED"
-  return event.kind === lens
+/// The kinds a lens keeps, as the server is asked for them. Narrowed there and
+/// not here: the log is paged, and a lens over the loaded pages would find
+/// nothing on page one while the troubles sat on page four.
+function kindsOf(lens: string): readonly PriceEventKind[] {
+  switch (lens) {
+    case "PUBLISHED":
+      return ["PUBLISHED"]
+    case "ACTIVATED":
+      return ["ACTIVATED"]
+    case "TROUBLE":
+      return ["FAILED", "EXPIRED"]
+    default:
+      return []
+  }
 }
 
-export function History() {
-  const shop = useSheet("site")
-  const lens = useSheet("slice")
+/// How many events one page of the log asks for.
+const LOG_PAGE = 150
 
-  const events = useQuery({
-    queryKey: eventKeys.list(null, shop.value ?? null),
-    queryFn: ({ signal }) =>
-      listPriceEvents(null, shop.value ?? null, 300, signal),
+export function History() {
+  const navigate = useNavigate()
+  const shop = useSheet("site")
+  const lens = useSheet("log-kind")
+  const filtered = shop.value !== undefined || lens.value !== undefined
+  /// Both narrowings off in one navigation — two `close()`s would be two
+  /// history entries racing over one search.
+  const clearFilters = () =>
+    void navigate({
+      to: ".",
+      replace: true,
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        site: undefined,
+        "log-kind": undefined,
+      }),
+    } as never)
+
+  /// The log a page at a time, the next asked for as its foot nears view. The
+  /// shop and the kind lens both go to the server, so every page is already
+  /// the answer and nothing loaded is thrown away.
+  const kinds = kindsOf(lens.value ?? "ALL")
+  const siteId = shop.value ?? null
+  const events = useInfiniteQuery({
+    queryKey: eventKeys.pages(siteId, kinds),
+    queryFn: ({ pageParam, signal }) =>
+      priceEventPage(
+        { siteId, kinds, cursor: pageParam, limit: LOG_PAGE },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   })
 
   const fleet = useQuery({
@@ -84,10 +123,12 @@ export function History() {
     return map
   }, [fleet.data])
 
-  const shown = useMemo(
-    () =>
-      (events.data ?? []).filter((event) => inLens(event, lens.value ?? "ALL")),
-    [events.data, lens.value]
+  /// Every page loaded, in order. Folded and grouped below as ONE list, so a
+  /// rollout whose thirteen shops straddle a page boundary is still one entry,
+  /// and a day split across two pages is still one heading.
+  const shown = useMemo<PriceEvent[]>(
+    () => events.data?.pages.flatMap((page) => page.rows) ?? [],
+    [events.data]
   )
 
   // ── one rollout is one entry, not thirteen ──────────────────────────────
@@ -138,9 +179,9 @@ export function History() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Commercial"
+        crumb="Marketing"
         title="History"
-        sub="Everything that has happened to the price books. Published is head office; In service is a till."
+        sub="Everything that has happened to prices. Published is head office; In service is a till."
       />
 
       <Toolbar className="mb-3">
@@ -169,9 +210,19 @@ export function History() {
           loading: "Reading the log…",
           render: () =>
             entries.length === 0 ? (
-              <EmptyState>
-                Nothing has happened to the price books yet.
-              </EmptyState>
+              filtered ? (
+                <EmptyState
+                  action={
+                    <Button variant="ghost" onClick={clearFilters}>
+                      Clear filters
+                    </Button>
+                  }
+                >
+                  Nothing matches these filters.
+                </EmptyState>
+              ) : (
+                <EmptyState>Nothing has happened to prices yet.</EmptyState>
+              )
             ) : (
               <div className="flex flex-col">
                 {days.map(([date, rows]) => (
@@ -189,6 +240,9 @@ export function History() {
                     ))}
                   </section>
                 ))}
+                {/* The log scrolls with the page, so its foot is watched
+                    here, inside the box that scrolls — see `<LoadMore>`. */}
+                <LoadMore query={events} className="py-3" />
               </div>
             ),
         })}
@@ -276,7 +330,7 @@ function Row({
         {/* Who did it, and only where a PERSON did. On a shop event the actor
             is the till's origin, which the shop name beside it already says. */}
         <span className="w-20 shrink-0 truncate text-right text-[0.875rem] text-mute">
-          {shops.length === 0 ? (lead.actor ?? `v${lead.version}`) : ""}
+          {shops.length === 0 ? (lead.actor ?? "") : ""}
         </span>
       </div>
 

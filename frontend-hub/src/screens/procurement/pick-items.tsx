@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/field"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Sheet } from "@/components/ui/sheet"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadMore } from "@/components/ui/states"
 import { Swatches } from "@/components/ui/swatch"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { count, money } from "@/lib/format"
@@ -263,16 +263,7 @@ export function CataloguePicker({
                   ))}
                 </div>
 
-                {catalogue.hasNextPage && (
-                  <div className="flex justify-center">
-                    <Button
-                      onClick={() => catalogue.fetchNextPage()}
-                      disabled={catalogue.isFetchingNextPage}
-                    >
-                      {catalogue.isFetchingNextPage ? "Fetching…" : "Show more"}
-                    </Button>
-                  </div>
-                )}
+                <LoadMore query={catalogue} />
               </>
             ),
         })}

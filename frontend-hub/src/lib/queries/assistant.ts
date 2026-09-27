@@ -23,17 +23,37 @@ export interface AssistantTool {
   readonly title: string
 }
 
+/// A month of the assistant's spending against the ceiling Finance sets
+/// (`assistant_monthly_budget_usd`, migration 0500).
+export interface AssistantBudget {
+  /// The local month, `YYYY-MM`.
+  readonly month: string
+  /// US dollars. Null on a node that has no ceiling set.
+  readonly limit_usd: number | null
+  readonly spent_usd: number
+  /// Spent, or set to nothing: the next question will be refused.
+  readonly exhausted: boolean
+}
+
 export interface AssistantCapabilities {
   /// False on a node deployed without a key. The panel says so once, plainly,
   /// rather than letting the first question fail.
   readonly enabled: boolean
+  /// Whether this person may ask at all — the path gate's own answer, Finance's
+  /// permission overrides included. Admins only since migration 0500.
+  readonly allowed: boolean
   readonly model: string
+  /// The reads this person's questions may use. Somebody whose reach is not
+  /// every shop is offered only the ones that are the same for everybody.
   readonly tools: readonly AssistantTool[]
+  /// Absent from a node older than 0500.
+  readonly budget?: AssistantBudget
 }
 
 export const cacheKey = {
   capabilities: () => ["assistant", "capabilities"] as const,
   brief: () => ["assistant", "brief"] as const,
+  glossary: () => ["assistant", "glossary"] as const,
   conversations: (search?: string) =>
     ["assistant", "conversations", search ?? ""] as const,
   conversation: (id: string) => ["assistant", "conversation", id] as const,
@@ -138,7 +158,17 @@ export interface StoredMessage {
   readonly runs: readonly ToolRun[]
   readonly error: string | null
   readonly created_at: string
+  /// Which model answered and what it cost (migration 0500). Null on a
+  /// question, and on an answer kept before anybody counted.
+  readonly model?: string | null
+  readonly cost_usd_micros?: number | null
+  /// Whether the person it was given to judged it right (0501).
+  readonly verdict?: Verdict | null
+  readonly verdict_note?: string | null
 }
+
+/// An answer, judged by the person it was given to.
+export type Verdict = "UP" | "DOWN"
 
 export interface ConversationDetail extends Conversation {
   readonly messages: readonly StoredMessage[]
@@ -193,6 +223,23 @@ export function useRenameConversation() {
   })
 }
 
+/// Say whether an answer was right; `null` takes a verdict back.
+///
+/// A plain call rather than a mutation hook: the session applies the verdict
+/// to the answer on screen before it is sent, and puts it back if the node
+/// refuses — see `components/assistant/session.tsx`.
+export function judgeAnswer(
+  conversationId: string,
+  messageId: string,
+  verdict: Verdict | null,
+  note?: string
+) {
+  return node.put<{ id: string; verdict: Verdict | null; note: string | null }>(
+    `/api/v1/assistant/conversations/${conversationId}/messages/${messageId}/verdict`,
+    { verdict, note: note ?? null }
+  )
+}
+
 /// Put a chat away. Archived on the server, gone from the list here.
 export function useDiscardConversation() {
   const client = useQueryClient()
@@ -235,6 +282,18 @@ export interface AskHandlers {
   onTool?: (run: ToolRun) => void
   onResult?: (id: string, ok: boolean, data: unknown) => void
   onError?: (message: string) => void
+  /// The turn is over and the answer is kept.
+  onDone?: (kept: AnswerKept) => void
+}
+
+/// What the node says as a turn closes.
+export interface AnswerKept {
+  /// The answer's own id, for a verdict on it. Null when it could not be
+  /// kept — the answer is still on screen, it simply cannot be judged.
+  readonly messageId: string | null
+  readonly model: string | null
+  /// What the turn cost in US dollars, as the gateway reported it.
+  readonly costUsd: number | null
 }
 
 export interface Ask {
@@ -294,12 +353,80 @@ export async function ask(
         case "error":
           handlers.onError?.(String(data.message ?? "the assistant stopped"))
           break
+        case "done":
+          handlers.onDone?.({
+            messageId:
+              typeof data.message_id === "string" ? data.message_id : null,
+            model: typeof data.model === "string" ? data.model : null,
+            costUsd: typeof data.cost_usd === "number" ? data.cost_usd : null,
+          })
+          break
         default:
-          // `done` closes the stream and needs no handler; anything else is a
-          // frame from a newer server this build does not know about yet.
+          // A frame from a newer server this build does not know about yet.
           break
       }
     },
     { signal }
   )
+}
+
+// ---- The business's words ----------------------------------------------
+
+/// One word the business uses and what it means here, as head office keeps
+/// it. Every entry is put in front of the model with every question.
+export interface GlossaryEntry {
+  readonly id: string
+  readonly term: string
+  readonly meaning: string
+  readonly set_by: string
+  readonly set_at: string
+}
+
+export function useGlossary() {
+  return useQuery({
+    queryKey: cacheKey.glossary(),
+    queryFn: () =>
+      node
+        .get<{ items: GlossaryEntry[] }>("/api/v1/assistant/glossary")
+        .then((page) => page.items),
+  })
+}
+
+/// Add a word, or change one when `id` is given.
+export function useSaveGlossaryEntry() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      term,
+      meaning,
+    }: {
+      id?: string
+      term: string
+      meaning: string
+    }) =>
+      id
+        ? node.patch<{ id: string }>(`/api/v1/assistant/glossary/${id}`, {
+            term,
+            meaning,
+          })
+        : node.post<{ id: string }>("/api/v1/assistant/glossary", {
+            term,
+            meaning,
+          }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: cacheKey.glossary() })
+    },
+  })
+}
+
+export function useRemoveGlossaryEntry() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      node.delete<{ id: string }>(`/api/v1/assistant/glossary/${id}`),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: cacheKey.glossary() })
+    },
+  })
 }

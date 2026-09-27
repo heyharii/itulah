@@ -191,7 +191,13 @@ export function capsOf(rule: Rule): Caps {
 }
 
 /// What a rule matches.
-export function describeScope(rule: Rule): string {
+///
+/// `named` turns a code into the word a person reads, where the caller holds
+/// the list that knows it (divisions, tags); a code is shown otherwise.
+export function describeScope(
+  rule: Rule,
+  named: (code: string) => string = (code) => code
+): string {
   const on = scopeOf(rule).applicability
   if (on === null) return "Everything"
   switch (on.on) {
@@ -199,15 +205,18 @@ export function describeScope(rule: Rule): string {
       return `${on.sku_codes.length} product${on.sku_codes.length === 1 ? "" : "s"}`
     case "ARTICLE":
       return on.article_codes.length === 1
-        ? `Article ${on.article_codes[0]}`
+        ? `Article ${named(on.article_codes[0])}`
         : `${on.article_codes.length} articles`
     case "DIVISION":
+      // The name alone when there is one; a bare code still says what it is.
       return on.divisions.length === 1
-        ? `Division ${on.divisions[0]}`
+        ? named(on.divisions[0]) === on.divisions[0]
+          ? `Division ${on.divisions[0]}`
+          : named(on.divisions[0])
         : `${on.divisions.length} divisions`
     case "TAG":
       return on.tags.length === 1
-        ? `Tag ${on.tags[0]}`
+        ? `Tagged ${named(on.tags[0])}`
         : `${on.tags.length} tags`
     case "WHOLE_CART":
       return "The whole basket"
@@ -337,24 +346,69 @@ export function termsOf(
       rule.coupon_code !== null &&
         rule.coupon_code !== "" &&
         `The code ${rule.coupon_code} has to be presented at the till.`,
-      // Said as the engine behaves rather than as the word suggests: `Alone`
-      // is "applies on its own, but loses to a better combination"
-      // (`pricing-engine/src/rule.rs`). No control on the form writes it, which
-      // is why an offer nobody realised was exclusive is easy to publish.
-      rule.stacking === "ALONE"
-        ? "It applies on its own — never added to another offer — and the till uses it only when it beats every other combination."
-        : rule.stacking === "EXCLUSIVE"
-          ? "If it applies, nothing else does."
-          : "It combines with every other offer that also shares.",
+      // Excluded unless the rule says otherwise — the engine's default, and
+      // what "not valid on sale items" means.
+      (rule.markdown_policy ?? "EXCLUDE") === "ALLOW"
+        ? "It also applies to items already marked down."
+        : "It does not apply to items already marked down.",
+      withOthers(rule),
+      rule.effect.kind === "EARN_POINTS" && pointsWith(rule),
     ],
     hidden: [
       capsOf(rule).budget !== null &&
         `it stops once ${money(capsOf(rule).budget!.minor)} has been given away`,
       capsOf(rule).max_uses !== null &&
         `it stops after ${count(capsOf(rule).max_uses!)} baskets`,
+      // Lower goes first since D03.
       rule.priority > 0 &&
-        `it is ranked ${count(rule.priority)} where two offers cannot both apply`,
+        `when offers compete it is tried in position ${count(rule.priority)} — lower numbers go first`,
     ],
+  }
+}
+
+/// How it sits beside other offers: `stacking` read together with
+/// `exclusive_scope`, which only means something when the rule will not share.
+///
+/// `Alone` is "applies on its own, but loses to a better combination"
+/// (`pricing-engine/src/rule.rs`), so that half is only said for it.
+function withOthers(rule: Rule): string {
+  if (rule.stacking === "STACKABLE")
+    return "It combines with every other offer that also shares."
+  const line = (rule.exclusive_scope ?? "BASKET") === "LINE"
+  const shuts = line
+    ? "no other offer applies to the same items — offers on the rest of the basket still do"
+    : "no other offer applies anywhere in the basket"
+  return rule.stacking === "EXCLUSIVE"
+    ? `If it applies, ${shuts}.`
+    : `It is never added to another offer: when the till uses it, ${shuts}, and it uses it only when that comes out better than the alternatives.`
+}
+
+/// What a points rate is worth on an item a better rate already reached.
+function pointsWith(rule: Rule): string {
+  switch (rule.points_combination ?? "HIGHEST") {
+    case "ADD":
+      return "Where a better points rate already applies to an item, its extra over the everyday rate is added on top."
+    case "COMPOUND":
+      return "Where another points rate already applies to an item, the two are multiplied."
+    default:
+      return "Where a better points rate already applies to an item, this one adds nothing."
+  }
+}
+
+/// Whether the promotion form can write this rule back without losing its
+/// effect. The form writes five effects; a free item or a flat points bonus
+/// was published by something else and can only be read.
+export function authorable(rule: Rule): boolean {
+  switch (rule.effect.kind) {
+    case "PERCENT":
+    case "AMOUNT":
+    case "FIXED_UNIT_PRICE":
+    case "BUY_X_GET_Y":
+      return true
+    case "EARN_POINTS":
+      return rule.effect.mode === "SPEND_RATE"
+    default:
+      return false
   }
 }
 

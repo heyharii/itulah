@@ -142,6 +142,9 @@ export interface SalesWindow {
   /// and only one of them means there is more.
   readonly transactions_truncated: boolean
   readonly transactions_limit: number
+  /// Pass back as `cursor` for the receipts after these, newest first. Null
+  /// is the end of the span. The totals are the whole span on every page.
+  readonly transactions_next_cursor: string | null
 }
 
 // ---- One shop, one day -------------------------------------------------
@@ -177,6 +180,11 @@ export const analyticsKeys = {
     to: string,
     limit: number | null = null
   ) => ["analytics", "window", siteId, from, to, limit] as const,
+  /// The same span walked a page of receipts at a time. Its own entry: an
+  /// infinite query caches pages, and sharing `window`'s key would hand a
+  /// plain reader of it a list of pages instead of a report.
+  windowPages: (siteId: string, from: string, to: string) =>
+    ["analytics", "window", siteId, from, to, "pages"] as const,
   daily: (siteId: string, date: string) =>
     ["analytics", "daily", siteId, date] as const,
 }
@@ -211,6 +219,8 @@ export function salesWindow(
     readonly from: string
     readonly to: string
     readonly limit?: number
+    /// A `transactions_next_cursor` from the previous answer.
+    readonly cursor?: string
   },
   signal?: AbortSignal
 ) {
@@ -222,6 +232,7 @@ export function salesWindow(
     query.set("site_id", scope.siteId)
   }
   if (scope.limit !== undefined) query.set("limit", String(scope.limit))
+  if (scope.cursor !== undefined) query.set("cursor", scope.cursor)
   return node.get<SalesWindow>(`/api/v1/reports/sales/window?${query}`, {
     signal,
   })

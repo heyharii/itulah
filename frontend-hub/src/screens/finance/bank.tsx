@@ -977,7 +977,7 @@ function Reconcile({ statement }: { statement: BankStatementRow }) {
                       <Button
                         size="sm"
                         variant="quiet"
-                        disabled={undo.isPending}
+                        pending={undo.isPending}
                         onClick={() => undo.mutate(line.line_id)}
                       >
                         Undo
@@ -1189,7 +1189,8 @@ function BookLine({
 
       <Field
         label="Why this account"
-        hint="Required. It is the only record of the judgement."
+        required
+        hint="It is the only record of the judgement."
       >
         <Input
           value={memo}
@@ -1331,7 +1332,8 @@ function ImportSheet({
               </span>
               <Button
                 variant="primary"
-                disabled={!state.ready || load.isPending}
+                pending={load.isPending}
+                disabled={!state.ready}
                 onClick={() => form.handleSubmit()}
               >
                 {load.isPending ? "Loading…" : "Load"}
@@ -1405,7 +1407,7 @@ function ImportSheet({
         <div className="grid grid-cols-2 gap-3">
           <form.Field name="siteId">
             {(field) => (
-              <Field label="Location">
+              <Field label="Location" required>
                 {/* The statement belongs to one bank account at one location,
                     and the id is not a thing anybody knows by heart. */}
                 <LocationSelect
@@ -1432,7 +1434,7 @@ function ImportSheet({
           </form.Field>
           <form.Field name="start">
             {(field) => (
-              <Field label="Period start">
+              <Field label="Period start" required>
                 <Day
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -1443,7 +1445,7 @@ function ImportSheet({
           </form.Field>
           <form.Field name="end">
             {(field) => (
-              <Field label="Period end">
+              <Field label="Period end" required>
                 <Day
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -1456,6 +1458,7 @@ function ImportSheet({
             {(field) => (
               <Field
                 label="Opening balance"
+                required
                 problem={
                   field.state.value.trim() !== "" &&
                   parseMinor(field.state.value) === null
@@ -1477,6 +1480,7 @@ function ImportSheet({
             {(field) => (
               <Field
                 label="Closing balance"
+                required
                 problem={
                   field.state.value.trim() !== "" &&
                   parseMinor(field.state.value) === null
@@ -1500,6 +1504,7 @@ function ImportSheet({
           {(field) => (
             <Field
               label="Lines"
+              required
               hint="One per row: date, description, reference, debit, credit. Commas, semicolons or tabs."
             >
               <Textarea

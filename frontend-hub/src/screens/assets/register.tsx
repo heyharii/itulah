@@ -8,7 +8,11 @@ import { Choices, Section, type Tile } from "@/components/ui/form"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import { buildOf } from "@/lib/builds"
-import { financeKeys, listAssetClasses, listAssets } from "@/lib/queries/finance"
+import {
+  financeKeys,
+  listAssetClasses,
+  listAssets,
+} from "@/lib/queries/finance"
 import { gaAssetBuilds, gaKeys, registerGaAsset } from "@/lib/queries/ga"
 import type { GaBuildSpec } from "@itulah/contract"
 
@@ -45,9 +49,9 @@ export function RegisterAssetSheet({
   open: boolean
   onClose: () => void
   onRegistered: (assetId: string) => void
-  /// Which builds this screen offers. Register offers the eight physical ones;
-  /// Software and Projects offer their own, because an intangible registered
-  /// from a shop's floor would be filed in the wrong place.
+  /// Which builds this screen offers: the builds of the reading the register
+  /// is narrowed to, or all eleven when it is not. A licence is not offered
+  /// from the vehicles, because it would be filed in the wrong place.
   builds: readonly string[]
 }) {
   const client = useQueryClient()
@@ -72,8 +76,7 @@ export function RegisterAssetSheet({
   // already holds something, and "Sepeda Motor" would print as its code.
   const classes = useQuery({
     queryKey: financeKeys.assetClasses(),
-    queryFn: ({ signal }) =>
-      listAssetClasses(signal),
+    queryFn: ({ signal }) => listAssetClasses(signal),
     enabled: open,
     staleTime: Infinity,
   })
@@ -84,7 +87,8 @@ export function RegisterAssetSheet({
   })
 
   const offered = useMemo(
-    () => (schema.data?.builds ?? []).filter((one) => builds.includes(one.build)),
+    () =>
+      (schema.data?.builds ?? []).filter((one) => builds.includes(one.build)),
     [schema.data, builds]
   )
 
@@ -95,7 +99,6 @@ export function RegisterAssetSheet({
   const chosen: GaBuildSpec | undefined = offered.find(
     (one) => one.build === build
   )
-
 
   const save = useMutation({
     mutationFn: () =>
@@ -131,24 +134,25 @@ export function RegisterAssetSheet({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      title="Catat aset"
-      caption="GA mendaftarkan barangnya saat serah terima, tanpa rupiah. Finance menilai harganya setelah tagihannya datang."
+      title="Register asset"
+      caption="GA registers the item at handover, with no rupiah value. Finance assesses its price once the bill arrives."
       width="wide"
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="text-pill text-mute">
-            {chosen ? buildOf(chosen.build).label : "Pilih jenis dulu"}
+            {chosen ? buildOf(chosen.build).label : "Choose a type first"}
           </span>
           <div className="flex items-center gap-2">
             <Button variant="ghost" onClick={onClose}>
-              Batal
+              Cancel
             </Button>
             <Button
               variant="primary"
-              disabled={!ready || save.isPending}
+              pending={save.isPending}
+              disabled={!ready}
               onClick={() => save.mutate()}
             >
-              {save.isPending ? "Menyimpan…" : "Daftarkan"}
+              {save.isPending ? "Saving…" : "Register"}
             </Button>
           </div>
         </div>
@@ -159,14 +163,16 @@ export function RegisterAssetSheet({
           <Banner tone="bad">{save.error.message}</Banner>
         )}
 
-        <Section title="Jenis aset" aside="menentukan field di bawah">
+        <Section title="Asset type" aside="determines the fields below">
           {offered.length === 0 ? (
             <p className="text-meta text-mute">
-              {schema.isLoading ? "Membaca daftar…" : "Tidak ada jenis di sini."}
+              {schema.isLoading
+                ? "Reading the list…"
+                : "No types here."}
             </p>
           ) : (
             <Choices
-              label="Jenis aset"
+              label="Asset type"
               columns={2}
               value={build}
               onChange={(next) => {
@@ -189,16 +195,20 @@ export function RegisterAssetSheet({
           )}
         </Section>
 
-        <Section title="Barangnya">
+        <Section title="Item">
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Nama barang">
+            <Field label="Item name" required>
               <Input
                 value={form.name ?? ""}
                 onChange={(event) => set("name", event.target.value)}
                 placeholder="AC split 2 PK"
               />
             </Field>
-            <Field label="Kode aset" aside="label yang ditempel di barangnya">
+            <Field
+              label="Asset code"
+              required
+              aside="the label stuck on the item"
+            >
               <Input
                 value={form.asset_number ?? ""}
                 onChange={(event) => set("asset_number", event.target.value)}
@@ -208,13 +218,17 @@ export function RegisterAssetSheet({
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Kelas client" aside="menentukan akun di Finance">
+            <Field
+              label="Class"
+              required
+              aside="determines the Finance account"
+            >
               <Select
                 value={form.class_code ?? ""}
                 onChange={(next) => set("class_code", next)}
-                aria-label="Kelas client"
+                aria-label="Class"
               >
-                <option value="">Pilih…</option>
+                <option value="">Select…</option>
                 {(chosen?.classes ?? []).map((code) => (
                   <option key={code} value={code}>
                     {className(classes.data?.classes, code)}
@@ -222,13 +236,13 @@ export function RegisterAssetSheet({
                 ))}
               </Select>
             </Field>
-            <Field label="Site">
+            <Field label="Site" required>
               <Select
                 value={form.site_id ?? ""}
                 onChange={(next) => set("site_id", next)}
                 aria-label="Site"
               >
-                <option value="">Pilih…</option>
+                <option value="">Select…</option>
                 {(shape.data?.facets.sites ?? []).map((one) => (
                   <option key={one.value} value={one.value}>
                     {one.label ?? one.value}
@@ -239,31 +253,31 @@ export function RegisterAssetSheet({
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Lokasi di site" aside="gedung · lantai · area">
+            <Field label="Area" aside="building · floor · area">
               <Input
                 value={form.sub_location ?? ""}
                 onChange={(event) => set("sub_location", event.target.value)}
-                placeholder="Lt. 1 · area kasir"
+                placeholder="Floor 1 · cashier area"
               />
             </Field>
-            <Field label="Pemegang">
+            <Field label="Holder">
               <Input
                 value={form.holder ?? ""}
                 onChange={(event) => set("holder", event.target.value)}
-                placeholder="Kepala toko C007"
+                placeholder="Store manager C007"
               />
             </Field>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Serial / plat">
+            <Field label="Serial / plate">
               <Input
                 value={form.serial_number ?? ""}
                 onChange={(event) => set("serial_number", event.target.value)}
                 placeholder="SN 7Q2-118834"
               />
             </Field>
-            <Field label="Tanggal perolehan">
+            <Field label="Date acquired" required>
               <Input
                 type="date"
                 value={form.acquired_on ?? ""}
@@ -273,12 +287,9 @@ export function RegisterAssetSheet({
           </div>
         </Section>
 
-        <Section
-          title="Kondisi"
-          aside="yang perlu servis muncul di Overview"
-        >
+        <Section title="Condition" aside="items needing service show up in Overview">
           <Choices
-            label="Kondisi"
+            label="Condition"
             columns={3}
             value={form.condition ?? "BAIK"}
             onChange={(next) => set("condition", next)}
@@ -286,17 +297,17 @@ export function RegisterAssetSheet({
               [
                 {
                   value: "BAIK",
-                  label: "Baik",
+                  label: "Good",
                   icon: Check,
                 },
                 {
                   value: "PERLU_SERVIS",
-                  label: "Perlu servis",
+                  label: "Needs service",
                   icon: Wrench,
                 },
                 {
                   value: "RUSAK",
-                  label: "Rusak",
+                  label: "Broken",
                   icon: TriangleAlert,
                 },
               ] satisfies readonly Tile<string>[]
@@ -307,14 +318,14 @@ export function RegisterAssetSheet({
         {chosen !== undefined && chosen.fields.length > 0 && (
           <Section
             title={`Detail ${buildOf(chosen.build).label.toLowerCase()}`}
-            aside="field mengikuti build, bukan kelas"
+            aside="fields follow the build, not the class"
           >
             <div className="grid grid-cols-2 gap-4">
               {chosen.fields.map((field) => (
                 <Field
                   key={field.key}
                   label={field.label}
-                  hint={field.required ? "wajib" : undefined}
+                  required={field.required}
                 >
                   <Input
                     type={field.kind === "DATE" ? "date" : "text"}
@@ -329,12 +340,12 @@ export function RegisterAssetSheet({
           </Section>
         )}
 
-        <Section title="Catatan">
-          <Field label="Catatan">
+        <Section title="Notes">
+          <Field label="Notes">
             <Input
               value={form.notes ?? ""}
               onChange={(event) => set("notes", event.target.value)}
-              placeholder="mis. BAST ditandatangani, unit G-12"
+              placeholder="e.g. BAST signed, unit G-12"
             />
           </Field>
         </Section>

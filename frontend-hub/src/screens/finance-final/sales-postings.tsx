@@ -140,12 +140,8 @@ export function SalesPostings() {
         </label>
         <Button
           variant="primary"
-          disabled={
-            site === "" ||
-            businessDate === "" ||
-            generate.isPending ||
-            locations.isPending
-          }
+          pending={generate.isPending || locations.isPending}
+          disabled={site === "" || businessDate === ""}
           onClick={() =>
             generate.mutate({ site_id: site, business_date: businessDate })
           }
@@ -249,14 +245,14 @@ export function SalesPostings() {
                       </span>
                       <Button
                         variant="primary"
-                        disabled={post.isPending}
+                        pending={post.isPending}
                         onClick={() => post.mutate(selected.posting_id)}
                       >
                         {post.isPending ? "Posting…" : "Confirm post"}
                       </Button>
                       <Button
                         variant="quiet"
-                        disabled={post.isPending}
+                        pending={post.isPending}
                         onClick={() => setConfirmPostId(null)}
                       >
                         Keep as draft

@@ -100,11 +100,11 @@ export function SupplyComposer({
 
   const submit = () => {
     const next: Record<string, string> = {}
-    if (category === "") next.category = "Pilih kategorinya dulu."
-    if ((form.item ?? "").trim() === "") next.item = "Tulis barangnya dulu."
-    if ((form.site ?? "") === "") next.site = "Pilih lokasinya dulu."
+    if (category === "") next.category = "Choose a category first."
+    if ((form.item ?? "").trim() === "") next.item = "Enter the item first."
+    if ((form.site ?? "") === "") next.site = "Choose a location first."
     if ((form.requested_by ?? "").trim() === "")
-      next.requested_by = "Tulis nama pemintanya."
+      next.requested_by = "Enter the requester's name."
     if (Object.keys(next).length > 0) {
       setProblems(next)
       return
@@ -117,26 +117,27 @@ export function SupplyComposer({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title="Minta barang"
-      caption="Barang habis pakai untuk kantor, gudang, toko dan mess. Akun yang diusulkan mengikuti kategorinya; tagihannya lahir di Finance."
+      title="Request supplies"
+      caption="Consumables for the office, warehouse, stores and mess. The proposed account follows the category; the bill is raised in Finance."
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="text-pill text-mute">
             {category === ""
-              ? "Pilih kategori dulu"
+              ? "Choose a category first"
               : (categories.data?.find((one) => one.category_code === category)
-                  ?.name ?? "Kategori")}
+                  ?.name ?? "Category")}
           </span>
           <div className="flex items-center gap-2">
             <Button variant="ghost" onClick={onClose}>
-              Batal
+              Cancel
             </Button>
             <Button
               variant="primary"
-              disabled={category === "" || save.isPending}
+              pending={save.isPending}
+              disabled={category === ""}
               onClick={submit}
             >
-              {save.isPending ? "Mengajukan…" : "Ajukan"}
+              {save.isPending ? "Submitting…" : "Submit"}
             </Button>
           </div>
         </div>
@@ -147,16 +148,16 @@ export function SupplyComposer({
           <Banner tone="bad">{save.error.message}</Banner>
         )}
 
-        <Section title="Kategori" aside="tiap kartu memuat akun usulannya">
+        <Section title="Category" aside="each card shows its proposed account">
           {categories.data === undefined ? (
             <p className="text-meta text-mute">
               {categories.isLoading
-                ? "Membaca daftar kategori…"
-                : "Tidak ada kategori."}
+                ? "Reading the category list…"
+                : "No categories."}
             </p>
           ) : (
             <Choices
-              label="Kategori"
+              label="Category"
               columns={2}
               value={category}
               onChange={(next) => set("category", next)}
@@ -172,24 +173,24 @@ export function SupplyComposer({
           )}
         </Section>
 
-        <Section title="Barangnya">
-          <Field label="Barang" problem={problems.item || undefined}>
+        <Section title="Item">
+          <Field label="Item" required problem={problems.item || undefined}>
             <Input
               value={form.item ?? ""}
               onChange={(event) => set("item", event.target.value)}
-              placeholder="mis. Lampu LED, kabel roll, stop kontak"
+              placeholder="e.g. LED bulbs, cable reel, power socket"
               autoFocus
             />
           </Field>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Jumlah" aside="teks bebas, mis. 10 pcs">
+            <Field label="Quantity" aside="free text, e.g. 10 pcs">
               <Input
                 value={form.quantity ?? ""}
                 onChange={(event) => set("quantity", event.target.value)}
                 placeholder="10 pcs"
               />
             </Field>
-            <Field label="Dibutuhkan">
+            <Field label="Needed by">
               <Input
                 type="date"
                 value={form.needed_by ?? ""}
@@ -199,15 +200,19 @@ export function SupplyComposer({
           </div>
         </Section>
 
-        <Section title="Tempat dan peminta">
+        <Section title="Location and requester">
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Lokasi" problem={problems.site || undefined}>
+            <Field
+              label="Location"
+              required
+              problem={problems.site || undefined}
+            >
               <Select
                 value={form.site ?? ""}
                 onChange={(next) => set("site", next)}
-                aria-label="Lokasi"
+                aria-label="Location"
               >
-                <option value="">Pilih…</option>
+                <option value="">Select…</option>
                 {(shape.data?.facets.sites ?? []).map((one) => (
                   <option key={one.value} value={one.value}>
                     {one.label ?? one.value}
@@ -216,22 +221,23 @@ export function SupplyComposer({
               </Select>
             </Field>
             <Field
-              label="Diminta oleh"
+              label="Requested by"
+              required
               problem={problems.requested_by || undefined}
             >
               <Input
                 value={form.requested_by ?? ""}
                 onChange={(event) => set("requested_by", event.target.value)}
-                placeholder="mis. Kepala toko C007"
+                placeholder="e.g. Store manager C007"
               />
             </Field>
           </div>
         </Section>
 
-        <Section title="Estimasi dan catatan">
+        <Section title="Estimate and notes">
           <Field
-            label="Estimasi biaya"
-            aside="fakta GA; tagihan sebenarnya menyusul di Finance"
+            label="Estimated cost"
+            aside="GA's own estimate; the actual bill follows in Finance"
           >
             <Money
               value={form.estimate ?? ""}
@@ -239,11 +245,11 @@ export function SupplyComposer({
               placeholder="850000"
             />
           </Field>
-          <Field label="Catatan">
+          <Field label="Notes">
             <Input
               value={form.notes ?? ""}
               onChange={(event) => set("notes", event.target.value)}
-              placeholder="mis. untuk mess Cikarang"
+              placeholder="e.g. for the Cikarang mess"
             />
           </Field>
         </Section>
@@ -251,8 +257,8 @@ export function SupplyComposer({
         {/* The one sentence this form owes the reader: two categories that look
             like they belong here are somebody else's. */}
         <p className="text-pill text-mute">
-          Customer supplies dan kantong belanja tidak lewat sini: masing-masing
-          milik Commercial dan Inventory.
+          Customer supplies and shopping bags don't go through here: they belong
+          to Commercial and Inventory respectively.
         </p>
       </div>
     </Sheet>

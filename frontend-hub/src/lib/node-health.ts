@@ -33,10 +33,10 @@ function span(seconds: number): string {
   const d = Math.floor(s / 86400)
   const h = Math.floor((s % 86400) / 3600)
   const m = Math.floor((s % 3600) / 60)
-  if (d) return `${d} hari${h ? ` ${h} jam` : ""}`
-  if (h) return `${h} jam${m ? ` ${m} menit` : ""}`
-  if (m) return `${m} menit`
-  return `${s} detik`
+  if (d) return `${d} d${h ? ` ${h} h` : ""}`
+  if (h) return `${h} h${m ? ` ${m} min` : ""}`
+  if (m) return `${m} min`
+  return `${s} s`
 }
 
 function clock(iso: string): string {
@@ -63,34 +63,51 @@ export function describeIncident(incident: NodeIncident): Line | null {
       return {
         tone: "warn",
         when: `${moment(from)}–${clock(incident.at)}`,
-        what: `Macet ${span(incident.stalled_seconds)}, dimulai ulang otomatis`,
+        what: `Hung for ${span(incident.stalled_seconds)}, restarted itself`,
         detail:
-          "Server tidak memberi tanda hidup, jadi ia menghentikan dirinya sendiri dan menyala lagi.",
+          "The server stopped showing signs of life, so it stopped itself and started again.",
       }
     }
     case "CRASH_LOOP":
       return {
         tone: "bad",
         when: moment(incident.at),
-        what: `Berhenti sementara: gagal ${incident.starts_in_window} kali dalam 10 menit`,
-        detail: `Menahan diri ${span(incident.hold_seconds)} lalu mencoba lagi · perlu developer`,
+        what: `Paused: failed ${incident.starts_in_window} times in 10 min`,
+        detail: `Holding back ${span(incident.hold_seconds)}, then tries again · needs a developer`,
       }
     case "STOPPED":
       return {
         tone: "info",
         when: moment(incident.at),
-        what: "Dihentikan dengan rapi",
+        what: "Stopped cleanly",
         detail:
           incident.reason === "asked to stop"
-            ? "Diminta berhenti (restart, update, atau dimatikan)."
+            ? "Asked to stop (restart, update or shutdown)."
             : incident.reason,
+      }
+    case "ON_BATTERY":
+      return {
+        tone: "warn",
+        when: moment(incident.at),
+        what: "Power cut, running on the UPS",
+        detail:
+          incident.charge_percent != null
+            ? `Battery at ${incident.charge_percent} % when it started.`
+            : "The queue was sent to head office straight away.",
+      }
+    case "POWER_RESTORED":
+      return {
+        tone: "ok",
+        when: moment(incident.at),
+        what: `Power back after ${span(incident.on_battery_seconds)}`,
+        detail: "The server never went down.",
       }
     case "ENROLLED":
       return {
         tone: "ok",
         when: moment(incident.at),
-        what: `Terdaftar sebagai ${incident.site_id}`,
-        detail: "Disetujui kantor pusat; data awal dikirim.",
+        what: `Registered as ${incident.site_id}`,
+        detail: "Approved by head office; initial data sent.",
       }
     case "STARTED": {
       const previous = incident.previous
@@ -102,22 +119,23 @@ export function describeIncident(incident: NodeIncident): Line | null {
           ? {
               tone: "info",
               when,
-              what: `Listrik padam atau mesin dinyalakan ulang (${span(down)})`,
-              detail: "Mesin menyala lagi sendiri dan server melanjutkan.",
+              what: `Power cut or machine restarted (${span(down)})`,
+              detail:
+                "The machine came back on its own and the server carried on.",
             }
           : {
               tone: "warn",
               when,
-              what: `Mati mendadak ${span(down)}, pulih sendiri`,
-              detail: "Proses berhenti tanpa pesan (crash).",
+              what: `Stopped suddenly for ${span(down)}, recovered on its own`,
+              detail: "The process stopped without a word (crash).",
             }
       }
       if (previous.how === "FIRST_START")
         return {
           tone: "info",
           when: moment(incident.at),
-          what: "Pertama kali dijalankan",
-          detail: `Versi ${incident.version}`,
+          what: "First start",
+          detail: `Version ${incident.version}`,
         }
       return null
     }

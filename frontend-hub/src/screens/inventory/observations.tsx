@@ -1,5 +1,10 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { Radar } from "lucide-react"
@@ -15,24 +20,30 @@ import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, Truncated } from "@/components/ui/states"
+import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
-import { useFilters } from "@/lib/filters"
+import {
+  useFilters,
+  useFilterState,
+  type Filter,
+  type FilterField,
+} from "@/lib/filters"
 import { count, moment } from "@/lib/format"
 import {
   fleetPools,
   idempotencyKey,
   ingestObservations,
   inventoryKeys,
-  listObservations,
   observationAnomalies,
-  OBSERVATIONS_LIMIT,
+  sightingsPage,
   type Observation,
   type ObservationAnomaly,
+  type SightingScope,
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import { Choice } from "@/screens/inventory/parts"
 import { placements, writablePools } from "@/screens/inventory/shared"
 
@@ -46,14 +57,24 @@ import { placements, writablePools } from "@/screens/inventory/shared"
 /// correction, which is why every anomaly row links straight into the pool
 /// where that correction is made.
 
+/// Which column means which order the endpoint names. A column not in here
+/// cannot be sorted — sorting it would sort the loaded pages and call that the
+/// sweep.
+const SIGHTING_SORTS: Record<string, string> = {
+  epc: "epc",
+  read_count: "read_count",
+  last_seen_at: "last_seen_at",
+}
+
+/// Every narrowing on the sightings tab is a parameter the server answers —
+/// the pool box, the search, and the reader chip below — so the list walks
+/// the readers' whole history with `next_cursor` rather than sifting the
+/// newest few hundred.
 const sightings: ColumnDef<TableSetup, Observation>[] = [
   {
     accessorKey: "epc",
     header: "Tag",
     size: 220,
-    // No filter: the toolbar already puts the EPC on the wire, and a second
-    // box asking the same question of the 300 rows that came back would
-    // answer differently from the one above it.
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">{row.original.epc}</span>
     ),
@@ -62,11 +83,7 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     accessorKey: "sku_code",
     header: "SKU",
     size: 140,
-    /// `text` rather than `option`, for the emptiness test at the end of its
-    /// operator list: a sighting with no SKU is a tag the catalogue does not
-    /// know, and "SKU is empty" is the only way to ask for exactly those.
-    /// Faceting hundreds of SKU codes would bury that question in a long list.
-    meta: { filter: { kind: "text" } },
+    enableSorting: false,
     cell: ({ row }) =>
       row.original.sku_code ? (
         <span className="font-mono text-id text-body">
@@ -82,17 +99,7 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     accessorKey: "pool_id",
     header: "Seen in",
     size: 200,
-    /// Faceted from the rows themselves, never from the fleet list beside it:
-    /// the cloud spells a place `dc` and an edge node spells the same place
-    /// `dc-01`, so a facet built from one side and matched against the other
-    /// offers a value with a count that selects nothing.
-    ///
-    /// It does not duplicate the pool box in the toolbar, which sends ONE pool
-    /// to the server and is the right control for "show me that shelf". This
-    /// asks the questions that box cannot: several pools at once, or every
-    /// pool except one — over the sweep that came back, which is what the
-    /// banner above the table is there to say.
-    meta: { filter: { kind: "option" } },
+    enableSorting: false,
     cell: ({ row }) => (
       <AppLink
         to="/inventory/pools"
@@ -107,24 +114,22 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     accessorKey: "device_id",
     header: "Reader",
     size: 150,
-    meta: { filter: { kind: "option" } },
+    enableSorting: false,
     cell: ({ row }) => <Tag>{row.original.device_id}</Tag>,
   },
   {
     accessorKey: "read_count",
     header: "Reads",
     size: 90,
-    meta: { align: "right", filter: { kind: "number", unit: "reads" } },
+    meta: { align: "right" },
     cell: ({ row }) => count(row.original.read_count),
   },
   {
     accessorKey: "best_rssi",
     header: "Best RSSI",
     size: 110,
-    /// Nullable, and the emptiness test is the useful half: a sighting with no
-    /// signal recorded is a reader that reported a read without one, which is
-    /// a fact about the reader rather than about the tag.
-    meta: { align: "right", filter: { kind: "number", unit: "dBm" } },
+    enableSorting: false,
+    meta: { align: "right" },
     cell: ({ row }) =>
       row.original.best_rssi === null ? (
         <span className="text-mute">—</span>
@@ -137,10 +142,30 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     header: "Last seen",
     size: 160,
     // The decision metric on a sighting list: how fresh the evidence is.
-    meta: { filter: { kind: "date" } },
     cell: ({ row }) => moment(row.original.last_seen_at),
   },
 ]
+
+/// The reader chip, the one narrowing on the sightings tab that is not the
+/// pool box or the search. `single`, because the endpoint compares one column
+/// to one value.
+const SIGHTING_FIELDS: FilterField[] = [
+  {
+    column: "device_id",
+    label: "Reader",
+    spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+  },
+]
+
+function sightingScopeFromFilters(filters: readonly Filter[]): {
+  device_id?: string
+} {
+  for (const { column, operator, values } of filters) {
+    if (column === "device_id" && operator === "isAnyOf" && values.length > 0)
+      return { device_id: values[0] }
+  }
+  return {}
+}
 
 const mismatches: ColumnDef<TableSetup, ObservationAnomaly>[] = [
   {
@@ -213,7 +238,7 @@ const mismatches: ColumnDef<TableSetup, ObservationAnomaly>[] = [
 export function Observations() {
   const [tab, setTab] = useState("sightings")
   const [pool, setPool] = useState("")
-  const [epc, setEpc] = useState("")
+  const [text, setText] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [sighted, setSighted] = useState<SortingState>([
     { id: "last_seen_at", desc: true },
@@ -227,9 +252,35 @@ export function Observations() {
     queryFn: ({ signal }) => fleetPools(signal),
   })
 
-  const reads = useQuery({
-    queryKey: inventoryKeys.observations(pool, epc),
-    queryFn: ({ signal }) => listObservations(pool, epc, signal),
+  /// Two tables, two parameters. They share two column ids — `epc` and
+  /// `device_id` — so one key would carry a reader picked on the sightings tab
+  /// over to the anomalies tab and narrow a list nobody asked to narrow.
+  const readFilters = useFilterState(SIGHTING_FIELDS)
+  const anomalyFilters = useFilters(mismatches, "f2")
+
+  // Debounced: every keystroke is a query over every reader's history.
+  const needle = useDebounced(text.trim(), 400)
+  const scope = useMemo<SightingScope>(() => {
+    const by = sighted[0]
+    const sort = by === undefined ? undefined : SIGHTING_SORTS[by.id]
+    return {
+      ...sightingScopeFromFilters(readFilters.filters),
+      ...(pool === "" ? {} : { pool_id: pool }),
+      ...(needle === "" ? {} : { q: needle }),
+      sort,
+      // The house order (`last_seen_at`) is newest first already, so `desc`
+      // there asks for the other way — see `sightingsPage`.
+      desc: sort === "last_seen_at" ? by?.desc !== true : by?.desc === true,
+    }
+  }, [readFilters.filters, pool, needle, sighted])
+
+  const reads = useInfiniteQuery({
+    queryKey: inventoryKeys.observations(scope),
+    queryFn: ({ pageParam, signal }) =>
+      sightingsPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
     enabled: tab === "sightings",
   })
 
@@ -239,29 +290,41 @@ export function Observations() {
     enabled: tab === "anomalies",
   })
 
-  const readRows = useMemo(() => reads.data ?? [], [reads.data])
-  const anomalyRows = useMemo(() => anomalies.data ?? [], [anomalies.data])
+  const readRows = useMemo(
+    () => reads.data?.pages.flatMap((page) => page.rows) ?? [],
+    [reads.data]
+  )
+  const readHead = reads.data?.pages[0]
 
-  /// Two tables, two parameters. They share two column ids — `epc` and
-  /// `device_id` — so one key would carry a reader picked on the sightings tab
-  /// over to the anomalies tab and narrow a list nobody asked to narrow.
-  const readFilters = useFilters(sightings)
-  const anomalyFilters = useFilters(mismatches, "f2")
+  /// The reader chip, carrying the server's exact tally over everything the
+  /// pool and the search match.
+  const readModel = useMemo(
+    () => ({
+      ...readFilters,
+      fields: readHead
+        ? SIGHTING_FIELDS.map((field) => ({
+            ...field,
+            spec: { ...field.spec, counted: readHead.facets.devices },
+          }))
+        : SIGHTING_FIELDS,
+    }),
+    [readFilters, readHead]
+  )
+  const anomalyRows = useMemo(() => anomalies.data ?? [], [anomalies.data])
 
   const readTable = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: readRows,
-        columns: readFilters.columns,
+        columns: sightings,
         getRowId: (row: Observation) => row.observation_id,
-        state: {
-          columnFilters: readFilters.columnFilters,
-          sorting: sighted,
-        },
+        state: { sorting: sighted },
+        // The rows arrive in the order the request asked for.
+        manualSorting: true,
         onSortingChange: setSighted,
       }),
-      [readRows, readFilters.columns, readFilters.columnFilters, sighted]
+      [readRows, sighted]
     )
   )
 
@@ -328,27 +391,24 @@ export function Observations() {
               className="max-w-72"
             />
             <Input
-              value={epc}
-              onChange={(event) => setEpc(event.target.value)}
-              placeholder="EPC"
-              className="h-8 w-64 font-mono"
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              placeholder="Search tag, SKU, reader"
+              aria-label="Search sightings"
+              className="h-8 w-64"
             />
-            <FilterPanel model={readFilters} table={readTable} />
+            <FilterPanel model={readModel} />
             <Toolbar.Spacer />
+            {readHead && (
+              <span className="text-meta text-mute tabular-nums">
+                {count(readHead.total)} sightings
+              </span>
+            )}
             <Button onClick={() => setSubmitting(true)}>
               <Radar />
               Submit a batch
             </Button>
           </Toolbar>
-
-          {/* Only when the sweep came back exactly as large as the question.
-              A shorter answer proves there was nothing more to send; this
-              length proves nothing either way — and every clause in the panel
-              above is then a question asked of these 300 rows rather than of
-              the readers' whole night. */}
-          {readRows.length >= OBSERVATIONS_LIMIT && (
-            <Truncated limit={OBSERVATIONS_LIMIT} noun="sightings" />
-          )}
 
           <Card className="overflow-hidden">
             {queryState(reads, {
@@ -356,15 +416,17 @@ export function Observations() {
               render: () =>
                 readRows.length === 0 ? (
                   <EmptyState>
-                    {pool === "" && epc === ""
+                    {pool === "" &&
+                    needle === "" &&
+                    readFilters.filters.length === 0
                       ? "No reader has reported a sighting to this node."
-                      : "No sighting matches this pool and tag."}
+                      : "No sighting matches what you asked for."}
                   </EmptyState>
                 ) : (
                   <DataTable<Observation>
                     table={readTable}
-                    empty="No sighting matches the filters in force."
-                    className="max-h-[calc(100vh-19rem)]"
+                    more={reads}
+                    className="max-h-[calc(100vh-17rem)]"
                   />
                 ),
             })}
@@ -499,7 +561,7 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 
         <form.Field name="pool">
           {(field) => (
-            <Field label="Pool">
+            <Field label="Pool" required>
               <Choice
                 value={field.state.value}
                 onChange={field.handleChange}
@@ -516,7 +578,7 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 
         <form.Field name="device">
           {(field) => (
-            <Field label="Reader" hint="The handheld's device id.">
+            <Field label="Reader" required hint="The handheld's device id.">
               <Input
                 value={field.state.value}
                 onBlur={field.handleBlur}
@@ -533,6 +595,7 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
             return (
               <Field
                 label="Tags"
+                required
                 hint={`${count(read)} read${read === 1 ? "" : "s"} · one EPC per line, or comma separated.`}
               >
                 <Textarea
@@ -559,7 +622,8 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
             <Button
               type="submit"
               variant="primary"
-              disabled={!ready || send.isPending}
+              pending={send.isPending}
+              disabled={!ready}
             >
               {send.isPending ? "Sending…" : "Submit the sweep"}
             </Button>

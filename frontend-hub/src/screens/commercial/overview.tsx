@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
@@ -177,6 +177,12 @@ export function CommercialOverview() {
   // on describing a window that included it.
   const board = useBoard(campaignRows, posters, now)
   const stack = useStack(campaignRows, ruleRows, board.colourOf)
+  // The board opens on what is on or coming — every campaign ever run is a
+  // history, and it is one press away.
+  const [showEnded, setShowEnded] = useState(false)
+  const current = board.rows.filter((row) => !isOver(row, now))
+  const ended = board.rows.length - current.length
+  const onBoard = showEnded ? board.rows : current
 
   const outstanding = changes.data ?? []
   const attention = outstanding.filter(needsAttention)
@@ -190,7 +196,7 @@ export function CommercialOverview() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Commercial"
+        crumb="Marketing"
         title="Overview"
         sub={`What is running, what it gave away, and what is still owed — last ${WINDOW_DAYS} days.`}
       />
@@ -254,7 +260,7 @@ export function CommercialOverview() {
           tone={attention.length > 0 ? "down" : "flat"}
         />
         <Kpi
-          label="Shops off the newest book"
+          label="Shops behind on prices"
           value={count(
             fleet.isPending ? undefined : behind.length + silent.length
           )}
@@ -301,9 +307,21 @@ export function CommercialOverview() {
       <div className="mb-5">
         <SubHead
           aside={
-            <AppLink to="/commercial/campaigns" className="text-accent">
-              Open Campaigns
-            </AppLink>
+            <span className="flex gap-3">
+              {ended > 0 && (
+                <button
+                  type="button"
+                  aria-pressed={showEnded}
+                  onClick={() => setShowEnded((was) => !was)}
+                  className="text-accent hover:underline"
+                >
+                  {showEnded ? "Hide ended" : `Show ended (${count(ended)})`}
+                </button>
+              )}
+              <AppLink to="/commercial/campaigns" className="text-accent">
+                Open Campaigns
+              </AppLink>
+            </span>
           }
         >
           Campaigns
@@ -311,11 +329,15 @@ export function CommercialOverview() {
         {queryState(campaigns, {
           loading: "Asking what each campaign did…",
           render: () =>
-            board.rows.length === 0 ? (
-              <EmptyState>No campaign is declared in any book.</EmptyState>
+            onBoard.length === 0 ? (
+              <EmptyState>
+                {board.rows.length === 0
+                  ? "No campaign yet."
+                  : "Nothing live or scheduled. Every campaign has ended."}
+              </EmptyState>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
-                {board.rows.map((row) => (
+                {onBoard.map((row) => (
                   <CampaignCard key={row.campaign_id} row={row} />
                 ))}
               </div>
@@ -377,9 +399,13 @@ export function CommercialOverview() {
                               className="size-8 shrink-0 rounded-inner"
                             />
                             <span className="min-w-0">
-                              <span className="block truncate text-ink">
+                              <AppLink
+                                to="/commercial/promotions"
+                                sheet={{ key: "rule", value: rule.rule_id }}
+                                className="block truncate text-ink hover:text-accent"
+                              >
                                 {rule.name ?? rule.rule_id}
-                              </span>
+                              </AppLink>
                               <span className="block truncate text-[0.875rem] text-mute">
                                 {rule.campaign_id === null
                                   ? "No campaign"
@@ -409,6 +435,10 @@ export function CommercialOverview() {
                       </MiniRow>
                     ))}
                   </MiniTable>
+                  <More
+                    hidden={stack.earning.length - 8}
+                    to="/commercial/promotions"
+                  />
                 </div>
               ),
           })}
@@ -492,7 +522,7 @@ export function CommercialOverview() {
             </span>
           }
         >
-          Prices — is the fleet charging what we published?
+          Prices — are all shops charging what we published?
         </SubHead>
         <div className="grid items-start gap-5 min-[900px]:grid-cols-[1fr_1.2fr] [&>*]:min-w-0">
           {queryState(fleet, {
@@ -504,7 +534,7 @@ export function CommercialOverview() {
                   parts={[
                     {
                       key: "current",
-                      label: "On the newest book",
+                      label: "Up to date",
                       value: Math.max(
                         0,
                         data.shop_count - behind.length - silent.length
@@ -539,24 +569,38 @@ export function CommercialOverview() {
                         key={shop.origin_id}
                         className="flex items-baseline justify-between gap-3 text-[0.875rem]"
                       >
-                        <span className="truncate text-text">
-                          {shop.label ?? shop.site_id ?? shop.origin_id}
-                        </span>
+                        {shop.site_id === null ? (
+                          <span className="truncate text-text">
+                            {shop.label ?? "Till not assigned to a shop"}
+                          </span>
+                        ) : (
+                          <AppLink
+                            to="/commercial/prices"
+                            sheet={{ key: "shop", value: shop.site_id }}
+                            className="truncate text-text hover:text-accent"
+                          >
+                            {shop.label ?? shop.site_id}
+                          </AppLink>
+                        )}
                         <span className="shrink-0 text-[0.875rem] text-mute">
                           {shop.has_ever_activated
-                            ? `${count(shop.behind_by ?? 0)} book${(shop.behind_by ?? 0) === 1 ? "" : "s"} behind · ${moment(shop.activated_at)}`
+                            ? `${count(shop.behind_by ?? 0)} price change${(shop.behind_by ?? 0) === 1 ? "" : "s"} behind · ${moment(shop.activated_at)}`
                             : "never reported"}
                         </span>
                       </li>
                     ))}
                   </ul>
                 )}
+                <More
+                  hidden={silent.length + behind.length - 5}
+                  to="/commercial/changes"
+                />
               </div>
             ),
           })}
 
           {queryState(changes, {
-            loading: "Reading the price books…",
+            loading: "Reading price changes…",
             render: () =>
               attention.length === 0 ? (
                 <EmptyState>
@@ -577,9 +621,13 @@ export function CommercialOverview() {
                     {attention.slice(0, 6).map((change) => (
                       <MiniRow key={change.publication_id}>
                         <MiniCell>
-                          <span className="block truncate text-ink">
+                          <AppLink
+                            to="/commercial/changes"
+                            sheet={{ key: "book", value: change.publication_id }}
+                            className="block truncate text-ink hover:text-accent"
+                          >
                             {change.name}
-                          </span>
+                          </AppLink>
                           <span className="block truncate text-[0.875rem] text-mute">
                             {describeChangeKind(change.kind)} ·{" "}
                             {day(change.effective_from)}
@@ -605,6 +653,7 @@ export function CommercialOverview() {
                       </MiniRow>
                     ))}
                   </MiniTable>
+                  <More hidden={attention.length - 6} to="/commercial/changes" />
                 </div>
               ),
           })}
@@ -867,6 +916,27 @@ function Figure({ label, value }: { label: string; value: string }) {
         {value}
       </span>
     </span>
+  )
+}
+
+/// Over: ended or cancelled, or past its window whatever the status says.
+/// Paused, draft and scheduled stay on the board — each is still a decision
+/// somebody may come back to.
+function isOver(row: CampaignPerformance, now: number): boolean {
+  if (row.status === "EXPIRED" || row.status === "CANCELLED") return true
+  return row.valid_to !== null && Date.parse(row.valid_to) <= now
+}
+
+/// The rest of a list the panel shows only the top of, one click away.
+function More({ hidden, to }: { hidden: number; to: string }) {
+  if (hidden <= 0) return null
+  return (
+    <AppLink
+      to={to}
+      className="mt-2 inline-block text-[0.875rem] text-accent hover:underline"
+    >
+      +{count(hidden)} more
+    </AppLink>
   )
 }
 

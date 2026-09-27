@@ -293,7 +293,11 @@ const ENTRY_ROWS: &str = "
        AND ($3::text IS NULL
             OR e.entry_number ILIKE $3
             OR e.memo ILIKE $3
-            OR e.source_id ILIKE $3)
+            OR e.source_id ILIKE $3
+            -- Who posted it: what one person keyed this month is a question
+            -- the register is asked, and it used to be answered only over the
+            -- page the browser held.
+            OR e.posted_by ILIKE $3)
 ";
 
 /// The filters, spelled once so the page and the counts narrow identically.
@@ -349,6 +353,9 @@ pub async fn journal_page(pool: &PgPool, scope: JournalScope) -> Result<JournalP
         Some("number") => ("entry_number", scope.desc),
         Some("total") => ("total_minor", scope.desc),
         Some("kind") => ("source_kind, posting_date", scope.desc),
+        // The house order's own columns, in whichever direction was asked —
+        // so a register sorted by date can be read oldest first too.
+        Some("date") => ("posting_date, entry_number", scope.desc),
         // The house order, and the one this endpoint has always answered in:
         // the newest entry first. `dir` is not read here — a default order that
         // reverses is not a default.

@@ -15,7 +15,7 @@
 //! to anyone who guessed or kept an id.
 
 use crate::cloud::application::AppError;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -109,12 +109,31 @@ pub struct CustomerTransactionPage {
     pub next_before_sale_id: Option<Uuid>,
 }
 
-/// Where a page of history starts, and how long it is.
+/// Where a page of history starts, how long it is, and what narrows it.
+///
+/// The narrowing never changes the order — newest first — so the cursor pair
+/// means the same thing with or without it.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct CustomerTransactionsQuery {
     pub limit: Option<i64>,
     pub before_occurred_at: Option<DateTime<Utc>>,
     pub before_sale_id: Option<Uuid>,
+    /// The first local business day (WIB) to include.
+    #[serde(default)]
+    pub from: Option<NaiveDate>,
+    /// The last local business day (WIB) to include — inclusive.
+    #[serde(default)]
+    pub to: Option<NaiveDate>,
+    /// What was charged, at least / at most — whole rupiah, like the row.
+    #[serde(default)]
+    pub min_total: Option<i64>,
+    #[serde(default)]
+    pub max_total: Option<i64>,
+    /// What promotions took off, at least / at most.
+    #[serde(default)]
+    pub min_saved: Option<i64>,
+    #[serde(default)]
+    pub max_saved: Option<i64>,
 }
 
 const DEFAULT_PAGE: i64 = 25;
@@ -207,6 +226,19 @@ pub async fn customer_transactions(
             "before_occurred_at and before_sale_id go together".into(),
         ));
     }
+    // Local business days, as the instants that bound them — the same
+    // arithmetic the sales reports use, so a day here is the reports' day.
+    let offset = crate::reporting::DEFAULT_UTC_OFFSET_MINUTES;
+    let from_at = query
+        .from
+        .map(|day| crate::reporting::window_of(day, day, offset).map(|(start, _)| start))
+        .transpose()
+        .map_err(AppError::Validation)?;
+    let to_at = query
+        .to
+        .map(|day| crate::reporting::window_of(day, day, offset).map(|(_, end)| end))
+        .transpose()
+        .map_err(AppError::Validation)?;
     let rows = sqlx::query(
         "SELECT s.sale_id,
                 s.occurred_at,
@@ -224,6 +256,12 @@ pub async fn customer_transactions(
           WHERE s.customer_id = $1
             AND ($2::timestamptz IS NULL
                  OR (s.occurred_at, s.sale_id) < ($2::timestamptz, $3::uuid))
+            AND ($5::timestamptz IS NULL OR s.occurred_at >= $5)
+            AND ($6::timestamptz IS NULL OR s.occurred_at < $6)
+            AND ($7::bigint IS NULL OR s.total_minor >= $7)
+            AND ($8::bigint IS NULL OR s.total_minor <= $8)
+            AND ($9::bigint IS NULL OR s.discount_total_minor >= $9)
+            AND ($10::bigint IS NULL OR s.discount_total_minor <= $10)
           ORDER BY s.occurred_at DESC, s.sale_id DESC
           LIMIT $4",
     )
@@ -235,6 +273,12 @@ pub async fn customer_transactions(
     // is an exact multiple of the page size would otherwise always claim one
     // more page, and the last one would always be empty.
     .bind(limit + 1)
+    .bind(from_at)
+    .bind(to_at)
+    .bind(query.min_total)
+    .bind(query.max_total)
+    .bind(query.min_saved)
+    .bind(query.max_saved)
     .fetch_all(pool)
     .await?;
 

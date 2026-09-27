@@ -1,18 +1,27 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
-import { useEffect } from "react"
+import { Suspense, lazy, useEffect } from "react"
 
 import { LoginForm } from "@/components/login-form"
 import { Toasts } from "@/components/ui/toast"
 import { cacheKey } from "@/lib/api"
 import { onWorkerMessage } from "@/lib/pwa"
+import { setupKeys, useSetupStatus } from "@/lib/queries/setup"
 import {
   clearSignedOutElsewhere,
   signedOutElsewhere,
   useIdentity,
 } from "@/lib/session"
 import { router } from "@/routes"
+import { deferSetup, useSetupDeferred } from "@/screens/setup/defer"
 import { ApiError, type Identity } from "@itulah/contract/client"
+
+/// Fetched only when a company has not finished setting up, which is once.
+const Onboarding = lazy(() =>
+  import("@/screens/setup/onboarding").then((module) => ({
+    default: module.Onboarding,
+  }))
+)
 
 export function App() {
   const queryClient = useQueryClient()
@@ -21,6 +30,14 @@ export function App() {
   // asked anything: showing a login box during that moment makes an
   // already-signed-in operator type their password for nothing.
   const session = useIdentity()
+
+  // Whether the company has been set up at all. Asked once there is somebody
+  // signed in, and only answered for whoever may set it up: anybody else, or
+  // a server that predates the endpoint, gets an error here and simply the
+  // app — the wizard is never what stands between a cashier and their work.
+  const signedIn = (session.data ?? null) !== null
+  const setup = useSetupStatus(signedIn)
+  const deferred = useSetupDeferred()
 
   // A notification tapped while the app is open: the worker hands over where
   // it leads and the router goes there, rather than the worker reloading the
@@ -69,6 +86,33 @@ export function App() {
             )
           }}
         />
+      </main>
+    )
+  }
+
+  if (setup.isPending) {
+    return (
+      <main className="grid h-full place-items-center">
+        <p className="text-meta text-body">Checking your session…</p>
+      </main>
+    )
+  }
+
+  if (setup.data !== undefined && !setup.data.finished && !deferred) {
+    return (
+      <main className="h-full">
+        <Suspense fallback={null}>
+          <Onboarding
+            status={setup.data}
+            onDefer={() => deferSetup(true)}
+            onDone={() =>
+              void queryClient.invalidateQueries({
+                queryKey: setupKeys.status(),
+              })
+            }
+          />
+        </Suspense>
+        <Toasts />
       </main>
     )
   }

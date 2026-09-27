@@ -118,10 +118,11 @@ fun ReturnScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 // Not assumed from the original sale: a card sale refunded in
                 // cash happens every day.
-                Tender.METHODS.take(4).forEach { method ->
+                // Never a voucher: the node refuses paying one back out.
+                Tender.METHODS.filter { it != "OTHER" && it != "VOUCHER" }.forEach { method ->
                     ChoiceTile(
                         when (method) {
-                            "CASH" -> "Tunai"; "CARD" -> "Kartu"; "VOUCHER" -> "Voucher"; else -> method
+                            "CASH" -> "Tunai"; "CARD" -> "Kartu"; "EWALLET" -> "E-Wallet"; "VOUCHER" -> "Voucher"; else -> method
                         },
                         selected = method == refundMethod,
                         onClick = { onRefundMethod(method) },

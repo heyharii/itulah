@@ -93,6 +93,7 @@ pub mod financing;
 pub mod prepaid;
 pub mod principal;
 pub mod sales_posting;
+pub mod setup;
 pub mod statement_intake;
 pub mod stock_ledger;
 pub mod store_money;
@@ -394,6 +395,13 @@ pub fn router(state: AppState) -> Router {
     // twelve PCS. One read for both, because a picker offering a unit is
     // useless without its factor. No delete on either: a unit a document
     // used is part of what that document said, so it is retired instead.
+    // Setting the company up: the hub's three-question wizard, and Buka toko
+    // over Lokasi afterwards. Admin, by the `/api/v1/setup` prefix — see
+    // `http/setup.rs`.
+    .route("/api/v1/setup", get(setup::status))
+    .route("/api/v1/setup/company", put(setup::save_company))
+    .route("/api/v1/setup/stores", post(setup::open_stores))
+    .route("/api/v1/setup/books", post(setup::start_books))
     .route("/api/v1/units", get(units::list_units).post(units::create_unit))
     .route("/api/v1/units/{code}", patch(units::update_unit))
     .route(
@@ -644,6 +652,17 @@ pub fn router(state: AppState) -> Router {
     // Shop servers reporting in, and the Fleet page reading them.
     .route("/api/v1/sync/heartbeat", post(fleet::heartbeat))
     .route("/api/v1/sync/nodes", get(fleet::nodes))
+    .route("/api/v1/sync/nodes/uptime", get(fleet::uptime))
+    // Outside `/api`, so the session gate never sees it; the token in the
+    // path is its only key (`http::fleet::status_page`).
+    .route("/status/{token}", get(fleet::status_page))
+    .route("/api/v1/sync/nodes/{origin_id}/uptime", get(fleet::node_uptime))
+    .route("/api/v1/sync/nodes/{origin_id}/actions", post(fleet::ask))
+    .route(
+        "/api/v1/sync/nodes/{origin_id}/diagnostics",
+        get(fleet::diagnostics),
+    )
+    .route("/api/v1/sync/diagnostics", post(fleet::diagnosis))
     .route(
         "/api/v1/sync/nodes/{origin_id}/incidents",
         get(fleet::incidents),
@@ -773,6 +792,21 @@ pub fn router(state: AppState) -> Router {
     // same handful of numbers every morning and they are all already
     // computed.
     .route("/api/v1/assistant/brief", get(assistant::brief))
+    // Whether an answer was right, by the person it was given to (0501).
+    .route(
+        "/api/v1/assistant/conversations/{id}/messages/{message_id}/verdict",
+        put(assistant::judge),
+    )
+    // The business's own words, read with every question. Changing them is
+    // head office's, as `role_permission` rows (0501).
+    .route(
+        "/api/v1/assistant/glossary",
+        get(assistant::glossary).post(assistant::add_to_glossary),
+    )
+    .route(
+        "/api/v1/assistant/glossary/{id}",
+        patch(assistant::amend_glossary).delete(assistant::remove_from_glossary),
+    )
     // Talking. Conversations are private to their participants;
     // discussions are readable by everybody signed in, because an argument
     // about a purchase order is a record and not correspondence.
@@ -782,16 +816,53 @@ pub fn router(state: AppState) -> Router {
     )
     .route(
         "/api/v1/chat/conversations/{id}",
-        get(chat::read_conversation),
+        get(chat::read_conversation).patch(chat::rename_conversation),
     )
     .route(
         "/api/v1/chat/conversations/{id}/messages",
         get(chat::read_messages).post(chat::send_message),
     )
+    // One message: its words change, it goes, it is reacted to and pinned.
+    // Addressed by `seq` under its room, like everything else here, so the
+    // room is the permission for all of it.
+    .route(
+        "/api/v1/chat/conversations/{id}/messages/{seq}",
+        patch(chat::edit_message).delete(chat::delete_message),
+    )
+    .route(
+        "/api/v1/chat/conversations/{id}/messages/{seq}/reactions",
+        post(chat::react),
+    )
+    .route(
+        "/api/v1/chat/conversations/{id}/messages/{seq}/pin",
+        post(chat::pin_message),
+    )
+    .route(
+        "/api/v1/chat/conversations/{id}/pins",
+        get(chat::pinned_messages),
+    )
     .route(
         "/api/v1/chat/conversations/{id}/read",
         post(chat::mark_read),
     )
+    .route(
+        "/api/v1/chat/conversations/{id}/preferences",
+        put(chat::set_preferences),
+    )
+    .route(
+        "/api/v1/chat/conversations/{id}/participants",
+        post(chat::add_participants),
+    )
+    .route(
+        "/api/v1/chat/conversations/{id}/participants/{username}",
+        patch(chat::set_admin).delete(chat::remove_participant),
+    )
+    // "Is typing" lives in memory for seconds; see `chat::typing`.
+    .route(
+        "/api/v1/chat/conversations/{id}/typing",
+        get(chat::who_is_typing).post(chat::report_typing),
+    )
+    .route("/api/v1/chat/search", get(chat::search))
     .route(
         "/api/v1/chat/conversations/{id}/files",
         get(chat::conversation_files),
@@ -968,6 +1039,10 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/finance/payment-methods",
         get(finance::payment_methods).post(finance::save_payment_method),
+    )
+    .route(
+        "/api/v1/finance/sites/{site}/payment-methods",
+        get(finance::site_payment_methods).put(finance::set_site_payment_methods),
     )
     .route(
         "/api/v1/finance/tax-templates",
@@ -1395,11 +1470,39 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/discussions/subjects",
         get(discussion::subject_counts),
     )
-    .route("/api/v1/discussions/{id}", get(discussion::read_thread))
+    .route("/api/v1/discussions/tags", get(discussion::tag_counts))
+    .route("/api/v1/discussions/kinds", get(discussion::subject_kinds))
+    .route("/api/v1/discussions/people", get(discussion::people))
+    // "Dismiss" on the Unread list. A literal segment beside `{id}`, and the
+    // log files it against nobody: it is about every thread at once.
+    .route("/api/v1/discussions/read", post(discussion::dismiss_unread))
+    .route(
+        "/api/v1/discussions/{id}",
+        get(discussion::read_thread).patch(discussion::edit_thread),
+    )
     .route(
         "/api/v1/discussions/{id}/posts",
         get(discussion::read_posts).post(discussion::reply),
     )
+    // A post is corrected by its author and withdrawn — never deleted — by
+    // its author or head office. Both answer with the post as it now reads.
+    .route(
+        "/api/v1/discussions/{id}/posts/{post_id}",
+        patch(discussion::edit_post).delete(discussion::withdraw_post),
+    )
+    .route(
+        "/api/v1/discussions/{id}/posts/{post_id}/revisions",
+        get(discussion::post_revisions),
+    )
+    .route(
+        "/api/v1/discussions/{id}/posts/{post_id}/reactions",
+        post(discussion::react),
+    )
+    .route(
+        "/api/v1/discussions/{id}/subscription",
+        post(discussion::set_subscription),
+    )
+    .route("/api/v1/discussions/{id}/pin", post(discussion::set_pin))
     .route(
         "/api/v1/discussions/{id}/solution",
         post(discussion::accept_solution),
@@ -2959,7 +3062,12 @@ async fn points_accounts(
     Query(q): Query<PointsQuery>,
 ) -> Result<Json<Value>, AppError> {
     Ok(Json(
-        infrastructure::points_accounts(&s.db, q.limit.unwrap_or(200)).await?,
+        infrastructure::points_accounts(
+            &s.db,
+            q.cursor.as_deref().filter(|raw| !raw.is_empty()),
+            q.limit.unwrap_or(200),
+        )
+        .await?,
     ))
 }
 
@@ -2972,6 +3080,7 @@ async fn points_ledger(
         infrastructure::points_ledger(
             &s.db,
             q.customer_id.as_deref().filter(|id| !id.trim().is_empty()),
+            q.cursor.as_deref().filter(|raw| !raw.is_empty()),
             q.limit.unwrap_or(200),
         )
         .await?,
@@ -2985,22 +3094,41 @@ struct PointsQuery {
     /// account is `points-ledger` with the member named, not a second shape of
     /// this one.
     customer_id: Option<String>,
+    /// A `next_cursor` from the previous page of either route, verbatim.
+    cursor: Option<String>,
     limit: Option<i64>,
 }
 
-/// Everything that has happened to the price books, newest first.
+/// Everything that has happened to the price books, newest first, a page at a
+/// time. `{ rows, next_cursor }` — `rows` is the name the unpaged log used, so
+/// a caller that reads one page and ignores the cursor still works.
 async fn price_events(
     State(s): State<AppState>,
     Query(q): Query<PriceEventsQuery>,
-) -> Result<Json<Value>, AppError> {
-    let events = infrastructure::price_events(
+) -> Result<Json<infrastructure::PriceEventPage>, AppError> {
+    // `kind=FAILED,EXPIRED` — a comma list, because the History lens that
+    // asks for trouble means two kinds at once.
+    let kinds: Option<Vec<String>> = q
+        .kind
+        .as_deref()
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|kind| !kind.is_empty())
+                .map(str::to_ascii_uppercase)
+                .collect::<Vec<_>>()
+        })
+        .filter(|kinds| !kinds.is_empty());
+    let page = infrastructure::price_events(
         &s.db,
         q.version,
         q.site_id.as_deref().filter(|id| !id.trim().is_empty()),
+        kinds.as_deref(),
+        q.cursor.as_deref().filter(|cursor| !cursor.trim().is_empty()),
         q.limit.unwrap_or(200),
     )
     .await?;
-    Ok(Json(json!({ "rows": events })))
+    Ok(Json(page))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -3009,6 +3137,10 @@ struct PriceEventsQuery {
     /// what every other surface in this module names a book by.
     version: Option<i64>,
     site_id: Option<String>,
+    /// Which kinds, comma-separated. Absent means every kind.
+    kind: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    cursor: Option<String>,
     limit: Option<i64>,
 }
 

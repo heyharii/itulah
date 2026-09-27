@@ -1,3 +1,4 @@
+import { INVALID, useFieldAria } from "@/components/ui/field-state"
 import { cn } from "@/lib/utils"
 
 /// A secret on its way to the server, and nowhere else.
@@ -11,6 +12,9 @@ export function Secret({
   className,
   ...props
 }: Omit<React.InputHTMLAttributes<HTMLInputElement>, "type" | "defaultValue">) {
+  // Read from the enclosing `<Field>`, like every control in the kit: its
+  // `required` and `problem` reach the box without being written here.
+  const aria = useFieldAria({ describedBy: props["aria-describedby"] })
   return (
     <input
       type="password"
@@ -19,9 +23,11 @@ export function Secret({
       className={cn(
         "h-9 w-full rounded-full border border-transparent bg-soft-2 px-3.5 text-[0.875rem] text-ink transition-colors outline-none",
         "placeholder:text-mute hover:border-hairline-2 hover:bg-soft-3 disabled:opacity-50",
+        INVALID,
         className
       )}
       {...props}
+      {...aria}
     />
   )
 }

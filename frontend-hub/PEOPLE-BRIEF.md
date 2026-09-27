@@ -54,6 +54,15 @@ One queue, not three, is the point of **Requests**. A manager does not have a
 minutes and a list of things waiting on them. Three screens each holding two
 rows is how all three stop being opened.
 
+### Update 2026-09-27: nine rows
+
+The sidebar no longer draws the groups above as words. On the owner's request
+the menu was cut from twenty rows to nine (seven for a place manager): the
+Overview is the one queue (Requests is drawn on it), Settings replaced Time
+policy, and the rest opens from the screen it belongs to. Leave, Rule numbers
+and Salary structures were removed as duplicates. `src/screens/people/nav.ts`
+holds the current shape and why; `SIDEBAR-BRIEF.md` holds the decision.
+
 ## Scope: one posting, read from the caller's own record
 
 The caller's place comes from their own posting — `GET

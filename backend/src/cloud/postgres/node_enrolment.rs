@@ -515,12 +515,13 @@ pub async fn refuse_node_enrolment(
 /// node, so what is issued here queues behind nothing and ahead of whatever
 /// the fleet is sent next.
 ///
-/// Not here, deliberately:
-/// - the attendance book, which is published by a person on purpose
-///   (`http/terminal.rs` `publish_book`: "explicit, not automatic");
-/// - open purchase orders and tagging jobs, which are addressed to a site
-///   when they are raised and are not yet re-sendable by origin. Listed as
-///   `pending` in the report so nobody reads their absence as success.
+/// Also the site's open work — purchase orders still `ISSUED` and tagging
+/// jobs not yet tagged — by re-issuing the very commands that carried them the
+/// first time, revisions included, in the order they were issued; and the
+/// attendance book as it stands today. The book is otherwise published by a
+/// person on purpose (`http/terminal.rs`: "explicit, not automatic"); a node
+/// that has never had one is the case where somebody would press the button
+/// anyway, and a new node with no roster refuses every punch.
 pub async fn bootstrap_origin(
     pool: &PgPool,
     origin_id: &str,
@@ -551,12 +552,26 @@ pub async fn bootstrap_origin(
             .await
             .map(|command| json!({ "command_id": command })),
     );
+    let site_id: Option<String> = sqlx::query_scalar(
+        "SELECT site_id FROM sync_origin_credential WHERE origin_id = $1",
+    )
+    .bind(origin_id)
+    .fetch_one(pool)
+    .await?;
+    let (open_work, attendance_book) = match site_id.as_deref() {
+        Some(site) => (
+            outcome(resend_open_work(pool, origin_id, site, issued_by).await),
+            outcome(send_attendance_book(pool, origin_id, site, issued_by).await),
+        ),
+        None => (json!({ "skipped": "no site" }), json!({ "skipped": "no site" })),
+    };
     let mut report = json!({
         "origin_id": origin_id,
         "catalogue": catalogue,
         "auth_policy": auth_policy,
         "eligibility": eligibility,
-        "pending": ["attendance_book", "purchase_orders", "tagging_jobs"],
+        "open_work": open_work,
+        "attendance_book": attendance_book,
     });
     if is_store {
         report["price_books"] = outcome(send_published_books(pool, origin_id, issued_by).await);
@@ -634,4 +649,78 @@ mod tests {
         );
         assert_eq!(derive_status(now, later, None, Some("REVOKED")), "REVOKED");
     }
+}
+
+/// Re-issue, to one node, the commands that carried its site's open work:
+/// purchase orders still `ISSUED` (their activation and every revision since)
+/// and tagging jobs still `ISSUED`, oldest first, so the node rebuilds the same
+/// state the node before it was told about, in the same order.
+async fn resend_open_work(
+    pool: &PgPool,
+    origin_id: &str,
+    site_id: &str,
+    issued_by: &str,
+) -> Result<Value, AppError> {
+    let commands: Vec<(String, Value)> = sqlx::query_as(
+        "SELECT c.command_type, c.payload FROM (
+             SELECT c.command_id
+               FROM purchase_order po
+               JOIN sync_command c
+                 ON c.command_id = po.activation_command_id
+                 OR (c.command_type = $2
+                     AND c.payload->>'purchase_order_id' = po.purchase_order_id::text)
+              WHERE po.destination_site_id = $1 AND po.order_status = 'ISSUED'
+             UNION
+             SELECT j.command_id
+               FROM tagging_job j
+              WHERE j.site_id = $1 AND j.status = 'ISSUED' AND j.command_id IS NOT NULL
+         ) open_work
+         JOIN sync_command c ON c.command_id = open_work.command_id
+        WHERE c.revoked_at IS NULL
+        ORDER BY c.issued_at",
+    )
+    .bind(site_id)
+    .bind(crate::cloud::domain::COMMAND_PURCHASE_ORDER_REVISE)
+    .fetch_all(pool)
+    .await?;
+    let mut tx = pool.begin().await?;
+    let target = [origin_id.to_owned()];
+    for (command_type, payload) in &commands {
+        super::sync::issue_command_tx(&mut tx, command_type, payload, issued_by, None, &target)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(json!({ "commands": commands.len() }))
+}
+
+/// The attendance book of the unit that owns the node's site, as it stands
+/// today, to one node. People are posted to a unit, not to a site, so the
+/// node's site is only the way to its unit.
+async fn send_attendance_book(
+    pool: &PgPool,
+    origin_id: &str,
+    site_id: &str,
+    issued_by: &str,
+) -> Result<Value, AppError> {
+    let unit_id: Option<String> = sqlx::query_scalar("SELECT unit_id FROM site WHERE id = $1")
+        .bind(site_id)
+        .fetch_optional(pool)
+        .await?;
+    let unit_id = unit_id.ok_or_else(|| {
+        AppError::Validation(format!("site {site_id} is not a site head office knows"))
+    })?;
+    let unit = crate::cloud::domain::UnitId::try_new(&unit_id)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    let book = super::attendance_book_for_unit(pool, &unit, Utc::now().date_naive()).await?;
+    let employees = book.employees.len();
+    super::issue_command(
+        pool,
+        crate::cloud::domain::COMMAND_ATTENDANCE_BOOK_REPLACE,
+        &serde_json::to_value(&book)?,
+        issued_by,
+        None,
+        &[origin_id.to_owned()],
+    )
+    .await?;
+    Ok(json!({ "employees": employees }))
 }

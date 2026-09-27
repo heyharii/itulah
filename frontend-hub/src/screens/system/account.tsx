@@ -1,5 +1,10 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
@@ -18,23 +23,25 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { cacheKey } from "@/lib/api"
-import { useFilters } from "@/lib/filters"
-import { day, moment } from "@/lib/format"
+import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
+import { count, day, moment } from "@/lib/format"
 import {
   changeOwnPassword,
   createUser,
-  listUsers,
   resetUserPassword,
   setUserActive,
   setUserRole,
   systemKeys,
+  usersPage,
   type UserRow,
+  type UserScope,
 } from "@/lib/queries/system"
 import { statusLabel } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useIdentity } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import { Secret, Section } from "@/screens/system/shared"
 import { saying } from "@/screens/system/units"
 import type { Role } from "@itulah/contract"
@@ -54,6 +61,61 @@ import type { Role } from "@itulah/contract"
 
 const roles: readonly Role[] = ["CASHIER", "SUPERVISOR", "ADMIN"]
 
+/// Which column means which order the endpoint names. A column not in here
+/// cannot be sorted — sorting it would sort the loaded pages.
+const SORTS: Record<string, string> = {
+  username: "username",
+  role: "role",
+  last_login: "last_login",
+  created_at: "created",
+}
+
+const STATE_WORD: Readonly<Record<string, string>> = {
+  ACTIVE: "Active",
+  LEFT_OPEN: "Left, still open",
+  DISABLED: "Suspended",
+}
+
+/// Every narrowing here is a parameter the endpoint answers; the counts beside
+/// each option are the server's, over everything the search matches.
+const FIELDS: FilterField[] = [
+  {
+    column: "role",
+    label: "Role",
+    spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+  },
+  {
+    column: "state",
+    label: "State",
+    spec: {
+      kind: "option",
+      single: true,
+      operators: ["isAnyOf"],
+      format: (value) => STATE_WORD[value] ?? value,
+    },
+  },
+  {
+    column: "place_id",
+    label: "Posted at",
+    spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+  },
+]
+
+function scopeFromFilters(filters: readonly Filter[]): {
+  role?: string
+  state?: string
+  place_id?: string
+} {
+  const scope: { role?: string; state?: string; place_id?: string } = {}
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0 || operator !== "isAnyOf") continue
+    if (column === "role") scope.role = values[0]
+    else if (column === "state") scope.state = values[0]
+    else if (column === "place_id") scope.place_id = values[0]
+  }
+  return scope
+}
+
 const columns: ColumnDef<TableSetup, UserRow>[] = [
   {
     accessorKey: "username",
@@ -69,6 +131,7 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
     accessorKey: "display_name",
     header: "Person",
     size: 220,
+    enableSorting: false,
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.display_name}</span>
     ),
@@ -78,11 +141,7 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
     accessorFn: (row) => row.employee_name ?? row.employee_code ?? "",
     header: "Employment record",
     size: 210,
-    // Filtered for its EMPTINESS, not for a name — the accessor is blank
-    // exactly when nothing on the payroll is bound to the login, so "is empty"
-    // is the list of machine accounts and unfinished paperwork in one clause.
-    // Which name it is, the search box answers.
-    meta: { filter: { kind: "text", label: "Employment record" } },
+    enableSorting: false,
     // An account list that shows only usernames cannot answer the two questions
     // somebody opens it with: which of these are people, and which belong to
     // somebody who no longer works here. Both are one join away and the console
@@ -106,7 +165,6 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
     accessorKey: "role",
     header: "Role",
     size: 130,
-    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <Tag tone={row.original.role === "ADMIN" ? "accent" : "neutral"}>
         {row.original.role}
@@ -124,10 +182,9 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
     header: "State",
     size: 140,
     // Three words, and the third is the one worth a filter: "Left, still open"
-    // is a working credential for somebody who has gone, and on a list of two
-    // hundred accounts it is a row that sorting cannot bring to the top
-    // because it is not the extreme of anything.
-    meta: { filter: { kind: "option", label: "State" } },
+    // is a working credential for somebody who has gone. The server answers
+    // it as `state=LEFT_OPEN` — see the State chip.
+    enableSorting: false,
     // Ending somebody's employment closes their login as part of the same act,
     // so this pairing means one of two things: a binding made before that was
     // true, or a close that failed. Either way it is a working credential for
@@ -170,7 +227,7 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
     accessorKey: "created_at",
     header: "Created",
     size: 130,
-    meta: { align: "right", filter: { kind: "date", label: "Created" } },
+    meta: { align: "right" },
     cell: ({ row }) => day(row.original.created_at),
   },
 ]
@@ -187,31 +244,76 @@ export function Account() {
   ])
 
   const identity = useIdentity()
-  const users = useQuery({
-    queryKey: systemKeys.users(),
-    queryFn: ({ signal }) => listUsers(signal),
+  const filters = useFilterState(FIELDS)
+
+  // Debounced: every keystroke is a round trip.
+  const needle = useDebounced(query.trim(), 400)
+  const scope = useMemo<UserScope>(() => {
+    const by = sorting[0]
+    return {
+      ...scopeFromFilters(filters.filters),
+      ...(needle === "" ? {} : { q: needle }),
+      sort: by === undefined ? undefined : SORTS[by.id],
+      desc: by?.desc === true,
+    }
+  }, [filters.filters, needle, sorting])
+
+  const users = useInfiniteQuery({
+    queryKey: systemKeys.userList(scope),
+    queryFn: ({ pageParam, signal }) =>
+      usersPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => users.data?.rows ?? [], [users.data])
+  const rows = useMemo(
+    () => users.data?.pages.flatMap((page) => page.rows) ?? [],
+    [users.data]
+  )
+  const head = users.data?.pages[0]
 
-  const filters = useFilters(columns)
+  const model = useMemo(
+    () => ({
+      ...filters,
+      fields: head
+        ? FIELDS.map((field) => ({
+            ...field,
+            spec: {
+              ...field.spec,
+              counted:
+                field.column === "role"
+                  ? head.facets.roles
+                  : field.column === "state"
+                    ? head.facets.states
+                    : head.facets.places,
+              ...(field.column === "place_id"
+                ? {
+                    format: (value: string) =>
+                      head.facets.places.find((one) => one.value === value)
+                        ?.label ?? value,
+                  }
+                : {}),
+            },
+          }))
+        : FIELDS,
+    }),
+    [filters, head]
+  )
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: filters.columns,
+        columns,
         getRowId: (row: UserRow) => row.username,
-        state: {
-          columnFilters: filters.columnFilters,
-          globalFilter: query,
-          sorting,
-        },
+        state: { sorting },
+        // The rows arrive in the order the request asked for.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, sorting]
     )
   )
 
@@ -256,7 +358,13 @@ export function Account() {
           narrow the register below, and a control sitting above a card it does
           not touch is a control people press once and stop trusting. */}
       <Toolbar>
-        <FilterPanel model={filters} table={table} />
+        <FilterPanel model={model} />
+        <Toolbar.Spacer />
+        {head && (
+          <span className="text-[0.875rem] text-mute tabular-nums">
+            {count(head.total)} accounts
+          </span>
+        )}
       </Toolbar>
 
       <Card className="overflow-hidden">
@@ -264,16 +372,20 @@ export function Account() {
           loading: "Loading the accounts…",
           render: () =>
             rows.length === 0 ? (
-              <EmptyState>
-                There are no accounts on this node yet. Nobody can sign in until
-                one is created.
-              </EmptyState>
+              needle !== "" || filters.filters.length > 0 ? (
+                <EmptyState>Nobody matches what you asked for.</EmptyState>
+              ) : (
+                <EmptyState>
+                  There are no accounts on this node yet. Nobody can sign in
+                  until one is created.
+                </EmptyState>
+              )
             ) : (
               <DataTable<UserRow>
                 table={table}
+                more={users}
                 onRowClick={(row) => user.open(row.username)}
                 isSelected={(row) => row.username === user.value}
-                empty="Nobody matches that search."
                 className="max-h-[calc(100vh-24rem)]"
               />
             ),
@@ -432,7 +544,8 @@ function UserSheet({
               </Field>
               <Button
                 className="mb-[0.1875rem]"
-                disabled={self || chosen === user.role || changeRole.isPending}
+                pending={changeRole.isPending}
+                disabled={self || chosen === user.role}
                 onClick={() => changeRole.mutate()}
               >
                 {changeRole.isPending ? "Saving…" : "Save role"}
@@ -450,14 +563,15 @@ function UserSheet({
             {user.active ? (
               <Button
                 variant="danger"
-                disabled={self || changeActive.isPending}
+                pending={changeActive.isPending}
+                disabled={self}
                 onClick={() => changeActive.mutate(false)}
               >
                 {changeActive.isPending ? "Suspending…" : "Suspend account"}
               </Button>
             ) : (
               <Button
-                disabled={changeActive.isPending}
+                pending={changeActive.isPending}
                 onClick={() => changeActive.mutate(true)}
               >
                 {changeActive.isPending ? "Restoring…" : "Restore account"}
@@ -472,7 +586,7 @@ function UserSheet({
 
           <Section title="Password">
             <div className="flex items-end gap-2.5">
-              <Field label="New password" className="flex-1">
+              <Field label="New password" required className="flex-1">
                 <Secret
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
@@ -480,7 +594,8 @@ function UserSheet({
               </Field>
               <Button
                 className="mb-[0.1875rem]"
-                disabled={password === "" || reset.isPending}
+                pending={reset.isPending}
+                disabled={password === ""}
                 onClick={() => reset.mutate()}
               >
                 {reset.isPending ? "Setting…" : "Set password"}
@@ -578,7 +693,8 @@ function AddUserSheet({
           <form.Subscribe selector={(state) => userReady(state.values)}>
             {(ready) => (
               <Button
-                disabled={!ready || add.isPending}
+                pending={add.isPending}
+                disabled={!ready}
                 onClick={() => form.handleSubmit()}
               >
                 {add.isPending ? "Creating…" : "Create"}
@@ -603,6 +719,7 @@ function AddUserSheet({
           {(field) => (
             <Field
               label="Username"
+              required
               hint="How they sign in. Never released once taken, and there is no delete."
             >
               <Input
@@ -618,6 +735,7 @@ function AddUserSheet({
           {(field) => (
             <Field
               label="Name"
+              required
               hint="What colleagues see beside their decisions."
             >
               <Input
@@ -633,6 +751,7 @@ function AddUserSheet({
           {(field) => (
             <Field
               label="Password"
+              required
               hint="Sent once. Nothing on this node reads it back, so hand it over now."
             >
               <Secret
@@ -747,7 +866,8 @@ function OwnPasswordSheet({
             <form.Subscribe selector={(state) => passwordReady(state.values)}>
               {(ready) => (
                 <Button
-                  disabled={!ready || change.isPending}
+                  pending={change.isPending}
+                  disabled={!ready}
                   onClick={() => form.handleSubmit()}
                 >
                   {change.isPending ? "Changing…" : "Change password"}
@@ -782,7 +902,7 @@ function OwnPasswordSheet({
           </p>
           <form.Field name="current">
             {(field) => (
-              <Field label="Current password">
+              <Field label="Current password" required>
                 <Secret
                   autoComplete="current-password"
                   value={field.state.value}
@@ -793,7 +913,7 @@ function OwnPasswordSheet({
           </form.Field>
           <form.Field name="next">
             {(field) => (
-              <Field label="New password">
+              <Field label="New password" required>
                 <Secret
                   value={field.state.value}
                   onChange={(event) => field.handleChange(event.target.value)}

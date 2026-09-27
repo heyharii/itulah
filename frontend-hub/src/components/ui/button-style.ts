@@ -34,7 +34,7 @@ export const button = cva(
   // `rounded-inner` (8), not a pill. A fully round control reads as consumer;
   // the reference screens hold a soft rectangle, and it also stops a button
   // from looking like a status chip at a glance.
-  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-inner font-medium whitespace-nowrap transition-[color,background-color,border-color,box-shadow,scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0",
+  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-inner font-medium whitespace-nowrap transition-[color,background-color,border-color,box-shadow,scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 disabled:aria-busy:opacity-75 [&_svg]:shrink-0",
   {
     variants: {
       variant: {

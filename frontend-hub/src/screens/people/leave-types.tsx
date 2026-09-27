@@ -84,7 +84,6 @@ export function LeaveTypes() {
 
   return (
     <>
-
       {/* A balance cannot be computed at all until somebody answers the four
           questions a policy asks. Saying so is the point: the alternative is a
           default nobody decided, which becomes a rule by accident. */}
@@ -225,7 +224,7 @@ function DefineKind() {
       <div className="flex flex-col gap-3 px-4 pb-4">
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
 
-        <Field label="Code" hint="Upper-cased, and never changes.">
+        <Field label="Code" hint="Upper-cased, and never changes." required>
           <Input
             value={draft.code}
             onChange={(event) =>
@@ -234,7 +233,7 @@ function DefineKind() {
             placeholder="CUTI_TAHUNAN"
           />
         </Field>
-        <Field label="Name">
+        <Field label="Name" required>
           <Input
             value={draft.name}
             onChange={(event) =>
@@ -272,6 +271,7 @@ function DefineKind() {
         {perOccurrence && (
           <Field
             label="Days per occurrence"
+            required
             hint="The operator's figure, never a constant: three days for a marriage is UU 13/2003 art. 93(4), and it can be amended."
           >
             <Input
@@ -325,7 +325,8 @@ function DefineKind() {
         <div>
           <Button
             variant="primary"
-            disabled={!ready || define.isPending}
+            pending={define.isPending}
+            disabled={!ready}
             onClick={() => define.mutate()}
           >
             Define

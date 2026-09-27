@@ -117,15 +117,19 @@ pub struct GaAssetFacets {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct GaAssetPage {
     pub rows: Vec<GaAssetRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    pub next_cursor: Option<String>,
     pub total: i64,
     pub facets: GaAssetFacets,
 }
 
 /// What a caller is asking GA's register for.
 ///
-/// No cursor: the register is a shop's walk-round list, and the screens that
-/// draw it want the first `limit` in the house order rather than a second page.
-/// `limit` is clamped rather than trusted — see [`MAX_GA_ASSET_LIMIT`].
+/// Paged by a keyset on the house order (`asset_number`, then `asset_id`):
+/// the register screen walks it a page at a time as the foot comes into view,
+/// and `total` says how big the whole answer is. `limit` is clamped rather
+/// than trusted — see [`MAX_GA_ASSET_LIMIT`].
 #[derive(Clone, Debug, Default)]
 pub struct GaAssetScope {
     /// Free text against the asset number, the name and the serial. The serial
@@ -139,7 +143,16 @@ pub struct GaAssetScope {
     pub statuses: Vec<String>,
     /// `Some(true)` hanya draft; `Some(false)` tanpa draft; `None` semua.
     pub draft_only: Option<bool>,
+    /// A `next_cursor` from the previous page, verbatim.
+    pub cursor: Option<String>,
     pub limit: i64,
+}
+
+/// Where the previous page stopped: the last row's id. The seek reads that
+/// row's sort key back out of the same filtered set.
+#[derive(Serialize, Deserialize)]
+struct GaAssetCursor {
+    asset_id: Uuid,
 }
 
 /// The register's first page when a caller does not say.
@@ -393,19 +406,33 @@ pub async fn ga_asset_page(pool: &PgPool, scope: GaAssetScope) -> Result<GaAsset
     let conditions = (!scope.conditions.is_empty()).then(|| scope.conditions.clone());
     let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
     let limit = scope.limit.clamp(1, MAX_GA_ASSET_LIMIT);
+    let cursor = scope
+        .cursor
+        .as_deref()
+        .map(super::decode_cursor::<GaAssetCursor>)
+        .transpose()?;
 
     let search = ga_asset_search();
     // The acquisition trail is joined onto the page and nothing else: a CTE is
     // materialised before the `LIMIT`, so the aggregate would otherwise run for
-    // the whole register in order to draw one page of it.
+    // the whole register in order to draw one page of it. The seek is a
+    // subquery over `kept`, which is why both CTEs stay `NOT MATERIALIZED` —
+    // see `movements::movements_page`.
     let sql = format!(
         "WITH searched AS NOT MATERIALIZED ({search}),
               kept AS NOT MATERIALIZED (
              SELECT * FROM searched WHERE {GA_ASSET_FILTERS}
+         ),
+              paged AS NOT MATERIALIZED (
+             SELECT * FROM kept
+              WHERE $8::uuid IS NULL
+                 OR (asset_number, asset_id) >
+                    (SELECT asset_number, asset_id FROM kept WHERE asset_id = $8)
+              ORDER BY asset_number, asset_id
+              LIMIT $9
          )
-         SELECT a.*, {GA_ACQUIRED_VIA} FROM kept a
-          ORDER BY a.asset_number
-          LIMIT $8"
+         SELECT a.*, {GA_ACQUIRED_VIA} FROM paged a
+          ORDER BY a.asset_number, a.asset_id"
     );
     let rows = sqlx::query(&sql)
         .bind(&needle)
@@ -415,13 +442,21 @@ pub async fn ga_asset_page(pool: &PgPool, scope: GaAssetScope) -> Result<GaAsset
         .bind(&conditions)
         .bind(&statuses)
         .bind(scope.draft_only)
+        .bind(cursor.as_ref().map(|c| c.asset_id))
         .bind(limit)
         .fetch_all(pool)
         .await?;
     let out = rows.iter().map(to_ga_asset).collect::<Result<Vec<_>, _>>()?;
+    let next_cursor = match out.last() {
+        Some(last) if out.len() as i64 == limit => Some(super::encode_cursor(&GaAssetCursor {
+            asset_id: last.asset_id,
+        })?),
+        _ => None,
+    };
     let (total, facets) = ga_asset_facets(pool, &scope, needle.as_deref()).await?;
     Ok(GaAssetPage {
         rows: out,
+        next_cursor,
         total,
         facets,
     })

@@ -374,6 +374,7 @@ function NewVersion({
                   <Field
                     label="Effective from"
                     hint="The first day the new tolerances apply."
+                    required
                     problem={problems.from}
                   >
                     <Day
@@ -464,6 +465,7 @@ function NewVersion({
             <Field
               label="Reason"
               hint="Recorded with the version. The server refuses one without it."
+              required
             >
               <Textarea
                 rows={2}
@@ -484,7 +486,8 @@ function NewVersion({
               type="submit"
               variant="primary"
               className="self-start"
-              disabled={!ready || write.isPending}
+              pending={write.isPending}
+              disabled={!ready}
             >
               {write.isPending ? "Writing…" : "Write the version"}
             </Button>

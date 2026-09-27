@@ -547,6 +547,15 @@ pub struct ListQuery {
     /// quietly replaced with their own.
     #[serde(default)]
     pub unit_id: Option<String>,
+    /// `PKWT`, `PKWTT` or `NONE` — the latest contract's kind.
+    #[serde(default)]
+    pub contract_kind: Option<String>,
+    /// The latest contract's position, compared whole.
+    #[serde(default)]
+    pub position: Option<String>,
+    /// `1` for a bound login, `0` for none.
+    #[serde(default)]
+    pub login: Option<String>,
     /// `code`, `name`, `contract_end` or `place`. Anything else is the house
     /// order rather than a 400 — see `EmployeeScope::sort`.
     #[serde(default)]
@@ -739,6 +748,9 @@ pub async fn list(
                 needle: query.q,
                 status: query.status,
                 unit_id: unit_filter,
+                contract_kind: query.contract_kind,
+                position: query.position,
+                login: query.login,
                 sort: query.sort,
                 desc: query.dir.as_deref() == Some("desc"),
                 cursor: query.cursor,

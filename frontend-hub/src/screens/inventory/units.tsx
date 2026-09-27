@@ -6,7 +6,7 @@ import { useCallback, useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input, Select, Textarea } from "@/components/ui/field"
+import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Sheet } from "@/components/ui/sheet"
 import {
@@ -357,24 +357,6 @@ function useIdempotencyKey(): {
   return { key, rotate }
 }
 
-function Labelled({
-  label,
-  problem,
-  children,
-}: {
-  label: React.ReactNode
-  problem?: string
-  children: React.ReactNode
-}) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-[0.875rem] font-medium text-text">{label}</span>
-      {children}
-      {problem && <span className="text-[0.875rem] text-bad">{problem}</span>}
-    </label>
-  )
-}
-
 function Toggle({
   label,
   hint,
@@ -499,7 +481,7 @@ function UnitForm({
     >
       {save.isError && <Refusal error={save.error} />}
 
-      <Labelled label="Code" problem={problems.code}>
+      <Field label="Code" required problem={problems.code}>
         <Input
           value={code}
           disabled={unit !== null}
@@ -507,15 +489,15 @@ function UnitForm({
           placeholder="LUSIN"
           autoFocus={unit === null}
         />
-      </Labelled>
+      </Field>
 
-      <Labelled label="Label" problem={problems.label}>
+      <Field label="Label" required problem={problems.label}>
         <Input
           value={label}
           onChange={(event) => setLabel(event.target.value)}
           placeholder="Lusin"
         />
-      </Labelled>
+      </Field>
 
       <Toggle
         label="Main unit"
@@ -547,7 +529,8 @@ function UnitForm({
         type="submit"
         variant="primary"
         className="h-10 text-[0.875rem]"
-        disabled={save.isPending || invalid}
+        pending={save.isPending}
+        disabled={invalid}
       >
         {save.isPending ? "Saving…" : unit === null ? "Add unit" : "Save"}
       </Button>
@@ -657,11 +640,12 @@ function ConversionForm({
       {save.isError && <Refusal error={save.error} />}
 
       <div className="grid grid-cols-2 gap-3">
-        <Labelled label="Other unit">
+        <Field label="Other unit" required>
           <Select
             value={from}
             onChange={setFrom}
             disabled={conversion !== null}
+            invalid={problems.from !== undefined}
             aria-label="Other unit"
           >
             {offered.map((unit) => (
@@ -670,12 +654,13 @@ function ConversionForm({
               </option>
             ))}
           </Select>
-        </Labelled>
-        <Labelled label="Main unit">
+        </Field>
+        <Field label="Main unit" required>
           <Select
             value={to}
             onChange={setTo}
             disabled={conversion !== null}
+            invalid={problems.from !== undefined}
             aria-label="Main unit"
           >
             {offered.map((unit) => (
@@ -684,13 +669,15 @@ function ConversionForm({
               </option>
             ))}
           </Select>
-        </Labelled>
+        </Field>
       </div>
       {problems.from && (
-        <span className="-mt-2 text-[0.875rem] text-bad">{problems.from}</span>
+        <span role="alert" className="-mt-2 text-[0.875rem] text-bad">
+          {problems.from}
+        </span>
       )}
 
-      <Labelled label="Conversion value" problem={problems.factor}>
+      <Field label="Conversion value" required problem={problems.factor}>
         <Input
           value={factor}
           inputMode="decimal"
@@ -699,7 +686,7 @@ function ConversionForm({
           className="tabular-nums"
           autoFocus={conversion === null}
         />
-      </Labelled>
+      </Field>
 
       {preview && (
         <div className="rounded-inner bg-soft-2 px-3.5 py-2.5 text-[0.9375rem] font-medium text-ink tabular-nums">
@@ -707,14 +694,14 @@ function ConversionForm({
         </div>
       )}
 
-      <Labelled label="Note">
+      <Field label="Note">
         <Textarea
           value={note}
           rows={3}
           onChange={(event) => setNote(event.target.value)}
           placeholder="Optional"
         />
-      </Labelled>
+      </Field>
 
       {conversion !== null && (
         <Toggle
@@ -729,7 +716,8 @@ function ConversionForm({
         type="submit"
         variant="primary"
         className="h-10 text-[0.875rem]"
-        disabled={save.isPending || invalid}
+        pending={save.isPending}
+        disabled={invalid}
       >
         {save.isPending
           ? "Saving…"

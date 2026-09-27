@@ -252,6 +252,7 @@ class MainActivity : ComponentActivity() {
             Where.TENDER -> TenderScreen(
                 totalMinor = state.totalMinor,
                 lines = state.lines,
+                methods = state.paymentMethods,
                 busy = state.busy,
                 failure = state.note?.takeIf { it.bad }?.text,
                 onCancel = { where = Where.DESK },

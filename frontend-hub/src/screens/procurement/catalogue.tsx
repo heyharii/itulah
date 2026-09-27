@@ -322,24 +322,12 @@ export function Catalogue() {
                     isSelected={(row) =>
                       row.item.supplier_item_id === item.value
                     }
+                    more={page}
                     className="max-h-[calc(100vh-20rem)]"
                   />
                 ),
             })}
           </Card>
-
-          {page.hasNextPage && (
-            <div className="mt-3 flex justify-center">
-              <Button
-                onClick={() => void page.fetchNextPage()}
-                disabled={page.isFetchingNextPage}
-              >
-                {page.isFetchingNextPage
-                  ? "Fetching…"
-                  : `Show more (${count(total - rows.length)} left)`}
-              </Button>
-            </div>
-          )}
         </>
       ) : (
         <Vocabulary />
@@ -534,7 +522,7 @@ function ItemStatusSwitch({ item }: { item: SupplierItem }) {
       <Button
         size="sm"
         variant={item.status === "ACTIVE" ? "ghost" : "soft"}
-        disabled={change.isPending}
+        pending={change.isPending}
         onClick={() =>
           change.mutate(item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE")
         }

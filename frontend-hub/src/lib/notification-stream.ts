@@ -92,7 +92,10 @@ function open() {
     counted(event)
     refresh()
   })
-  stream.addEventListener("notification", refresh)
+  stream.addEventListener("notification", (event) => {
+    refresh()
+    desktopNotify(event)
+  })
   stream.addEventListener("signed-out", () => {
     // The session ended. Stop, and let the fallback poll meet the 401 that
     // brings the sign-in box up.
@@ -146,6 +149,29 @@ function leave() {
 }
 
 /// Follow the stream for as long as the calling component is mounted.
+/// In the desktop app (`frontend-hub/desktop`), where Web Push does not reach,
+/// the stream is how a notification gets to the operating system: the shell
+/// exposes `window.itulahDesktop.notify` and shows it natively.
+interface DesktopBridge {
+  notify(title: string, body: string, url: string | null): void
+}
+
+function desktopNotify(event: Event) {
+  const bridge = (window as unknown as { itulahDesktop?: DesktopBridge })
+    .itulahDesktop
+  if (!bridge) return
+  try {
+    const data = JSON.parse((event as MessageEvent<string>).data) as {
+      title?: string
+      body?: string
+      url?: string | null
+    }
+    if (data.title) bridge.notify(data.title, data.body ?? "", data.url ?? null)
+  } catch {
+    // A notification the shell cannot show is still in the list.
+  }
+}
+
 export function useNotificationStream(): Snapshot {
   const queryClient = useQueryClient()
   useEffect(() => {

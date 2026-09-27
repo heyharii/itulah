@@ -24,6 +24,7 @@ import type { FinanceSetting } from "@itulah/contract"
 /// rupiah, anything else is typed as the number it is. The server refuses a
 /// value its rule cannot use and says why.
 const NAMES: Record<string, string> = {
+  assistant_monthly_budget_usd: "Assistant monthly budget",
   "sales.discount_accounting": "Discount accounting",
   "payroll.thr_accrual_months": "THR accrual months",
   "store_expense.manager_limit_minor": "Store manager approval limit",
@@ -142,7 +143,8 @@ function SettingRow({ setting }: { setting: FinanceSetting }) {
           <Button
             size="sm"
             variant={changed ? "primary" : "quiet"}
-            disabled={!changed || save.isPending}
+            pending={save.isPending}
+            disabled={!changed}
             onClick={() => save.mutate()}
           >
             {save.isPending ? "Saving…" : "Save"}

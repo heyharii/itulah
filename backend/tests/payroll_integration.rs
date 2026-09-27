@@ -1258,6 +1258,24 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
     // Approval refuses a run with somebody who has no account to be paid into,
     // so the handover test's second person needs one too.
     set_account(&app, &cookies, &csrf, &budi, "0987654321").await;
+    // Finance says where the standing allowance lands (0466), from its screen:
+    // a store's position allowance is salary, on the store salary leaf.
+    let linked = send(
+        app.clone(),
+        "POST",
+        "/api/v1/finance/account-links",
+        write_headers(&cookies, &csrf),
+        Some(json!({
+            "role": "payroll_expense",
+            "source_type": "PAY_COMPONENT",
+            "source_id": "JABATAN",
+            "scope_type": "SITE_KIND",
+            "scope_key": "STORE",
+            "account_code": "6012",
+        })),
+    )
+    .await;
+    assert_eq!(linked.status, StatusCode::OK, "link JABATAN: {:?}", linked.body);
     close_april(&app, &cookies, &csrf).await;
 
     let opened = open_run(&app, &cookies, &csrf).await;

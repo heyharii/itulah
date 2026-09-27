@@ -210,6 +210,7 @@ function CategoryForm({
       <Problem error={save.error} />
       <Field
         label="Code"
+        required
         aside={category === null ? "Never changes" : undefined}
       >
         <Input
@@ -219,7 +220,7 @@ function CategoryForm({
           placeholder="ELECTRICITY"
         />
       </Field>
-      <Field label="Name">
+      <Field label="Name" required>
         <Input
           value={name}
           onChange={(event) => setName(event.target.value)}
@@ -238,7 +239,7 @@ function CategoryForm({
         onChange={setForClaims}
       />
       <Checkbox label="Active" checked={active} onChange={setActive} />
-      <Field label="Note" aside="Optional">
+      <Field label="Note">
         <Input value={note} onChange={(event) => setNote(event.target.value)} />
       </Field>
       <div className="flex items-center justify-end gap-2">
@@ -251,7 +252,8 @@ function CategoryForm({
         )}
         <Button
           variant="primary"
-          disabled={code.trim() === "" || name.trim() === "" || save.isPending}
+          pending={save.isPending}
+          disabled={code.trim() === "" || name.trim() === ""}
           onClick={() => save.mutate()}
         >
           {save.isPending ? "Saving…" : "Save category"}

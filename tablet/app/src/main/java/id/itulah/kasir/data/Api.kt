@@ -173,6 +173,19 @@ class Api(@Volatile var config: Config) {
         true
     }.getOrDefault(false)
 
+    /**
+     * The active payment methods Finance keeps in the cloud master (ERPNext
+     * Mode of Payment). The node answers a bare array, which [request] wraps
+     * as `items`; an object with `items` is read the same way.
+     */
+    fun paymentMethods(): List<PaymentMethod> {
+        val items = request("/api/v1/store/payment-methods", "GET", null).optJSONArray("items")
+            ?: return emptyList()
+        return (0 until items.length()).mapNotNull { index ->
+            items.optJSONObject(index)?.let { PaymentMethod.from(it) }
+        }
+    }
+
     // ── The drawer ──────────────────────────────────────────────────────
 
     /** The shift running at this terminal, or null — which is ordinary. */

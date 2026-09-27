@@ -6,6 +6,7 @@
 #   sudo ./install-store.sh --code 7K4P9-QX2MA --cloud https://cloud.example
 #                                                        install and enrol by itself
 #   sudo ./install-store.sh --appliance ...              also harden a dedicated box
+#   sudo ./install-store.sh --ups ...                    also watch a USB UPS (NUT)
 #   sudo ./install-store.sh --uninstall                  remove the service; keep the data
 #
 # Run from the unpacked release directory: it expects `store`, `web/` and
@@ -33,6 +34,7 @@ UNIT=store-edge
 CODE=""
 CLOUD=""
 APPLIANCE=0
+UPS=0
 UNINSTALL=0
 
 while [[ $# -gt 0 ]]; do
@@ -40,6 +42,7 @@ while [[ $# -gt 0 ]]; do
         --code) CODE="${2:?--code needs a value}"; shift 2 ;;
         --cloud) CLOUD="${2:?--cloud needs a value}"; shift 2 ;;
         --appliance) APPLIANCE=1; shift ;;
+        --ups) UPS=1; shift ;;
         --uninstall) UNINSTALL=1; shift ;;
         -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 64 ;;
@@ -130,6 +133,47 @@ EOF
     echo "    Remember the BIOS: Restore on AC power loss = Power On."
 fi
 
+if [[ $UPS -eq 1 ]]; then
+    echo "==> UPS: NUT watching a USB UPS, clean shutdown on low battery"
+    # The node only READS the UPS (edge/power.rs, via `upsc`). Shutting the
+    # machine down when the battery runs low is NUT's job: upsmon stops every
+    # service first — the store server among them, which is a clean stop for it
+    # — and powers off. The BIOS brings it back when the mains returns.
+    if ! command -v apt-get >/dev/null; then
+        echo "    (not a Debian/Ubuntu system: install and configure NUT by hand)"
+    else
+        DEBIAN_FRONTEND=noninteractive apt-get install -y nut >/dev/null
+        found="$(nut-scanner -U -q 2>/dev/null | sed 's/^\[nutdev[0-9]*\]/[shop]/')"
+        if [[ -z "$found" ]]; then
+            echo "    No USB UPS found. Plug it in and run this again with --ups."
+        else
+            printf '%s\n' "$found" > /etc/nut/ups.conf
+            echo "MODE=standalone" > /etc/nut/nut.conf
+            monitor_password="$(od -An -N16 -tx1 /dev/urandom | tr -d '[:space:]')"
+            cat > /etc/nut/upsd.users <<EOF2
+[upsmon]
+    password = ${monitor_password}
+    upsmon primary
+EOF2
+            cat > /etc/nut/upsmon.conf <<EOF2
+MONITOR shop@localhost 1 upsmon ${monitor_password} primary
+MINSUPPLIES 1
+SHUTDOWNCMD "/sbin/shutdown -h +0"
+POWERDOWNFLAG /etc/killpower
+FINALDELAY 5
+EOF2
+            chmod 640 /etc/nut/upsd.users /etc/nut/upsmon.conf
+            chgrp nut /etc/nut/upsd.users /etc/nut/upsmon.conf 2>/dev/null || true
+            systemctl enable --now nut-driver-enumerator.path nut-server nut-monitor >/dev/null 2>&1 || true
+            systemctl restart nut-server nut-monitor >/dev/null 2>&1 || true
+            sleep 2
+            upsc shop@localhost ups.status 2>/dev/null \
+                && echo "    UPS found and watched. Status above: OL = on mains, OB = on battery." \
+                || echo "    NUT installed, but the UPS did not answer yet; check 'upsc shop@localhost'."
+        fi
+    fi
+fi
+
 systemctl daemon-reload
 systemctl enable --now "$UNIT"
 
@@ -145,6 +189,10 @@ if [[ -n "$CODE" ]]; then
         fi
         sleep 1
     done
+elif [[ -f "$DATA/node.env" ]]; then
+    # An upgrade or a reinstall: the node keeps its identity and its data.
+    site="$(grep -m1 '^INVENTORY_SITE_ID=' "$DATA/node.env" | cut -d= -f2)"
+    echo "Upgraded. This machine is still enrolled as ${site:-its site}; its data was kept."
 else
     echo "Installed. To enrol this machine run:"
     echo "  sudo -u itulah ITULAH_DATA_DIR=$DATA store enroll --code XXXXX-XXXXX --cloud https://…"

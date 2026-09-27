@@ -13,7 +13,7 @@ import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
 import { FilterOmnibox } from "@/components/ui/filter-omnibox"
 import {
   ChoiceMenu,
@@ -570,18 +570,7 @@ export function Sourcing() {
                     ))}
                   </div>
 
-                  {catalogue.hasNextPage && (
-                    <div className="mt-6 flex justify-center">
-                      <Button
-                        onClick={() => catalogue.fetchNextPage()}
-                        disabled={catalogue.isFetchingNextPage}
-                      >
-                        {catalogue.isFetchingNextPage
-                          ? "Fetching…"
-                          : "Show more"}
-                      </Button>
-                    </div>
-                  )}
+                  <LoadMore query={catalogue} className="mt-6" />
                 </>
               ),
           })}
@@ -963,7 +952,8 @@ function ItemSheet({
             <Button
               variant="primary"
               className="flex-1"
-              disabled={!valid || pick.isPending}
+              pending={pick.isPending}
+              disabled={!valid}
               onClick={() =>
                 pick.mutate({
                   supplier_item_id: detail.data!.supplier_item_id,

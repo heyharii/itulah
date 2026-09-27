@@ -78,6 +78,17 @@ No `useEffect` + `fetch` anywhere. Reach the node through `node` from
 Render the three states with `queryState(query, { loading, render })` from
 `@/components/ui/states` — never a bespoke spinner, never a bespoke error
 sentence. A spinner on a 400ms fetch is a flash; a spinner on a hang is a lie.
+A refetch that fails over data already on screen keeps the data and says so
+above it (a warn banner with the time the rows are from, and Try again) — only
+a first load that fails becomes the error state.
+
+Every paginated list is **infinite scroll** — never a "Show more" button. A
+`<DataTable>` or `<VirtualList>` that scrolls itself takes `more={query}`
+(the infinite query); a list that scrolls with the page (a card grid, a sheet
+body) ends with `<LoadMore query={query} />`. Either one fetches the next page
+as the foot nears view, says "Loading more…", and on a failed page stops and
+shows the server's sentence with Try again. `LoadMore` must sit inside the box
+that scrolls, or it stays in view and pulls every page.
 
 ## Writes
 
@@ -95,6 +106,43 @@ const activate = useMutation({
 Invalidate a whole prefix only when the action genuinely touches everything, and
 say so in a comment. A write that must not be applied twice sends an
 `Idempotency-Key` header.
+
+The button that starts a write takes `pending={save.isPending}`, never
+`disabled={save.isPending}`: pending is disabled *and* `aria-busy`, and it is
+drawn less faded than a button that will never work. The label still says what
+is happening ("Saving…") — no spinner. A write that failed is `<Problem>` where
+it was attempted; one that worked and left a receipt is `<Receipt>`; one that
+worked and moved the screen on is a toast.
+
+An action that must be confirmed is `<ConfirmButton>`. Give it
+`reason={{ label: "Why" }}` when the write records one (required unless
+`optional: true`), and return the mutation's promise from `onConfirm`
+(`mutateAsync`) so the dialog stays open and pending until the write settles
+and shows a refusal under the question instead of in a toast.
+
+## Form fields
+
+Every question is a `<Field>`, and the field owns its state — the control
+inside never gets `border-bad`, `aria-invalid` or a star by hand:
+
+- **Required** — `<Field required>`. A red star, `aria-required` on the
+  control, and a required `<PickOne>`/`<Day>` loses its clearing ×. An
+  unmarked field is optional, so a form that marks one required field marks
+  all of them. Never the native `required` attribute (browser bubble).
+- **Invalid** — `<Field problem={…}>`. Any sentence there turns the control's
+  border `{bad}`, sets `aria-invalid`, and wires the sentence to it with
+  `aria-describedby`. Show it after the field is left (`touched`) or after a
+  refused submit, not on the first keystroke.
+- **Hint** — `aside` beside the label for a fact about the question; `hint`
+  under the control only for a figure to compare against.
+- **Disabled / read-only** — `disabled` on the control. Every control in the
+  kit takes it.
+- **Outside a field** (a cell in a table) — the control's own `invalid` prop.
+
+The controls that read all of this: `Input`, `Textarea`, `Money`, `Select`,
+`PickOne`, `PickMany`, `Day`, `Checkbox`, `Choices`, `Stepper`, `Dial`
+(and the `me/ui` `Input`/`Textarea`). A new control reads it with
+`useFieldAria()` from `@/components/ui/field-state`.
 
 ## Tables
 
@@ -268,7 +316,7 @@ before writing markup:
 | Closing a record | `<TotalsLadder>` |
 | Summary rows | `<KeyValue>` |
 | A proportion | `<Meter>` |
-| Form input | `<Field>` + `<Input>` / `<Textarea>` |
+| Form input | `<Field required problem>` + `<Input>` / `<Textarea>` — see *Form fields* |
 | Page-level fact | `<Banner tone>` |
 | Choice from a list | `<Select>` |
 | Link to another screen | `<AppLink to sheet>` — **not** Router's `<Link>` |

@@ -5,6 +5,7 @@ import { Slider } from "@base-ui/react/slider"
 import { Minus, Plus } from "lucide-react"
 
 import { Input } from "@/components/ui/field"
+import { HAS_INVALID, useFieldAria } from "@/components/ui/field-state"
 import { cn } from "@/lib/utils"
 
 /// The controls a COMPOSER needs, which are not the controls a record needs.
@@ -99,6 +100,9 @@ export function Choices<T extends string>({
   onChange,
   columns = 2,
   label,
+  disabled,
+  invalid,
+  required,
   className,
 }: {
   options: readonly Tile<T>[]
@@ -107,11 +111,21 @@ export function Choices<T extends string>({
   columns?: 1 | 2 | 3
   /// For the screen reader, when the visible heading is a `<Section>` title.
   label?: string
+  /// The whole question locked — a record being read. One option refused is
+  /// `Tile.refused`, which carries its reason.
+  disabled?: boolean
+  /// Refused, outside a `<Field>`. Inside one the field says it.
+  invalid?: boolean
+  required?: boolean
   className?: string
 }) {
+  const aria = useFieldAria({ invalid, required })
+  const wrong = aria["aria-invalid"] === true
   return (
     <RadioGroup
       aria-label={label}
+      {...aria}
+      disabled={disabled}
       value={value}
       onValueChange={(next) => onChange(next as T)}
       className={cn(
@@ -124,23 +138,32 @@ export function Choices<T extends string>({
     >
       {options.map((one) => {
         const refused = one.refused !== undefined
+        const dead = refused || disabled === true
         const Glyph = one.icon
         return (
           <Radio.Root
             key={one.value}
             value={one.value}
-            disabled={refused}
+            disabled={dead}
             className={cn(
               "flex min-w-0 cursor-pointer items-center gap-2.5 rounded-inner border px-3 py-2.5 text-left transition-colors",
               "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+              // Locked but not refused: the answer stays legible — the chosen
+              // tile keeps its accent — and nothing invites a press.
+              !refused && disabled === true && "cursor-default opacity-60",
               // A refused option carries a whole sentence, so it takes a whole
               // row rather than standing as a tile twice the height of the one
               // beside it.
               refused
                 ? "cursor-default border-hairline bg-soft opacity-90 sm:col-span-full"
                 : one.value === value
-                  ? "border-accent bg-accent-bg"
-                  : "border-hairline-2 bg-canvas hover:border-hairline-strong hover:bg-soft-2"
+                  ? cn("border-accent bg-accent-bg", wrong && "border-bad")
+                  : cn(
+                      "border-hairline-2 bg-canvas",
+                      disabled !== true &&
+                        "hover:border-hairline-strong hover:bg-soft-2",
+                      wrong && "border-bad hover:border-bad"
+                    )
             )}
           >
             {Glyph && (
@@ -202,11 +225,17 @@ export function Choices<T extends string>({
 export function Switch({
   on,
   busy,
+  disabled,
   label,
   onToggle,
 }: {
   on: boolean
+  /// The change is on its way to the server. Not the same as `disabled`: a
+  /// switch that is busy is about to move, and one that is disabled never
+  /// will — so it is drawn half-faded and announced `aria-busy`, where a
+  /// disabled one is faded all the way.
   busy?: boolean
+  disabled?: boolean
   label: string
   onToggle: () => void
 }) {
@@ -216,7 +245,8 @@ export function Switch({
       role="switch"
       aria-checked={on}
       aria-label={label}
-      disabled={busy}
+      aria-busy={busy === true ? true : undefined}
+      disabled={busy === true || disabled === true}
       onClick={(event) => {
         // The row underneath opens a detail; the switch changes the world.
         // Letting the click reach both would open a panel every time somebody
@@ -224,14 +254,18 @@ export function Switch({
         event.stopPropagation()
         onToggle()
       }}
-      className={`relative inline-flex h-[1.125rem] w-[1.875rem] shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+      className={cn(
+        "relative inline-flex h-[1.125rem] w-[1.875rem] shrink-0 items-center rounded-full transition-colors",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+        "disabled:opacity-50 aria-busy:cursor-progress aria-busy:opacity-70",
         on ? "bg-accent" : "bg-soft-3"
-      }`}
+      )}
     >
       <span
-        className={`absolute size-3.5 rounded-full bg-canvas shadow-soft transition-[left] ${
+        className={cn(
+          "absolute size-3.5 rounded-full bg-canvas shadow-soft transition-[left]",
           on ? "left-[0.875rem]" : "left-0.5"
-        }`}
+        )}
       />
     </button>
   )
@@ -248,11 +282,15 @@ export function Toggle({
   onToggle,
   label,
   note,
+  busy,
+  disabled,
   className,
 }: {
   on: boolean
   onToggle: () => void
   label: string
+  busy?: boolean
+  disabled?: boolean
   /// What is true *now* — it changes with the switch, because a caption that
   /// stays the same in both positions is telling you nothing about the state.
   note: React.ReactNode
@@ -263,11 +301,18 @@ export function Toggle({
       className={cn(
         "flex items-start gap-2.5 rounded-inner border border-hairline-2 px-3 py-2.5",
         on && "border-accent bg-accent-bg",
+        disabled === true && "opacity-60",
         className
       )}
     >
       <span className="pt-0.5">
-        <Switch on={on} label={label} onToggle={onToggle} />
+        <Switch
+          on={on}
+          label={label}
+          busy={busy}
+          disabled={disabled}
+          onToggle={onToggle}
+        />
       </span>
       <span className="min-w-0">
         <span className="block text-[0.875rem] font-medium text-ink">
@@ -321,6 +366,8 @@ export function Dial({
   marks,
   placeholder,
   label,
+  disabled,
+  invalid,
 }: {
   /// Text, not a number: the form holds "" for "nothing said yet", which is a
   /// different answer from zero and the one a slider cannot hold on its own.
@@ -339,6 +386,10 @@ export function Dial({
   marks?: readonly number[]
   placeholder?: string
   label: string
+  disabled?: boolean
+  /// Refused, outside a `<Field>`. Inside one the field says it — on the typed
+  /// box, which is where the figure is read and corrected.
+  invalid?: boolean
 }) {
   const typed = value.trim() === "" ? null : Number(value)
   const at = typed !== null && Number.isFinite(typed) ? typed : min
@@ -366,9 +417,10 @@ export function Dial({
           max={max}
           step={step}
           onValueChange={(next) => onChange(String(next))}
-          className="group/dial min-w-0 flex-1"
+          disabled={disabled}
+          className="group/dial min-w-0 flex-1 data-disabled:opacity-50"
         >
-          <Slider.Control className="w-full cursor-grab touch-none active:cursor-grabbing">
+          <Slider.Control className="w-full cursor-grab touch-none group-data-[disabled]/dial:cursor-default active:cursor-grabbing">
             <Slider.Track className="relative h-10 w-full overflow-hidden rounded-full bg-soft-2">
               {/* The fill ends at the thumb's centre, which is what makes the
                   band read as filled TO the handle rather than under it. */}
@@ -424,6 +476,8 @@ export function Dial({
             inputMode="decimal"
             aria-label={`${label}, typed`}
             placeholder={placeholder}
+            disabled={disabled}
+            invalid={invalid}
             onChange={(event) => onChange(event.target.value)}
             className={cn("h-10 text-right tabular-nums", suffix && "pr-8")}
           />
@@ -442,7 +496,9 @@ export function Dial({
               key={one}
               type="button"
               aria-pressed={typed === one}
+              disabled={disabled}
               className={cn(
+                "disabled:pointer-events-none disabled:opacity-50",
                 "rounded-full px-2 py-0.5 text-[0.875rem] font-medium tabular-nums transition-colors",
                 typed === one
                   ? "bg-accent-bg text-accent"
@@ -478,6 +534,9 @@ export function Stepper({
   suffix,
   placeholder,
   label,
+  disabled,
+  invalid,
+  required,
 }: {
   value: string
   onChange: (value: string) => void
@@ -486,17 +545,31 @@ export function Stepper({
   suffix?: string
   placeholder?: string
   label: string
+  disabled?: boolean
+  /// Refused, outside a `<Field>`. Inside one the field says it.
+  invalid?: boolean
+  required?: boolean
 }) {
   const typed = value.trim() === "" ? null : Number(value)
+  const aria = useFieldAria({ invalid, required })
 
   return (
     <NumberField.Root
       value={typed !== null && Number.isFinite(typed) ? typed : null}
       min={min}
       max={max}
+      disabled={disabled}
       onValueChange={(next) => onChange(next === null ? "" : String(next))}
     >
-      <NumberField.Group className="flex h-9 w-full items-center rounded-full border border-transparent bg-soft-2 transition-colors hover:border-hairline-2 hover:bg-soft-3">
+      <NumberField.Group
+        className={cn(
+          "flex h-9 w-full items-center rounded-full border border-transparent bg-soft-2 transition-colors hover:border-hairline-2 hover:bg-soft-3",
+          "has-[input:focus-visible]:border-accent",
+          "has-[input:disabled]:opacity-50 has-[input:disabled]:hover:border-transparent has-[input:disabled]:hover:bg-soft-2",
+          HAS_INVALID,
+          "has-[[aria-invalid=true]]:has-[input:focus-visible]:border-bad"
+        )}
+      >
         <NumberField.Decrement
           aria-label={`${label}, one fewer`}
           className="grid size-8 shrink-0 place-items-center rounded-full text-line-ico transition-colors hover:bg-hairline hover:text-ink disabled:opacity-40"
@@ -506,6 +579,7 @@ export function Stepper({
         <span className="relative flex min-w-0 flex-1 items-center justify-center">
           <NumberField.Input
             aria-label={label}
+            {...aria}
             placeholder={placeholder}
             className={cn(
               "w-full bg-transparent text-center text-[0.875rem] text-ink tabular-nums outline-none",

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, Problem } from "@/components/ui/states"
+import { Problem } from "@/components/ui/states"
 import {
   enrolMember,
   issuePairingCode,
@@ -143,7 +143,7 @@ export function IssueCode({
         <Button
           variant={issued ? "ghost" : "soft"}
           onClick={() => issue.mutate()}
-          disabled={issue.isPending}
+          pending={issue.isPending}
         >
           <KeyRound />
           {issued ? "Issue another" : "Issue a pairing code"}
@@ -223,6 +223,7 @@ export function EnrolCard({
             </p>
             <Field
               label="Card number"
+              required
               hint="Exactly as printed. It is what the till writes onto a sale, so a number typed differently here is a different member."
             >
               <Input
@@ -249,7 +250,8 @@ export function EnrolCard({
               <Button
                 variant="primary"
                 onClick={() => enrol.mutate()}
-                disabled={memberId.trim() === "" || enrol.isPending}
+                pending={enrol.isPending}
+                disabled={memberId.trim() === ""}
               >
                 <UserPlus />
                 Enrol this card

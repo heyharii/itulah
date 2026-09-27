@@ -8,7 +8,6 @@ import {
   modulesOfDomain,
   moduleForPath,
   shown,
-  visibleItems,
   type AppModule,
   type NavItem,
 } from "@/lib/navigation"
@@ -58,11 +57,10 @@ export function Sidebar({
   const active = moduleForPath(pathname)
   const domain = domainForPath(pathname)
   const owned = domain ? modulesOfDomain(domain) : [active]
-  // Headings when there are groups to name, and not when the domain is six
-  // one-screen modules whose rows already say what the headings would — see
-  // `flatDomain`.
+  // Headings when there are groups to name, and not when the domain is a run
+  // of one-screen modules whose rows already say what the headings would —
+  // see `flatDomain`.
   const grouped = owned.length > 1 && !flatDomain(owned)
-  const conciseGa = domain?.id === "ga"
   const identity = useIdentity()
   const signOut = useSignOut()
 
@@ -149,29 +147,22 @@ export function Sidebar({
 
             Whether those modules are drawn as labelled groups or as one flat
             list is `flatDomain`'s question, not this file's. */}
-        {owned.map((module, index) => {
-          const sectionStarts =
-            module.sidebarSection !== undefined &&
-            owned[index - 1]?.sidebarSection !== module.sidebarSection
-          const needsModuleHeading =
-            grouped && (!conciseGa || visibleItems(module).length > 1)
-
-          return (
-            <div key={module.id} className="flex flex-col gap-px">
-              {sectionStarts && (
-                <span className="px-[0.5625rem] pt-4 pb-[0.3125rem] text-section font-semibold tracking-[0.05em] text-mute uppercase">
-                  {module.sidebarSection}
-                </span>
-              )}
-              {needsModuleHeading && (
-                <span className="px-[0.5625rem] pt-4 pb-[0.3125rem] text-section font-semibold tracking-[0.05em] text-mute uppercase">
-                  {module.label}
-                </span>
-              )}
-              <ModuleScreens key={module.id} module={module} />
-            </div>
-          )
-        })}
+        {owned.map((module, index) => (
+          <div key={module.id} className="flex flex-col gap-px">
+            {/* A flat domain's groups are hairlines, not words — the rule a
+                later unlabelled section follows inside a module. Never above
+                the first row, which sits under the domain's own title. */}
+            {!grouped && module.divider && index > 0 && (
+              <hr className="mx-[0.5625rem] mt-[0.6875rem] mb-[0.5625rem] border-0 border-t border-hairline" />
+            )}
+            {grouped && (
+              <span className="px-[0.5625rem] pt-4 pb-[0.3125rem] text-section font-semibold tracking-[0.05em] text-mute uppercase">
+                {module.label}
+              </span>
+            )}
+            <ModuleScreens key={module.id} module={module} />
+          </div>
+        ))}
       </nav>
 
       <div className="-mx-[0.1875rem] mt-auto border-t border-hairline pt-2">

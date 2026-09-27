@@ -94,11 +94,11 @@ export function StageLine({
 export function ResultPill({ result }: { result: string }) {
   switch (result) {
     case "BAIK":
-      return <Pill tone="ok">Baik</Pill>
+      return <Pill tone="ok">Good</Pill>
     case "PERHATIAN":
-      return <Pill tone="warn">Perlu perhatian</Pill>
+      return <Pill tone="warn">Needs attention</Pill>
     default:
-      return <Pill tone="bad">Rusak</Pill>
+      return <Pill tone="bad">Broken</Pill>
   }
 }
 

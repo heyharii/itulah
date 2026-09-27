@@ -36,7 +36,7 @@ export function Swap() {
     <div className="flex flex-col gap-4">
       <Panel title="Ask for a swap">
         <div className="flex flex-col gap-3">
-          <Field label="The day you want to give">
+          <Field label="The day you want to give" required>
             <Day
               value={onDate}
               onChange={setOnDate}
@@ -47,7 +47,7 @@ export function Swap() {
             />
           </Field>
           {onDate !== "" && (
-            <Field label="Swap with">
+            <Field label="Swap with" required>
               <Select
                 value={withEmployeeId}
                 onChange={setWithEmployeeId}
@@ -71,7 +71,7 @@ export function Swap() {
               </Select>
             </Field>
           )}
-          <Field label="Why">
+          <Field label="Why" required>
             <Input value={reason} onChange={(e) => setReason(e.target.value)} />
           </Field>
           {failed !== null && <p className="text-meta text-bad">{failed}</p>}

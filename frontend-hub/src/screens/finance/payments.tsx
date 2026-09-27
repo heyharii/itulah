@@ -1,5 +1,10 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
@@ -30,7 +35,6 @@ import {
   EmptyState,
   NoAccessState,
   NoMatch,
-  Truncated,
 } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, money, moment, toneFor } from "@/lib/format"
@@ -38,6 +42,7 @@ import {
   financeKeys,
   listBills,
   listPayments,
+  payment as readPayment,
   postPayment,
   recordPayment,
   type AllocateToBill,
@@ -45,6 +50,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import { monthLabel, parseMinor, todayIso } from "@/screens/finance/chart"
 import {
   moneyAccountValue,
@@ -172,12 +178,15 @@ const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
     accessorFn: (row) => supplierNames(row).join(" "),
     header: "Suppliers",
     size: 240,
+    // The server orders by number, date and total only; see `SORTS`.
+    enableSorting: false,
     cell: ({ row }) => <Suppliers payment={row.original} />,
   },
   {
     accessorKey: "site_id",
     header: "Location",
     size: 130,
+    enableSorting: false,
     // The client's own name for it. The id stays in `title`, because that is
     // what the account codes carry and what a support call will be about.
     cell: ({ row }) => <SiteName id={row.original.site_id} />,
@@ -187,6 +196,7 @@ const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
     accessorFn: (row) => `${row.account_key} ${row.account_qualifier}`,
     header: "From account",
     size: 200,
+    enableSorting: false,
     // Which pot the money left, and the one narrowing on this screen that
     // nothing else offers: "everything that went out of BCA giro this month"
     // is a bank question and the wire takes a site, not an account. The
@@ -234,6 +244,7 @@ const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
     accessorKey: "status",
     header: "Status",
     size: 120,
+    enableSorting: false,
     meta: { filter: { kind: "option", format: label } },
     cell: ({ row }) => (
       <Pill tone={toneFor(row.original.status)}>
@@ -245,6 +256,7 @@ const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
     accessorKey: "posted_by",
     header: "Posted by",
     size: 140,
+    enableSorting: false,
     // Blank is the answer for a payment nobody has posted, and a dash says so
     // without pretending the column is missing — which is also what makes the
     // column worth a question: `is empty` is "every payment still in draft",
@@ -271,12 +283,18 @@ function monthKey(iso: string): string {
   return iso.slice(0, 7)
 }
 
-/// What this screen asks the register for, named once so the chip, the banner
-/// and the request cannot drift apart. It is the server's ceiling and not a
-/// page size: the window, the search box and every column heading below narrow
-/// what is already here, and the outflow chart is summed from it — so this is
-/// the number past which every figure on the screen is about a slice.
-const CAP = 200
+/// How many payments one page of the register asks for. A step, not a
+/// ceiling: the table asks for the next page as its last rows scroll into view.
+const PAGE = 100
+
+/// The columns the server can order by, and the word it knows each one as.
+/// Every other column carries `enableSorting: false` — sorting the pages in
+/// hand and calling it the register is the mistake infinite scroll invites.
+const SORTS: Record<string, string> = {
+  payment_number: "number",
+  payment_date: "date",
+  total_minor: "total",
+}
 
 export function Payments() {
   const [query, setQuery] = useState("")
@@ -288,33 +306,71 @@ export function Payments() {
     { id: "payment_date", desc: true },
   ])
 
-  const payments = useQuery({
-    queryKey: financeKeys.payments(null, site || null, null),
-    queryFn: ({ signal }) =>
-      listPayments({ site: site || undefined, limit: CAP }, signal).then(
-        (page) => page.rows
-      ),
+  const filters = useFilters(columns)
+
+  /// Status is the one column clause the server can answer, so an "is any
+  /// of" on it goes on the wire. The same clause still runs in the browser,
+  /// where it can only agree. The other columns — which account, how big,
+  /// who posted — narrow the rows in hand, and the table keeps reading pages
+  /// while the filtered list leaves its end in view.
+  const statuses = useMemo(() => {
+    const clause = filters.filters.find(
+      (filter) =>
+        filter.column === "status" &&
+        filter.operator === "isAnyOf" &&
+        filter.values.length > 0
+    )
+    return clause === undefined ? undefined : clause.values.join(",")
+  }, [filters.filters])
+
+  /// Debounced, because every keystroke is a round trip over the register.
+  const needle = useDebounced(query.trim(), 400)
+  const by = sorting[0]
+  const sort = by === undefined ? undefined : SORTS[by.id]
+  const scope = {
+    site: site || undefined,
+    status: statuses,
+    q: needle === "" ? undefined : needle,
+    sort,
+    dir: by?.desc === true ? "desc" : undefined,
+    from: range.from,
+    to: range.to,
+    limit: PAGE,
+  }
+
+  // The window, the location, the search, the status and the order are all
+  // the server's now — `GET /payments` took `from`/`to` for this screen — so
+  // every page is a page of the answer rather than a slice of the newest two
+  // hundred payments narrowed in the browser.
+  const payments = useInfiniteQuery({
+    queryKey: [
+      ...financeKeys.payments(null, site || null, null),
+      "pages",
+      scope,
+    ],
+    queryFn: ({ pageParam, signal }) =>
+      listPayments({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched. Without
+    // it every keystroke empties the table to a loading line.
+    placeholderData: (previous) => previous,
   })
 
-  // The window is applied here and not on the wire: `PaymentQuery` on the node
-  // takes a status, a site, a supplier and a limit, and no dates. Narrowing in
-  // the browser over a list that is already capped is honest as long as the
-  // page says so — which the chip in the toolbar does, naming both the window
-  // and the cap.
   const rows = useMemo(
-    () =>
-      (payments.data ?? []).filter(
-        (row) => row.payment_date >= range.from && row.payment_date <= range.to
-      ),
-    [payments.data, range.from, range.to]
+    () => payments.data?.pages.flatMap((page) => page.rows) ?? [],
+    [payments.data]
   )
-
-  /// Read off the answer and never off `rows`, which the window has already
-  /// thinned. A fortnight holding nine payments out of a full two hundred is
-  /// still a fortnight missing the ones that fell past the cap.
-  const truncated = (payments.data ?? []).length >= CAP
-
-  const filters = useFilters(columns)
+  /// Every payment the window, search and filters match — the server's count,
+  /// never the length of the pages in hand.
+  const matched = payments.data?.pages[0]?.total ?? 0
+  /// Whether anything but the window and the location is narrowing the
+  /// register — "nothing was paid" and "nothing matches" have different fixes.
+  const narrowed = needle !== "" || filters.filters.length > 0
+  const clearNarrowing = () => {
+    setQuery("")
+    filters.clear()
+  }
 
   const table = useTable(
     useMemo(
@@ -325,15 +381,44 @@ export function Payments() {
         getRowId: (row: SupplierPayment) => row.payment_id,
         state: {
           columnFilters: filters.columnFilters,
-          globalFilter: query,
           sorting,
         },
+        // The rows arrive in the order the request asked for, and the search
+        // box is the server's. Sorting or searching them again here would do
+        // it to the pages in hand and call it the register.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
+
+  /// The chart's own read: every POSTED payment in the window at the chosen
+  /// location, unpaged. The register above pages, and a chart summed from
+  /// the pages in hand would grow as somebody scrolled — on a cash chart, a
+  /// month that looks quiet because its payments had not loaded yet.
+  ///
+  /// `limit: undefined` is deliberate and overrides the fetcher's default:
+  /// an absent limit is how `GET /payments` is asked for the whole answer.
+  const postedInWindow = useQuery({
+    queryKey: [
+      ...financeKeys.payments("POSTED", site || null, null),
+      "window",
+      range.from,
+      range.to,
+    ],
+    queryFn: ({ signal }) =>
+      listPayments(
+        {
+          status: "POSTED",
+          site: site || undefined,
+          from: range.from,
+          to: range.to,
+          limit: undefined,
+        },
+        signal
+      ),
+  })
 
   /// What left the bank, month by month, over the window on screen.
   ///
@@ -345,7 +430,7 @@ export function Payments() {
   /// Every month in the window gets a bar, including the empty ones: closing
   /// a gap up lets the eye read two bars three months apart as consecutive.
   const outflow = useMemo(() => {
-    const posted = rows.filter((row) => row.status.toUpperCase() === "POSTED")
+    const posted = postedInWindow.data?.rows ?? []
     const sums = new Map<string, number>()
     for (const row of posted) {
       const key = monthKey(row.payment_date)
@@ -366,14 +451,16 @@ export function Payments() {
     }
 
     return {
-      payments: posted.length,
-      paid: posted.reduce((sum, row) => sum + row.total_minor, 0),
+      // The server's count and sum over the same set the bars are drawn
+      // from, so the caption and the chart cannot disagree.
+      payments: postedInWindow.data?.total ?? 0,
+      paid: postedInWindow.data?.total_minor ?? 0,
       rows: buckets.map((bucket) => ({
         bucket,
         total: sums.get(bucket) ?? 0,
       })),
     }
-  }, [rows, range.from, range.to])
+  }, [postedInWindow.data, range.from, range.to])
 
   return (
     <PageContent>
@@ -404,25 +491,21 @@ export function Payments() {
           className="h-8 w-44"
           aria-label="Location"
         />
-        {/* The window and the location are already asked to the left — one in
-            the browser, one on the wire — so neither is offered again in the
-            panel. What is offered is what no control here can reach: which
-            pot the money left, how big it was, and whether anybody has posted
-            it. */}
+        {/* The window and the location are already asked to the left, both on
+            the wire, so neither is offered again in the panel. What is offered
+            is what no control here can reach: which pot the money left, how
+            big it was, and whether anybody has posted it. */}
         <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
-        {/* The window is stated rather than implied. The cap is not the
-            window's: it is the server's, and a reader who has narrowed to a
-            fortnight should still be told what was asked for. */}
+        {/* The window is stated rather than implied, and so is how many
+            payments the server found in it — its count, not the pages loaded
+            so far. */}
         <span className="text-[0.875rem] text-mute">
-          {range.chip} · the newest {CAP} payments
+          {range.chip}
+          {payments.data !== undefined &&
+            ` · ${count(matched)} ${matched === 1 ? "payment" : "payments"}`}
         </span>
       </Toolbar>
-
-      {/* Above the chart as well as the table, because the chart is summed
-          from the same rows: a bar that is short because the payments in that
-          month never arrived looks exactly like a quiet month. */}
-      {truncated && <Truncated limit={CAP} noun="payments" />}
 
       {/* Only when something has actually been paid in the window. With every
           payment still in draft the chart would be a row of empty months
@@ -475,7 +558,12 @@ export function Payments() {
             />
           ),
           render: () =>
-            rows.length === 0 ? (
+            rows.length === 0 && narrowed ? (
+              // Something was paid in the window, perhaps, and none of it
+              // matches what was typed or ticked — a different fix from an
+              // empty window.
+              <NoMatch what="payments" onClear={clearNarrowing} />
+            ) : rows.length === 0 ? (
               <EmptyState>
                 No payment was made between {day(range.from)} and{" "}
                 {day(range.to)}. The window is always set now, so this does not
@@ -486,16 +574,11 @@ export function Payments() {
                 table={table}
                 onRowClick={(row) => payment.open(row.payment_id)}
                 isSelected={(row) => row.payment_id === payment.value}
-                // The count is what separates "nothing was paid in this
-                // window" — the sentence above — from "something was, and none
-                // of it matches what you typed".
-                empty={
-                  <NoMatch
-                    what="payments"
-                    held={rows.length}
-                    onClear={() => setQuery("")}
-                  />
-                }
+                // What the column clauses leave of the pages in hand. The
+                // table keeps asking for pages while this shows, so it is
+                // only final once the register has been read to its end.
+                empty={<NoMatch what="payments" onClear={clearNarrowing} />}
+                more={payments}
                 className={
                   outflow.payments > 0
                     ? "max-h-[calc(100vh-32rem)]"
@@ -538,10 +621,12 @@ function PaymentSheet({
   // `<SupplierName>` calls.
   const supplierName = useSupplierName()
 
+  // The payment's own read, as the note above says. It used to pick the row
+  // out of the newest two hundred, so a payment older than that — opened from
+  // a bill's cross-link or a pasted link — said it was not recorded.
   const detail = useQuery({
-    queryKey: financeKeys.payments(null, null, null),
-    queryFn: ({ signal }) =>
-      listPayments({ limit: 200 }, signal).then((page) => page.rows),
+    queryKey: financeKeys.payment(id ?? ""),
+    queryFn: ({ signal }) => readPayment(id!, signal),
     enabled: id !== null,
   })
 
@@ -554,7 +639,7 @@ function PaymentSheet({
     enabled: id !== null,
   })
 
-  const payment = detail.data?.find((row) => row.payment_id === id)
+  const payment = detail.data
   const posted = payment?.status?.toUpperCase() === "POSTED"
 
   const post = useMutation({
@@ -609,7 +694,7 @@ function PaymentSheet({
             </span>
             <Button
               variant="primary"
-              disabled={post.isPending}
+              pending={post.isPending}
               onClick={() => post.mutate()}
             >
               {post.isPending ? "Posting…" : "Post to the books"}
@@ -622,9 +707,7 @@ function PaymentSheet({
         loading: "Loading the payment…",
         render: () =>
           payment === undefined ? (
-            <EmptyState>
-              No payment is recorded under that id on this list.
-            </EmptyState>
+            <EmptyState>No payment is recorded under that id.</EmptyState>
           ) : (
             <div className="flex flex-col gap-5">
               {post.isError && (
@@ -1012,7 +1095,8 @@ function ComposerSheet({
                 </span>
                 <Button
                   variant="primary"
-                  disabled={!totals.ready || record.isPending}
+                  pending={record.isPending}
+                  disabled={!totals.ready}
                   onClick={() => form.handleSubmit()}
                 >
                   {record.isPending ? "Recording…" : "Record"}
@@ -1049,7 +1133,7 @@ function ComposerSheet({
         <div className="grid grid-cols-2 gap-3">
           <form.Field name="siteId">
             {(field) => (
-              <Field label="Location">
+              <Field label="Location" required>
                 <LocationSelect
                   value={field.state.value}
                   onChange={(next) => {
@@ -1069,6 +1153,7 @@ function ComposerSheet({
             {(field) => (
               <Field
                 label="Payment date"
+                required
                 hint={
                   field.state.value < range.from || field.state.value > range.to
                     ? "Outside the window on the register behind this."
@@ -1116,6 +1201,7 @@ function ComposerSheet({
             {(field) => (
               <Field
                 label="Total paid"
+                required
                 hint="What actually left the bank."
                 problem={
                   field.state.value.trim() !== "" &&
@@ -1158,6 +1244,7 @@ function ComposerSheet({
                   {(field) => (
                     <Field
                       label="Giro number"
+                      required
                       hint="Printed on the slip. Required for a giro."
                     >
                       <Input
@@ -1174,6 +1261,7 @@ function ComposerSheet({
                   {(field) => (
                     <Field
                       label="Due date"
+                      required
                       hint="The day it may be cashed, not today."
                     >
                       <Input
@@ -1245,6 +1333,7 @@ function MoneyAccountField({
   return (
     <Field
       label="From account"
+      required
       hint={
         siteId === ""
           ? "Choose a location first."

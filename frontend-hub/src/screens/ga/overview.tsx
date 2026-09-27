@@ -33,60 +33,60 @@ export function GaOverviewScreen() {
     <PageContent>
       <PageHeader
         crumb="GA"
-        title="Ringkasan"
-        sub="Hal yang perlu ditinjau atau ditindaklanjuti."
+        title="Overview"
+        sub="Things that need review or follow-up."
       />
 
       {queryState(overview, {
-        loading: "Memuat ringkasan GA…",
+        loading: "Loading GA overview…",
         render: (page) => {
           const sections: AttentionSection[] = [
             {
               key: "expiring_contracts",
-              title: "Perpanjangan kontrak",
-              note: "Perpanjang atau tutup kontrak yang perlu perhatian.",
+              title: "Contract renewals",
+              note: "Renew or close contracts that need attention.",
               icon: CalendarDays,
               rows: page.expiring_contracts ?? [],
             },
             {
               key: "expiring_documents",
-              title: "Pembaruan dokumen",
-              note: "Siapkan dokumen yang perlu diperpanjang.",
+              title: "Document renewals",
+              note: "Prepare documents that need renewing.",
               icon: FileText,
               rows: page.expiring_documents,
             },
             {
               key: "draft_assets",
-              title: "Aset belum dilengkapi",
-              note: "Lengkapi lokasi dan pemegang aset.",
+              title: "Assets needing details",
+              note: "Fill in the asset's area and holder.",
               icon: Boxes,
               rows: page.draft_assets,
             },
             {
               key: "due_maintenance",
-              title: "Jadwal servis",
-              note: "Servis yang segera jatuh tempo atau terlewat.",
+              title: "Service schedule",
+              note: "Service that's due soon or overdue.",
               icon: Wrench,
               rows: page.due_maintenance,
             },
             {
               key: "open_repairs",
-              title: "Perbaikan berjalan",
-              note: "Lanjutkan sampai perbaikan selesai.",
+              title: "Repairs in progress",
+              note: "Follow through until the repair is done.",
               icon: Hammer,
               rows: page.open_repairs,
             },
             {
               key: "replacements",
-              title: "Penggantian aset",
-              note: "Pantau proses penggantian aset.",
+              title: "Asset replacements",
+              note: "Track the asset replacement process.",
               icon: Repeat,
               rows: page.replacements,
             },
             {
               key: "supply_requests",
-              title: "Permintaan barang baru",
-              note: "Tinjau permintaan yang baru diajukan.",
+              title: "New supply requests",
+              note: "Review newly submitted requests.",
               icon: Package,
               rows: page.supply_requests ?? [],
             },
@@ -103,14 +103,14 @@ export function GaOverviewScreen() {
                 <div className="flex flex-wrap items-center justify-between gap-3 bg-soft px-4 py-3">
                   <div>
                     <p className="text-card-title font-semibold text-ink">
-                      Perlu ditindaklanjuti
+                      Needs attention
                     </p>
                     <p className="mt-0.5 text-pill text-mute">
-                      Data per {day(page.generated_on)}
+                      Data as of {day(page.generated_on)}
                     </p>
                   </div>
                   <span className="rounded-full border border-hairline bg-canvas px-3 py-1 text-meta font-semibold text-ink tabular-nums">
-                    {total} item terlihat
+                    {total} {total === 1 ? "item" : "items"} shown
                   </span>
                 </div>
               </Card>
@@ -118,7 +118,7 @@ export function GaOverviewScreen() {
               {sections.length === 0 ? (
                 <Card>
                   <EmptyState>
-                    {`Belum ada hal yang perlu ditindaklanjuti per ${day(page.generated_on)}.`}
+                    {`Nothing needs attention as of ${day(page.generated_on)}.`}
                   </EmptyState>
                 </Card>
               ) : (
@@ -204,7 +204,7 @@ function destinationOf(
       return { to: "/assets", sheet: { key: "asset", value: row.id } }
     case "contract":
       return {
-        to: "/contracts/sewa",
+        to: "/contracts",
         sheet: { key: "contract", value: row.id },
       }
     case "document":

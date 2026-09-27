@@ -550,7 +550,7 @@ function NodeSheet({
             )}
             <Button
               className="mt-2.5"
-              disabled={publish.isPending}
+              pending={publish.isPending}
               onClick={() => publish.mutate(node.origin_id)}
             >
               {publish.isPending ? "Publishing…" : "Publish access policy"}
@@ -572,7 +572,7 @@ function NodeSheet({
             )}
             <Button
               className="mt-2.5"
-              disabled={bootstrap.isPending}
+              pending={bootstrap.isPending}
               onClick={() => bootstrap.mutate(node.origin_id)}
             >
               {bootstrap.isPending ? "Sending…" : "Send initial data again"}
@@ -688,7 +688,8 @@ function RegisterSheet({
           <form.Subscribe selector={(state) => nodeReady(state.values)}>
             {(ready) => (
               <Button
-                disabled={!ready || register.isPending}
+                pending={register.isPending}
+                disabled={!ready}
                 onClick={() => form.handleSubmit()}
               >
                 {register.isPending ? "Registering…" : "Register"}
@@ -711,6 +712,7 @@ function RegisterSheet({
           {(field) => (
             <Field
               label="Node id"
+              required
               hint="What the node signs its facts with. Posting one that already exists rotates its key instead of adding a node."
             >
               <Input
@@ -727,6 +729,7 @@ function RegisterSheet({
           {(field) => (
             <Field
               label="Ingest key"
+              required
               hint="Sent once and never returned by any read. Configure the node with the same value."
             >
               <Secret

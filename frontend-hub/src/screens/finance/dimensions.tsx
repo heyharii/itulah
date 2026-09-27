@@ -163,6 +163,7 @@ function DimensionForm({
       <Problem error={save.error} />
       <Field
         label="Code"
+        required
         aside={dimension === null ? "Never changes" : undefined}
       >
         <Input
@@ -172,7 +173,7 @@ function DimensionForm({
           placeholder="PROJECT"
         />
       </Field>
-      <Field label="Name">
+      <Field label="Name" required>
         <Input value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
       <Checkbox
@@ -190,7 +191,8 @@ function DimensionForm({
       <div className="flex justify-end">
         <Button
           variant="primary"
-          disabled={code.trim() === "" || name.trim() === "" || save.isPending}
+          pending={save.isPending}
+          disabled={code.trim() === "" || name.trim() === ""}
           onClick={() => save.mutate()}
         >
           {save.isPending ? "Saving…" : "Save dimension"}
@@ -252,7 +254,7 @@ function Values({ dimension }: { dimension: AccountingDimension }) {
               <Button
                 size="sm"
                 variant="quiet"
-                disabled={save.isPending}
+                pending={save.isPending}
                 onClick={() =>
                   save.mutate({ ...value, is_active: !value.is_active })
                 }
@@ -264,20 +266,21 @@ function Values({ dimension }: { dimension: AccountingDimension }) {
         </div>
       )}
       <div className="grid grid-cols-[8rem_minmax(0,1fr)_auto] items-end gap-2">
-        <Field label="Code">
+        <Field label="Code" required>
           <Input
             value={code}
             onChange={(event) => setCode(event.target.value)}
           />
         </Field>
-        <Field label="Name">
+        <Field label="Name" required>
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
         </Field>
         <Button
-          disabled={code.trim() === "" || name.trim() === "" || save.isPending}
+          pending={save.isPending}
+          disabled={code.trim() === "" || name.trim() === ""}
           onClick={() =>
             save.mutate({
               value_code: code.trim().toUpperCase(),

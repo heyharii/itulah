@@ -1,4 +1,4 @@
-import { Sparkles } from "lucide-react"
+import { BookOpen, Sparkles } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
@@ -22,7 +22,12 @@ export const assistantNav: AppModule = {
   aside: true,
   sections: [
     {
-      items: [{ path: "/assistant", label: "Assistant", icon: Sparkles }],
+      items: [
+        { path: "/assistant", label: "Assistant", icon: Sparkles },
+        // The words the assistant reads every question with (0501). Reached
+        // from the assistant's own page and from ⌘K, like the chat itself.
+        { path: "/assistant/glossary", label: "Glossary", icon: BookOpen },
+      ],
     },
   ],
 }

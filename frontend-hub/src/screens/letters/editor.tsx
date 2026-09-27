@@ -147,7 +147,7 @@ export function LetterBody({
             <ListOrdered className="size-3.5" />
           </Mark>
           <span className="ml-2 text-pill text-mute">
-            Catatan yang ikut tercetak di surat
+            Prints on the letter
           </span>
         </div>
       )}

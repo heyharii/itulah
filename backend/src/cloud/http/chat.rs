@@ -18,8 +18,10 @@ use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
     postgres::{
-        self as infrastructure, ChatConversation, ChatMessage, MarkReadRequest, SendMessageRequest,
-        StartConversationRequest, StoredFile,
+        self as infrastructure, AddParticipantsRequest, ChatConversation, ChatMessage,
+        ChatSearchHit, ConversationPreferencesRequest, EditMessageRequest, MarkReadRequest,
+        MessageWindow, PinMessageRequest, ReactRequest, RenameConversationRequest,
+        SendMessageRequest, SetAdminRequest, StartConversationRequest, StoredFile,
     },
 };
 use axum::{
@@ -27,13 +29,18 @@ use axum::{
     http::StatusCode,
     response::{
         sse::{Event, KeepAlive, Sse},
-        Response,
+        IntoResponse, Response,
     },
     Extension, Json,
 };
 use futures_util::stream::Stream;
 use serde::Deserialize;
-use std::{collections::VecDeque, convert::Infallible, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    convert::Infallible,
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
+};
 use uuid::Uuid;
 
 /// How often the stream looks for new events.
@@ -63,6 +70,16 @@ pub struct MessagesQuery {
     /// Everything past this `seq`. A reconnecting thread asks for the tail it
     /// is missing rather than the whole conversation again.
     pub after: Option<i64>,
+    /// Everything before this `seq` — scrolling back through history.
+    pub before: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchQuery {
+    pub q: String,
+    /// One room only, when searching from inside it.
+    pub conversation_id: Option<Uuid>,
 }
 
 pub async fn list_conversations(
@@ -101,8 +118,17 @@ pub async fn read_messages(
     Query(query): Query<MessagesQuery>,
 ) -> Result<Json<Vec<ChatMessage>>, AppError> {
     Ok(Json(
-        infrastructure::read_messages(&state.db, conversation_id, &principal.username, query.after)
-            .await?,
+        infrastructure::read_messages(
+            &state.db,
+            conversation_id,
+            &principal.username,
+            MessageWindow {
+                after: query.after,
+                before: query.before,
+                limit: query.limit,
+            },
+        )
+        .await?,
     ))
 }
 
@@ -138,6 +164,263 @@ pub async fn mark_read(
         )
         .await?,
     ))
+}
+
+/// Change the words of a message you wrote.
+pub async fn edit_message(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((conversation_id, seq)): Path<(Uuid, i64)>,
+    Json(request): Json<EditMessageRequest>,
+) -> Result<Json<ChatMessage>, AppError> {
+    Ok(Json(
+        infrastructure::edit_message(
+            &state.db,
+            conversation_id,
+            seq,
+            &principal.username,
+            &request,
+        )
+        .await?,
+    ))
+}
+
+/// Take a message back. Answers with what is left of it — its place.
+pub async fn delete_message(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((conversation_id, seq)): Path<(Uuid, i64)>,
+) -> Result<Json<ChatMessage>, AppError> {
+    Ok(Json(
+        infrastructure::delete_message(&state.db, conversation_id, seq, &principal.username)
+            .await?,
+    ))
+}
+
+pub async fn react(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((conversation_id, seq)): Path<(Uuid, i64)>,
+    Json(request): Json<ReactRequest>,
+) -> Result<Json<ChatMessage>, AppError> {
+    Ok(Json(
+        infrastructure::react(
+            &state.db,
+            conversation_id,
+            seq,
+            &principal.username,
+            &request,
+        )
+        .await?,
+    ))
+}
+
+pub async fn pin_message(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((conversation_id, seq)): Path<(Uuid, i64)>,
+    Json(request): Json<PinMessageRequest>,
+) -> Result<Json<ChatMessage>, AppError> {
+    Ok(Json(
+        infrastructure::pin_message(
+            &state.db,
+            conversation_id,
+            seq,
+            &principal.username,
+            &request,
+        )
+        .await?,
+    ))
+}
+
+/// The pinned messages of one room.
+pub async fn pinned_messages(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(conversation_id): Path<Uuid>,
+) -> Result<Json<Vec<ChatMessage>>, AppError> {
+    Ok(Json(
+        infrastructure::pinned_messages(&state.db, conversation_id, &principal.username).await?,
+    ))
+}
+
+/// Words in any room the caller is in, or in one of them.
+pub async fn search(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<Vec<ChatSearchHit>>, AppError> {
+    Ok(Json(
+        infrastructure::search_messages(
+            &state.db,
+            &principal.username,
+            &query.q,
+            query.conversation_id,
+        )
+        .await?,
+    ))
+}
+
+/// Rename a group.
+pub async fn rename_conversation(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(conversation_id): Path<Uuid>,
+    Json(request): Json<RenameConversationRequest>,
+) -> Result<Json<ChatConversation>, AppError> {
+    Ok(Json(
+        infrastructure::rename_conversation(
+            &state.db,
+            conversation_id,
+            &principal.username,
+            &request,
+        )
+        .await?,
+    ))
+}
+
+/// The caller's own settings for one room.
+pub async fn set_preferences(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(conversation_id): Path<Uuid>,
+    Json(request): Json<ConversationPreferencesRequest>,
+) -> Result<Json<ChatConversation>, AppError> {
+    Ok(Json(
+        infrastructure::set_preferences(
+            &state.db,
+            conversation_id,
+            &principal.username,
+            &request,
+        )
+        .await?,
+    ))
+}
+
+pub async fn add_participants(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(conversation_id): Path<Uuid>,
+    Json(request): Json<AddParticipantsRequest>,
+) -> Result<Json<ChatConversation>, AppError> {
+    Ok(Json(
+        infrastructure::add_participants(
+            &state.db,
+            conversation_id,
+            &principal.username,
+            &request,
+        )
+        .await?,
+    ))
+}
+
+/// Remove somebody from a group, or — naming yourself — leave it.
+///
+/// `204` when the caller is no longer in the room afterwards: there is no
+/// conversation left that they could be shown.
+pub async fn remove_participant(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((conversation_id, username)): Path<(Uuid, String)>,
+) -> Result<Response, AppError> {
+    let after = infrastructure::remove_participant(
+        &state.db,
+        conversation_id,
+        &principal.username,
+        &username,
+    )
+    .await?;
+    Ok(match after {
+        Some(conversation) => Json(conversation).into_response(),
+        None => StatusCode::NO_CONTENT.into_response(),
+    })
+}
+
+pub async fn set_admin(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((conversation_id, username)): Path<(Uuid, String)>,
+    Json(request): Json<SetAdminRequest>,
+) -> Result<Json<ChatConversation>, AppError> {
+    Ok(Json(
+        infrastructure::set_admin(
+            &state.db,
+            conversation_id,
+            &principal.username,
+            &username,
+            &request,
+        )
+        .await?,
+    ))
+}
+
+// ─── Typing ──────────────────────────────────────────────────────────────────
+
+/// How long "is typing" lasts after the last keystroke was reported. The
+/// browser reports at most every few seconds while somebody types, so this is
+/// a little longer than that interval and no longer: a line that says Sari is
+/// typing ten seconds after she walked away is a line nobody believes.
+const TYPING_TTL: Duration = Duration::from_secs(6);
+
+/// Who is typing where, in this process's memory and nowhere else.
+///
+/// Deliberately not a table and not an event: it is worthless a few seconds
+/// after it is true, a row per keystroke would be the busiest write in the
+/// schema, and losing it on a restart loses nothing. A deployment running
+/// more than one cloud process shows each person the typing reported to the
+/// process they asked — best effort, which is all "typing…" has ever been.
+fn typing() -> &'static Mutex<HashMap<Uuid, HashMap<String, Instant>>> {
+    static TYPING: OnceLock<Mutex<HashMap<Uuid, HashMap<String, Instant>>>> = OnceLock::new();
+    TYPING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Say that the caller is typing in this room.
+pub async fn report_typing(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(conversation_id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    infrastructure::require_participant(&state.db, conversation_id, &principal.username).await?;
+    let now = Instant::now();
+    // A poisoned lock only means another request panicked mid-update; the map
+    // is still a map of instants and is safe to keep using.
+    let mut rooms = typing().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Swept on every write, so a room nobody types in any more does not hold
+    // its entry for the life of the process.
+    rooms.retain(|_, people| {
+        people.retain(|_, at| now.duration_since(*at) < TYPING_TTL);
+        !people.is_empty()
+    });
+    rooms
+        .entry(conversation_id)
+        .or_default()
+        .insert(principal.username, now);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Who else is typing in this room right now.
+pub async fn who_is_typing(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(conversation_id): Path<Uuid>,
+) -> Result<Json<Vec<String>>, AppError> {
+    infrastructure::require_participant(&state.db, conversation_id, &principal.username).await?;
+    let now = Instant::now();
+    let rooms = typing().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut names: Vec<String> = rooms
+        .get(&conversation_id)
+        .map(|people| {
+            people
+                .iter()
+                .filter(|(name, at)| {
+                    name.as_str() != principal.username && now.duration_since(**at) < TYPING_TTL
+                })
+                .map(|(name, _)| name.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    Ok(Json(names))
 }
 
 /// The files in one conversation, for the panel beside the thread.

@@ -280,7 +280,8 @@ export function ItemFormSheet({
   const newItemRequest = (): CreateSupplierItemRequest => ({
     // The supplier's own code is optional now (owner, 2026-09-26): a blank one
     // is given a unique code of ours, so the item can still be filed.
-    supplier_item_code: draft.code.trim() === "" ? autoItemCode() : draft.code.trim(),
+    supplier_item_code:
+      draft.code.trim() === "" ? autoItemCode() : draft.code.trim(),
     name: draft.name.trim(),
     description:
       draft.description.trim() === "" ? null : draft.description.trim(),
@@ -335,7 +336,9 @@ export function ItemFormSheet({
                 tags: [...draft.tags],
                 colour_codes: [...draft.colours],
                 size_codes: [...draft.sizes],
-                units: draft.units.filter((one) => isPositiveDecimal(one.factor)),
+                units: draft.units.filter((one) =>
+                  isPositiveDecimal(one.factor)
+                ),
               },
               item.version,
               idempotency.key
@@ -429,8 +432,12 @@ export function ItemFormSheet({
   const orderUnits = unitBook.units.filter(
     (one) =>
       one.active &&
-      unitFactor(one.code, draft.units, unitBook.conversions, unitBook.baseUnit) !==
-        null
+      unitFactor(
+        one.code,
+        draft.units,
+        unitBook.conversions,
+        unitBook.baseUnit
+      ) !== null
   )
   /// Every SKU the chosen colours and sizes make — the grid the owner asked
   /// for when the item comes in variants.
@@ -487,7 +494,8 @@ export function ItemFormSheet({
           </Button>
           <Button
             variant="primary"
-            disabled={!ready || save.isPending}
+            pending={save.isPending}
+            disabled={!ready}
             onClick={() => {
               if (onDraft !== undefined && !editing) {
                 // Nothing is written: the line carries the item until the
@@ -631,7 +639,7 @@ export function ItemFormSheet({
                 )}
               >
                 {supplierId === undefined && (
-                  <Field label="Supplier">
+                  <Field label="Supplier" required>
                     <PickOne
                       label="Supplier"
                       choices={supplierChoices}
@@ -641,7 +649,7 @@ export function ItemFormSheet({
                     />
                   </Field>
                 )}
-                <Field label="Supplier's item code" aside="Optional">
+                <Field label="Supplier's item code">
                   <Input
                     value={draft.code}
                     onChange={(event) => set({ code: event.target.value })}
@@ -651,7 +659,7 @@ export function ItemFormSheet({
               </div>
             )}
 
-            <Field label={<Required>Name</Required>}>
+            <Field label="Name" required>
               <Input
                 value={draft.name}
                 onChange={(event) => set({ name: event.target.value })}
@@ -663,7 +671,6 @@ export function ItemFormSheet({
                 figure somebody has to count the zeros of; `Rp 200.000.000` is
                 one they can read — and the money field hands back the digits
                 either way, so nothing downstream learns about separators. */}
-
           </div>
         </div>
 
@@ -682,7 +689,7 @@ export function ItemFormSheet({
             comparing them is the whole point of sourcing. Both are required:
             see the note on `ready`. */}
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label={<Required>Division</Required>}>
+          <Field label="Division" required>
             <PickOne
               label="Division"
               choices={divisionChoices}
@@ -691,7 +698,7 @@ export function ItemFormSheet({
               placeholder="Choose a division"
             />
           </Field>
-          <Field label={<Required>Tags</Required>}>
+          <Field label="Tags" required>
             <PickMany
               label="Tags"
               choices={tagChoices}
@@ -848,7 +855,7 @@ export function ItemFormSheet({
               />
             ) : (
               <div className="grid gap-4 md:grid-cols-[10rem_12rem_1fr] md:items-end">
-                <Field label={<Required>Qty</Required>}>
+                <Field label="Qty" required>
                   <Input
                     inputMode="decimal"
                     value={draft.quantity}
@@ -881,16 +888,6 @@ export function ItemFormSheet({
         )}
       </div>
     </Sheet>
-  )
-}
-
-/// A field label with the star the owner uses for "required".
-function Required({ children }: { children: React.ReactNode }) {
-  return (
-    <>
-      {children}
-      <span className="ml-0.5 text-bad">*</span>
-    </>
   )
 }
 

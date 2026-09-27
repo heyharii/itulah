@@ -112,6 +112,12 @@ export interface EmployeeFilters {
   readonly q?: string
   readonly status?: string
   readonly placeId?: string
+  /// `PKWT`, `PKWTT` or `NONE` — the latest contract's kind.
+  readonly contractKind?: string
+  /// The latest contract's position, compared whole.
+  readonly position?: string
+  /// `1` for somebody with a bound login, `0` for somebody without.
+  readonly login?: string
   /// `code`, `name`, `contract_end` or `unit` — the closed set the server
   /// names. Anything else is the house order rather than an error.
   readonly sort?: string
@@ -143,12 +149,37 @@ export const peopleKeys = {
       filters.q ?? null,
       filters.status ?? null,
       filters.placeId ?? null,
+      filters.contractKind ?? null,
+      filters.position ?? null,
+      filters.login ?? null,
       // The sort is part of the key because it is now part of the ANSWER: the
       // server returns one page in that order, so two sorts are two different
       // answers and must not share a cache entry.
       filters.sort ?? null,
       filters.dir ?? null,
       filters.cursor ?? null,
+      filters.limit ?? null,
+    ] as const,
+  /// Every workforce read — the directory's pages, every picker's list and
+  /// every record under them. What a write to one employee invalidates: a
+  /// change of status, posting or login moves them in every list at once.
+  lists: () => ["people", "employees"] as const,
+  /// The directory's infinite list — every page of one scope under one key,
+  /// so the cursor is not part of it. Under `["people", "employees"]`, so a
+  /// write that invalidates that prefix refreshes the directory too.
+  workforce: (filters: Omit<EmployeeFilters, "cursor"> = {}) =>
+    [
+      "people",
+      "employees",
+      "pages",
+      filters.q ?? null,
+      filters.status ?? null,
+      filters.placeId ?? null,
+      filters.contractKind ?? null,
+      filters.position ?? null,
+      filters.login ?? null,
+      filters.sort ?? null,
+      filters.dir ?? null,
       filters.limit ?? null,
     ] as const,
   employee: (id: string) => ["people", "employees", id] as const,
@@ -192,7 +223,7 @@ export const peopleKeys = {
 /// Typed structurally rather than against the generated `EmployeeList`, only
 /// until `make contract` is next run. When it is, this becomes that import and
 /// the shape below goes.
-interface WorkforcePage {
+export interface WorkforcePage {
   readonly unit_id: string | null
   readonly rows: EmployeeSummary[]
   readonly next_cursor: string | null
@@ -208,6 +239,23 @@ interface WorkforcePage {
       readonly label: string | null
       readonly count: number
     }>
+    /// `PKWT`, `PKWTT`, `NONE`.
+    readonly contract_kinds: ReadonlyArray<{
+      readonly value: string
+      readonly label: string | null
+      readonly count: number
+    }>
+    readonly positions: ReadonlyArray<{
+      readonly value: string
+      readonly label: string | null
+      readonly count: number
+    }>
+    /// `1` with a login, `0` without.
+    readonly logins: ReadonlyArray<{
+      readonly value: string
+      readonly label: string | null
+      readonly count: number
+    }>
   }
 }
 
@@ -219,6 +267,9 @@ export function listWorkforce(
   if (filters.q) params.set("q", filters.q)
   if (filters.status) params.set("status", filters.status)
   if (filters.placeId) params.set("unit_id", filters.placeId)
+  if (filters.contractKind) params.set("contract_kind", filters.contractKind)
+  if (filters.position) params.set("position", filters.position)
+  if (filters.login) params.set("login", filters.login)
   if (filters.sort) params.set("sort", filters.sort)
   if (filters.dir) params.set("dir", filters.dir)
   if (filters.cursor) params.set("cursor", filters.cursor)
@@ -3323,12 +3374,24 @@ export const schedulerKeys = {
   runs: () => ["people", "scheduler", "runs"] as const,
 }
 
-export function listSchedulerRuns(
+/// One page of the run ledger, newest first.
+export interface SchedulerRunPage {
+  readonly rows: SchedulerRunRow[]
+  readonly next_cursor: string | null
+}
+
+/// The run ledger a page at a time. It only grows — every tick claims periods
+/// — so a fixed first hundred would one day have been all anybody could see.
+export function schedulerRunsPage(
+  cursor: string | undefined,
   signal?: AbortSignal
-): Promise<SchedulerRunRow[]> {
-  return node.get<SchedulerRunRow[]>("/api/v1/hr-scheduler/runs?limit=100", {
-    signal,
-  })
+): Promise<SchedulerRunPage> {
+  const params = new URLSearchParams({ limit: "100" })
+  if (cursor) params.set("cursor", cursor)
+  return node.get<SchedulerRunPage>(
+    `/api/v1/hr-scheduler/runs?${params.toString()}`,
+    { signal }
+  )
 }
 
 /// Run the pass by hand. `asOf` is a backfill or a test; absent means today

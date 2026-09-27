@@ -296,13 +296,20 @@ export function SegmentForm({
               ? "Saving writes a new version. The old one still explains what was sent against it."
               : "The conditions are kept, never the list. Who is in it is worked out on every read."}
           </span>
-          <Button
-            variant="primary"
-            disabled={problem !== undefined || save.isPending}
-            onClick={() => save.mutate()}
-          >
-            {save.isPending ? "Saving…" : editing ? "Save version" : "Create"}
-          </Button>
+          {/* Cancel only closes. Retiring a segment is on its card, and asks. */}
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              pending={save.isPending}
+              disabled={problem !== undefined}
+              onClick={() => save.mutate()}
+            >
+              {save.isPending ? "Saving…" : editing ? "Save version" : "Create"}
+            </Button>
+          </div>
         </div>
       }
     >
@@ -311,7 +318,10 @@ export function SegmentForm({
 
         <Field
           label="What it is called"
-          hint="What a campaign and a report will both call this list."
+          required
+          // A fact about the question, so beside the label — `hint` is for a
+          // figure to compare against (PATTERN.md, Form fields).
+          aside="Campaigns and reports use this name"
         >
           <Input
             value={name}
@@ -323,7 +333,7 @@ export function SegmentForm({
 
         <Field
           label="Why it exists"
-          hint="Optional, and the one thing the conditions cannot say for themselves."
+          aside="What the conditions cannot say"
         >
           <Textarea
             value={purpose}

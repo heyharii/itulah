@@ -1,5 +1,10 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { Plus, Search } from "lucide-react"
@@ -305,19 +310,27 @@ export function Counts() {
 
   const narrowed = needle !== "" || filters.filters.length > 0
 
-  const board = useQuery({
+  const board = useInfiniteQuery({
     queryKey: inventoryKeys.countsScoped(scope),
-    queryFn: ({ signal }) => countsPage(scope, signal),
+    queryFn: ({ pageParam, signal }) =>
+      countsPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
     placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => board.data?.rows ?? [], [board.data])
+  const rows = useMemo(
+    () => board.data?.pages.flatMap((page) => page.rows) ?? [],
+    [board.data]
+  )
+  /// The first page carries the server's total and facets over the whole book.
+  const head = board.data?.pages[0]
 
   /// The same fields, carrying the server's own tally over the whole book —
   /// not over the page in hand, which holds only what the same filters already
   /// let through.
   const counted = useMemo<FilterField[]>(() => {
-    const facets = board.data?.facets
+    const facets = head?.facets
     if (facets === undefined) return fields
     return fields.map((field) =>
       field.column === "kind"
@@ -328,7 +341,7 @@ export function Counts() {
             ? { ...field, spec: { ...field.spec, counted: facets.pools } }
             : field
     )
-  }, [fields, board.data])
+  }, [fields, head])
 
   const table = useTable(
     useMemo(
@@ -402,7 +415,7 @@ export function Counts() {
                 label:
                   one.value === ""
                     ? one.label
-                    : `${one.label} ${count(facetOf(board.data, one.value))}`,
+                    : `${one.label} ${count(facetOf(head, one.value))}`,
               }))}
               view={slice.value ?? ""}
               onView={(value) =>
@@ -436,6 +449,7 @@ export function Counts() {
                 ) : (
                   <DataTable<CountRow>
                     table={table}
+                    more={board}
                     onRowClick={(row) => sheet.open(row.id)}
                     isSelected={(row) => row.id === sheet.value}
                     className="max-h-[calc(100vh-14rem)]"
@@ -447,7 +461,7 @@ export function Counts() {
 
         <DockedFilters
           model={{ ...filters, fields: counted }}
-          kpis={bookKpis(board.data)}
+          kpis={bookKpis(head)}
           id="counts"
           subject="Count"
           className="hidden dock:flex"
@@ -745,7 +759,8 @@ function CountSheet({
                 {data.status === "DRAFT" && (
                   <Button
                     variant="soft"
-                    disabled={actor === "" || activate.isPending}
+                    pending={activate.isPending}
+                    disabled={actor === ""}
                     onClick={() => activate.mutate()}
                   >
                     {activate.isPending
@@ -758,11 +773,8 @@ function CountSheet({
                   <>
                     <Button
                       variant="soft"
-                      disabled={
-                        Object.keys(found).length === 0 ||
-                        actor === "" ||
-                        record.isPending
-                      }
+                      pending={record.isPending}
+                      disabled={Object.keys(found).length === 0 || actor === ""}
                       onClick={() => record.mutate()}
                     >
                       {record.isPending
@@ -771,7 +783,8 @@ function CountSheet({
                     </Button>
                     <Button
                       variant="ghost"
-                      disabled={actor === "" || submit.isPending}
+                      pending={submit.isPending}
+                      disabled={actor === ""}
                       onClick={() => submit.mutate()}
                     >
                       {submit.isPending ? "Submitting…" : "Submit for review"}
@@ -782,7 +795,8 @@ function CountSheet({
                 {data.status === "REVIEW" && (
                   <Button
                     variant="soft"
-                    disabled={actor === "" || approve.isPending}
+                    pending={approve.isPending}
+                    disabled={actor === ""}
                     onClick={() => approve.mutate()}
                   >
                     {approve.isPending
@@ -900,6 +914,7 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
           {(field) => (
             <Field
               label="Pool"
+              required
               hint="Only pools this node may write to. A pool a live Edge node owns is counted there."
             >
               <Choice
@@ -931,7 +946,7 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
 
         <form.Field name="reason">
           {(field) => (
-            <Field label="Reason">
+            <Field label="Reason" required>
               <Input
                 value={field.state.value}
                 onBlur={field.handleBlur}
@@ -949,6 +964,7 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
                 {(field) => (
                   <Field
                     label="Tags to count"
+                    required
                     hint="One EPC per line or comma separated. A targeted count with no scope is refused."
                   >
                     <Input
@@ -979,7 +995,8 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
             <Button
               type="submit"
               variant="primary"
-              disabled={!ready || create.isPending}
+              pending={create.isPending}
+              disabled={!ready}
             >
               {create.isPending ? "Drafting…" : "Draft the count"}
             </Button>

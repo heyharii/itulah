@@ -212,9 +212,80 @@ pub struct VoucherQuery {
     /// forwards. Making every key default to ascending would open this screen
     /// on the oldest card the shop ever issued.
     pub dir: Option<String>,
+    /// The Status column's own reading: `ACTIVE`, `SPENT`, `VOIDED`, or
+    /// `EXPIRED` — a live card past its date, which is the clock and not a
+    /// stored status, so `status` above cannot ask for it. ANDed with `status`,
+    /// exactly as the docked chip ANDs with the segment.
+    pub state: Option<String>,
+    /// Face value bounds, inclusive, in the same units as `issued_minor`.
+    pub face_min: Option<i64>,
+    pub face_max: Option<i64>,
+    /// What is left on the card, inclusive bounds.
+    pub balance_min: Option<i64>,
+    pub balance_max: Option<i64>,
+    /// Issued at or after this instant.
+    pub issued_from: Option<DateTime<Utc>>,
+    /// Issued strictly before this instant. Half-open, so a caller asking for
+    /// one local day sends that day's midnight and the next one.
+    pub issued_before: Option<DateTime<Utc>>,
     /// A `next_cursor` from the previous page, verbatim.
     pub cursor: Option<String>,
     pub limit: Option<i64>,
+}
+
+/// The docked filters, one per column, spelled once for the page and for the
+/// count so `total` describes exactly the rows the pages add up to.
+///
+/// `first` is the placeholder its first bind takes; the seven follow in the
+/// order of [`VoucherQuery`]: state, face min/max, balance min/max, issued
+/// from/before.
+fn voucher_narrowed(first: usize) -> String {
+    let [state, face_min, face_max, balance_min, balance_max, from, before]: [usize; 7] =
+        std::array::from_fn(|at| first + at);
+    format!(
+        "(${state}::text IS NULL
+          OR (CASE WHEN expired THEN 'EXPIRED' ELSE status END) = ${state})
+     AND (${face_min}::bigint IS NULL OR issued_minor >= ${face_min})
+     AND (${face_max}::bigint IS NULL OR issued_minor <= ${face_max})
+     AND (${balance_min}::bigint IS NULL OR balance_minor >= ${balance_min})
+     AND (${balance_max}::bigint IS NULL OR balance_minor <= ${balance_max})
+     AND (${from}::timestamptz IS NULL OR issued_at >= ${from})
+     AND (${before}::timestamptz IS NULL OR issued_at < ${before})"
+    )
+}
+
+/// The docked filters as they are bound — validated once, bound twice.
+struct VoucherNarrowing {
+    state: Option<String>,
+    face_min: Option<i64>,
+    face_max: Option<i64>,
+    balance_min: Option<i64>,
+    balance_max: Option<i64>,
+    issued_from: Option<DateTime<Utc>>,
+    issued_before: Option<DateTime<Utc>>,
+}
+
+impl VoucherNarrowing {
+    fn of(query: &VoucherQuery) -> Result<Self, AppError> {
+        let state = optional_text(query.state.as_deref()).map(|raw| raw.to_ascii_uppercase());
+        if let Some(unknown) = state
+            .as_deref()
+            .filter(|state| !matches!(*state, "ACTIVE" | "SPENT" | "VOIDED" | "EXPIRED"))
+        {
+            return Err(AppError::Validation(format!(
+                "state {unknown:?} is not ACTIVE, SPENT, VOIDED or EXPIRED"
+            )));
+        }
+        Ok(Self {
+            state,
+            face_min: query.face_min,
+            face_max: query.face_max,
+            balance_min: query.balance_min,
+            balance_max: query.balance_max,
+            issued_from: query.issued_from,
+            issued_before: query.issued_before,
+        })
+    }
 }
 
 /// How many cards the list returns when the caller does not say.
@@ -442,6 +513,7 @@ pub async fn list_vouchers(pool: &PgPool, query: VoucherQuery) -> Result<Voucher
         .map_err(|error| AppError::Validation(error.to_string()))?
         .map(|kind| kind.as_str().to_owned());
     let member_id = optional_text(query.member_id.as_deref());
+    let narrowing = VoucherNarrowing::of(&query)?;
     // Searched against the normalised code, so somebody who types the code the
     // way it is printed — in groups, with a dash — still finds the card.
     let search = optional_text(query.q.as_deref()).map(|term| {
@@ -482,6 +554,7 @@ pub async fn list_vouchers(pool: &PgPool, query: VoucherQuery) -> Result<Voucher
     // one encoded in the cursor: one cursor shape then serves every order, and
     // a sixth sort cannot arrive without its cursor.
     let searched = voucher_searched();
+    let narrowed = voucher_narrowed(7);
     // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
     // inside the seek — and two references makes PostgreSQL materialise a
     // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
@@ -494,6 +567,7 @@ pub async fn list_vouchers(pool: &PgPool, query: VoucherQuery) -> Result<Voucher
              SELECT * FROM searched
               WHERE ($3::text IS NULL OR status = $3)
                 AND ($4::text IS NULL OR kind = $4)
+                AND {narrowed}
          )
          SELECT * FROM kept
           WHERE $5::uuid IS NULL
@@ -510,6 +584,13 @@ pub async fn list_vouchers(pool: &PgPool, query: VoucherQuery) -> Result<Voucher
                 .bind(&kind)
                 .bind(cursor.as_ref().map(|c| c.voucher_id))
                 .bind(limit)
+                .bind(&narrowing.state)
+                .bind(narrowing.face_min)
+                .bind(narrowing.face_max)
+                .bind(narrowing.balance_min)
+                .bind(narrowing.balance_max)
+                .bind(narrowing.issued_from)
+                .bind(narrowing.issued_before)
                 .fetch_all(pool)
                 .await?,
         )
@@ -524,6 +605,7 @@ pub async fn list_vouchers(pool: &PgPool, query: VoucherQuery) -> Result<Voucher
             search.as_deref(),
             &status,
             &kind,
+            &narrowing,
         ),
         voucher_ledger(pool),
     )?;
@@ -567,13 +649,18 @@ async fn voucher_facets(
     search: Option<&str>,
     status: &Option<String>,
     kind: &Option<String>,
+    narrowing: &VoucherNarrowing,
 ) -> Result<(i64, VoucherFacets), AppError> {
     let searched = voucher_searched();
+    // The docked filters narrow the total, like the segment does, and not the
+    // per-value counts — those read `searched` for the reason above.
+    let narrowed = voucher_narrowed(5);
     let sql = format!(
         "WITH searched AS ({searched}), kept AS (
              SELECT * FROM searched
               WHERE ($3::text IS NULL OR status = $3)
                 AND ($4::text IS NULL OR kind = $4)
+                AND {narrowed}
          )
          SELECT 'status' AS facet, status AS value, count(*)::bigint AS n
            FROM searched GROUP BY status
@@ -587,6 +674,13 @@ async fn voucher_facets(
         .bind(search)
         .bind(status)
         .bind(kind)
+        .bind(&narrowing.state)
+        .bind(narrowing.face_min)
+        .bind(narrowing.face_max)
+        .bind(narrowing.balance_min)
+        .bind(narrowing.balance_max)
+        .bind(narrowing.issued_from)
+        .bind(narrowing.issued_before)
         .fetch_all(pool)
         .await?;
 

@@ -395,7 +395,7 @@ function Answer({
           {overlay.length > 0 && saved.editable && (
             <Button
               variant="soft"
-              disabled={revise.isPending}
+              pending={revise.isPending}
               onClick={() =>
                 revise.mutate(
                   {

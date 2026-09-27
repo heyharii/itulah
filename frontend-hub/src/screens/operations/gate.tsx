@@ -210,7 +210,8 @@ export function OperationsGate({ children }: { children: React.ReactNode }) {
             <Button
               variant="primary"
               className="mt-5 h-9 w-full"
-              disabled={cloudSignIn.isPending || where.isFetching}
+              pending={cloudSignIn.isPending}
+              disabled={where.isFetching}
               onClick={retry}
             >
               Try again

@@ -440,8 +440,8 @@ pub struct AssetScope {
     ///
     /// Empty means every build, like every other filter here.
     pub builds: Vec<String>,
-    /// `number`, `name`, `acquired`, `cost` or `book`. Anything else is the
-    /// house order, by asset number — see [`asset_page`].
+    /// `number`, `name`, `acquired`, `cost`, `book` or `treatment`. Anything
+    /// else is the house order, by asset number — see [`asset_page`].
     pub sort: Option<String>,
     pub desc: bool,
     pub cursor: Option<String>,
@@ -506,6 +506,27 @@ pub struct AssetPage {
     pub total_cost_minor: i64,
     pub total_book_minor: i64,
     pub facets: AssetFacets,
+    /// What the matched assets that carry a cost are worth at book, family by
+    /// family — over every matched row, like the totals above.
+    ///
+    /// The finance register draws this as its "book value by category" chart.
+    /// It used to sum the rows it held, which was the whole register only
+    /// while the register came in one read; it pages now, and a chart summed
+    /// from the pages in hand grows as somebody scrolls.
+    ///
+    /// Each figure is the row's own `book_value_minor` summed — cost less
+    /// opening and charged depreciation, nought once disposed — so the bars
+    /// agree with the column beside them. Heaviest first.
+    pub book_by_category: Vec<AssetCategoryBook>,
+}
+
+/// One family's share of the register at book value.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AssetCategoryBook {
+    pub category_code: String,
+    pub category_name: String,
+    pub book_minor: i64,
 }
 
 /// Where the previous page stopped — as a ROW, not as a position.
@@ -554,6 +575,11 @@ fn asset_rows() -> String {
     format!(
         "SELECT {ASSET_BASE},
                 COALESCE(k.decision, 'UNASSESSED') AS decision_key,
+                -- The register screen's treatment order: nothing decided
+                -- first (the control gap), disposed last (finished work).
+                -- Never NULL, for the keyset reason given above.
+                (CASE WHEN a.disposed_on IS NOT NULL THEN 'ZZ'
+                      ELSE COALESCE(k.decision, '') END) AS treatment_key,
                 COALESCE(k.capitalized_cost_minor, 0)::bigint AS cost_key,
                 (CASE WHEN a.disposed_on IS NOT NULL THEN 0
                       ELSE COALESCE(k.capitalized_cost_minor, 0)
@@ -644,6 +670,9 @@ pub async fn asset_page(pool: &PgPool, scope: AssetScope) -> Result<AssetPage, A
         // What is left of it. The order somebody reads a register in when
         // deciding what is worth insuring.
         Some("book") => ("book_key", scope.desc),
+        // Undecided first, disposed last — see `treatment_key` in
+        // [`asset_rows`]. How the finance register opens.
+        Some("treatment") => ("treatment_key", scope.desc),
         // The house order, and the one this endpoint has always answered in.
         // Reversible, unlike most house orders here: an asset number counts
         // upwards, so "the newest thing we bought" is the same list backwards
@@ -714,7 +743,7 @@ pub async fn asset_page(pool: &PgPool, scope: AssetScope) -> Result<AssetPage, A
     };
 
     let out = rows.iter().map(to_asset).collect::<Result<Vec<_>, _>>()?;
-    let (total, total_cost_minor, total_book_minor, facets) =
+    let (total, total_cost_minor, total_book_minor, facets, book_by_category) =
         asset_facets(pool, &scope, needle.as_deref()).await?;
     Ok(AssetPage {
         rows: out,
@@ -723,6 +752,7 @@ pub async fn asset_page(pool: &PgPool, scope: AssetScope) -> Result<AssetPage, A
         total_cost_minor,
         total_book_minor,
         facets,
+        book_by_category,
     })
 }
 
@@ -741,7 +771,7 @@ async fn asset_facets(
     pool: &PgPool,
     scope: &AssetScope,
     needle: Option<&str>,
-) -> Result<(i64, i64, i64, AssetFacets), AppError> {
+) -> Result<(i64, i64, i64, AssetFacets, Vec<AssetCategoryBook>), AppError> {
     let rows_sql = asset_rows();
     // The total and the money describe the list on screen, so the group
     // narrows them exactly as it narrows the page — while the per-value
@@ -778,7 +808,17 @@ async fn asset_facets(
          SELECT 'all', '', NULL::text, COUNT(*)::bigint,
                 COALESCE(SUM(cost_key), 0)::bigint,
                 COALESCE(SUM(book_key), 0)::bigint
-           FROM kept"
+           FROM kept
+          UNION ALL
+         -- Book value by family over the FILTERED set, spelled as `to_asset`
+         -- spells a row's `book_value_minor` so the chart and the column agree.
+         SELECT 'category_book', s.category_code, MIN(s.category_name),
+                COUNT(*)::bigint, 0::bigint,
+                COALESCE(SUM(CASE WHEN s.disposed_on IS NOT NULL THEN 0
+                                  ELSE s.capitalized_cost_minor - s.accumulated END), 0)::bigint
+           FROM kept s
+          WHERE s.capitalized_cost_minor IS NOT NULL
+          GROUP BY s.category_code"
     );
     let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
     let categories = (!scope.categories.is_empty()).then(|| scope.categories.clone());
@@ -805,11 +845,20 @@ async fn asset_facets(
         statuses: Vec::new(),
         builds: Vec::new(),
     };
+    let mut books = Vec::new();
     for row in &rows {
         let kind: String = row.try_get("kind")?;
         let value: String = row.try_get("value")?;
         let label: Option<String> = row.try_get("label")?;
         let n: i64 = row.try_get("n")?;
+        if kind == "category_book" {
+            books.push(AssetCategoryBook {
+                category_name: label.unwrap_or_else(|| value.clone()),
+                category_code: value,
+                book_minor: row.try_get("book")?,
+            });
+            continue;
+        }
         let facet = AssetFacet {
             value,
             label,
@@ -839,7 +888,12 @@ async fn asset_facets(
     ] {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
     }
-    Ok((total, cost, book, facets))
+    books.sort_by(|a, b| {
+        b.book_minor
+            .cmp(&a.book_minor)
+            .then_with(|| a.category_code.cmp(&b.category_code))
+    });
+    Ok((total, cost, book, facets, books))
 }
 
 pub async fn asset(pool: &PgPool, asset_id: Uuid) -> Result<AssetRow, AppError> {
