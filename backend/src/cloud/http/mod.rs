@@ -401,8 +401,9 @@ pub fn router(state: AppState) -> Router {
     )
     // Opening a store (`store-opening-flow.html`): the Stores list and each
     // store's page with its readiness checks, head office's "Open store", and
-    // a code to install the store's server. Reads are head office's, checked
-    // in the handler; the writes are Admin's, at the path and in the handler.
+    // a code to install the store's server. Reads follow the caller's reach,
+    // checked in the handler; the writes are Admin's, at the path and in the
+    // handler.
     // The machine that claims the code is approved or refused under
     // `/api/v1/sync/enrollments` like every other.
     .route("/api/v1/stores", get(stores::list))

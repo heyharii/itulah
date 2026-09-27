@@ -200,9 +200,45 @@ pub struct ClaimRequest {
 pub struct ClaimAnswer {
     pub enrolment_id: Uuid,
     pub origin_id: String,
+    /// Internal, like every site id: the node is configured with it and
+    /// never shows it.
     pub site_id: String,
     pub node_role: String,
     pub verification: String,
+    /// What the setup page shows instead: the site's code and name
+    /// (`C003-TOKO`, `Purbalingga`). Absent from a cloud older than them.
+    #[serde(default)]
+    pub site_code: Option<String>,
+    #[serde(default)]
+    pub site_name: Option<String>,
+}
+
+impl ClaimAnswer {
+    /// "C003-TOKO · Purbalingga", as much of it as the cloud said, and the
+    /// site id only when it said neither.
+    pub fn site_label(&self) -> String {
+        site_label(
+            self.site_code.as_deref(),
+            self.site_name.as_deref(),
+            &self.site_id,
+        )
+    }
+}
+
+/// A site as a person reads it: its code and name, joined by a middle dot,
+/// falling back to its internal id only when neither is known.
+pub fn site_label(code: Option<&str>, name: Option<&str>, site_id: &str) -> String {
+    let parts: Vec<&str> = [code, name]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect();
+    if parts.is_empty() {
+        site_id.to_owned()
+    } else {
+        parts.join(" · ")
+    }
 }
 
 /// `POST /api/v1/sync/enroll/status`, sent with the minted key as

@@ -28,6 +28,8 @@ pub struct AuthenticatedUser {
     pub display_name: String,
     pub role: Role,
     pub auth_version: i64,
+    /// The job role (0633), so signing in answers what `me` answers.
+    pub job: JobGrant,
 }
 
 async fn hash_password(password: &str) -> Result<String, AppError> {
@@ -55,8 +57,10 @@ fn normalize_username(username: &str) -> Result<String, AppError> {
     security::normalize_username(username).map_err(AppError::Validation)
 }
 
-/// Hash an Edge-only PIN/password before placing its verifier in a signed
-/// policy projection.  It is deliberately distinct from the Cloud password.
+/// Hash the password of a hand-made Edge grant (`source = 'MANUAL'`) before
+/// placing its verifier in a signed policy projection. A grant derived from
+/// the job role (0635) has none: its server is sent the login's own hub
+/// password hash instead (`auth_policy.rs`, "The password a server checks").
 pub fn hash_edge_credential(password: &str) -> Result<String, AppError> {
     security::hash_password(password, MIN_PASSWORD_LENGTH).map_err(AppError::Validation)
 }
@@ -119,9 +123,11 @@ pub async fn authenticate_user(
     let denied = || AppError::Unauthorized("invalid username or password".into());
     let username = username.trim().to_ascii_lowercase();
     let row = sqlx::query(
-        "SELECT id,username,display_name,password_hash,role,active,auth_version,
-                login_blocked_until
-         FROM app_user WHERE username=$1",
+        "SELECT u.id,u.username,u.display_name,u.password_hash,u.role,u.active,
+                u.auth_version,u.login_blocked_until,
+                u.role_code,r.name AS role_name,r.flow_roles,r.sections,r.read_only
+         FROM app_user u LEFT JOIN job_role r ON r.code=u.role_code
+         WHERE u.username=$1",
     )
     .bind(&username)
     .fetch_optional(pool)
@@ -186,6 +192,7 @@ pub async fn authenticate_user(
         display_name: row.get("display_name"),
         role,
         auth_version: row.get("auth_version"),
+        job: job_grant_of(&row)?,
     })
 }
 

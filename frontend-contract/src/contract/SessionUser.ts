@@ -4,9 +4,15 @@ import type { Role } from "./Role";
 /**
  * The signed-in identity carried back by a successful login.
  */
-export type SessionUser = { id: string, username: string, display_name: string, role: Role, 
+export type SessionUser = { id: string, username: string, display_name: string, role: Role,
 /**
  * Edge only: `LOCAL` for a break-glass identity, otherwise the Cloud
  * projection it came from. Cloud omits the field entirely.
  */
-source?: string, };
+source?: string,
+/**
+ * Cloud only, as `/auth/me` answers them (`CloudMe`): the job role
+ * (0633), how the hub names it, the hub sections this person may use
+ * and whether they only read. An Edge omits all four.
+ */
+role_code?: string, role_name?: string, sections?: Array<string>, read_only?: boolean, };

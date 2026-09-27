@@ -5,6 +5,12 @@
  */
 export type StorePic = { employee_id: string,
 /**
- * The person's name, or their badge code when no profile says.
+ * The person's name: their HR profile's, else the name on their login
+ * or their invitation. Their badge code only when none of those says.
  */
-name: string, };
+name: string,
+/**
+ * Their badge code (`ITL-62EF783F`), for a screen that shows it beside
+ * the name.
+ */
+code: string, };

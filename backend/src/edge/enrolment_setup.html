@@ -100,12 +100,12 @@
       $("idle-error").textContent = state.error || "";
     } else if (state.state === "WAITING") {
       show("waiting");
-      $("site").textContent = state.site_id;
+      $("site").textContent = state.site_label || state.site_id;
       $("number").textContent = state.verification.slice(0, 3) + " " + state.verification.slice(3);
       $("waiting-error").textContent = state.error || "";
     } else if (state.state === "ENROLLED") {
       show("enrolled");
-      $("enrolled-site").textContent = state.site_id;
+      $("enrolled-site").textContent = state.site_label || state.site_id;
       setTimeout(() => location.replace("/"), 6000);
     }
   }

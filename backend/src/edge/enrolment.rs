@@ -121,8 +121,33 @@ struct Pending {
     key: String,
     verification: String,
     site_id: String,
+    /// The site as people read it, "C003-TOKO · Purbalingga" — what the setup
+    /// page shows. Empty in a claim saved by an older build.
+    #[serde(default)]
+    site_label: String,
     origin_id: String,
     node_role: String,
+}
+
+impl Pending {
+    /// The site's label, or its id for a claim saved before labels.
+    fn site_label(&self) -> String {
+        if self.site_label.trim().is_empty() {
+            self.site_id.clone()
+        } else {
+            self.site_label.clone()
+        }
+    }
+
+    fn waiting(&self, error: Option<String>) -> SetupState {
+        SetupState::Waiting {
+            verification: self.verification.clone(),
+            site_id: self.site_id.clone(),
+            site_label: self.site_label(),
+            node_role: self.node_role.clone(),
+            error,
+        }
+    }
 }
 
 /// What the setup page shows.
@@ -137,12 +162,14 @@ enum SetupState {
     /// Claimed; waiting for head office.
     Waiting {
         verification: String,
+        /// Internal; the page shows `site_label`.
         site_id: String,
+        site_label: String,
         node_role: String,
         error: Option<String>,
     },
     /// Approved and written; the node is starting.
-    Enrolled { site_id: String },
+    Enrolled { site_id: String, site_label: String },
 }
 
 struct Setup {
@@ -249,6 +276,7 @@ impl Setup {
             cloud_url,
             enrolment_id: answer.enrolment_id,
             key,
+            site_label: answer.site_label(),
             verification: answer.verification,
             site_id: answer.site_id,
             origin_id: answer.origin_id,
@@ -305,12 +333,7 @@ impl Setup {
         let state = match self.claim(cloud, code).await {
             Ok(pending) => {
                 tracing::info!(site = %pending.site_id, verification = %pending.verification, "claimed the code the installer left");
-                SetupState::Waiting {
-                    verification: pending.verification,
-                    site_id: pending.site_id,
-                    node_role: pending.node_role,
-                    error: None,
-                }
+                pending.waiting(None)
             }
             Err(error) => {
                 tracing::warn!(%error, "the code the installer left was not accepted");
@@ -336,17 +359,13 @@ impl Setup {
                             &node_env(&pending, active_generation),
                         );
                         if let Err(error) = written {
-                            *self.state.lock().await = SetupState::Waiting {
-                                verification: pending.verification.clone(),
-                                site_id: pending.site_id.clone(),
-                                node_role: pending.node_role.clone(),
-                                error: Some(error.to_string()),
-                            };
+                            *self.state.lock().await = pending.waiting(Some(error.to_string()));
                         } else {
                             forget_pending(&self.dir);
                             tracing::info!(site = %pending.site_id, "enrolment approved");
                             *self.state.lock().await = SetupState::Enrolled {
                                 site_id: pending.site_id.clone(),
+                                site_label: pending.site_label(),
                             };
                             self.done.notify_one();
                             return;
@@ -362,22 +381,12 @@ impl Setup {
                         };
                     }
                     Ok(StatusAnswer::Pending { .. }) => {
-                        *self.state.lock().await = SetupState::Waiting {
-                            verification: pending.verification.clone(),
-                            site_id: pending.site_id.clone(),
-                            node_role: pending.node_role.clone(),
-                            error: None,
-                        };
+                        *self.state.lock().await = pending.waiting(None);
                     }
                     Err(error) => {
                         // The cloud being unreachable is not a refusal: keep
                         // the claim and keep asking.
-                        *self.state.lock().await = SetupState::Waiting {
-                            verification: pending.verification.clone(),
-                            site_id: pending.site_id.clone(),
-                            node_role: pending.node_role.clone(),
-                            error: Some(error),
-                        };
+                        *self.state.lock().await = pending.waiting(Some(error));
                     }
                 }
             }
@@ -410,12 +419,7 @@ async fn setup_claim(State(setup): State<Arc<Setup>>, Json(body): Json<ClaimBody
     }
     match setup.claim(&body.cloud_url, &body.code).await {
         Ok(pending) => {
-            let state = SetupState::Waiting {
-                verification: pending.verification,
-                site_id: pending.site_id,
-                node_role: pending.node_role,
-                error: None,
-            };
+            let state = pending.waiting(None);
             *setup.state.lock().await = state.clone();
             Json(state).into_response()
         }
@@ -444,12 +448,7 @@ pub async fn run_setup(
         .build()
         .map_err(|error| EdgeError::Configuration(format!("http client: {error}")))?;
     let initial = match read_pending(&dir) {
-        Some(pending) => SetupState::Waiting {
-            verification: pending.verification,
-            site_id: pending.site_id,
-            node_role: pending.node_role,
-            error: None,
-        },
+        Some(pending) => pending.waiting(None),
         None => SetupState::Idle {
             cloud_url: default_cloud.clone(),
             error: None,
@@ -524,7 +523,7 @@ pub async fn enroll_headless(dir: PathBuf, cloud_url: &str, code: &str) -> Resul
     };
     println!(
         "Claimed {} ({}). Verification number: {} {}",
-        pending.site_id,
+        pending.site_label(),
         pending.node_role,
         &pending.verification[..3],
         &pending.verification[3..]
@@ -548,6 +547,7 @@ mod tests {
             key: "k".repeat(64),
             verification: "123456".into(),
             site_id: "store-07".into(),
+            site_label: "C007-TOKO · Bumiayu".into(),
             origin_id: "store-07".into(),
             node_role: "STORE".into(),
         };

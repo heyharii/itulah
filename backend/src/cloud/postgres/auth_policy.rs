@@ -4,6 +4,25 @@
 //! is delivered to exactly one Edge through the existing signed command lane,
 //! which gives ordering, retry, acknowledgement, and anti-replay without a
 //! second synchronization protocol.
+//!
+//! # The password a server checks
+//!
+//! A store server signs a person in offline with the same password as the
+//! hub: the server holds the cloud password hash (owner's decision, 28 Sep
+//! 2026). A store must sign people in with the line to head office down, so
+//! an exchange with the cloud at sign-in cannot work there, and nobody types
+//! a per-server password. So for every grant derived from the job role and
+//! posting (`source = 'ROLE'`, 0635) the policy carries the login's own
+//! argon2id verifier, `app_user.password_hash`, read at publication time: a
+//! password changed at the hub reaches the servers with the next publication
+//! ([`tell_derived_servers`]).
+//!
+//! This replaces the older rule that the edge never receives the cloud
+//! password. What bounds it: a server is sent verifiers only for the people
+//! whose role and posting put them there; argon2id makes each guess
+//! expensive; the lockout counts at the server as it does at the centre; and
+//! suspending the login closes every server at once. A grant made by hand
+//! (`source = 'MANUAL'`) still carries its own separate credential.
 
 use crate::{
     cloud::{
@@ -1435,6 +1454,30 @@ pub async fn follow_login(pool: &PgPool, user_id: Uuid, actor: &str) {
         Ok(origins) => publish_node_access(pool, &origins, actor).await,
         Err(error) => {
             tracing::warn!(%user_id, %error, "could not re-derive who signs in where");
+        }
+    }
+}
+
+/// A server has just been let in — an enrolment approved, a new machine
+/// replacing an old one, an origin registered by hand. Derive who signs in
+/// there now instead of on the sweep's next tick: somebody whose role and
+/// posting reach this server (a store manager who joined before it existed)
+/// must be able to sign in the moment it is up.
+///
+/// Answers the servers whose sign-in list changed, for the caller to tell —
+/// the approval sends the new server its whole bootstrap, policy included,
+/// right after. Never fails the approval: a derivation that fails here is
+/// logged and the sweep makes it.
+pub async fn follow_new_server(pool: &PgPool, origin_id: &str, actor: &str) -> Vec<String> {
+    match reconcile_node_access(pool, None, actor).await {
+        Ok(origins) => origins,
+        Err(error) => {
+            tracing::warn!(
+                %origin_id,
+                %error,
+                "a server was let in and who signs in there could not be derived yet"
+            );
+            Vec::new()
         }
     }
 }

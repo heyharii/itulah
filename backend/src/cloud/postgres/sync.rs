@@ -1303,6 +1303,7 @@ pub async fn register_origin_credential_binding(
         )));
     }
     let mut tx = pool.begin().await?;
+    let was_serving = origin_serves_a_site(&mut tx, origin_id.trim()).await?;
     register_origin_digest_tx(
         &mut tx,
         origin_id,
@@ -1314,8 +1315,33 @@ pub async fn register_origin_credential_binding(
         inventory_enabled,
     )
     .await?;
+    let serving = origin_serves_a_site(&mut tx, origin_id.trim()).await?;
     tx.commit().await?;
+    // A server let in by this path rather than by an enrolment is let in all
+    // the same: who signs in there is derived now, and the servers whose list
+    // changed are told, rather than left for the sweep (0635). A key rotation
+    // lets nobody in, so it tells nobody.
+    if serving && !was_serving {
+        let actor = "system:origin-registration";
+        let changed = super::follow_new_server(pool, origin_id.trim(), actor).await;
+        super::publish_node_access(pool, &changed, actor).await;
+    }
     Ok(())
+}
+
+/// Whether an origin is registered as the inventory-enabled server of a site
+/// — the servers people sign in at (0635).
+async fn origin_serves_a_site(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+) -> Result<bool, AppError> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM sync_origin_credential
+                         WHERE origin_id = $1 AND inventory_enabled AND site_id IS NOT NULL)",
+    )
+    .bind(origin_id)
+    .fetch_one(&mut **tx)
+    .await?)
 }
 
 /// The registration itself, given the key's digest rather than the key.

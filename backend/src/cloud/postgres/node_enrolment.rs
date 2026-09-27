@@ -322,13 +322,26 @@ pub async fn claim_node_enrolment(
     .bind(&claimed_from)
     .execute(&mut *tx)
     .await?;
+    let site_id: String = row.get("site_id");
+    // The page at the shop says which store this machine is becoming the
+    // server for by the code and name people know, never the internal id.
+    let site = sqlx::query("SELECT code, name FROM site WHERE id = $1")
+        .bind(&site_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let (site_code, site_name) = match site {
+        Some(site) => (site.try_get("code")?, site.try_get("name")?),
+        None => (None, None),
+    };
     tx.commit().await?;
     Ok(ClaimAnswer {
         enrolment_id,
         origin_id: row.get("origin_id"),
-        site_id: row.get("site_id"),
+        site_id,
         node_role: row.get("node_role"),
         verification,
+        site_code,
+        site_name,
     })
 }
 
@@ -473,6 +486,18 @@ pub async fn approve_node_enrolment(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
+
+    // Who signs in at the new server follows from role and posting (0635);
+    // derive it now, so the bootstrap's policy already names them rather
+    // than the sweep adding them up to five minutes later. Any other server
+    // whose list the derivation changed is told here; this one is told by
+    // the bootstrap.
+    let changed = super::follow_new_server(pool, &origin_id, decided_by).await;
+    let others: Vec<String> = changed
+        .into_iter()
+        .filter(|changed| changed != &origin_id)
+        .collect();
+    super::publish_node_access(pool, &others, decided_by).await;
 
     let bootstrap = bootstrap_origin(pool, &origin_id, decided_by).await?;
     Ok(ApprovedNodeEnrolment {

@@ -13,4 +13,10 @@ address: string | null, checks: Array<StoreCheck>,
 /**
  * Getting ready, and every required check passes.
  */
-can_open: boolean, };
+can_open: boolean,
+/**
+ * Whether the caller may open the store and install its server — an
+ * Admin at head office. The hub hides both buttons otherwise; the
+ * server refuses them either way.
+ */
+can_manage: boolean, };
