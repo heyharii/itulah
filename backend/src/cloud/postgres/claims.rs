@@ -44,11 +44,6 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::str::FromStr;
 use uuid::Uuid;
 
-/// Head office, the posting site for a claim whose place has none. The same
-/// constant `poster` keeps; restated because restating it is the convention
-/// this file inherited from `store_money`.
-const HEAD_OFFICE_SITE: &str = "dc";
-
 fn corrupt(what: &str, detail: String) -> AppError {
     AppError::Validation(format!(
         "{what} is stored in a shape that cannot be true: {detail}"
@@ -486,15 +481,16 @@ async fn write_line(
 }
 
 /// The place's posting site: a store's site, or head office's when the place
-/// carries none. The same rule `pay.rs` uses, with the spec's HEAD_OFFICE_SITE
-/// fallback instead of the place's own id.
+/// carries none. The same rule `pay.rs` uses, with head office — found by its
+/// kind — as the fallback instead of the place's own id.
 async fn posting_site(
     tx: &mut Transaction<'_, Postgres>,
     place: &PlaceId,
 ) -> Result<String, AppError> {
+    let head_office = super::sites::head_office_site_id(&mut **tx).await?;
     sqlx::query_scalar("SELECT COALESCE(site_id, $2) FROM org_place WHERE id = $1")
         .bind(place.as_str())
-        .bind(HEAD_OFFICE_SITE)
+        .bind(head_office)
         .fetch_optional(&mut **tx)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("there is no place {}", place)))

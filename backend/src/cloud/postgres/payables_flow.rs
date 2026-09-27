@@ -31,7 +31,7 @@ use super::payment_ledger::{
     ple_delink, ple_open, ple_settle_claim, PaymentLedgerClaim, PaymentLedgerItem,
     PaymentLedgerPartyType, PaymentLedgerSide,
 };
-use super::poster::{post, reverse, LineAccount, PostingIntent, PostingLine, HEAD_OFFICE_SITE};
+use super::poster::{post, reverse, LineAccount, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::three_way::{
     match_bill_to_deliveries, LineFault, MatchLine, MatchTolerance,
@@ -638,6 +638,7 @@ async fn receipt_post_tranche(
         (Uuid::new_v4(), format!("TRANCHE_{}", tranches + 1))
     };
 
+    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
     let intent = PostingIntent {
         posting_date: date,
         source_kind: "GOODS_RECEIPT".into(),
@@ -652,7 +653,7 @@ async fn receipt_post_tranche(
         // shop Dr inventory / Cr 2029 Atas Barang, head office Dr 1058 / Cr 2002.
         lines: vec![
             PostingLine::debit("inventory", &site_id, value),
-            PostingLine::credit("trade_payable", HEAD_OFFICE_SITE, value).for_supplier(&supplier_id),
+            PostingLine::credit("trade_payable", &head_office, value).for_supplier(&supplier_id),
         ],
     };
 
@@ -686,7 +687,7 @@ async fn receipt_post_tranche(
         &mut tx,
         "trade_payable",
         "GOODS_RECEIPT",
-        HEAD_OFFICE_SITE,
+        &head_office,
         &supplier_id,
         supplier_name.as_deref(),
         posting_id,
@@ -1359,6 +1360,7 @@ pub async fn merchandise_debit_lines(
     }
 
     let trade_payable_code = super::ledger::resolve_account_code(pool, "trade_payable", site_id, "").await?;
+    let head_office = super::sites::head_office_site_id(pool).await?;
     let receipt_rows = sqlx::query(
         "SELECT p.journal_entry_id, p.value_minor,
                 (SELECT jl.account_code
@@ -1393,7 +1395,7 @@ pub async fn merchandise_debit_lines(
             // The receipt credited the payable at dc (owner rule, 25 Sep), so
             // the invoice clears it there. The goods may be at a shop; the debt
             // never was.
-            PostingLine::debit("trade_payable", HEAD_OFFICE_SITE, value).for_supplier(supplier_id)
+            PostingLine::debit("trade_payable", &head_office, value).for_supplier(supplier_id)
         } else {
             // Clear historical receipts using the exact account code their
             // original journal credited. New receipts never take this branch.

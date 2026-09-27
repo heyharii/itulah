@@ -38,7 +38,7 @@
 use super::asset_classes::assert_asset_class;
 use super::assets::{asset_cost_accounts, asset_drafts_for_bill, is_asset_account};
 use super::ledger::{assert_category_for_account, assert_postable, Intent};
-use super::poster::{post, LineAccount, PostingIntent, PostingLine, HEAD_OFFICE_SITE};
+use super::poster::{post, LineAccount, PostingIntent, PostingLine};
 use super::{decode_cursor, encode_cursor};
 use crate::cloud::application::AppError;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -1836,6 +1836,7 @@ pub async fn post_bill(
     // lands at dc and the poster's balancer closes the shop's side through the
     // affiliate accounts, so a shop's electricity bill reads
     // shop Dr 6045 / Cr 2028, head office Dr 1057 / Cr 2004.
+    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
     lines.push(
         PostingLine::credit(
             if expense {
@@ -1843,7 +1844,7 @@ pub async fn post_bill(
             } else {
                 "trade_payable"
             },
-            HEAD_OFFICE_SITE,
+            &head_office,
             existing.total_minor,
         )
         .for_supplier(&existing.supplier_id),

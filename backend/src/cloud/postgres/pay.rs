@@ -1745,6 +1745,8 @@ pub async fn settle_handover(
         .fetch_one(&mut *tx)
         .await?;
         if owed > 0 {
+            // The bank that pays is head office's, found by its kind (0474).
+            let head_office = super::sites::head_office_site_id(&mut *tx).await?;
             post(
                 &mut tx,
                 &PostingIntent {
@@ -1760,7 +1762,8 @@ pub async fn settle_handover(
                     )),
                     lines: vec![
                         PostingLine::debit("payroll_payable", &site_id, owed),
-                        PostingLine::credit(bank_key, "dc", owed).with_qualifier(bank_qualifier),
+                        PostingLine::credit(bank_key, &head_office, owed)
+                            .with_qualifier(bank_qualifier),
                     ],
                 },
                 Some("PAYMENT"),

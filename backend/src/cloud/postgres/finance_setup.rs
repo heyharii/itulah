@@ -559,7 +559,12 @@ pub async fn add_bank(
                 "an account number needs a giro or savings account to register it against".into(),
             ));
         }
-        let site = request.account_site_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or("dc");
+        // No site named means head office, found by its kind (0474).
+        let site = match request.account_site_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(site) => site.to_string(),
+            None => super::sites::head_office_site_id(pool).await?,
+        };
+        let site = site.as_str();
         let ledger: String = sqlx::query_scalar(
             "SELECT account_code FROM account_resolution
               WHERE role = $1 AND site_id = $2 AND source_type = 'COMPANY' AND source_id = $3",

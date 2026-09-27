@@ -49,7 +49,7 @@
 //! cost half waits for inventory valuation. See `domain::sales_posting`.
 
 use super::payment_ledger;
-use super::poster::{post, reverse, PostingIntent, PostingLine, HEAD_OFFICE_SITE};
+use super::poster::{post, reverse, PostingIntent, PostingLine};
 use super::stock_ledger::{self, StockOutflow};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::sales_posting::{
@@ -1480,9 +1480,9 @@ fn day_voucher(posting_id: Uuid, purpose: &str) -> String {
 /// the affiliate accounts. Every other side posts where the day happened.
 /// Placing either leg at the shop makes the day unpostable, which is the one
 /// outcome a posting rule may never cause.
-fn posting_site(day_site: &str, semantic_key: &str) -> String {
+fn posting_site(day_site: &str, semantic_key: &str, head_office: &str) -> String {
     match semantic_key {
-        "vat_out" | "voucher_liability" => HEAD_OFFICE_SITE.to_string(),
+        "vat_out" | "voucher_liability" => head_office.to_string(),
         _ => day_site.to_string(),
     }
 }
@@ -1805,11 +1805,12 @@ pub async fn sales_posting_post(
         )));
     }
 
+    let head_office = super::sites::head_office_site_id(pool).await?;
     let lines: Vec<PostingLine> = built
         .sides
         .iter()
         .map(|side| {
-            let site = posting_site(&existing.posting.site_id, side.semantic_key);
+            let site = posting_site(&existing.posting.site_id, side.semantic_key, &head_office);
             let mut line = if side.debit_minor > 0 {
                 PostingLine::debit(side.semantic_key, &site, side.debit_minor)
             } else {
@@ -2183,6 +2184,7 @@ pub async fn retender_tender(
         let (from_key, from_qualifier) =
             receivable_of(&found.method, found.card_kind, &found.acquirer)?;
         let (to_key, to_qualifier) = receivable_of(&to_method, to_card_kind, &to_acquirer)?;
+        let head_office = super::sites::head_office_site_id(&mut *tx).await?;
         // Only the asset side moves. The income was earned either way and the
         // VAT was charged either way; what was wrong was which counterparty
         // owes the money.
@@ -2198,7 +2200,7 @@ pub async fn retender_tender(
             )),
             lines: vec![
                 {
-                    let site = posting_site(&found.site_id, to_key);
+                    let site = posting_site(&found.site_id, to_key, &head_office);
                     let mut line = PostingLine::debit(to_key, &site, found.amount_minor);
                     if !to_qualifier.is_empty() {
                         line = line.with_qualifier(&to_qualifier);
@@ -2206,7 +2208,7 @@ pub async fn retender_tender(
                     line
                 },
                 {
-                    let site = posting_site(&found.site_id, from_key);
+                    let site = posting_site(&found.site_id, from_key, &head_office);
                     let mut line = PostingLine::credit(from_key, &site, found.amount_minor);
                     if !from_qualifier.is_empty() {
                         line = line.with_qualifier(&from_qualifier);

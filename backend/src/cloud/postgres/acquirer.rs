@@ -1813,8 +1813,10 @@ pub async fn acq_settlement_curate(
     // Ledger below. Gathered here rather than re-queried: the posting and the
     // items have to describe the same rows or they describe different debts.
     let mut discharged: Vec<(String, String, i64)> = Vec::with_capacity(lines.len());
+    // The bank is head office's, found by its kind (0474).
+    let head_office = super::sites::head_office_site_id(pool).await?;
     let mut posting_lines =
-        vec![PostingLine::debit(bank_key, "dc", settlement.net_minor)
+        vec![PostingLine::debit(bank_key, &head_office, settlement.net_minor)
             .with_qualifier(&bank_qualifier)];
     for row in &lines {
         let site_id: String = row.try_get("site_id")?;
@@ -2105,13 +2107,13 @@ pub async fn acq_settlement_explain(
         // The site the residual belongs to. Head office by default: a charge on
         // the bank account itself is head office's, and a caller that knows
         // better names the shop.
+        let head_office = super::sites::head_office_site_id(&mut *tx).await?;
         let site_id = request
             .site_id
             .as_deref()
             .map(str::trim)
             .filter(|site| !site.is_empty())
-            .unwrap_or("dc")
-            .to_string();
+            .map_or_else(|| head_office.clone(), str::to_string);
         // Two meanings the client's chart already has. A FEE is the acquirer
         // charging more than its report stated, which is the same cost as MDR
         // and belongs in the same account. A CHARGEBACK is a sale the issuer
@@ -2135,12 +2137,12 @@ pub async fn acq_settlement_explain(
         let (charge, bank) = if difference > 0 {
             (
                 PostingLine::debit(key, &site_id, amount).with_qualifier(&settlement.acquirer),
-                PostingLine::credit("bank_giro", "dc", amount),
+                PostingLine::credit("bank_giro", &head_office, amount),
             )
         } else {
             (
                 PostingLine::credit(key, &site_id, amount).with_qualifier(&settlement.acquirer),
-                PostingLine::debit("bank_giro", "dc", amount),
+                PostingLine::debit("bank_giro", &head_office, amount),
             )
         };
         // The bank leg has to name the same account the curation debited, or

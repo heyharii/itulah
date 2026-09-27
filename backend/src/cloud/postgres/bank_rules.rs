@@ -294,13 +294,17 @@ async fn check_rule(
             )));
         }
     }
-    let site_id = request
+    // No site named means head office, which keeps the bank accounts — found
+    // by its kind, never spelled (0474).
+    let site_id = match request
         .site_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("dc")
-        .to_string();
+    {
+        Some(site) => site.to_string(),
+        None => super::sites::head_office_site_id(pool).await?,
+    };
 
     // Compiled once, here, rather than discovered during a run. Postgres
     // raises 2201B for a pattern it cannot parse, and inside `evaluate` that

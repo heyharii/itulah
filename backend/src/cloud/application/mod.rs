@@ -111,6 +111,9 @@ pub struct AppConfig {
     /// `INVENTORY_DEFAULT_DESTINATION_SITE_ID=dc-01` to match, because the
     /// canonical-name fallback in `inventory_dc_owner_tx` now answers to `ho`
     /// and no longer rescues a mismatched `dc`.
+    ///
+    /// Empty — the default since 0474 — means head office's own site, found
+    /// by its kind when an order is raised rather than spelled here.
     pub default_destination_site_id: String,
 }
 
@@ -209,7 +212,7 @@ impl AppConfig {
             media: crate::cloud::media::MediaConfig::from_env(),
             attachments: crate::cloud::attachments::AttachmentConfig::from_env(),
             default_destination_site_id: env_opt("INVENTORY_DEFAULT_DESTINATION_SITE_ID")
-                .unwrap_or_else(|| "dc".into()),
+                .unwrap_or_default(),
             assistant_api_key: env_opt("OPENROUTER_API_KEY"),
             assistant_base_url: env_opt("OPENROUTER_BASE_URL")
                 .unwrap_or_else(|| "https://openrouter.ai/api/v1".into())

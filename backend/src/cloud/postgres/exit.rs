@@ -35,7 +35,7 @@ use crate::cloud::domain::{
     ExitInterviewState, ExitInterviewWire, FnfEvent, FnfId, FullAndFinalState,
     FullAndFinalStatement, FullAndFinalWire, PlaceId,
 };
-use crate::cloud::postgres::{poster, PostingIntent, HEAD_OFFICE_SITE};
+use crate::cloud::postgres::{poster, PostingIntent};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -657,7 +657,7 @@ pub async fn list_full_and_final(
 /// poster adds whatever affiliate legs the two sites need — see
 /// `domain::exit`'s module doc for the placement and why.
 ///
-/// The cash side is `petty_cash` at `HEAD_OFFICE_SITE` — the same
+/// The cash side is `petty_cash` at head office (found by its kind) — the same
 /// operator-mapped meaning the imprest spends from, and the cash family is
 /// mapped through the Account Map, never by a migration. Until Finance has
 /// pointed HO's petty cash somewhere, settle refuses by name naming the
@@ -681,11 +681,12 @@ pub async fn settle_full_and_final(
         .settle(live_advance, live_claim, authorization.clone())
         .map_err(exit_error)?;
 
+    let head_office = crate::cloud::postgres::sites::head_office_site_id(&mut *tx).await?;
     let site = sqlx::query_scalar::<_, String>(
         "SELECT COALESCE(p.site_id, $2) FROM org_place p WHERE p.id = $1",
     )
     .bind(statement.place().as_str())
-    .bind(HEAD_OFFICE_SITE)
+    .bind(&head_office)
     .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("there is no place {}", statement.place())))?;
@@ -699,13 +700,13 @@ pub async fn settle_full_and_final(
         (
             poster::PostingLine::credit("employee_claim_payable", &site, net)
                 .for_employee(statement.employee().as_str()),
-            poster::PostingLine::debit("petty_cash", HEAD_OFFICE_SITE, net),
+            poster::PostingLine::debit("petty_cash", &head_office, net),
         )
     } else {
         (
             poster::PostingLine::debit("employee_claim_payable", &site, -net)
                 .for_employee(statement.employee().as_str()),
-            poster::PostingLine::credit("petty_cash", HEAD_OFFICE_SITE, -net),
+            poster::PostingLine::credit("petty_cash", &head_office, -net),
         )
     };
     let posted = poster::post(

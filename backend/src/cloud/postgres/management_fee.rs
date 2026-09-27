@@ -12,7 +12,7 @@
 //! classes this kind as Lain-lain, and the account map resolves Lain-lain to
 //! 2030 at the unit and 1059 at head office (owner decision 25 Sep, 0380).
 
-use super::poster::{post, PostingIntent, PostingLine, HEAD_OFFICE_SITE};
+use super::poster::{post, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use chrono::NaiveDate;
 use sqlx::PgPool;
@@ -38,12 +38,13 @@ pub async fn management_fee_post(
             "a management fee must be a positive amount".into(),
         ));
     }
-    if unit_site_id == HEAD_OFFICE_SITE {
+    let mut tx = pool.begin().await?;
+    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
+    if unit_site_id == head_office {
         return Err(AppError::Validation(
             "a management fee charges a unit, not head office".into(),
         ));
     }
-    let mut tx = pool.begin().await?;
     let intent = PostingIntent {
         posting_date: effective_date,
         source_kind: "MANAGEMENT_FEE".into(),
@@ -53,7 +54,7 @@ pub async fn management_fee_post(
         memo: memo.map(str::to_string),
         lines: vec![
             PostingLine::debit("management_fee_expense", unit_site_id, amount_minor),
-            PostingLine::credit("management_fee_income", HEAD_OFFICE_SITE, amount_minor),
+            PostingLine::credit("management_fee_income", &head_office, amount_minor),
         ],
     };
     let posted = post(&mut tx, &intent, None, actor).await?;

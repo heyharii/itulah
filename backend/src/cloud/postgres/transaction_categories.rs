@@ -181,8 +181,14 @@ fn to_category(row: &sqlx::postgres::PgRow) -> Result<TransactionCategoryRow, Ap
 
 /// The default location. Head office keeps the bank accounts, so a category
 /// asked about with no place named is asked about there — the same default
-/// `bank_rule` takes, and for the same reason.
-const HEAD_OFFICE: &str = "dc";
+/// `bank_rule` takes, and for the same reason. Head office is found by its
+/// kind (0474), never spelled.
+async fn site_or_head_office(pool: &PgPool, site_id: Option<&str>) -> Result<String, AppError> {
+    match site_id {
+        Some(site) => Ok(site.to_string()),
+        None => super::sites::head_office_site_id(pool).await,
+    }
+}
 
 fn facts_of(row: &TransactionCategoryRow) -> CategoryFacts<'_> {
     CategoryFacts {
@@ -244,8 +250,9 @@ pub async fn transaction_category_list(
             AND ($5::text IS NULL OR $5 = ANY(c.domains))
           ORDER BY c.family, c.sort_order, c.code"
     );
+    let site = site_or_head_office(pool, site_id).await?;
     let rows = sqlx::query(&sql)
-        .bind(site_id.unwrap_or(HEAD_OFFICE))
+        .bind(&site)
         .bind(include_retired)
         .bind(directions.as_deref())
         .bind(family.map(str::trim).filter(|f| !f.is_empty()))
@@ -261,8 +268,9 @@ pub async fn transaction_category_read(
     site_id: Option<&str>,
 ) -> Result<TransactionCategoryRow, AppError> {
     let sql = format!("SELECT {CATEGORY_COLUMNS} {CATEGORY_FROM} WHERE c.code = $2");
+    let site = site_or_head_office(pool, site_id).await?;
     let row = sqlx::query(&sql)
-        .bind(site_id.unwrap_or(HEAD_OFFICE))
+        .bind(&site)
         .bind(code.trim())
         .fetch_optional(pool)
         .await?
@@ -287,8 +295,9 @@ pub async fn transaction_category_unmapped(
           WHERE c.active AND m.account_code IS NULL
           ORDER BY c.family, c.sort_order, c.code"
     );
+    let site = site_or_head_office(pool, site_id).await?;
     let rows = sqlx::query(&sql)
-        .bind(site_id.unwrap_or(HEAD_OFFICE))
+        .bind(&site)
         .fetch_all(pool)
         .await?;
     rows.iter().map(to_category).collect()

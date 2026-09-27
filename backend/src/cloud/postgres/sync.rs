@@ -10,7 +10,7 @@ use crate::cloud::application::{AppError, DeadLetterQuery};
 use crate::cloud::domain::{
     admit_batch, cooldown_after_failure, ingest_rejection_reason, stale_generation_message,
     BatchAdmission, BatchFact, BreakerPolicy, DestinationType, IngestBatch, IngestResponse,
-    MovementCommand, RejectedFact, SyncFact, HEAD_OFFICE_SITE_ID,
+    MovementCommand, RejectedFact, SyncFact,
 };
 use crate::edge::{
     EdgeRole, InventoryState, MovementCause as EdgeMovementCause, MovementLine as EdgeMovementLine,
@@ -4972,32 +4972,11 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
     Ok(())
 }
 
-/// Resolve the exact authoritative DC for a site inside the caller's business
-/// transaction. No aliasing and no broadcast fallback are permitted.
-///
-/// What the CENTRE calls the building the warehouse stands in — `site.id`, and
-/// `ho` since 0256 folded `dc` and `dc-01` into head office. Not what the box
-/// in that building calls itself: an edge node registers under the site id it
-/// runs as, which is still `dc` or `dc-01`, and that spelling lives in
-/// `sync_origin_credential.site_id`. The gap between the two is exactly what
-/// [`sole_dc_origin_tx`] exists to bridge, and it is why this constant must
-/// follow `site` and not the origin table.
-pub(super) const CANONICAL_WAREHOUSE_SITE_ID: &str = HEAD_OFFICE_SITE_ID;
-
-/// Every name the CENTRE has used for that one building, for the sole purpose
-/// of deciding whether a site id that no origin answers to is worth resolving
-/// to the one registered DC.
-///
-/// Two entries and not one, because 0256 renamed the site but could not rename
-/// what is already written down elsewhere: `purchase_order.destination_site_id`
-/// carries no foreign key into `site`, holds `dc` on every database, and is the
-/// default `INVENTORY_DEFAULT_DESTINATION_SITE_ID` still hands out. Dropping
-/// `dc` here would refuse every purchase order raised on a rig whose DC edge
-/// registers as `dc-01` — which is what `.claude/launch.json` configures.
-///
-/// A store id is deliberately absent: a shop that no origin answers to is a
-/// real miss and must stay one.
-const WAREHOUSE_SITE_ALIASES: [&str; 2] = [CANONICAL_WAREHOUSE_SITE_ID, "dc"];
+// What the CENTRE calls the building the warehouse stands in is head office's
+// `site.id`, found by its kind (`sites::head_office_site_id`, 0474) — never a
+// constant. What the box in that building calls itself is the site id it was
+// enrolled under (`dc`, `dc-01`, anything), kept on
+// `sync_origin_credential.site_id`. [`sole_dc_origin_tx`] bridges the two.
 
 /// The single registered DC origin, or nothing when that is not unambiguous.
 async fn sole_dc_origin_tx(tx: &mut Transaction<'_, Postgres>) -> Result<Option<String>, AppError> {
@@ -5094,7 +5073,12 @@ pub(super) async fn inventory_dc_owner_tx(
         // without pretending the model supports several. If a second DC ever
         // registers this refuses rather than guessing, because picking one of
         // two warehouses to send a count to is not a decision code may make.
-        if WAREHOUSE_SITE_ALIASES.contains(&site_id) {
+        // Only head office's own site resolves this way — by the kind on its
+        // row, whatever it is called. A shop that no origin answers to is a
+        // real miss and stays one.
+        if super::sites::site_kind(&mut **tx, site_id).await?
+            == Some(crate::ids::SiteKind::HeadOffice)
+        {
             return sole_dc_origin_tx(tx).await;
         }
         return Ok(None);

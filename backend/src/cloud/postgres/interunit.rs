@@ -37,7 +37,6 @@
 //!
 //! Reads only. The journal is written in `poster.rs` and nowhere else.
 
-use super::poster::HEAD_OFFICE_SITE;
 use crate::cloud::application::AppError;
 use chrono::NaiveDate;
 use serde::Serialize;
@@ -248,6 +247,7 @@ fn pair_up(
     payables: &[Side],
     names: &[(String, String)],
     only: Option<&str>,
+    head_office: &str,
 ) -> Vec<InterunitPair> {
     let name_of = |id: &str| {
         names
@@ -260,12 +260,12 @@ fn pair_up(
     let mut keys: Vec<(String, String)> = Vec::new();
     for side in receivables
         .iter()
-        .filter(|s| s.site_id == HEAD_OFFICE_SITE)
+        .filter(|s| s.site_id == head_office)
         .map(|s| (s.counter_site_id.clone(), s.kind.clone()))
         .chain(
             payables
                 .iter()
-                .filter(|s| s.counter_site_id == HEAD_OFFICE_SITE)
+                .filter(|s| s.counter_site_id == head_office)
                 .map(|s| (s.site_id.clone(), s.kind.clone())),
         )
     {
@@ -281,10 +281,10 @@ fn pair_up(
     keys.into_iter()
         .map(|(store, kind)| {
             let receivable = receivables.iter().find(|s| {
-                s.site_id == HEAD_OFFICE_SITE && s.counter_site_id == store && s.kind == kind
+                s.site_id == head_office && s.counter_site_id == store && s.kind == kind
             });
             let payable = payables.iter().find(|s| {
-                s.site_id == store && s.counter_site_id == HEAD_OFFICE_SITE && s.kind == kind
+                s.site_id == store && s.counter_site_id == head_office && s.kind == kind
             });
             // Both reported positive-when-owed. The asset is already that way
             // round; the liability is negated, because a credit balance on
@@ -324,10 +324,11 @@ pub async fn interunit_pairs(pool: &PgPool) -> Result<InterunitReport, AppError>
     let receivables = affiliate_sides(pool, "affiliate_receivable").await?;
     let payables = affiliate_sides(pool, "affiliate_payable").await?;
     let names = site_names(pool).await?;
-    let pairs = pair_up(&receivables, &payables, &names, None);
+    let head_office = super::sites::head_office_site_id(pool).await?;
+    let pairs = pair_up(&receivables, &payables, &names, None, &head_office);
     let (disagreeing, unmapped) = flagged(&pairs);
     Ok(InterunitReport {
-        head_office_site_id: HEAD_OFFICE_SITE.to_string(),
+        head_office_site_id: head_office.clone(),
         movements: recent_movements(pool, None, RECENT).await?,
         pairs,
         disagreeing,
@@ -343,9 +344,10 @@ pub async fn interunit_pairs(pool: &PgPool) -> Result<InterunitReport, AppError>
 /// to different conclusions from differently-shaped numbers.
 pub async fn interunit_store_view(pool: &PgPool, store: &str) -> Result<InterunitReport, AppError> {
     let store = store.trim();
-    if store == HEAD_OFFICE_SITE {
+    let head_office = super::sites::head_office_site_id(pool).await?;
+    if store == head_office {
         return Err(AppError::Validation(format!(
-            "{HEAD_OFFICE_SITE} is the other side of every pair; ask for a shop, \
+            "{head_office} is the other side of every pair; ask for a shop, \
              or for the pairs themselves"
         )));
     }
@@ -361,10 +363,10 @@ pub async fn interunit_store_view(pool: &PgPool, store: &str) -> Result<Interuni
     let receivables = affiliate_sides(pool, "affiliate_receivable").await?;
     let payables = affiliate_sides(pool, "affiliate_payable").await?;
     let names = site_names(pool).await?;
-    let pairs = pair_up(&receivables, &payables, &names, Some(store));
+    let pairs = pair_up(&receivables, &payables, &names, Some(store), &head_office);
     let (disagreeing, unmapped) = flagged(&pairs);
     Ok(InterunitReport {
-        head_office_site_id: HEAD_OFFICE_SITE.to_string(),
+        head_office_site_id: head_office.clone(),
         movements: recent_movements(pool, Some(store), RECENT).await?,
         pairs,
         disagreeing,
