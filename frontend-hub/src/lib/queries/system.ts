@@ -579,6 +579,11 @@ export interface RegistryDevice {
   readonly source: DeviceSource
   /// Whether head office can suspend, reactivate or revoke it from here.
   readonly switchable: boolean
+  /// The last time head office asked this till or printer to print a test
+  /// page, and whether the node reported it as printed. Both `null` until the
+  /// first ask — see `testPrint` in `lib/queries/stores.ts`.
+  readonly last_test_print_at?: string | null
+  readonly last_test_print_ok?: boolean | null
 }
 
 export interface DeviceStatusEvent {
