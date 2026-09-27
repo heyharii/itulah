@@ -22,11 +22,20 @@
 //!
 //!   - [`edge`] — everything the shop decides, asked for by path.
 //!   - [`device`] — what only a process on this machine can reach.
+//!
+//! And three things about the till itself, none of them domain state:
+//!
+//!   - [`discovery`] — finding the shop's node on the LAN.
+//!   - [`join`] — asking that node to let this till in.
+//!   - [`peripherals`] — what is plugged into this till, told to the node.
 
 use tauri::Manager;
 
 mod device;
+mod discovery;
 mod edge;
+mod join;
+mod peripherals;
 mod rfid;
 
 /// Open the screen that faces the shopper.
@@ -40,16 +49,27 @@ mod rfid;
 /// another — two customer displays would be two answers to "what do I owe".
 #[tauri::command]
 fn open_customer_display(app: tauri::AppHandle) -> Result<(), String> {
+    customer_display(&app, true)
+}
+
+/// The window itself. `focus` is false when the till opens it at start: the
+/// cashier's window is the one that should end up in front of the cashier.
+fn customer_display(app: &tauri::AppHandle, focus: bool) -> Result<(), String> {
     if let Some(existing) = app.get_webview_window("customer") {
-        return existing.set_focus().map_err(|error| error.to_string());
+        return if focus {
+            existing.set_focus().map_err(|error| error.to_string())
+        } else {
+            Ok(())
+        };
     }
     tauri::WebviewWindowBuilder::new(
-        &app,
+        app,
         "customer",
         tauri::WebviewUrl::App("index.html?display".into()),
     )
     .title("central · layar pelanggan")
     .inner_size(1024.0, 768.0)
+    .focused(focus)
     .build()
     .map(|_| ())
     .map_err(|error| error.to_string())
@@ -63,7 +83,34 @@ pub fn run() {
             // a till that showed the counter and only then discovered which
             // shop it belongs to would spend its first seconds refusing calls.
             let held = edge::load(app.handle());
+            let display_at_start =
+                held.peripherals.customer_display && held.peripherals.customer_display_on_start;
+            let resend = held.peripherals.unsent
+                && held.pairing_id.is_some()
+                && held.pairing_secret.is_some();
             app.manage(edge::Node(std::sync::Mutex::new(held)));
+            // A join left waiting when the app closed, picked up where it was.
+            app.manage(join::Joining::load(app.handle()));
+
+            // The shopper's screen, when this till has one and was told to
+            // open it: a second monitor showing the desktop is a second monitor
+            // showing whatever the last person left on it.
+            if display_at_start {
+                if let Err(error) = customer_display(app.handle(), false) {
+                    eprintln!("the customer display could not be opened at start: {error}");
+                }
+            }
+            // A description of this till's peripherals the node never
+            // acknowledged goes again now, off the window's thread: a node that
+            // is still not there must not hold up the counter opening.
+            if resend {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    if let Err(problem) = peripherals::report(&handle) {
+                        eprintln!("peripherals still not reported: {problem}");
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -77,6 +124,17 @@ pub fn run() {
             device::fingerprint_identify,
             device::fingerprint_enroll,
             device::open_drawer,
+            discovery::discover_nodes,
+            discovery::identify_node,
+            join::join_current,
+            join::join_begin,
+            join::join_poll,
+            join::join_cancel,
+            join::join_supervisor_sign_in,
+            join::join_approve_here,
+            join::join_supervisor_leave,
+            peripherals::set_peripherals,
+            peripherals::report_peripherals,
             open_customer_display,
         ])
         .run(tauri::generate_context!())

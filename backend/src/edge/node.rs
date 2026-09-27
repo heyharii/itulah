@@ -596,6 +596,8 @@ pub async fn run(
         SiteId::new(std::env::var("INVENTORY_SITE_ID").unwrap_or_else(|_| "store-07".into()))?;
     let node_id = std::env::var("INVENTORY_NODE_ID").unwrap_or_else(|_| format!("{site_id}-edge"));
     let node = NodeContext::new(node_id, EdgeRole::Store, site_id)?;
+    // Kept for the LAN advertisement, which starts once the listener is up.
+    let lan_identity = node.clone();
     let generation = crate::edge::sync::EdgeSyncConfig::generation_from_env()?;
     let database = std::env::var("INVENTORY_DATABASE_PATH")
         .map(PathBuf::from)
@@ -646,19 +648,16 @@ pub async fn run(
     }
     crate::edge::pace::spawn_monitor();
     crate::edge::power::spawn_monitor(sync_for_power, journal.clone());
-    if data_dir.is_some() && !bind.ip().is_loopback() {
-        crate::edge::discovery::advertise(
-            &std::env::var("INVENTORY_SITE_ID").unwrap_or_default(),
-            &std::env::var("INVENTORY_NODE_ID").unwrap_or_default(),
-            bind.port(),
-        );
-    }
     if let Some(dir) = &data_dir {
         crate::edge::backup::spawn(inventory.connection(), dir.clone());
     }
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(%bind, "Store Edge running independently with SQLite");
+    // Tills, tablets and handhelds on the LAN find this node by browsing for
+    // it (`edge/discovery.rs`). Held to the end of this function: dropping it
+    // says goodbye on the network.
+    let _advertisement = crate::edge::discovery::advertise(&lan_identity, bind);
     sd_notify("READY=1\nSTATUS=Serving");
     let router = store_router_with_sync(inventory.clone(), auth, frontend, sync)?.merge(
         console::router(console::Console {

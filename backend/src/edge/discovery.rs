@@ -1,46 +1,163 @@
-//! Letting the shop's devices find the server by name.
+//! The node says where it is on the shop's LAN.
 //!
-//! The node advertises `_itulah-store._tcp` over mDNS with its site, version
-//! and port, so a till, a tablet or a handheld on the same network can find it
-//! without anybody typing an address — and so a replacement server (§5b) is
-//! found the same way, with no device reconfigured. Advertising only; the
-//! devices' side is theirs to build.
+//! A till looking for its shop's server browses DNS-SD for
+//! [`MDNS_SERVICE_TYPE`] (`_itulah-store._tcp`) and finds this node without
+//! anybody typing an address (`STORE-SERVER-PLAN.md` §7) — and so do a tablet
+//! and a handheld, and so is a replacement server (§5b) found, with no device
+//! reconfigured. What a device finds is a **hint**: the till confirms every
+//! answer by asking `GET /api/v1/node/identity` on the address it was given,
+//! and only that answer is shown to the supervisor. Anything on the wifi can
+//! advertise the service type; only our node answers the identity call the
+//! way it does, and nothing a till does after that is decided by the
+//! advertisement.
+//!
+//! # What the TXT records carry
+//!
+//! Exactly what `node/identity` already says to anybody on the LAN: the
+//! service word, the origin id, the site, the role, the version and the two
+//! paths. No key, no user, no count — the same rule as the identity endpoint,
+//! for the same reason: an advertisement is read by every machine on the
+//! network, including the ones that are not ours.
+//!
+//! # Where it runs
+//!
+//! Only on a node listening beyond loopback. A developer's run on
+//! `127.0.0.1:8082` advertises nothing: a till on another machine could not
+//! reach that address anyway, and a laptop announcing a shop server to a café's
+//! wifi is noise at best. `ITULAH_MDNS=off` switches it off on a node that
+//! should stay quiet regardless.
+//!
+//! The responder runs on its own thread (`mdns-sd`), follows the machine's
+//! addresses as they change, and says goodbye when the advertisement is
+//! dropped — which [`run`](crate::edge::node::run) does when the node stops.
 
-use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::time::Duration;
 
-pub const SERVICE_TYPE: &str = "_itulah-store._tcp.local.";
+use mdns_sd::{ServiceDaemon, ServiceInfo};
 
-/// Start advertising. The daemon lives as long as the process.
-pub fn advertise(site_id: &str, origin_id: &str, port: u16) {
-    let daemon = match mdns_sd::ServiceDaemon::new() {
+use crate::edge::contracts::NodeContext;
+use crate::sync::device::{JOIN_PATH, MDNS_SERVICE_TYPE, NODE_SERVICE};
+
+/// Where a till confirms what it found.
+pub const IDENTITY_PATH: &str = "/api/v1/node/identity";
+
+/// A live advertisement. Dropping it withdraws the service from the LAN.
+pub struct Advertisement {
+    daemon: ServiceDaemon,
+    fullname: String,
+}
+
+impl Drop for Advertisement {
+    fn drop(&mut self) {
+        // Say goodbye rather than let the record age out: a till browsing in
+        // the next two minutes should not be offered a node that has stopped.
+        // Waited for briefly, and only briefly — a node that is stopping has
+        // better things to do than wait on a multicast socket.
+        if let Ok(done) = self.daemon.unregister(&self.fullname) {
+            let _ = done.recv_timeout(Duration::from_millis(500));
+        }
+        let _ = self.daemon.shutdown();
+    }
+}
+
+/// A DNS label from the node's id: lowercase letters, digits and hyphens,
+/// nothing else, at most 63 characters. `store-07-edge` stays as it is.
+fn host_label(node_id: &str) -> String {
+    let mut label: String = node_id
+        .trim()
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    label = label.trim_matches('-').to_string();
+    label.truncate(63);
+    if label.is_empty() {
+        "itulah-store".to_string()
+    } else {
+        label
+    }
+}
+
+fn switched_off() -> bool {
+    std::env::var("ITULAH_MDNS")
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "off" | "0" | "false" | "no"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// Advertise this node on the LAN, or say in the log why not.
+///
+/// Never fails the node: a shop whose router drops multicast still sells, and
+/// its tills still take a typed address. `None` means nothing is advertised.
+pub fn advertise(node: &NodeContext, bind: SocketAddr) -> Option<Advertisement> {
+    if switched_off() {
+        tracing::info!("ITULAH_MDNS is off: this node is not advertised on the LAN");
+        return None;
+    }
+    if bind.ip().is_loopback() {
+        tracing::info!(%bind, "listening on loopback only: this node is not advertised on the LAN");
+        return None;
+    }
+    let daemon = match ServiceDaemon::new() {
         Ok(daemon) => daemon,
         Err(error) => {
-            tracing::warn!(%error, "mDNS unavailable: devices will need the server's address");
-            return;
+            tracing::warn!(%error, "the LAN advertisement could not start; tills must be given this node's address");
+            return None;
         }
     };
-    let host = crate::sync::enrolment::MachineFacts::here().hostname;
-    let host = if host.is_empty() { site_id.to_owned() } else { host };
-    let properties: HashMap<String, String> = HashMap::from([
-        ("site".to_owned(), site_id.to_owned()),
-        ("origin".to_owned(), origin_id.to_owned()),
-        ("version".to_owned(), env!("CARGO_PKG_VERSION").to_owned()),
-    ]);
-    let info = mdns_sd::ServiceInfo::new(
-        SERVICE_TYPE,
-        site_id,
-        &format!("{}.local.", host.trim_end_matches(".local")),
+    let host = format!("{}.local.", host_label(&node.node_id));
+    // The instance name is what a browser lists; the site is what a person
+    // standing at a till recognises.
+    let instance = format!("itulah {}", node.site_id);
+    let role = node.role.to_string();
+    let site = node.site_id.to_string();
+    let properties = [
+        ("service", NODE_SERVICE),
+        ("origin", node.node_id.as_str()),
+        ("site", site.as_str()),
+        ("role", role.as_str()),
+        ("version", env!("CARGO_PKG_VERSION")),
+        ("identity", IDENTITY_PATH),
+        ("join", JOIN_PATH),
+    ];
+    // No address given: the responder answers with whatever addresses the
+    // machine has, and follows them when DHCP hands out new ones.
+    let info = match ServiceInfo::new(
+        MDNS_SERVICE_TYPE,
+        &instance,
+        &host,
         "",
-        port,
-        Some(properties),
-    )
-    .map(mdns_sd::ServiceInfo::enable_addr_auto);
-    match info.and_then(|info| daemon.register(info)) {
-        Ok(()) => {
-            tracing::info!(site = site_id, port, "advertising on the shop network over mDNS");
-            // Keep the daemon for the life of the process.
-            std::mem::forget(daemon);
+        bind.port(),
+        &properties[..],
+    ) {
+        Ok(info) => info.enable_addr_auto(),
+        Err(error) => {
+            tracing::warn!(%error, "the LAN advertisement could not be described");
+            let _ = daemon.shutdown();
+            return None;
         }
-        Err(error) => tracing::warn!(%error, "mDNS advertisement failed"),
+    };
+    let fullname = info.get_fullname().to_string();
+    if let Err(error) = daemon.register(info) {
+        tracing::warn!(%error, "the LAN advertisement could not be registered");
+        let _ = daemon.shutdown();
+        return None;
     }
+    tracing::info!(
+        service = MDNS_SERVICE_TYPE,
+        %host,
+        port = bind.port(),
+        "advertising this node on the LAN"
+    );
+    Some(Advertisement { daemon, fullname })
 }

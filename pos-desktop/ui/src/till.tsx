@@ -14,6 +14,7 @@ import {
 } from "@/screens/dialogs"
 import { useShortcuts } from "@/shortcuts"
 import { enqueue, flush, forget, useOutbox } from "@/outbox"
+import { drawerOnSale, receiptTarget } from "@/peripherals"
 import { authorizeVoucher, releaseVoucher } from "@/vouchers"
 import { useNodeConfig, useSession } from "@/session"
 import { refreshPaymentMethods, usePaymentMethods } from "@/payment-methods"
@@ -203,6 +204,13 @@ export type Where =
   | "void"
   | "redeem"
   | "setup"
+  /// What is plugged into this till — reachable before signing in, like setup.
+  | "peripherals"
+  /// Finding the shop's node and asking it to let this till in.
+  | "join"
+  /// The tills waiting to join, approved from here with a supervisor's finger
+  /// or PIN. Signed in only.
+  | "joins"
 
 export function Till({
   actorId,
@@ -2074,7 +2082,11 @@ function Sale({
   onNext: () => void
 }) {
   const { config } = useNodeConfig()
-  const printer = config?.printer_host ?? null
+  // Where the receipt goes is this till's peripheral setting: a printer the
+  // node recorded, the address in Setelan terminal, or nowhere — with the
+  // reason, when there is one worth reading (a USB printer the node cannot
+  // reach).
+  const { target: printer, why: noPrint } = receiptTarget(config)
   const [printed, setPrinted] = useState<string | null>(null)
   const asked = useRef(false)
 
@@ -2082,15 +2094,17 @@ function Sale({
   ///
   /// A printer out of paper must not hold up the next customer, and the receipt
   /// can be reprinted from the sale at any time. `copy` stamps every print after
-  /// the first, so a duplicate can never be mistaken for a second sale.
+  /// the first, so a duplicate can never be mistaken for a second sale. The
+  /// drawer is kicked with the first print only, and only when this till's
+  /// drawer is opened by the printer.
   const print = useCallback(
     async (copy: boolean) => {
-      if (sold.saleId === null || printer === null || config === null) return
+      const { target } = receiptTarget(config)
+      if (sold.saleId === null || target === null || config === null) return
       const reply = await api.printReceipt(sold.saleId, {
-        printer_host: printer,
-        printer_port: config.printer_port,
+        ...target,
         paper: config.paper,
-        drawer: copy ? "NONE" : "PRINTER_PULSE",
+        drawer: copy ? "NONE" : drawerOnSale(config),
         copy,
       })
       setPrinted(
@@ -2101,7 +2115,7 @@ function Sale({
           : reply.problem,
       )
     },
-    [config, printer, sold.saleId],
+    [config, sold.saleId],
   )
 
   useEffect(() => {
@@ -2142,7 +2156,13 @@ function Sale({
           <p className="muted num" style={{ fontSize: 11.5 }}>
             {sold.id}
           </p>
-          {printer === null ? null : (
+          {printer === null ? (
+            noPrint !== null && (
+              <p className="muted" style={{ fontSize: 11.5 }}>
+                {noPrint}
+              </p>
+            )
+          ) : (
             <>
               {printed !== null && (
                 <p className="muted" style={{ fontSize: 11.5 }}>

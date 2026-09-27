@@ -426,3 +426,9 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
  .hide-sm{display:none!important}
  .rfid-strip,.method-grid{grid-template-columns:repeat(2,1fr)}
 }
+
+/* ── kasir bergabung ke node: kode dan nomor yang dicocokkan supervisor ─ */
+.join-code{font-size:34px;font-weight:600;letter-spacing:4px;line-height:1.2;color:var(--ink);font-variant-numeric:tabular-nums}
+.join-number{font-size:34px;font-weight:600;letter-spacing:2px;line-height:1.2;color:var(--blue);font-variant-numeric:tabular-nums}
+.check{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink)}
+.check input{width:18px;height:18px;margin:0;accent-color:var(--blue)}
