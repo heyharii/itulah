@@ -483,22 +483,15 @@ async fn write_line(
     Ok(())
 }
 
-/// The unit's posting site: a store's shop, or head office's site — found by
-/// its kind, never by an id. The same rule `pay.rs` and `exit.rs` use —
-/// `book_site_of_unit` — while the books are still kept per site.
-async fn posting_site(
-    tx: &mut Transaction<'_, Postgres>,
-    unit: &UnitId,
-) -> Result<String, AppError> {
-    super::book_site_of_unit(&mut **tx, unit.as_str()).await
-}
-
 /// Decide a claim, and put the sanction in the books, in one transaction.
 ///
-/// `Dr employee_expense [site, qualifier = type code]` per sanctioned type,
-/// `Cr employee_claim_payable [site, for_employee]` for the total — one
+/// `Dr employee_expense [unit, qualifier = type code]` per sanctioned type,
+/// `Cr employee_claim_payable [unit, for_employee]` for the total — one
 /// journal, `('EXPENSE_CLAIM', claim_id, 'MAIN')` unique. A rejection posts
 /// nothing and records the decision by itself.
+///
+/// The claim is the unit's and so are the books it lands in (0605): no
+/// premises is looked up on the way.
 pub async fn decide_claim(
     pool: &PgPool,
     claim: &mut ExpenseClaim,
@@ -524,7 +517,7 @@ pub async fn decide_claim(
     // included — rolls back, and there is no instant at which the books hold
     // a claim's sanction the claim does not.
     let posted = if let Some(posting) = &posting {
-        let site = posting_site(&mut tx, claim.unit()).await?;
+        let unit = claim.unit().as_str();
         let mut lines = Vec::with_capacity(posting.by_type.len() * 2);
         for (type_code, amount) in &posting.by_type {
             let category: Option<String> = sqlx::query_scalar(
@@ -540,17 +533,17 @@ pub async fn decide_claim(
                 ))
             })?;
             lines.push(
-                PostingLine::debit("expense", &site, *amount)
+                PostingLine::debit("expense", unit, *amount)
                     .from_source("EXPENSE_CATEGORY", &category),
             );
             // What is owed: the category's own payable when Finance linked one
             // (a medical category owes on 2020), the company's otherwise.
-            let payable = PostingLine::credit("employee_claim_payable", &site, *amount)
+            let payable = PostingLine::credit("employee_claim_payable", unit, *amount)
                 .for_employee(claim.employee().as_str());
             let own = super::ledger::resolve_linked(
                 &mut *tx,
                 "employee_claim_payable",
-                &site,
+                unit,
                 "EXPENSE_CATEGORY",
                 &category,
             )
@@ -658,12 +651,13 @@ pub async fn decide_claim(
     Ok(())
 }
 
-/// Pay an approved claim from the place's petty cash, in one transaction.
+/// Pay an approved claim from the unit's petty cash, in one transaction.
 ///
-/// `Dr employee_claim_payable [site, for_employee]` for what was sanctioned,
-/// `Cr petty_cash [site]` — the same meaning the imprest spends from, so the
+/// `Dr employee_claim_payable [unit, for_employee]` for what was sanctioned,
+/// `Cr petty_cash [unit]` — the same meaning the imprest spends from, so the
 /// payout is visible to the cash-position fold with no new table. The
-/// document is the `KKC-` series of the paying site.
+/// document is the `KKC-` series of the paying unit, printed under the unit's
+/// client code (`KKC-C004-…`), never its internal id.
 pub async fn pay_claim(
     pool: &PgPool,
     claim: &mut ExpenseClaim,
@@ -678,34 +672,33 @@ pub async fn pay_claim(
         .ok_or_else(|| corrupt("paid claim", "nothing sanctioned to pay".into()))?;
 
     let mut tx = pool.begin().await?;
-    let site = posting_site(&mut tx, claim.unit()).await?;
-    // Counted under the internal id, printed under the display code (0603).
-    let printed = super::sites::display_code(&mut *tx, &site)
-        .await?
-        .to_uppercase();
+    let unit = claim.unit().as_str().to_string();
+    // Counted under the internal id, printed under the unit's client code
+    // (0600): the counter's scope is the unit whose petty cash pays.
+    let printed = super::unit_code(&mut *tx, &unit).await?.to_uppercase();
     let document_number = next_document_number(
         &mut tx,
-        &format!("KKC:{site}"),
+        &format!("KKC:{unit}"),
         &format!("KKC-{printed}"),
         paid_on,
     )
     .await?;
 
     // Paid out of exactly the liabilities the approval raised: every credit
-    // the approval entry put on this employee at this site is debited back,
-    // account for account, so payment always mirrors approval.
+    // the approval entry put on this employee in this unit's books is debited
+    // back, account for account, so payment always mirrors approval.
     let owed = sqlx::query(
         "SELECT l.account_code, SUM(l.credit_minor - l.debit_minor)::bigint AS owed
            FROM journal_line l
            JOIN journal_entry e ON e.entry_id = l.entry_id
           WHERE e.source_kind = 'EXPENSE_CLAIM' AND e.source_id = $1
-            AND l.site_id = $2 AND l.party_type = 'EMPLOYEE'
+            AND l.unit_id = $2 AND l.party_type = 'EMPLOYEE'
           GROUP BY l.account_code
          HAVING SUM(l.credit_minor - l.debit_minor) > 0
           ORDER BY l.account_code",
     )
     .bind(claim_id.to_string())
-    .bind(&site)
+    .bind(&unit)
     .fetch_all(&mut *tx)
     .await?;
     let mut lines = Vec::with_capacity(owed.len() + 1);
@@ -722,7 +715,7 @@ pub async fn pay_claim(
                     account_code: row.try_get("account_code")?,
                     category_code: None,
                 },
-                &site,
+                &unit,
                 amount,
             )
             .for_employee(claim.employee().as_str()),
@@ -736,7 +729,7 @@ pub async fn pay_claim(
             total
         )));
     }
-    lines.push(PostingLine::credit("petty_cash", &site, total));
+    lines.push(PostingLine::credit("petty_cash", &unit, total));
     let payout_lines = lines;
 
     let posted = poster::post(

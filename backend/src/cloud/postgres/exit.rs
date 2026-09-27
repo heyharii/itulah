@@ -653,15 +653,15 @@ pub async fn list_full_and_final(
 /// one transaction, in that order: a source that moved is named and nothing
 /// posts, and a state move that loses its race takes the posting back with
 /// it. The journal is `('FULL_AND_FINAL', fnf_id, 'MAIN')`; the person-side
-/// line posts at the leaver's place, the cash side at head office, and the
-/// poster adds whatever affiliate legs the two sites need — see
+/// line posts in the leaver's unit, the cash side in head office's books, and
+/// the poster adds whatever affiliate legs the two units need — see
 /// `domain::exit`'s module doc for the placement and why.
 ///
 /// The cash side is `petty_cash` at head office (found by its kind) — the same
 /// operator-mapped meaning the imprest spends from, and the cash family is
-/// mapped through the Account Map, never by a migration. Until Finance has
+/// mapped through the Account Links, never by a migration. Until Finance has
 /// pointed HO's petty cash somewhere, settle refuses by name naming the
-/// meaning and the site, which is the machinery's refusal working and not a
+/// meaning and the unit, which is the machinery's refusal working and not a
 /// gap in this rule.
 pub async fn settle_full_and_final(
     pool: &PgPool,
@@ -681,23 +681,26 @@ pub async fn settle_full_and_final(
         .settle(live_advance, live_claim, authorization.clone())
         .map_err(exit_error)?;
 
-    let site = super::book_site_of_unit(&mut *tx, statement.unit().as_str()).await?;
-    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
+    // The leaver's unit's books carry the payable; head office's books, found
+    // by the unit's kind (0605), carry the cash. When the two are different
+    // units the poster adds the affiliate legs.
+    let unit = statement.unit().as_str().to_string();
+    let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
 
     // The person-side line and the cash side. Positive net: the company
-    // still pays the leaver, so the payable is credited at the leaver's
-    // place and head office's cash is debited. Negative: the leaver owes,
+    // still pays the leaver, so the payable is credited in the leaver's
+    // unit and head office's cash is debited. Negative: the leaver owes,
     // and the mirror posts it.
     let net = posting.net_minor;
     let (payable_line, cash_line) = if net > 0 {
         (
-            poster::PostingLine::credit("employee_claim_payable", &site, net)
+            poster::PostingLine::credit("employee_claim_payable", &unit, net)
                 .for_employee(statement.employee().as_str()),
             poster::PostingLine::debit("petty_cash", &head_office, net),
         )
     } else {
         (
-            poster::PostingLine::debit("employee_claim_payable", &site, -net)
+            poster::PostingLine::debit("employee_claim_payable", &unit, -net)
                 .for_employee(statement.employee().as_str()),
             poster::PostingLine::credit("petty_cash", &head_office, -net),
         )

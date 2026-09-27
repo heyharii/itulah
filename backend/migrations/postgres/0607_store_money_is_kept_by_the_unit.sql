@@ -26,9 +26,10 @@
 --     Ledger existed. Nothing reads it; it is re-keyed so that nothing in the
 --     schema still says a store's money is a site's.
 --   * `store_document_counter` — numbering, not money. Its scopes are strings;
---     the one that carried a site (`KK:<site>`, a petty-cash voucher) now
---     carries the unit, so a store keeps its sequence (its unit is keyed like
---     its shop, 0600) and head office's continues under `KK:<its unit>`.
+--     the two that carried a site (`KK:<site>`, a petty-cash voucher, and
+--     `KKC:<site>`, a claim paid from petty cash) now carry the unit, so a
+--     store keeps its sequence (its unit is keyed like its shop, 0600) and
+--     head office's continues under its unit.
 --
 -- None of them keeps a `site_id` beside the unit. A store's money happens at
 -- its shop, and the shop is read off the unit whenever somebody needs the
@@ -109,13 +110,15 @@ SELECT pg_temp.move_column_to_unit('store_expense', 'site_id', 'unit_id');
 SELECT pg_temp.move_column_to_unit('petty_cash_replenishment', 'site_id', 'unit_id');
 SELECT pg_temp.move_column_to_unit('store_ledger_shim', 'site_id', 'unit_id');
 
--- A petty-cash voucher is numbered per unit from here on. A store's scope
--- does not change (its unit is keyed like its shop); head office's moves from
--- its Gudang's id to its unit's, and carries its last number with it.
+-- A petty-cash voucher (KK) and a claim payout (KKC) are numbered per unit
+-- from here on. A store's scope does not change (its unit is keyed like its
+-- shop); head office's moves from its Gudang's id to its unit's, and carries
+-- its last number with it.
 UPDATE store_document_counter c
-   SET scope = 'KK:' || s.unit_id
+   SET scope = p.prefix || ':' || s.unit_id
   FROM site s
- WHERE c.scope = 'KK:' || s.id
+ CROSS JOIN (VALUES ('KK'), ('KKC')) AS p (prefix)
+ WHERE c.scope = p.prefix || ':' || s.id
    AND s.unit_id <> s.id;
 
 -- The fund an expense is drawn on is held by the same unit that spends it.

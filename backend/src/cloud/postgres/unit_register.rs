@@ -6,15 +6,18 @@
 //! glossary says it means: the organisation that owns books, people and store
 //! money (`CONTEXT.md`, "The organisation"; migrations 0600–0602).
 //!
-//! Three things live here:
+//! Two things live here:
 //!
 //! * the list the hub's Units screen shows — code, name, kind, status, the
 //!   sites each unit owns and its current PIC;
 //! * appointing a PIC, which closes the predecessor's span and opens the
 //!   successor's in one transaction, after the domain has said the person may
-//!   hold it (`domain::require_pic_eligible`);
-//! * [`book_site_of_unit`], the one place that answers "which site's books
-//!   does this unit's posting land in" while the ledger is still kept per site.
+//!   hold it (`domain::require_pic_eligible`).
+//!
+//! There is no "which site's books" here any more. The ledger is keyed by
+//! unit (0605), so a unit's posting lands in the unit's own books; the only
+//! translation left runs the other way, from a premises to its unit
+//! (`sites::unit_of_site`).
 
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{require_pic_eligible, UnitId};
@@ -305,58 +308,4 @@ pub async fn appoint_unit_pic(
     .await?;
     tx.commit().await?;
     Ok(())
-}
-
-/// The site a unit's journal lines are booked at, while the ledger is still
-/// kept per site.
-///
-/// Every posting a unit makes — a payroll accrual, a sanctioned claim, a
-/// leaver's statement — names a `site_id` today, because `journal_line` is
-/// keyed by site; the books move to `unit_id` in a later step. Until then this
-/// is the one answer to "which site's books". Head office's is the site
-/// `head_office_site_id()` names — found by its kind, never by an id, and
-/// still the answer once head office owns an office beside the Gudang. A
-/// store's is its only site, its shop — exactly what the dropped
-/// `org_place.site_id` used to say.
-///
-/// A store unit with no site, or with several, is refused by name rather than
-/// guessed at: which of two premises a unit's payroll lands on is a decision
-/// about the books, and it belongs to the step that moves them.
-pub async fn book_site_of_unit(
-    executor: impl sqlx::PgExecutor<'_>,
-    unit: &str,
-) -> Result<String, AppError> {
-    // One round trip: the executor may be a transaction borrowed only once.
-    let row = sqlx::query(
-        "SELECT u.kind,
-                head_office_site_id() AS head_office,
-                ARRAY(SELECT s.id FROM site s WHERE s.unit_id = u.id ORDER BY s.id) AS sites
-           FROM unit u
-          WHERE u.id = $1",
-    )
-    .bind(unit)
-    .fetch_optional(executor)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("unit {unit}")))?;
-    let kind: String = row.try_get("kind")?;
-    if kind == "HO" {
-        let head_office: Option<String> = row.try_get("head_office")?;
-        return head_office.ok_or_else(|| {
-            AppError::Configuration(
-                "no site is head office: exactly one site must have kind HO".into(),
-            )
-        });
-    }
-    let sites: Vec<String> = row.try_get("sites")?;
-    match sites.as_slice() {
-        [only] => Ok(only.clone()),
-        [] => Err(AppError::NotFound(format!(
-            "unit {unit} has no site whose books a posting could land in"
-        ))),
-        _ => Err(AppError::Conflict(format!(
-            "unit {unit} has several sites ({}) and its books are still kept per site, \
-             so which one this lands in has not been decided",
-            sites.join(", ")
-        ))),
-    }
 }
