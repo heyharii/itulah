@@ -202,6 +202,14 @@ pub(crate) const STORE_INBOUND_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0046_a_shop_knows_what_is_on_the_lorry.sql"
 ));
 
+/// Where an announced delivery lands when it is not the stockroom (`0054`):
+/// a store's own return pool at the Gudang. An ALTER, so applied only when
+/// the column is absent.
+pub(crate) const DELIVERY_POOL_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0054_a_delivery_knows_the_pool_it_lands_in.sql"
+));
+
 /// Who raised a purchase order, and whether the centre cancelled it
 /// (`0047`). ALTERs, so applied only when the columns are absent.
 pub(crate) const PURCHASE_ORDER_CANCEL_SCHEMA: &str = include_str!(concat!(
@@ -1169,6 +1177,20 @@ impl SqliteEdge {
         connection
             .execute_batch(STORE_INBOUND_SCHEMA)
             .map_err(db)?;
+        // Where a delivery lands (`0054`): an ALTER, so probed first.
+        let a_delivery_names_its_pool: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('store_inbound_delivery')
+                  WHERE name='destination_pool_id'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_delivery_names_its_pool == 0 {
+            connection
+                .execute_batch(DELIVERY_POOL_SCHEMA)
+                .map_err(db)?;
+        }
         // A cancelled order (`0047`): an ALTER, so probed first.
         let an_order_can_be_cancelled: i64 = connection
             .query_row(
@@ -4892,7 +4914,8 @@ impl EdgeInventory for SqliteEdge {
         &self,
         status: Option<&str>,
     ) -> Result<crate::edge::inbound::StoreInboundList, EdgeError> {
-        self.require_store("announced deliveries")?;
+        // A shop receives allotments and transfers; the Gudang receives a
+        // shop's returns. Any site of ours may be announced a delivery.
         let status = crate::edge::inbound::parse_status_filter(status)?;
         let connection = self.lock()?;
         crate::edge::inbound::list(&connection, status)
@@ -4902,7 +4925,6 @@ impl EdgeInventory for SqliteEdge {
         &self,
         delivery_id: &str,
     ) -> Result<crate::edge::inbound::StoreInboundDetail, EdgeError> {
-        self.require_store("announced deliveries")?;
         let connection = self.lock()?;
         crate::edge::inbound::detail(&connection, delivery_id.trim())
     }
@@ -4922,7 +4944,9 @@ impl EdgeInventory for SqliteEdge {
         request: crate::edge::inbound::StoreInboundReceiveRequest,
     ) -> Result<crate::edge::inbound::StoreInboundDetail, EdgeError> {
         use crate::edge::inbound::{self, StoreInboundDetail, STORE_INBOUND_MAX_EPCS};
-        self.require_store("receiving an announced delivery")?;
+        // Any site of ours receives: a shop its allotment or transfer, the
+        // Gudang a shop's return (owner, 2026-09-27). Where the goods land is
+        // the delivery's to say, below.
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
         let delivery_id = delivery_id.trim().to_owned();
         let actor_id = request.actor_id.trim().to_owned();
@@ -4965,19 +4989,49 @@ impl EdgeInventory for SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(saved);
         }
-        let header: Option<(String, Option<String>, String, Option<String>)> = tx
+        type Header = (String, Option<String>, String, Option<String>, Option<String>);
+        let header: Option<Header> = tx
             .query_row(
-                "SELECT source_site_id,shipment_reference,status,receive_digest
+                "SELECT source_site_id,shipment_reference,status,receive_digest,destination_pool_id
                  FROM store_inbound_delivery WHERE delivery_id=?1",
                 [&delivery_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             )
             .optional()
             .map_err(db)?;
-        let Some((source_site_id, shipment_reference, status, received_digest)) = header else {
+        let Some((source_site_id, shipment_reference, status, received_digest, landing_pool_id)) =
+            header
+        else {
             return Err(EdgeError::NotFound(format!(
                 "inbound delivery {delivery_id}"
             )));
+        };
+        // Where the goods land. A delivery that names no pool lands in this
+        // site's stockroom, as every shop's always did. One that names one —
+        // a store's return pool at the Gudang — lands there, and the pool must
+        // be this site's own and a pool goods arrive in. The receipt rules are
+        // the same either way: one receipt, nothing refused, what arrived is
+        // what is received, and what did not arrive stays MISSING.
+        let landing = match landing_pool_id.as_deref() {
+            None => OperationalPool::Stockroom {
+                site_id: self.node.site_id.clone(),
+            },
+            Some(pool_id) => {
+                let pool = OperationalPool::from_str(pool_id)
+                    .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+                if !self.node.owns_pool(&pool) || !pool.role().is_arrival() {
+                    return Err(EdgeError::Conflict(format!(
+                        "delivery {delivery_id} names {pool_id}, which is not a pool goods arrive in here"
+                    )));
+                }
+                pool
+            }
+        };
+        let (arrival_cause, reference_type) = if landing.role() == crate::pool_role::PoolRole::Return
+        {
+            (MovementCause::ReturnToWarehouse, "RETURN_RECEIPT")
+        } else {
+            (MovementCause::StoreReceive, "STORE_RECEIPT")
         };
         if status == inbound::STATUS_RECEIVED {
             // The same sweep sent again under a new key is a resend, not a
@@ -5012,9 +5066,16 @@ impl EdgeInventory for SqliteEdge {
         let mut to_book: Vec<(String, String, bool)> = Vec::new();
         let mut skipped: Vec<String> = Vec::new();
         for epc in &epcs {
+            // On the books means standing somewhere here now, not merely
+            // having stood here once. A garment the Gudang shipped and a shop
+            // sends back is one the Gudang knows by its EPC and no longer
+            // holds; it is booked in again, under the subject it always had.
             let on_books = tx
                 .query_row(
-                    "SELECT 1 FROM inventory_subject WHERE epc=?1",
+                    "SELECT 1 FROM inventory_subject subject
+                       JOIN inventory_projection projection ON projection.subject_id=subject.id
+                      WHERE subject.epc=?1 AND projection.quantity>0
+                      LIMIT 1",
                     [epc],
                     |_| Ok(()),
                 )
@@ -5040,8 +5101,9 @@ impl EdgeInventory for SqliteEdge {
         let occurred_at = self.clock.now();
         let receipt_id = Uuid::new_v4();
         let reason = format!(
-            "Announced delivery {} from {source_site_id} received at Store Edge",
-            shipment_reference.as_deref().unwrap_or(&delivery_id)
+            "Announced delivery {} from {source_site_id} received into {}",
+            shipment_reference.as_deref().unwrap_or(&delivery_id),
+            landing.id()
         );
         // At most a thousand lines per movement group, as the batch receipt
         // takes: one movement fact per chunk keeps each upload a sane size.
@@ -5061,7 +5123,15 @@ impl EdgeInventory for SqliteEdge {
                     .flatten()
                     .unwrap_or(0)
                     .max(0);
-                let subject = Self::insert_subject(&tx, epc, sku_code, unit_price_minor)?;
+                // Known here already (it left, and has come back): the same
+                // subject, so one garment keeps one identity at this site.
+                let subject = match Self::subject_by_epc(&tx, epc) {
+                    Ok(known) => known,
+                    Err(EdgeError::NotFound(_)) => {
+                        Self::insert_subject(&tx, epc, sku_code, unit_price_minor)?
+                    }
+                    Err(error) => return Err(error),
+                };
                 lines.push(MovementLine {
                     subject_id: subject.id,
                     quantity: 1,
@@ -5069,9 +5139,7 @@ impl EdgeInventory for SqliteEdge {
                         place: SystemPlace::Opening,
                     },
                     to: Place::Operational {
-                        pool: OperationalPool::Stockroom {
-                            site_id: self.node.site_id.clone(),
-                        },
+                        pool: landing.clone(),
                         state: InventoryState::Normal,
                     },
                 });
@@ -5080,8 +5148,8 @@ impl EdgeInventory for SqliteEdge {
             let command = MovementCommand {
                 movement_group_id: MovementGroupId::new(),
                 lines,
-                cause: MovementCause::StoreReceive,
-                reference_type: Some("STORE_RECEIPT".into()),
+                cause: arrival_cause,
+                reference_type: Some(reference_type.into()),
                 reference_id: Some(receipt_id.to_string()),
                 reason: reason.clone(),
                 actor_id: actor_id.clone(),

@@ -378,6 +378,21 @@ pub async fn create_allotment(
         // warehouse it is not — which is what it should do, and why the
         // translation belongs here rather than in a lenient parser over there.
         let command_site_id = owner_site_id.as_deref().unwrap_or(&source_site_id);
+        // A destination goes on the wire as the node that owns it spells it,
+        // so that the koli, both transfer claims and the announcement name ONE
+        // site: a shop's return is packed for `dc-01`, the name the Gudang's
+        // node answers to, not the centre's `dc` (inventory-fleet G1). Every
+        // shop is spelled the same on both sides.
+        let mut wire_destinations = HashMap::<String, String>::new();
+        for line in &response_lines {
+            let destination = line["destination_id"].as_str().unwrap_or_default();
+            if line["destination_type"].as_str() != Some("SUPPLIER")
+                && !wire_destinations.contains_key(destination)
+            {
+                let spelled = super::sync::node_site_id_tx(&mut tx, destination).await?;
+                wire_destinations.insert(destination.to_string(), spelled);
+            }
+        }
         let command_lines = response_lines
             .iter()
             .map(|line| {
@@ -391,10 +406,13 @@ pub async fn create_allotment(
                         .as_str()
                         .unwrap_or_default()
                         .to_string(),
-                    destination_id: line["destination_id"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_string(),
+                    destination_id: {
+                        let destination = line["destination_id"].as_str().unwrap_or_default();
+                        wire_destinations
+                            .get(destination)
+                            .cloned()
+                            .unwrap_or_else(|| destination.to_string())
+                    },
                     sku_id: serde_json::from_value(line["sku_id"].clone())?,
                     sku_code: line["sku_code"].as_str().unwrap_or_default().to_string(),
                     quantity: line["quantity"].as_i64().unwrap_or_default(),

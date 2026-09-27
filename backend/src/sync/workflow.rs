@@ -874,11 +874,20 @@ pub struct StoreInboundAnnounceUnit {
 pub struct StoreInboundAnnouncePayload {
     pub koli_id: Uuid,
     pub source_site_id: String,
+    /// The destination site — a shop, or the Gudang a return goes back to —
+    /// in the receiving node's own spelling. Named for the wire.
     pub destination_store_id: String,
     pub shipment_reference: Option<String>,
     /// The koli's `IN_TRANSIT` fact's `occurred_at` — when it left the yard.
     pub departed_at: DateTime<Utc>,
     pub units: Vec<StoreInboundAnnounceUnit>,
+    /// Where the delivery lands, when it is not the receiver's stockroom: a
+    /// store's own return pool at the Gudang (postgres `0610`), in the
+    /// receiving node's spelling. Absent on every announcement to a shop and
+    /// from a centre older than the goods routes; a shop that has never heard
+    /// of it ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination_pool_id: Option<String>,
 }
 
 impl StoreInboundAnnouncePayload {
@@ -899,6 +908,7 @@ impl StoreInboundAnnouncePayload {
                     allotment_line_id: unit.allotment_line_id,
                 })
                 .collect(),
+            destination_pool_id: None,
         }
     }
 

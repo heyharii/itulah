@@ -243,6 +243,14 @@ const RESERVED: &[(u32, u32, &str)] = &[
          0474-0477, 0490, 0500 and 0520 uncommitted, so the whole lane moved \
          to a distant block rather than race for the next numbers",
     ),
+    (
+        605,
+        609,
+        "left to the unit/site lane's other step in flight on 27 Sep 2026 — \
+         the flow-template engine — while the goods-routes step (7a) took \
+         0610-0614 so the two could not race for one number. Whichever lands \
+         the files here removes this entry",
+    ),
 ];
 
 #[test]

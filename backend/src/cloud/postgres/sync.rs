@@ -2895,10 +2895,15 @@ async fn reconcile_transfer_allotment_attribution(
         .fetch_optional(&mut **tx)
         .await?
         .ok_or_else(|| AppError::Conflict("fulfillment unit has no Allotment projection".into()))?;
+        // The line carries the centre's spelling of both sites, the claims the
+        // nodes' (G1); and since 0611 a destination is any site of ours — a
+        // shop, or the Gudang a return went back to — never the supplier.
+        let canonical_source = canonical_site_id_tx(tx, source_dc_id).await?;
+        let canonical_destination = canonical_site_id_tx(tx, destination_store_id).await?;
         if line.get::<String, _>("origin_id") != dc_origin_id.as_str()
-            || line.get::<String, _>("source_site_id") != source_dc_id
-            || line.get::<String, _>("destination_type") != "STORE"
-            || line.get::<String, _>("destination_id") != destination_store_id
+            || line.get::<String, _>("source_site_id") != canonical_source
+            || line.get::<String, _>("destination_type") == "SUPPLIER"
+            || line.get::<String, _>("destination_id") != canonical_destination
             || line.get::<String, _>("sku_code") != in_transit[0].2
             || unit.get::<String, _>("epc") != epc
             || unit.get::<String, _>("sku_code") != in_transit[0].2
@@ -3936,6 +3941,10 @@ async fn apply_fulfillment_progress(
     };
     let mut touched_allotments = BTreeSet::new();
 
+    // The allotment lines carry the centre's spelling of both ends; the fact
+    // carries the nodes'. The Gudang's node spells itself its own way (G1).
+    let canonical_source = canonical_site_id_tx(tx, &progress.source_site_id).await?;
+    let canonical_destination = canonical_site_id_tx(tx, &progress.destination_store_id).await?;
     if progress.stage == FulfillmentStage::Packed {
         if sqlx::query("SELECT 1 FROM edge_koli WHERE koli_id=$1")
             .bind(progress.koli_id)
@@ -3995,9 +4004,9 @@ async fn apply_fulfillment_progress(
                  LIMIT 1 FOR UPDATE OF line,header",
             )
             .bind(origin_id)
-            .bind(&progress.source_site_id)
+            .bind(&canonical_source)
             .bind(&unit.sku_code)
-            .bind(&progress.destination_store_id)
+            .bind(&canonical_destination)
             .fetch_optional(&mut **tx)
             .await?
             .ok_or_else(|| {
@@ -4345,11 +4354,19 @@ pub fn store_inbound_commands_enabled() -> bool {
     })
 }
 
-/// Tell the destination shop that a koli is on its way to it.
+/// Tell the destination that a koli is on its way to it.
 ///
-/// Targets only the STORE origin bound to the destination site; a shop with
-/// no registered, inventory-enabled origin is skipped silently (it receives
-/// the old way, unannounced). Never a broadcast and never a DC.
+/// Targets only the origin that owns the destination site's ledger: a shop's
+/// node for an allotment or a transfer, the Gudang's node for a shop's return
+/// (0611). A destination no node owns is skipped silently (it receives the
+/// old way, unannounced). Never a broadcast.
+///
+/// A return lands in that store's own return pool at the Gudang, to be
+/// inspected; the announcement names it, in the node's own spelling, so the
+/// node never has to work it out. A shop's delivery names none and lands in
+/// its stockroom, as it always did. A warehouse is announced to only once
+/// its heartbeat says it takes the goods routes: an older build would ignore
+/// it at best.
 async fn announce_store_inbound_tx(
     tx: &mut Transaction<'_, Postgres>,
     progress: &FulfillmentProgressPayload,
@@ -4357,18 +4374,21 @@ async fn announce_store_inbound_tx(
     if !store_inbound_commands_enabled() {
         return Ok(());
     }
-    let origin: Option<String> = sqlx::query_scalar(
-        "SELECT origin_id FROM sync_origin_credential
-         WHERE site_id=$1 AND node_role='STORE' AND inventory_enabled
-         ORDER BY origin_id LIMIT 1",
-    )
-    .bind(&progress.destination_store_id)
-    .fetch_optional(&mut **tx)
-    .await?;
-    let Some(origin_id) = origin else {
+    let destination = canonical_site_id_tx(tx, &progress.destination_store_id).await?;
+    let Some(origin_id) = inventory_owner_tx(tx, &destination).await? else {
         return Ok(());
     };
-    let payload = StoreInboundAnnouncePayload::from_progress(progress);
+    let mut payload = StoreInboundAnnouncePayload::from_progress(progress);
+    let source = canonical_site_id_tx(tx, &progress.source_site_id).await?;
+    if let Some(return_pool) = super::sites::return_pool_for(&mut **tx, &destination, &source).await?
+    {
+        if !origin_takes_goods_routes_tx(tx, &origin_id).await? {
+            return Ok(());
+        }
+        let node_site = origin_site_id_tx(tx, &origin_id).await?;
+        payload.destination_store_id = node_site.clone();
+        payload.destination_pool_id = Some(pool_id_for_site(&return_pool, &node_site));
+    }
     issue_command_tx(
         tx,
         INVENTORY_STORE_INBOUND_ANNOUNCE_V1,
@@ -5156,6 +5176,48 @@ pub(super) async fn inventory_owner_tx(
         return sole_dc_origin_tx(tx).await;
     }
     Ok(None)
+}
+
+/// The centre's own id for a site, given how a node spells it.
+///
+/// A node runs under the site id it was enrolled with, and the Gudang's node
+/// calls itself `dc-01` where the centre's row is `dc` (inventory-fleet G1).
+/// Every other site is spelled the same on both sides. So: a site the centre
+/// holds a row for is itself; the site the node that owns head office's
+/// ledger runs as is head office's; anything else is returned unchanged for
+/// the reader downstream to refuse with its own message.
+pub(super) async fn canonical_site_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    spelled: &str,
+) -> Result<String, AppError> {
+    if sqlx::query("SELECT 1 FROM site WHERE id = $1")
+        .bind(spelled)
+        .fetch_optional(&mut **tx)
+        .await?
+        .is_some()
+    {
+        return Ok(spelled.to_string());
+    }
+    let head_office = super::sites::head_office_site_id(&mut **tx).await?;
+    if let Some(origin_id) = inventory_owner_tx(tx, &head_office).await? {
+        if origin_site_id_tx(tx, &origin_id).await? == spelled {
+            return Ok(head_office);
+        }
+    }
+    Ok(spelled.to_string())
+}
+
+/// How the node that owns a site's ledger spells that site — what has to go
+/// on the wire for it to recognise its own name. The site itself when no
+/// node owns it.
+pub(super) async fn node_site_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    site_id: &str,
+) -> Result<String, AppError> {
+    match inventory_owner_tx(tx, site_id).await? {
+        Some(origin_id) => origin_site_id_tx(tx, &origin_id).await,
+        None => Ok(site_id.to_string()),
+    }
 }
 
 /// Whether a node's build understands the goods-route commands — a shop's
