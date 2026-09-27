@@ -530,7 +530,8 @@ export function nodeIncidents(
 // ---- Devices ------------------------------------------------------------------
 //
 // Every machine enrolled to a node — tills, printers, readers — as the nodes
-// report them in their heartbeats. Transcribed by hand from
+// report them in their heartbeats, and the punch stations and EDCs head office
+// registers at a site itself. Transcribed by hand from
 // `cloud/postgres/devices.rs` (`RegistryDevice`, `DeviceStatusEvent`).
 
 export type DeviceKind =
@@ -543,10 +544,16 @@ export type DeviceKind =
 
 export type DeviceStatus = "ACTIVE" | "SUSPENDED" | "REVOKED"
 
+/// Where a register row comes from: a node's heartbeat, or a terminal head
+/// office registered at a site (People's punch stations, Finance's EDCs).
+export type DeviceSource = "NODE" | "ATTENDANCE_TERMINAL" | "EDC_TERMINAL"
+
 export interface RegistryDevice {
   readonly device_id: string
   readonly kind: DeviceKind
-  readonly origin_id: string
+  /// The node it is enrolled to — for a terminal head office registered, the
+  /// node serving its site. Null at a site with no node.
+  readonly origin_id: string | null
   readonly node_label: string | null
   readonly site_id: string
   readonly site_name: string | null
@@ -569,6 +576,7 @@ export interface RegistryDevice {
   readonly registered_by: string | null
   readonly first_reported_at: string
   readonly updated_at: string
+  readonly source: DeviceSource
   /// Whether head office can suspend, reactivate or revoke it from here.
   readonly switchable: boolean
 }

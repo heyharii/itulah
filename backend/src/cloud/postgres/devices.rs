@@ -3,7 +3,20 @@
 //! printer from a distance — suspend, reactivate or revoke it.
 //!
 //! The vocabulary is `sync::device`, shared with the node. Tables in
-//! migration 0604.
+//! migration 0604; the register is read through the `device_register` view
+//! (0624).
+//!
+//! # Two ways onto the list
+//!
+//! What a node holds — its tills, its printers, the RFID keys it trusts — the
+//! node reports in every heartbeat, and it is filed in `device`. What head
+//! office registers at a site itself — punch stations (`attendance_terminal`)
+//! and EDCs (`edc_terminal`) — is not reported by anybody: the view links
+//! those rows by id to their site and to the node that serves it when the
+//! register is read. Head office already holds every fact about them, a node
+//! was never sent an EDC at all, and a terminal at a site with no node must
+//! still be listed; the migration says so at length. `source` says which way a
+//! row came in, and it is what [`device_history`] reads, never the id.
 //!
 //! # Whose word is the status
 //!
@@ -13,7 +26,7 @@
 //! sent as a signed `device.status.set.v1` command — until a heartbeat reports
 //! the device in that status, which clears it. Every other kind keeps its
 //! authority where it already was (`rfid_device`, `attendance_terminal`,
-//! `edc_terminal`) and is only mirrored here.
+//! `edc_terminal`) and is only shown here.
 //!
 //! # Only to a node that understands
 //!
@@ -218,7 +231,10 @@ pub async fn record_reported_devices(
 pub struct RegistryDevice {
     pub device_id: String,
     pub kind: String,
-    pub origin_id: String,
+    /// The node it is enrolled to, or — for a terminal head office registered
+    /// at a site — the node that serves that site. `None` for a terminal at a
+    /// site with no node.
+    pub origin_id: Option<String>,
     pub node_label: Option<String>,
     pub site_id: String,
     pub site_name: Option<String>,
@@ -237,6 +253,10 @@ pub struct RegistryDevice {
     pub registered_by: Option<String>,
     pub first_reported_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Where the row comes from: `NODE` (reported in a heartbeat),
+    /// `ATTENDANCE_TERMINAL` or `EDC_TERMINAL` (registered at head office, and
+    /// switched there).
+    pub source: String,
     /// Whether head office can suspend, reactivate or revoke it from here: a
     /// till or a printer, not yet revoked, on a node that takes device
     /// commands.
@@ -248,9 +268,9 @@ const REGISTRY_SELECT: &str = "
            s.name AS site_name, d.label, d.status, d.requested_status, d.requested_by,
            d.requested_at, d.requested_reason, d.last_seen_at, d.config,
            d.replaces_device_id, d.rfid_device_id, d.attendance_terminal_id,
-           d.registered_at, d.registered_by, d.first_reported_at, d.updated_at,
+           d.registered_at, d.registered_by, d.first_reported_at, d.updated_at, d.source,
            COALESCE(h.status ? 'device_list', false) AS node_takes_commands
-      FROM device d
+      FROM device_register d
       LEFT JOIN site s ON s.id = d.site_id
       LEFT JOIN sync_origin_credential c ON c.origin_id = d.origin_id
       LEFT JOIN node_heartbeat h ON h.origin_id = d.origin_id";
@@ -282,6 +302,7 @@ fn registry_row(row: &sqlx::postgres::PgRow) -> RegistryDevice {
         registered_by: row.get("registered_by"),
         first_reported_at: row.get("first_reported_at"),
         updated_at: row.get("updated_at"),
+        source: row.get("source"),
     }
 }
 
@@ -322,21 +343,81 @@ pub struct DeviceStatusEvent {
     pub at: DateTime<Utc>,
 }
 
-/// A device's history, newest first.
+/// A punch station's history, from the row that is its authority: its
+/// registration, then every change of trust with who made it and why. Each
+/// change's `from` is the one before it; a station is registered ACTIVE.
+const ATTENDANCE_HISTORY: &str = "
+    WITH events AS (
+        SELECT e.value ->> 'to' AS to_status,
+               e.value -> 'authorization' ->> 'actor' AS actor,
+               e.value -> 'authorization' ->> 'reason' AS reason,
+               (e.value -> 'authorization' ->> 'at')::timestamptz AS at,
+               e.n
+          FROM attendance_terminal t
+         CROSS JOIN LATERAL jsonb_array_elements(t.history) WITH ORDINALITY AS e(value, n)
+         WHERE t.id = $1
+    )
+    SELECT 'HUB' AS source,
+           COALESCE(lag(to_status) OVER (ORDER BY n), 'ACTIVE') AS from_status,
+           to_status, actor, reason, at
+      FROM events
+     UNION ALL
+    SELECT 'HUB', NULL, 'ACTIVE', t.registered ->> 'actor', t.registered ->> 'reason',
+           COALESCE((t.registered ->> 'at')::timestamptz, t.created_at)
+      FROM attendance_terminal t
+     WHERE t.id = $1
+     ORDER BY at DESC
+     LIMIT 200";
+
+/// An EDC's history is its registration: Finance keeps no record of the day
+/// it was switched off, and this says only what is known.
+const EDC_HISTORY: &str = "
+    SELECT 'HUB'::text AS source, NULL::text AS from_status, 'ACTIVE'::text AS to_status,
+           e.created_by AS actor, 'registered in Finance'::text AS reason, e.created_at AS at
+      FROM device_register d
+      JOIN edc_terminal e
+        ON e.site_id = d.site_id AND e.terminal_id = d.config ->> 'terminal_id'
+     WHERE d.device_id = $1 AND d.source = 'EDC_TERMINAL'";
+
+/// A device's history, newest first. A node's device from `device_status_event`;
+/// a terminal head office registered from the row it is kept in.
 pub async fn device_history(
     pool: &PgPool,
     device_id: &str,
 ) -> Result<Vec<DeviceStatusEvent>, AppError> {
-    let rows = sqlx::query(
-        "SELECT source, from_status, to_status, actor, reason, at
-           FROM device_status_event
-          WHERE device_id = $1
-          ORDER BY at DESC, id DESC
-          LIMIT 200",
+    let linked: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT source, attendance_terminal_id FROM device_register
+          WHERE device_id = $1 AND source <> 'NODE'",
     )
     .bind(device_id)
-    .fetch_all(pool)
+    .fetch_optional(pool)
     .await?;
+    let rows = match linked {
+        Some((source, Some(terminal_id))) if source == "ATTENDANCE_TERMINAL" => {
+            sqlx::query(ATTENDANCE_HISTORY)
+                .bind(terminal_id)
+                .fetch_all(pool)
+                .await?
+        }
+        Some(_) => {
+            sqlx::query(EDC_HISTORY)
+                .bind(device_id)
+                .fetch_all(pool)
+                .await?
+        }
+        None => {
+            sqlx::query(
+                "SELECT source, from_status, to_status, actor, reason, at
+                   FROM device_status_event
+                  WHERE device_id = $1
+                  ORDER BY at DESC, id DESC
+                  LIMIT 200",
+            )
+            .bind(device_id)
+            .fetch_all(pool)
+            .await?
+        }
+    };
     Ok(rows
         .iter()
         .map(|row| DeviceStatusEvent {
@@ -348,6 +429,16 @@ pub async fn device_history(
             at: row.get("at"),
         })
         .collect())
+}
+
+/// Why the register cannot switch a device of this kind, and where it is done.
+fn switched_elsewhere(kind: &str) -> String {
+    format!(
+        "a {} is switched on and off where its credential is kept (RFID readers and \
+         handhelds in System → Access, punch stations in People → Settings, EDCs in \
+         Finance → Sales & banks), not here",
+        kind.to_ascii_lowercase().replace('_', " ")
+    )
 }
 
 /// `POST /api/v1/sync/devices/{device_id}/status`.
@@ -402,14 +493,21 @@ pub async fn request_device_status(
     .fetch_optional(&mut *tx)
     .await?;
     let Some((kind, current, origin_id, takes_commands)) = row else {
-        return Err(AppError::NotFound(format!("device {device_id}")));
+        // A terminal head office registered is in the register without being
+        // in `device`: say where it is switched rather than that it is missing.
+        let linked: Option<String> = sqlx::query_scalar(
+            "SELECT kind FROM device_register WHERE device_id = $1 AND source <> 'NODE'",
+        )
+        .bind(device_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        return Err(match linked {
+            Some(kind) => AppError::Conflict(switched_elsewhere(&kind)),
+            None => AppError::NotFound(format!("device {device_id}")),
+        });
     };
     if !wire::node_owns(&kind) {
-        return Err(AppError::Conflict(format!(
-            "a {} is switched on and off where its credential is kept (RFID readers in \
-             System → Access, attendance terminals in People, EDCs in Finance), not here",
-            kind.to_ascii_lowercase().replace('_', " ")
-        )));
+        return Err(AppError::Conflict(switched_elsewhere(&kind)));
     }
     if !wire::may_become(&current, &status) {
         return Err(AppError::Conflict(format!(
