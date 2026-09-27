@@ -2243,9 +2243,10 @@ pub async fn resume_parked_stage(
 /// transfer, a return to the Gudang and a return to a supplier all come
 /// through here.
 ///
-/// NOT YET CALLED: `postgres::allotments::create_allotment` is being
-/// generalised on another lane; the call belongs right after its lines are
-/// inserted, with the MD's actor and `FlowRole::HoMd`.
+/// Called by `postgres::allotments::create_allotment_as` right after the
+/// allotment's lines are inserted, in the same transaction: MD's actor with
+/// `FlowRole::HoMd`, or the buyer's with `FlowRole::HoBuyer` for a return to
+/// a supplier.
 pub async fn start_flow_for_allotment_tx(
     tx: &mut Transaction<'_, Postgres>,
     allotment_id: Uuid,
@@ -2259,9 +2260,21 @@ pub async fn start_flow_for_allotment_tx(
         BTreeMap::new();
     for (source_site_id, destination_type, destination_id, sku_id, quantity) in lines {
         let destination = match destination_type {
-            DestinationType::Store => FlowEndInput::site(destination_id.clone()),
-            // The Gudang is head office's site, read from data.
-            DestinationType::Dc => FlowEndInput::site(head_office.clone()),
+            DestinationType::Store | DestinationType::Site => {
+                FlowEndInput::site(destination_id.clone())
+            }
+            // A warehouse site of ours, named on the line since 0611. A line
+            // written before that may spell the Gudang the way its node does
+            // (`dc-01`), or name nothing usable: the centre's spelling, else
+            // head office's own site, read from data.
+            DestinationType::Warehouse => {
+                let named = super::sync::canonical_site_id_tx(tx, destination_id).await?;
+                if named.is_empty() {
+                    FlowEndInput::site(head_office.clone())
+                } else {
+                    FlowEndInput::site(named)
+                }
+            }
             DestinationType::Supplier => {
                 FlowEndInput::party(PartyKind::Supplier, destination_id.clone())
             }

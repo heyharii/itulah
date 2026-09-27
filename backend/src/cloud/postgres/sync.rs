@@ -7167,6 +7167,18 @@ pub async fn create_purchase_order(
     pool: &PgPool,
     request: &NewPurchaseOrder,
 ) -> Result<(Uuid, Uuid, String), AppError> {
+    create_purchase_order_as(pool, request, None).await
+}
+
+/// [`create_purchase_order`] by a signed-in buyer: in the same transaction
+/// the order's receiving flow is started from the supplier → head office
+/// template (`flows::start_flow_for_purchase_order_tx`). Its lines are the
+/// purchase lines, because the goods have no SKU until Article Setup.
+pub async fn create_purchase_order_as(
+    pool: &PgPool,
+    request: &NewPurchaseOrder,
+    actor: Option<&crate::cloud::domain::flow::Actor>,
+) -> Result<(Uuid, Uuid, String), AppError> {
     if !matches!(request.origin_kind.as_str(), "SOURCING" | "DIRECT") {
         return Err(AppError::Validation(
             "origin_kind must be SOURCING or DIRECT".into(),
@@ -7210,9 +7222,11 @@ pub async fn create_purchase_order(
     })?;
 
     let mut wire_lines = Vec::with_capacity(request.lines.len());
+    let mut flow_lines: Vec<(Uuid, i64)> = Vec::with_capacity(request.lines.len());
     for (index, line) in request.lines.iter().enumerate() {
         let line_number = (index + 1) as i32;
         let po_line_id = Uuid::new_v4();
+        flow_lines.push((po_line_id, line.ordered_quantity));
         let line_amount = line
             .unit_price_minor
             .checked_mul(line.ordered_quantity)
@@ -7299,6 +7313,18 @@ pub async fn create_purchase_order(
     .bind(command_id)
     .execute(&mut *tx)
     .await?;
+    if let Some(actor) = actor {
+        super::flows::start_flow_for_purchase_order_tx(
+            &mut tx,
+            purchase_order_id,
+            &request.destination_site_id,
+            &request.supplier_id,
+            &flow_lines,
+            actor,
+            chrono::Utc::now(),
+        )
+        .await?;
+    }
     tx.commit().await?;
     Ok((purchase_order_id, command_id, target))
 }

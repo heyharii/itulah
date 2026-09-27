@@ -2527,9 +2527,15 @@ async fn allotments(
 async fn create_allotment(
     State(s): State<AppState>,
     Extension(acted_on): Extension<DeclaredSubject>,
+    Extension(principal): Extension<self::auth::Principal>,
     Json(r): Json<CreateAllotmentRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let body = infrastructure::create_allotment(&s.db, r).await?;
+    // Who raised it, with their rung: the route's template checks it may.
+    let actor = crate::cloud::domain::flow::Actor {
+        id: principal.username.clone(),
+        rung: principal.role,
+    };
+    let body = infrastructure::create_allotment_as(&s.db, r, Some(&actor)).await?;
     if let Some(allotment_id) = id_in(&body, "id") {
         acted_on.set(RecordKind::Allotment, allotment_id);
     }
@@ -4086,10 +4092,15 @@ async fn sync_reconciliation(State(s): State<AppState>) -> Result<Json<Value>, A
 async fn raise_purchase_order(
     State(s): State<AppState>,
     Extension(acted_on): Extension<DeclaredSubject>,
+    Extension(principal): Extension<self::auth::Principal>,
     Json(request): Json<infrastructure::NewPurchaseOrder>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
+    let actor = crate::cloud::domain::flow::Actor {
+        id: principal.username.clone(),
+        rung: principal.role,
+    };
     let (purchase_order_id, command_id, target) =
-        infrastructure::create_purchase_order(&s.db, &request).await?;
+        infrastructure::create_purchase_order_as(&s.db, &request, Some(&actor)).await?;
     // The order's first line of history. The path cannot say this — there was
     // no order to name when the request was written — so the handler does.
     acted_on.set(RecordKind::PurchaseOrder, purchase_order_id.to_string());

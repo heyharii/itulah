@@ -92,6 +92,20 @@ pub async fn create_allotment(
     pool: &PgPool,
     request: CreateAllotmentRequest,
 ) -> Result<Value, AppError> {
+    create_allotment_as(pool, request, None).await
+}
+
+/// [`create_allotment`] by a signed-in person. The plan is written and, in
+/// the same transaction, one flow document per destination is started from
+/// the route's default template (`flows::start_flow_for_allotment_tx`), so an
+/// allotment on a route no template serves is refused with its plan: the
+/// template is what says how goods may travel a route (owner, 27 Sep).
+/// Without an actor (tools, the simulator) only the plan is written.
+pub async fn create_allotment_as(
+    pool: &PgPool,
+    request: CreateAllotmentRequest,
+    actor: Option<&crate::cloud::domain::flow::Actor>,
+) -> Result<Value, AppError> {
     if request.actor_id.trim().is_empty() {
         return Err(AppError::Validation("actor_id is required".into()));
     }
@@ -251,6 +265,7 @@ pub async fn create_allotment(
         .await?;
 
     let mut response_lines = Vec::with_capacity(lines.len());
+    let mut flow_lines = Vec::with_capacity(lines.len());
     for line in lines {
         let sku_code: String = sqlx::query("SELECT sku_code FROM sku WHERE id=$1")
             .bind(line.identity.sku_id)
@@ -311,6 +326,13 @@ pub async fn create_allotment(
             .bind(line.quantity)
             .execute(&mut *tx)
             .await?;
+        flow_lines.push((
+            line.identity.source_site_id.clone(),
+            line.identity.destination_type,
+            line.identity.destination_id.clone(),
+            line.identity.sku_id,
+            line.quantity,
+        ));
         if activation_target_origin_id.is_none() {
             insert_allotment_event(
                 &mut tx,
@@ -363,6 +385,26 @@ pub async fn create_allotment(
             "on_hand_qty_before":on_hand_quantity,
             "on_hand_qty_after":on_hand_quantity-line.quantity
         }));
+    }
+
+    // Each destination's flow document, from the route's template. A return
+    // to a supplier is the buyer's to raise; everything else is MD's.
+    if let Some(actor) = actor {
+        let as_role = match request.allotment_type {
+            AllotmentType::ReturnToSupplier => crate::cloud::domain::flow::FlowRole::HoBuyer,
+            AllotmentType::ToSite | AllotmentType::ReturnToWarehouse => {
+                crate::cloud::domain::flow::FlowRole::HoMd
+            }
+        };
+        super::flows::start_flow_for_allotment_tx(
+            &mut tx,
+            allotment_id,
+            &flow_lines,
+            actor,
+            as_role,
+            now,
+        )
+        .await?;
     }
 
     let total_quantity: i64 = response_lines
