@@ -203,6 +203,14 @@ pub const SECTION_RULES: &[SectionRule] = &[
     rule("/api/v1/store-money", &["finance", "stores"], Reads::Same),
     // ── stores: a store's own page and opening checklist ───────────────
     rule("/api/v1/stores", &["stores"], Reads::Same),
+    // The store exceptions list (0646-0648): a store's people, and the head
+    // office sections whose kinds it holds. Which kinds each sees, and which
+    // units, the handler decides by section and by reach.
+    rule(
+        "/api/v1/exceptions",
+        &["stores", "finance", "inventory", "operations"],
+        Reads::Same,
+    ),
     // ── procurement ────────────────────────────────────────────────────
     rule(
         "/api/v1/purchase-orders",
