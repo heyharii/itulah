@@ -52,9 +52,9 @@ use crate::cloud::domain::flow::{
 };
 use crate::cloud::domain::{Reach, UnitId};
 use crate::sync::flow::{
-    FlowEventNotice, FlowEventsPayload, InboundReceivedPayload, PutawayPayload,
-    ReturnInspectedPayload, FLOWS_CAPABILITY, INVENTORY_FLOW_EVENTS_V1,
-    INVENTORY_INBOUND_RECEIVED_V1, INVENTORY_PUTAWAY_V1, INVENTORY_RETURN_INSPECTED_V1,
+    FlowEventNotice, FlowEventsPayload, InboundReceivedPayload, ReturnInspectedPayload,
+    FLOWS_CAPABILITY, INVENTORY_FLOW_EVENTS_V1, INVENTORY_INBOUND_RECEIVED_V1,
+    INVENTORY_RETURN_INSPECTED_V1,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -179,11 +179,14 @@ pub fn stage_delegate(kind: StageKind) -> StageDelegate {
             Some("tagging.completed"),
             "A tagging job per article, from Article Setup.",
         ),
+        // Kept in the catalogue because stored template versions name it
+        // (TERIMA_DARI_SUPPLIER v1, 0619) and the database's stage CHECKs
+        // list it; no current template uses it, and nothing runs it.
         StageKind::Putaway => (
-            Wiring::ExistingSurface,
-            "POST /api/v1/dc/putaways (Gudang: Operations → Putaway)",
-            Some("inventory.putaway.v1"),
-            "Tagged goods are on the racks in the ledger from tagging; putaway records that they were shelved.",
+            Wiring::Missing,
+            "none: putaway is not part of the company's process",
+            None,
+            "Tagging already lands the goods on the racks. No current template uses this stage.",
         ),
     };
     StageDelegate {
@@ -1432,9 +1435,12 @@ async fn node_performer_tx(
     let unit = UnitId::try_new(unit)
         .map_err(|error| AppError::Conflict(format!("unit {unit}: {error}")))?;
     Ok((
+        // The node acts as the stage's performer: judged by that role's rung,
+        // with no job role of its own to ask.
         Actor {
             id,
             rung: stage.stage.performer.min_role(),
+            flow_roles: None,
         },
         Reach::Only(unit),
     ))
@@ -1825,8 +1831,8 @@ async fn picked_at_origin_tx(
     .await?)
 }
 
-/// A supplier's goods: the order's accepted receipt lines, its tagging jobs
-/// and what was put away. Line keys are purchase lines (`flow_document_line`).
+/// A supplier's goods: the order's accepted receipt lines and its tagging
+/// jobs. Line keys are purchase lines (`flow_document_line`).
 async fn purchase_progress_tx(
     tx: &mut Transaction<'_, Postgres>,
     row: &DocumentRow,
@@ -1957,35 +1963,6 @@ async fn purchase_progress_tx(
         .collect::<Vec<_>>()
         .join(", ");
 
-    let shelved = sqlx::query(
-        "SELECT gl.po_line_id, line.quantity, step.actor_id, step.event_id
-           FROM edge_goods_step step
-           JOIN edge_goods_step_line line ON line.event_id = step.event_id
-           JOIN tagging_job j ON j.job_id = step.tagging_job_id
-           JOIN article_setup_session s ON s.session_id = j.session_id
-           JOIN goods_receipt_line gl ON gl.receipt_line_id = s.receipt_line_id
-           JOIN purchase_order_line pl ON pl.po_line_id = gl.po_line_id
-          WHERE step.kind = 'PUT_AWAY' AND pl.purchase_order_id = $1
-          ORDER BY step.occurred_at, step.event_id, line.line_no",
-    )
-    .bind(order_id)
-    .fetch_all(&mut **tx)
-    .await?;
-    let mut put_away: BTreeMap<Uuid, i64> = BTreeMap::new();
-    let mut putaways: BTreeSet<Uuid> = BTreeSet::new();
-    let mut shelver: Option<String> = None;
-    for step in &shelved {
-        let line: Uuid = step.try_get("po_line_id")?;
-        *put_away.entry(line).or_insert(0) += step.try_get::<i64, _>("quantity")?;
-        putaways.insert(step.try_get("event_id")?);
-        shelver = Some(step.try_get("actor_id")?);
-    }
-    let putaway_finished = tagging_finished && covers(&put_away, &tagged);
-    let putaway_list = putaways
-        .iter()
-        .map(Uuid::to_string)
-        .collect::<Vec<_>>()
-        .join(", ");
     progress.insert(
         StageKind::Tagging,
         StageProgress {
@@ -1995,18 +1972,6 @@ async fn purchase_progress_tx(
             evidence: scanned(format!("tagging jobs {job_list}")),
             actor: tagger,
             counts: tagged,
-            ..StageProgress::default()
-        },
-    );
-    progress.insert(
-        StageKind::Putaway,
-        StageProgress {
-            counted: true,
-            started: !putaways.is_empty(),
-            finished: putaway_finished,
-            evidence: typed(format!("putaways {putaway_list}")),
-            actor: shelver,
-            counts: put_away,
             ..StageProgress::default()
         },
     );
@@ -2036,7 +2001,6 @@ async fn keep_goods_step_tx(
     kind: &str,
     site_id: &str,
     delivery: Option<(&str, &str, Option<&str>)>,
-    tagging_job_id: Option<Uuid>,
     actor_id: &str,
     occurred_at: DateTime<Utc>,
     payload: Value,
@@ -2051,8 +2015,8 @@ async fn keep_goods_step_tx(
     let inserted = sqlx::query(
         "INSERT INTO edge_goods_step
              (event_id, origin_id, generation, seq, kind, site_id, delivery_id, source_site_id,
-              shipment_reference, tagging_job_id, actor_id, occurred_at, payload)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+              shipment_reference, actor_id, occurred_at, payload)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT DO NOTHING",
     )
     .bind(event_id)
@@ -2064,7 +2028,6 @@ async fn keep_goods_step_tx(
     .bind(delivery_id)
     .bind(source_site_id)
     .bind(shipment_reference)
-    .bind(tagging_job_id)
     .bind(actor_id.trim())
     .bind(occurred_at)
     .bind(payload)
@@ -2170,7 +2133,6 @@ pub(super) async fn apply_inbound_received_tx(
             received.source_site_id.as_str(),
             received.shipment_reference.as_deref(),
         )),
-        None,
         &received.received_by,
         received.received_at,
         serde_json::to_value(received)?,
@@ -2236,7 +2198,6 @@ pub(super) async fn apply_return_inspected_tx(
             inspected.source_site_id.as_str(),
             inspected.shipment_reference.as_deref(),
         )),
-        None,
         &inspected.inspected_by,
         inspected.inspected_at,
         serde_json::to_value(inspected)?,
@@ -2259,55 +2220,6 @@ pub(super) async fn apply_return_inspected_tx(
         actor_id: Some(inspected.inspected_by.as_str()),
     };
     resume_allotments_tx(tx, &line_ids, &site_id, &fact, inspected.inspected_at).await
-}
-
-/// The Gudang put a tagged job's goods away (`inventory.putaway.v1`).
-pub(super) async fn apply_putaway_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    origin_id: &str,
-    generation: i64,
-    seq: i64,
-    event_id: Uuid,
-    putaway: &PutawayPayload,
-) -> Result<(), AppError> {
-    if event_id != putaway.putaway_id {
-        return Err(AppError::Validation(
-            "a putaway's putaway_id must equal its event_id".into(),
-        ));
-    }
-    let site_id = node_site_tx(tx, origin_id).await?;
-    let lines: Vec<(Option<Uuid>, &str, i64, i64, i64)> = putaway
-        .lines
-        .iter()
-        .map(|line| (None, line.sku_code.as_str(), 0, line.quantity, 0))
-        .collect();
-    let kept = keep_goods_step_tx(
-        tx,
-        origin_id,
-        generation,
-        seq,
-        event_id,
-        "PUT_AWAY",
-        &site_id,
-        None,
-        Some(putaway.job_id),
-        &putaway.put_away_by,
-        putaway.put_away_at,
-        serde_json::to_value(putaway)?,
-        &lines,
-    )
-    .await?;
-    if !kept {
-        return Ok(());
-    }
-    let fact = NodeFact {
-        origin_id,
-        event_type: INVENTORY_PUTAWAY_V1,
-        event_id,
-        stage: StageKind::Putaway,
-        actor_id: Some(putaway.put_away_by.as_str()),
-    };
-    resume_tagging_job_tx(tx, putaway.job_id, &fact, putaway.put_away_at).await
 }
 
 /// The purchase order a tagging job's goods were bought on moves its flow.

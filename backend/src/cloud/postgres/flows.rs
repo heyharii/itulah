@@ -876,7 +876,7 @@ pub async fn authorise_source_tx(
             as_role.label()
         )));
     }
-    if !as_role.holds(actor.rung) {
+    if !actor.holds(as_role) {
         return Err(AppError::Forbidden(format!(
             "{} does not hold the role {}",
             actor.id,
@@ -1400,9 +1400,12 @@ pub(super) async fn load_state(
                 stage_index: usize::try_from(stage_index).unwrap_or(usize::MAX),
                 details: action.try_get("details")?,
             },
+            // Replayed by the rung it was recorded on: what was lawfully done
+            // then is not re-judged by the actor's job role now.
             Actor {
                 id: action.try_get("actor")?,
                 rung,
+                flow_roles: None,
             },
         ));
     }

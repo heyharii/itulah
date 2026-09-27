@@ -3,7 +3,7 @@
 //! **Upward, facts.** A flow document's stages are done on the nodes that own
 //! the sites' ledgers, and most of that work already travels: a pick, a koli
 //! packed, shipped, loaded and departed (`sync::workflow`), a supplier's
-//! delivery accepted, a tagging job confirmed. Three steps had no fact of
+//! delivery accepted, a tagging job confirmed. Two steps had no fact of
 //! their own and are named here:
 //!
 //! * [`INVENTORY_INBOUND_RECEIVED_V1`] — a site of ours received an announced
@@ -17,7 +17,10 @@
 //!   delivery before it reads the delivery.
 //! * [`INVENTORY_RETURN_INSPECTED_V1`] — the Gudang inspected (part of) a
 //!   store's return it received: good goods to the racks, damaged to reject.
-//! * [`INVENTORY_PUTAWAY_V1`] — the Gudang put a tagged job's goods away.
+//!
+//! A third, `inventory.putaway.v1`, was named here for a putaway step that is
+//! not part of the company's process; it is gone, and a node that ever sent
+//! one has it passed through as an unknown type (`postgres::sync`).
 //!
 //! None of them is a movement: the movements travel as movement facts. These
 //! say which document the movement belongs to, which is what a flow is keyed
@@ -39,13 +42,12 @@ use uuid::Uuid;
 
 pub const INVENTORY_INBOUND_RECEIVED_V1: &str = "inventory.inbound.received.v1";
 pub const INVENTORY_RETURN_INSPECTED_V1: &str = "inventory.return.inspected.v1";
-pub const INVENTORY_PUTAWAY_V1: &str = "inventory.putaway.v1";
 
 /// Cloud → node: what a flow document did, for the node of a site it touches.
 pub const INVENTORY_FLOW_EVENTS_V1: &str = "inventory.flow.events.v1";
 
 /// What a node's heartbeat carries once its build applies
-/// [`INVENTORY_FLOW_EVENTS_V1`] and emits the three facts above.
+/// [`INVENTORY_FLOW_EVENTS_V1`] and emits the two facts above.
 pub const FLOWS_CAPABILITY: &str = "inventory.flows.v1";
 
 pub const FLOW_FACT_SCHEMA_VERSION: u32 = 1;
@@ -206,67 +208,6 @@ pub fn parse_return_inspected(payload: &Value) -> Result<ReturnInspectedPayload,
         }
     }
     Ok(inspected)
-}
-
-// ---- a tagged job put away ------------------------------------------------
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct PutawayLine {
-    pub sku_code: String,
-    pub quantity: i64,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct PutawayPayload {
-    pub schema_version: u32,
-    /// The putaway's id: the event id.
-    pub putaway_id: Uuid,
-    /// The tagging job whose goods were put away.
-    pub job_id: Uuid,
-    pub session_id: Uuid,
-    /// This site, in this node's spelling.
-    pub site_id: String,
-    /// The pool they stand in now.
-    pub pool_id: String,
-    pub lines: Vec<PutawayLine>,
-    pub put_away_by: String,
-    pub put_away_at: DateTime<Utc>,
-}
-
-pub fn parse_putaway(payload: &Value) -> Result<PutawayPayload, String> {
-    let putaway: PutawayPayload = serde_json::from_value(payload.clone())
-        .map_err(|error| format!("malformed {INVENTORY_PUTAWAY_V1}: {error}"))?;
-    if putaway.schema_version != FLOW_FACT_SCHEMA_VERSION {
-        return Err(format!(
-            "{INVENTORY_PUTAWAY_V1} schema_version must be {FLOW_FACT_SCHEMA_VERSION}"
-        ));
-    }
-    for (field, value) in [
-        ("site_id", &putaway.site_id),
-        ("pool_id", &putaway.pool_id),
-        ("put_away_by", &putaway.put_away_by),
-    ] {
-        if value.trim().is_empty() {
-            return Err(format!("{INVENTORY_PUTAWAY_V1} names no {field}"));
-        }
-    }
-    if putaway.lines.is_empty() {
-        return Err("a putaway of nothing puts nothing away".into());
-    }
-    if putaway.lines.len() > MAX_FLOW_FACT_LINES {
-        return Err(format!(
-            "{INVENTORY_PUTAWAY_V1} carries more than {MAX_FLOW_FACT_LINES} lines"
-        ));
-    }
-    for line in &putaway.lines {
-        if line.sku_code.trim().is_empty() || line.quantity <= 0 {
-            return Err(format!(
-                "a putaway line of {} says {}",
-                line.sku_code, line.quantity
-            ));
-        }
-    }
-    Ok(putaway)
 }
 
 // ---- the flow's outbox, told to a node --------------------------------------

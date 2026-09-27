@@ -178,6 +178,24 @@ impl Api {
             )
             .await
             .ok(&format!("create user {user}"));
+            // Each person's job role (0633), which decides the hub sections
+            // they may use and the flow stages they may perform. The rung above
+            // is the one the role names. Inventory is the rig's buyer: it
+            // raises the orders and sets up what arrives.
+            let job = match user {
+                KEPALA_TOKO => "STORE_MANAGER",
+                HR => "HR",
+                INVENTORY => "PROCUREMENT",
+                GA => "GA",
+                KASIR => "CASHIER",
+                _ => "ADMIN",
+            };
+            sqlx::query("UPDATE app_user SET role_code = $2 WHERE username = $1")
+                .bind(user)
+                .bind(job)
+                .execute(&api.pool)
+                .await
+                .unwrap_or_else(|e| panic!("job role for {user}: {e}"));
             let token = api.login(user).await;
             api.tokens.insert(user.into(), token);
         }

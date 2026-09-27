@@ -55,7 +55,7 @@ const TASKS: Record<SetupTaskId, TaskCopy> = {
         : "Enter the pairing code on each store's server.",
     when: "before stores open",
     urgent: true,
-    to: "/system/servers",
+    to: "/stores",
   },
   payments: {
     title: "Turn on QRIS & debit",

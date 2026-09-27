@@ -73,10 +73,6 @@ export const keys = {
       skuCode ?? "first",
       language,
     ] as const,
-  /// Tagged jobs whose goods are on the racks in the ledger but not yet
-  /// recorded as put away — the flow's Putaway stage.
-  putawayWork: () => ["dc", "putaway-work"] as const,
-
   // ── Picking ──────────────────────────────────────────────────────────────
   /// What is still owed, by SKU. Recomputed on every read — nobody authors it,
   /// which is why it is what a new picklist is composed against.

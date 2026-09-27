@@ -57,11 +57,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+/// The caller as a flow judges them: by their job role's flow roles (0633).
 fn actor_of(principal: &Principal) -> Actor {
-    Actor {
-        id: principal.username.clone(),
-        rung: principal.role,
-    }
+    principal.flow_actor()
 }
 
 /// Where the caller may perform a stage: their own open posting, read on this

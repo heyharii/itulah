@@ -189,6 +189,11 @@ pub struct TenderTotal {
 
 const CASH_KINDS: [&str; 5] = ["OPENING_FLOAT", "DROP", "PAYOUT", "PICKUP", "CORRECTION"];
 
+/// What a till is told when it tries to open a shift in a store head office
+/// has not opened yet.
+pub const STORE_NOT_OPEN_YET: &str =
+    "This store is not open yet — head office opens it from the hub.";
+
 /// Open the drawer for the day.
 ///
 /// The unique index does the refusing rather than a read-then-write: two
@@ -210,6 +215,14 @@ pub fn open_shift(
     }
     if request.actor_id.trim().is_empty() {
         return Err(EdgeError::Validation("actor_id is required".into()));
+    }
+    // A store trades from the day head office opens it (postgres 0630), and
+    // its site directory says so (`0061`). Until then the drawer stays shut:
+    // the server, the tills and the first stock may all be in place while the
+    // store is still getting ready. Only an explicit "not yet" refuses — a
+    // node that has not heard keeps trading (`site_profile::own_store_is_open`).
+    if !crate::edge::site_profile::own_store_is_open(tx) {
+        return Err(EdgeError::Conflict(STORE_NOT_OPEN_YET.into()));
     }
     if let Some(existing) = open_shift_id(tx, terminal)? {
         return Err(EdgeError::Conflict(format!(

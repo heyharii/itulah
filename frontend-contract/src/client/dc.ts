@@ -51,10 +51,6 @@ import type {
   PurchaseVerifyRequest,
   PurchaseVerifyResult,
   PurchaseWorkLine,
-  PutawayJob,
-  PutawayRequest,
-  PutawayResult,
-  PutawayWork,
   RecordInvoiceRequest,
   RepointPrinterRequest,
   ReprintRequest,
@@ -960,27 +956,5 @@ export class Dc {
       request,
       { signal },
     );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Tagged goods, put away on the racks — the goods flow's Putaway stage.
-  // ---------------------------------------------------------------------------
-
-  /// Tagged jobs whose goods are not yet recorded as put away.
-  async putawayWork(signal?: AbortSignal): Promise<PutawayJob[]> {
-    const body = await this.node.get<PutawayWork>("/api/v1/dc/putaways", {
-      signal,
-    });
-    return body.jobs;
-  }
-
-  /// Record a tagged job's goods as put away on the racks.
-  putAway(
-    request: PutawayRequest,
-    signal?: AbortSignal,
-  ): Promise<PutawayResult> {
-    return this.node.post<PutawayResult>("/api/v1/dc/putaways", request, {
-      signal,
-    });
   }
 }

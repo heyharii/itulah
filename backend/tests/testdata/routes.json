@@ -13,6 +13,7 @@ cloud	DELETE	/api/v1/letters/templates/{template_id}	Supervisor	-
 cloud	DELETE	/api/v1/letters/{letter_id}	Supervisor	letter
 cloud	DELETE	/api/v1/push/subscriptions	Cashier	-
 cloud	DELETE	/api/v1/records/{kind}/{id}/tags/{code}	PerRecord	handler
+cloud	DELETE	/api/v1/roles/{code}	Admin	-
 cloud	DELETE	/api/v1/vocabulary/{kind}/{code}	Supervisor	handler
 cloud	GET	/api/v1/article-setups	Cashier	-
 cloud	GET	/api/v1/article-setups/unidentified	Cashier	-
@@ -199,6 +200,8 @@ cloud	GET	/api/v1/inventory/reconciliations	Cashier	-
 cloud	GET	/api/v1/inventory/time-machine/divergence	Cashier	-
 cloud	GET	/api/v1/inventory/time-machine/state	Cashier	-
 cloud	GET	/api/v1/inventory/time-machine/sync-divergence	Cashier	-
+cloud	GET	/api/v1/invitations	Admin	-
+cloud	GET	/api/v1/invitations/accept/{token}	Cashier	-
 cloud	GET	/api/v1/leave-policy	Cashier	-
 cloud	GET	/api/v1/leave-requests/pending	Cashier	-
 cloud	GET	/api/v1/leave-types	Cashier	-
@@ -248,6 +251,7 @@ cloud	GET	/api/v1/reports/saved	Cashier	-
 cloud	GET	/api/v1/reports/saved/{id}	Cashier	-
 cloud	GET	/api/v1/returns	Cashier	-
 cloud	GET	/api/v1/returns/{id}	Cashier	-
+cloud	GET	/api/v1/roles	Cashier	-
 cloud	GET	/api/v1/roster	Cashier	-
 cloud	GET	/api/v1/sales	Cashier	-
 cloud	GET	/api/v1/sales/{id}	Cashier	-
@@ -255,6 +259,8 @@ cloud	GET	/api/v1/sales/{id}/receipt	Cashier	-
 cloud	GET	/api/v1/setup	Admin	-
 cloud	GET	/api/v1/shop-sales/{id}	Cashier	-
 cloud	GET	/api/v1/sourcing-basket	Supervisor	-
+cloud	GET	/api/v1/stores	Cashier	-
+cloud	GET	/api/v1/stores/{unit}	Cashier	-
 cloud	GET	/api/v1/supplier-items	Supervisor	-
 cloud	GET	/api/v1/supplier-items/{id}	Supervisor	-
 cloud	GET	/api/v1/suppliers	Supervisor	-
@@ -363,6 +369,7 @@ cloud	POST	/api/v1/commercial/vouchers/{code}/redeem	Cashier	voucher
 cloud	POST	/api/v1/commercial/vouchers/{code}/release	Supervisor	voucher
 cloud	POST	/api/v1/commercial/vouchers/{code}/void	Supervisor	voucher
 cloud	POST	/api/v1/customers/{customer_id}/points/redeem	Supervisor	customer
+cloud	POST	/api/v1/devices/{device_id}/test-print	Admin	-
 cloud	POST	/api/v1/discussions	Cashier	discussion
 cloud	POST	/api/v1/discussions/read	Cashier	-
 cloud	POST	/api/v1/discussions/{id}/bookmark	Cashier	discussion
@@ -501,6 +508,10 @@ cloud	POST	/api/v1/inventory/observations	Supervisor	-
 cloud	POST	/api/v1/inventory/replay	Admin	-
 cloud	POST	/api/v1/inventory/repost	Admin	-
 cloud	POST	/api/v1/inventory/time-machine/what-if	Supervisor	-
+cloud	POST	/api/v1/invitations	Admin	-
+cloud	POST	/api/v1/invitations/accept/{token}	Cashier	-
+cloud	POST	/api/v1/invitations/{id}/renew	Admin	-
+cloud	POST	/api/v1/invitations/{id}/revoke	Admin	-
 cloud	POST	/api/v1/leave-policy	Supervisor	-
 cloud	POST	/api/v1/leave-types	Supervisor	-
 cloud	POST	/api/v1/letters	Supervisor	letter
@@ -557,6 +568,8 @@ cloud	POST	/api/v1/setup/stores	Admin	-
 cloud	POST	/api/v1/sourcing-basket	Supervisor	-
 cloud	POST	/api/v1/sourcing-basket/clear	Supervisor	-
 cloud	POST	/api/v1/sourcing-basket/{supplier_item_id}/remove	Supervisor	supplier_item
+cloud	POST	/api/v1/stores/{unit}/open	Admin	-
+cloud	POST	/api/v1/stores/{unit}/server/install	Admin	-
 cloud	POST	/api/v1/supplier-items/{id}/activate	Supervisor	supplier_item
 cloud	POST	/api/v1/supplier-items/{id}/deactivate	Supervisor	supplier_item
 cloud	POST	/api/v1/suppliers	Supervisor	supplier
@@ -588,6 +601,7 @@ cloud	PUT	/api/v1/commercial/campaigns/{campaign_id}/target	Supervisor	campaign
 cloud	PUT	/api/v1/finance/journal/drafts/{id}	Admin	journal_draft
 cloud	PUT	/api/v1/finance/statement-sources/{id}	Admin	statement_source
 cloud	PUT	/api/v1/records/{kind}/{id}/tags/{code}	PerRecord	handler
+cloud	PUT	/api/v1/roles/{code}	Admin	-
 cloud	PUT	/api/v1/setup/company	Admin	-
 dc	GET	/api/v1/dc/allotment-lines/{allotment_line_id}/position	-	-
 dc	GET	/api/v1/dc/destinations	-	-
@@ -614,7 +628,6 @@ dc	GET	/api/v1/dc/picklists	-	-
 dc	GET	/api/v1/dc/print-sessions/{session_id}	-	-
 dc	GET	/api/v1/dc/purchase-counts	-	-
 dc	GET	/api/v1/dc/purchase-orders	-	-
-dc	GET	/api/v1/dc/putaways	-	-
 dc	GET	/api/v1/dc/shipments	-	-
 dc	GET	/api/v1/dc/shipments/{shipment_id}	-	-
 dc	GET	/api/v1/dc/tagging-jobs	-	-
@@ -654,7 +667,6 @@ dc	POST	/api/v1/dc/print-sessions/{session_id}/run	-	-
 dc	POST	/api/v1/dc/printer/test	-	-
 dc	POST	/api/v1/dc/purchase-counts	-	-
 dc	POST	/api/v1/dc/purchase-verifications	-	-
-dc	POST	/api/v1/dc/putaways	-	-
 dc	POST	/api/v1/dc/shipments	-	-
 dc	POST	/api/v1/dc/tagging-confirmations	-	-
 dc	POST	/api/v1/dc/tagging-jobs/{job_id}/label-preview	-	-
@@ -721,6 +733,7 @@ edge-common	GET	/api/v1/catalog/identities	-	-
 edge-common	GET	/api/v1/catalog/image	-	-
 edge-common	GET	/api/v1/catalog/snapshot	-	-
 edge-common	GET	/api/v1/catalog/snapshot/items	-	-
+edge-common	GET	/api/v1/devices/self/requests	-	-
 edge-common	GET	/api/v1/flow-notices	-	-
 edge-common	GET	/api/v1/health	-	-
 edge-common	GET	/api/v1/inventory/control/clock	-	-
@@ -741,6 +754,7 @@ edge-common	POST	/api/v1/auth/pin/claim	-	-
 edge-common	POST	/api/v1/auth/pins	-	-
 edge-common	POST	/api/v1/auth/pins/{username}/clear	-	-
 edge-common	POST	/api/v1/auth/terminals	-	-
+edge-common	POST	/api/v1/devices/self/test-print-result	-	-
 edge-common	POST	/api/v1/inventory/control/clock	-	-
 edge-common	POST	/api/v1/rfid/observations	-	-
 edge-common	POST	/api/v1/sync/trigger	-	-

@@ -64,6 +64,7 @@ pub mod holiday;
 /// See `http::hr_scheduler` for why it is head office's.
 pub mod hr_scheduler;
 pub mod integrity;
+pub mod invitations;
 pub mod interunit;
 pub mod leave;
 pub mod letters;
@@ -87,6 +88,7 @@ pub mod punch;
 pub mod push;
 pub mod records;
 pub mod reports;
+pub mod roles;
 pub mod roster;
 // lane-A
 pub mod advance;
@@ -100,6 +102,9 @@ pub mod setup;
 pub mod statement_intake;
 pub mod stock_ledger;
 pub mod store_money;
+/// Opening a store: the Stores list and page, "Open store", installing the
+/// store's server, and a device's test page. See `postgres/stores.rs`.
+pub mod stores;
 pub mod supplier_banks;
 pub mod supplier_contacts;
 pub mod suppliers;
@@ -394,6 +399,24 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/organisation/units/{unit}/pic",
         get(unit_register::pic_history).post(unit_register::appoint_pic),
     )
+    // Opening a store (`store-opening-flow.html`): the Stores list and each
+    // store's page with its readiness checks, head office's "Open store", and
+    // a code to install the store's server. Reads are head office's, checked
+    // in the handler; the writes are Admin's, at the path and in the handler.
+    // The machine that claims the code is approved or refused under
+    // `/api/v1/sync/enrollments` like every other.
+    .route("/api/v1/stores", get(stores::list))
+    .route("/api/v1/stores/{unit}", get(stores::detail))
+    .route("/api/v1/stores/{unit}/open", post(stores::open))
+    .route(
+        "/api/v1/stores/{unit}/server/install",
+        post(stores::install_server),
+    )
+    // Head office asks a till or a network printer for a test page.
+    .route(
+        "/api/v1/devices/{device_id}/test-print",
+        post(stores::test_print),
+    )
     // Flows of goods as templates (0615-0619). Reading a template is
     // anybody's; writing one is Admin's, at the path and in the handler.
     // Starting a document and acting on its stages are checked against the
@@ -631,6 +654,29 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/auth/edge-policies/{origin_id}/publish",
         post(auth::publish_edge_policy),
+    )
+    // Job roles (0633) and inviting people by a link (0634). The two
+    // `accept` routes are public: the token is the credential.
+    .route("/api/v1/roles", get(roles::list))
+    .route(
+        "/api/v1/roles/{code}",
+        put(roles::put).delete(roles::delete),
+    )
+    .route(
+        "/api/v1/invitations",
+        get(invitations::list).post(invitations::invite),
+    )
+    .route(
+        "/api/v1/invitations/{id}/revoke",
+        post(invitations::revoke),
+    )
+    .route(
+        "/api/v1/invitations/{id}/renew",
+        post(invitations::renew),
+    )
+    .route(
+        "/api/v1/invitations/accept/{token}",
+        get(invitations::preview).post(invitations::accept),
     )
     .route("/api/v1/sync/status", get(sync_status))
     .route("/api/v1/sync/ingest", post(sync_ingest))
@@ -2534,11 +2580,8 @@ async fn create_allotment(
     Extension(principal): Extension<self::auth::Principal>,
     Json(r): Json<CreateAllotmentRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    // Who raised it, with their rung: the route's template checks it may.
-    let actor = crate::cloud::domain::flow::Actor {
-        id: principal.username.clone(),
-        rung: principal.role,
-    };
+    // Who raised it, with their job role: the route's template checks it may.
+    let actor = principal.flow_actor();
     let body = infrastructure::create_allotment_as(&s.db, r, Some(&actor)).await?;
     if let Some(allotment_id) = id_in(&body, "id") {
         acted_on.set(RecordKind::Allotment, allotment_id);
@@ -4099,10 +4142,7 @@ async fn raise_purchase_order(
     Extension(principal): Extension<self::auth::Principal>,
     Json(request): Json<infrastructure::NewPurchaseOrder>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let actor = crate::cloud::domain::flow::Actor {
-        id: principal.username.clone(),
-        rung: principal.role,
-    };
+    let actor = principal.flow_actor();
     let (purchase_order_id, command_id, target) =
         infrastructure::create_purchase_order_as(&s.db, &request, Some(&actor)).await?;
     // The order's first line of history. The path cannot say this — there was

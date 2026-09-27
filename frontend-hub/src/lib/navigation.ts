@@ -29,6 +29,7 @@ import { peopleNav } from "@/screens/people/nav"
 import { procurementNav } from "@/screens/procurement/nav"
 import { reportsNav } from "@/screens/reports/nav"
 import { salesNav } from "@/screens/sales/nav"
+import { storesNav } from "@/screens/stores/nav"
 import { systemNav } from "@/screens/system/nav"
 import { lettersNav } from "@/screens/letters/nav"
 import { assetsNav } from "@/screens/assets/nav"
@@ -249,6 +250,7 @@ export const modules: readonly AppModule[] = [
   inventoryNav,
   allotmentNav,
   procurementNav,
+  storesNav,
   salesNav,
   operationsNav,
   membersNav,
@@ -395,7 +397,9 @@ export const domains: readonly AppDomain[] = [
     id: "selling",
     label: "Selling",
     icon: Store,
-    modules: ["sales", "members"],
+    // Stores first: opening and watching a shop is the owner's own reason to
+    // be in this domain, ahead of what it rings up once it is trading.
+    modules: ["stores", "sales", "members"],
   },
   {
     id: "finance",

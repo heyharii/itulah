@@ -418,6 +418,25 @@ fn the_wire_types_are_written_for_the_browser() {
         OpenStoresAnswer,
         StartBooksRequest,
     );
+    // Opening a store: the Stores list and page with their readiness checks,
+    // head office's "Open store", the install code for the store's server,
+    // and the device register with its test pages.
+    for_contract!(
+        &config,
+        StoreList,
+        StoreSummary,
+        StoreDetail,
+        StoreCheck,
+        StoreServer,
+        StoreTills,
+        StorePic,
+        StoreReadiness,
+        OpenStoreRequest,
+        OpenedStore,
+        StoreServerInstall,
+        RegistryDevice,
+        TestPrintRequested,
+    );
     // Where the words go on a bank's own giro leaf.
     inventory_backend::cloud::postgres::GiroPrintTemplate::export_all(&config)
         .unwrap_or_else(|e| panic!("GiroPrintTemplate: {e}"));
@@ -631,6 +650,25 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("UserFacets: {e}"));
     inventory_backend::cloud::postgres::UserFacet::export_all(&config)
         .unwrap_or_else(|e| panic!("UserFacet: {e}"));
+    // Job roles (0633), the servers a login signs in at (0635), and inviting
+    // people by a link (0634) — with the manager a store is opened with.
+    for_contract!(
+        &config,
+        UserNode,
+        JobRole,
+        JobRoleList,
+        JobRolePatch,
+        InvitePerson,
+        InviteRequest,
+        IssuedInvitation,
+        IssuedInvitationList,
+        InvitationRow,
+        InvitationList,
+        InvitationPreview,
+        AcceptInvitationRequest,
+        StoreManagerInvitation,
+        NewStoreManager,
+    );
     inventory_backend::cloud::postgres::EdgeAssignmentList::export_all(&config)
         .unwrap_or_else(|e| panic!("EdgeAssignmentList: {e}"));
     inventory_backend::cloud::postgres::EdgeAssignmentRow::export_all(&config)

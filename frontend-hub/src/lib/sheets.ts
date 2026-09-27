@@ -584,11 +584,6 @@ export const SHEET_PARAMS = {
   /// exactly one at a time and the URL says which delivery, not which stage
   /// of it they are looking at.
   inbound: id,
-  /// The tagged job on the putaway list: its variants, and the confirmation
-  /// that the pieces are physically on the racks. Separate from `job`
-  /// (Tagging's own record) because a putaway job has already been tagged —
-  /// two screens reading the same key would open each other's record.
-  putaway: id,
   /// **The print queue.** A dialog rather than a screen, and it answers "what
   /// is left on this bench" — every article still waiting and how far its run
   /// has got. In the URL like every other overlay, so the bench somebody

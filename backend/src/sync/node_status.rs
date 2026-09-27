@@ -199,6 +199,11 @@ pub struct DeviceFacts {
     pub terminals_seen_recently: i64,
     pub rfid_active: i64,
     pub rfid_seen_recently: i64,
+    /// Tills waiting for a supervisor at the shop to let them join
+    /// (`edge_device_join`), which head office's store page shows. Absent
+    /// from a node that predates it, read as none.
+    #[serde(default)]
+    pub terminals_waiting: i64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
