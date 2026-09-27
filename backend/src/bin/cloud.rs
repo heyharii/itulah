@@ -51,6 +51,7 @@ async fn main() -> Result<(), AppError> {
     tokio::spawn(run_auth_policy_refresh_agent(state.db.clone()));
     tokio::spawn(run_catalog_publisher(state.db.clone()));
     tokio::spawn(run_silent_node_sweep(state.db.clone()));
+    tokio::spawn(run_exception_sweep(state.db.clone()));
     tokio::spawn(run_ageing_work_agent(state.db.clone()));
     if state.config.finance_automation_enabled {
         tokio::spawn(run_asset_month_end_agent(state.db.clone()));
@@ -161,6 +162,38 @@ async fn run_silent_node_sweep(pool: sqlx::PgPool) {
             }
             Ok(_) => {}
             Err(error) => tracing::warn!(%error, "fleet sweep failed"),
+        }
+    }
+}
+
+/// The store exceptions list (0646-0648): every five minutes, read what is
+/// wrong in the stores from their data, write down what is new, close what
+/// has been fixed, and tell people once about what is red
+/// (`postgres::store_exceptions`). A read of the list also sweeps, at most
+/// once a minute, without telling anybody.
+async fn run_exception_sweep(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5 * 60));
+    loop {
+        interval.tick().await;
+        match postgres::exceptions_sweep(&pool, true).await {
+            Ok(report) => {
+                if report.opened + report.resolved + report.notified > 0 {
+                    info!(
+                        opened = report.opened,
+                        resolved = report.resolved,
+                        notified = report.notified,
+                        "store exceptions moved"
+                    );
+                }
+                let failed = (!report.failed_kinds.is_empty())
+                    .then(|| format!("could not read {}", report.failed_kinds.join(", ")));
+                postgres::fleet_job_beat(&pool, postgres::JOB_EXCEPTIONS, failed.as_deref()).await;
+            }
+            Err(error) => {
+                tracing::warn!(%error, "store exceptions sweep failed");
+                let message = error.to_string();
+                postgres::fleet_job_beat(&pool, postgres::JOB_EXCEPTIONS, Some(&message)).await;
+            }
         }
     }
 }

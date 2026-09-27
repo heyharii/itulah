@@ -188,6 +188,9 @@ mod setup;
 mod statement_intake;
 mod statements;
 mod stock_ledger;
+/// Store exceptions: the needs-attention list of what goes wrong in stores
+/// (0646-0648). See the module.
+mod store_exceptions;
 mod store_money;
 /// Opening a store: its readiness checks, head office's decision, and
 /// installing its server from the store's page. See the module.
@@ -345,6 +348,7 @@ pub use setup::*;
 pub use statement_intake::*;
 pub use statements::*;
 pub use stock_ledger::*;
+pub use store_exceptions::*;
 pub use store_money::*;
 pub use stores::*;
 pub use supplier_banks::*;
