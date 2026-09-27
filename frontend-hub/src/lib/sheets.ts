@@ -579,6 +579,8 @@ export const SHEET_PARAMS = {
   // system
   user: id,
   origin: id,
+  /// A till, printer or reader in the device registry.
+  device: id,
   notifications: flag,
 } as const
 

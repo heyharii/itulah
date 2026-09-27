@@ -3,6 +3,7 @@ import { ActivityLog } from "@/screens/system/activity"
 import { Health } from "@/screens/system/health"
 import { Access } from "@/screens/system/access"
 import { Account } from "@/screens/system/account"
+import { Devices } from "@/screens/system/devices"
 import { Nodes } from "@/screens/system/nodes"
 import { Notifications } from "@/screens/system/notifications"
 import { SyncLane } from "@/screens/system/sync"
@@ -16,6 +17,7 @@ export const screens: ScreenMap = {
   "/system/health": Health,
   "/system/activity": ActivityLog,
   "/system": Nodes,
+  "/system/devices": Devices,
   "/system/sync": SyncLane,
   "/system/access": Access,
   "/system/notifications": Notifications,
