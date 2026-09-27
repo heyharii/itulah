@@ -404,6 +404,14 @@ async fn run_goods_receipt_posting_agent(pool: sqlx::PgPool) {
             Ok(booked) => info!(booked, "booked allotment dispatches and receipts"),
             Err(error) => tracing::warn!(%error, "allotment transfers await correction"),
         }
+        // What goods flows could not post when their stage was done: inter-unit
+        // goods and supplier returns, in meanings (`flow_stages`).
+        match postgres::flow_stages::post_pending_flow_postings(&pool, "system:flow-posting").await
+        {
+            Ok(0) => {}
+            Ok(posted) => info!(posted, "posted goods-flow meanings"),
+            Err(error) => tracing::warn!(%error, "goods-flow postings await correction"),
+        }
     }
 }
 

@@ -52,11 +52,12 @@ use crate::cloud::domain::flow::{
 };
 use crate::cloud::domain::{Reach, UnitId};
 use crate::sync::flow::{
-    InboundReceivedPayload, PutawayPayload, ReturnInspectedPayload, INVENTORY_INBOUND_RECEIVED_V1,
-    INVENTORY_PUTAWAY_V1, INVENTORY_RETURN_INSPECTED_V1,
+    FlowEventNotice, FlowEventsPayload, InboundReceivedPayload, PutawayPayload,
+    ReturnInspectedPayload, FLOWS_CAPABILITY, INVENTORY_FLOW_EVENTS_V1,
+    INVENTORY_INBOUND_RECEIVED_V1, INVENTORY_PUTAWAY_V1, INVENTORY_RETURN_INSPECTED_V1,
 };
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{Postgres, Row, Transaction};
 use std::collections::{BTreeMap, BTreeSet};
@@ -198,21 +199,793 @@ pub fn stage_delegates() -> Vec<StageDelegate> {
     StageKind::ALL.into_iter().map(stage_delegate).collect()
 }
 
-/// Called in the stage's own transaction, after the flow's rows are written.
+// ---- flow → nodes and books: after every stage ----------------------------------------
+
+/// Called in the stage's own transaction, after the flow's rows are written:
+/// the journal meanings the stage produced are posted ([`post_document_postings_tx`])
+/// and everything it produced goes to the nodes of the sites it touches
+/// ([`relay_document_events_tx`]).
 ///
-/// The hook where a stage done in the hub reaches the code that already does
-/// its work. Today every stage's effects leave through the outbox
-/// (`flow_event`) and nothing more is called here.
+/// Neither can fail the stage. A meaning that cannot be posted stays PENDING
+/// with its reason (0618's trigger only asks that it exists), and an event a
+/// node cannot take yet waits for that node.
 pub(super) async fn after_stage_tx(
-    _tx: &mut Transaction<'_, Postgres>,
-    _document: &DocumentRow,
+    tx: &mut Transaction<'_, Postgres>,
+    document: &DocumentRow,
     _state: &FlowState,
-    _stage_index: usize,
-    _effects: &[Effect],
-    _actor: &Actor,
-    _at: DateTime<Utc>,
+    stage_index: usize,
+    effects: &[Effect],
+    actor: &Actor,
+    at: DateTime<Utc>,
 ) -> Result<(), AppError> {
+    if effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Journal { .. }))
+    {
+        post_document_postings_tx(tx, document.id, Some(stage_index), &actor.id, at).await?;
+    }
+    relay_document_events_tx(tx, document, at).await
+}
+
+// ---- the meanings, posted -----------------------------------------------------------
+
+/// A line of a flow posting as 0618 stores it: a SKU and a quantity.
+#[derive(Debug, Deserialize)]
+struct PostingQuantity {
+    sku_id: Uuid,
+    quantity: i64,
+}
+
+/// A flow posting waiting to be booked.
+struct PendingPosting {
+    id: Uuid,
+    meaning: String,
+    from_unit: Option<String>,
+    to_unit: Option<String>,
+    lines: Vec<PostingQuantity>,
+}
+
+/// What came of trying to post one meaning.
+enum Booking {
+    /// Posted, in these journal entries; the first becomes the posting's.
+    Posted {
+        entries: Vec<Uuid>,
+        note: Option<String>,
+    },
+    /// Not posted, and why. Tried again by [`post_pending_flow_postings`].
+    Held(String),
+}
+
+/// Post a document's PENDING meanings — one stage's, or all of them — each
+/// in its own savepoint: a meaning that cannot be posted is rolled back whole
+/// and keeps its reason, and the others go on. Returns how many posted.
+async fn post_document_postings_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    document_id: Uuid,
+    stage_index: Option<usize>,
+    actor: &str,
+    at: DateTime<Utc>,
+) -> Result<usize, AppError> {
+    let rows = sqlx::query(
+        "SELECT id, meaning, from_unit_id, to_unit_id, lines
+           FROM flow_posting
+          WHERE document_id = $1 AND status = 'PENDING'
+            AND ($2::int IS NULL OR stage_index = $2)
+          ORDER BY created_at, id",
+    )
+    .bind(document_id)
+    .bind(stage_index.and_then(|index| i32::try_from(index).ok()))
+    .fetch_all(&mut **tx)
+    .await?;
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let document = flows::load_document(&mut **tx, document_id, false).await?;
+    let mut posted = 0;
+    for row in &rows {
+        let posting = PendingPosting {
+            id: row.try_get("id")?,
+            meaning: row.try_get("meaning")?,
+            from_unit: row.try_get("from_unit_id")?,
+            to_unit: row.try_get("to_unit_id")?,
+            lines: serde_json::from_value(row.try_get::<Value, _>("lines")?)?,
+        };
+        let mut savepoint = sqlx::Connection::begin(&mut **tx).await?;
+        let booking = post_meaning_tx(&mut savepoint, &document, &posting, actor, at).await;
+        match booking {
+            Ok(Booking::Posted { entries, note }) => {
+                for entry in &entries {
+                    sqlx::query(
+                        "INSERT INTO flow_posting_entry (posting_id, journal_entry_id)
+                         VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    )
+                    .bind(posting.id)
+                    .bind(entry)
+                    .execute(&mut *savepoint)
+                    .await?;
+                }
+                sqlx::query(
+                    "UPDATE flow_posting
+                        SET status = 'POSTED', journal_entry_id = $2, posted_at = $3,
+                            note = $4, attempted_at = $3
+                      WHERE id = $1 AND status = 'PENDING'",
+                )
+                .bind(posting.id)
+                .bind(entries.first())
+                .bind(at)
+                .bind(note.as_deref())
+                .execute(&mut *savepoint)
+                .await?;
+                savepoint.commit().await?;
+                posted += 1;
+            }
+            Ok(Booking::Held(reason)) => {
+                savepoint.rollback().await?;
+                hold_posting_tx(tx, posting.id, &reason, at).await?;
+            }
+            Err(error) => {
+                savepoint.rollback().await?;
+                hold_posting_tx(tx, posting.id, &problem_text(&error), at).await?;
+            }
+        }
+    }
+    Ok(posted)
+}
+
+async fn hold_posting_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    posting_id: Uuid,
+    reason: &str,
+    at: DateTime<Utc>,
+) -> Result<(), AppError> {
+    sqlx::query("UPDATE flow_posting SET note = $2, attempted_at = $3 WHERE id = $1")
+        .bind(posting_id)
+        .bind(reason)
+        .bind(at)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
+}
+
+/// One meaning, through the poster. A meaning is never an account: the lines
+/// name meanings and the account map resolves them for each unit (I9).
+async fn post_meaning_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    document: &DocumentRow,
+    posting: &PendingPosting,
+    actor: &str,
+    at: DateTime<Utc>,
+) -> Result<Booking, AppError> {
+    match posting.meaning.as_str() {
+        "INTERUNIT_GOODS_DISPATCHED" => {
+            post_interunit_goods_tx(tx, document, posting, "DISPATCH", actor, at).await
+        }
+        "INTERUNIT_GOODS_RECEIVED" => {
+            post_interunit_goods_tx(tx, document, posting, "RECEIPT", actor, at).await
+        }
+        "SUPPLIER_RETURN_HANDED_OVER" => {
+            post_supplier_return_tx(tx, document, posting, actor, at).await
+        }
+        other => Ok(Booking::Held(format!(
+            "this build has no posting rule for the meaning {other}"
+        ))),
+    }
+}
+
+/// Inter-unit goods, dispatched or received, in the SJD shape the client
+/// accountant set (`stock_ledger::sjd_transfer_lines`), per allotment line and
+/// in the books of the two units (0605).
+///
+/// What each line owes the books is read from the line itself — what left
+/// (`in_transit_total`) for a dispatch, what came off the lorry in the
+/// deliveries received for a receipt, so custody of goods not found moves
+/// with the rest (allotment ALT-INV-00) — less what is already booked in
+/// `stock_transfer_posting`, which the allotment sweep writes too. So a move
+/// is booked once, by whichever of the two reaches it first.
+///
+/// A move between two stores crosses through head office (I8), and neither
+/// the client accountant nor Finance has set how; it is held for Finance
+/// rather than invented, as the sweep leaves it.
+async fn post_interunit_goods_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    document: &DocumentRow,
+    posting: &PendingPosting,
+    stage: &str,
+    actor: &str,
+    at: DateTime<Utc>,
+) -> Result<Booking, AppError> {
+    let (Some(from_unit), Some(to_unit)) =
+        (posting.from_unit.as_deref(), posting.to_unit.as_deref())
+    else {
+        return Ok(Booking::Held(
+            "an inter-unit meaning names the unit on each side".into(),
+        ));
+    };
+    let head_office = super::sites::head_office_unit_id(&mut **tx).await?;
+    if from_unit != head_office && to_unit != head_office {
+        return Ok(Booking::Held(format!(
+            "goods moved from {from_unit} to {to_unit}, two stores, which cross through head office (I8); no posting rule is set for that yet, so Finance posts it"
+        )));
+    }
+    if SourceKind::parse(&document.source_kind) != Some(SourceKind::Allotment) {
+        return Ok(Booking::Held(
+            "inter-unit goods are booked per allotment line, and this flow runs no allotment"
+                .into(),
+        ));
+    }
+    let Ok(allotment_id) = Uuid::parse_str(document.source_id.trim()) else {
+        return Ok(Booking::Held(format!(
+            "allotment {} is not an id",
+            document.source_id
+        )));
+    };
+    let named: BTreeSet<Uuid> = posting
+        .lines
+        .iter()
+        .filter(|line| line.quantity > 0)
+        .map(|line| line.sku_id)
+        .collect();
+    let lines = document_lines_tx(tx, document, allotment_id).await?;
+    let lines: Vec<&DocumentLine> = lines
+        .iter()
+        .filter(|line| named.contains(&line.sku_id))
+        .collect();
+    if lines.is_empty() {
+        return Ok(Booking::Held(
+            "none of the posting's SKUs is on an allotment line of this flow".into(),
+        ));
+    }
+    let line_ids: Vec<Uuid> = lines.iter().map(|line| line.line_id).collect();
+    let moved: BTreeMap<Uuid, i64> = if stage == "DISPATCH" {
+        sqlx::query(
+            "SELECT allotment_line_id, COALESCE(in_transit_total, 0)::bigint AS moved
+               FROM allotment_line_commitment WHERE allotment_line_id = ANY($1)",
+        )
+        .bind(&line_ids)
+        .fetch_all(&mut **tx)
+        .await?
+        .iter()
+        .map(|row| -> Result<(Uuid, i64), AppError> {
+            Ok((row.try_get("allotment_line_id")?, row.try_get("moved")?))
+        })
+        .collect::<Result<_, AppError>>()?
+    } else {
+        sqlx::query(
+            "SELECT line.allotment_line_id, sum(line.expected)::bigint AS moved
+               FROM edge_goods_step_line line
+               JOIN edge_goods_step step ON step.event_id = line.event_id
+              WHERE step.kind = 'RECEIVED' AND line.allotment_line_id = ANY($1)
+              GROUP BY line.allotment_line_id",
+        )
+        .bind(&line_ids)
+        .fetch_all(&mut **tx)
+        .await?
+        .iter()
+        .map(|row| -> Result<(Uuid, i64), AppError> {
+            Ok((row.try_get("allotment_line_id")?, row.try_get("moved")?))
+        })
+        .collect::<Result<_, AppError>>()?
+    };
+
+    let date = at.date_naive();
+    let mut entries = Vec::new();
+    for line in lines {
+        let target = moved.get(&line.line_id).copied().unwrap_or(0);
+        // The allotment sweep books these lines too: one writer at a time.
+        super::lock_transfer_line(tx, line.line_id).await?;
+        let booked = super::transfer_booked(tx, line.line_id, stage).await?;
+        let delta = target - booked;
+        if delta <= 0 {
+            continue;
+        }
+        let supply = super::article_is_supply(tx, line.article_id).await?;
+        let unit = super::transfer_unit_cost(tx, line.article_id).await?;
+        let value = unit.saturating_mul(delta);
+        let entry = if value > 0 {
+            let posted = super::poster::post(
+                tx,
+                &super::poster::PostingIntent {
+                    posting_date: date,
+                    source_kind: "TRANSFER".into(),
+                    source_id: Some(line.line_id.to_string()),
+                    rule_version: "sjd_transfer/1".into(),
+                    currency: "IDR".into(),
+                    memo: Some(format!(
+                        "{stage} {delta} unit {from_unit} -> {to_unit} ({})",
+                        document.number
+                    )),
+                    lines: super::sjd_transfer_lines(stage, from_unit, to_unit, value, supply),
+                },
+                Some(&format!("FLOW_{stage}_{booked}_{target}")),
+                actor,
+            )
+            .await?;
+            Some(posted.entry_id)
+        } else {
+            None
+        };
+        sqlx::query(
+            "INSERT INTO stock_transfer_posting
+               (allotment_line_id, stage, quantity, value_minor, journal_entry_id)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(line.line_id)
+        .bind(stage)
+        .bind(delta)
+        .bind(value)
+        .bind(entry)
+        .execute(&mut **tx)
+        .await?;
+        entries.extend(entry);
+    }
+    if !entries.is_empty() {
+        return Ok(Booking::Posted {
+            entries,
+            note: None,
+        });
+    }
+    // Nothing left to book: the sweep got there first, or it moved at no value.
+    let earlier: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT journal_entry_id FROM stock_transfer_posting
+          WHERE allotment_line_id = ANY($1) AND stage = $2 AND journal_entry_id IS NOT NULL
+          ORDER BY posted_at, journal_entry_id",
+    )
+    .bind(&line_ids)
+    .bind(stage)
+    .fetch_all(&mut **tx)
+    .await?;
+    if earlier.is_empty() {
+        return Ok(Booking::Held(
+            "nothing to book yet: the lines moved at no value, or their goods have not moved"
+                .into(),
+        ));
+    }
+    Ok(Booking::Posted {
+        entries: earlier,
+        note: Some("already booked by the allotment sweep (stock_transfer_posting)".into()),
+    })
+}
+
+/// Goods handed back to a supplier: head office owes it less
+/// (`stock_ledger_return_to_supplier`, CREDIT_NOTE).
+///
+/// A supplier return goes back to the receipt the goods came from and never
+/// to the head of the queue (the stock ledger's own rule). A flow knows the
+/// SKU and not the receipt, so it posts only where that is certain — the
+/// article has goods left on exactly one receipt — and holds the rest for
+/// Finance to name the receipt, rather than choosing one.
+async fn post_supplier_return_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    document: &DocumentRow,
+    posting: &PendingPosting,
+    actor: &str,
+    at: DateTime<Utc>,
+) -> Result<Booking, AppError> {
+    let Some(site_id) = document.origin_site_id.as_deref() else {
+        return Ok(Booking::Held(
+            "a return to a supplier leaves from one of our sites".into(),
+        ));
+    };
+    let from_pool_id =
+        super::sites::pool_of_role(&mut **tx, site_id, crate::pool_role::PoolRole::InTransit)
+            .await?
+            .unwrap_or_else(|| format!("{site_id}.warehouse"));
+    let mut entries = Vec::new();
+    for line in &posting.lines {
+        if line.quantity <= 0 {
+            continue;
+        }
+        let article: Option<Uuid> = sqlx::query_scalar("SELECT article_id FROM sku WHERE id = $1")
+            .bind(line.sku_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+        let Some(article_id) = article else {
+            return Ok(Booking::Held(format!(
+                "SKU {} is not one of ours",
+                line.sku_id
+            )));
+        };
+        let layers: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT layer_id FROM cost_layer_remaining
+              WHERE article_id = $1 AND remaining_quantity > 0
+              ORDER BY economic_date, layer_id",
+        )
+        .bind(article_id)
+        .fetch_all(&mut **tx)
+        .await?;
+        let [layer_id] = layers.as_slice() else {
+            return Ok(Booking::Held(format!(
+                "a supplier return goes back to the receipt its goods came from, and SKU {} has goods left on {} receipts; Finance names the receipt",
+                line.sku_id,
+                layers.len()
+            )));
+        };
+        let returned = super::stock_ledger_return_to_supplier(
+            tx,
+            &super::SupplierReturn {
+                layer_id: *layer_id,
+                quantity: line.quantity,
+                event_id: format!("flow:{}:{}", posting.id, line.sku_id),
+                from_pool_id: from_pool_id.clone(),
+                site_id: site_id.to_owned(),
+                economic_date: at.date_naive(),
+                source_id: posting.id.to_string(),
+                memo: Some(format!(
+                    "{} returned to the supplier ({})",
+                    line.quantity, document.number
+                )),
+            },
+            actor,
+        )
+        .await?;
+        entries.extend(returned.journal_entry_id);
+    }
+    if entries.is_empty() {
+        return Ok(Booking::Held(
+            "nothing to book: the goods returned are valued at nothing".into(),
+        ));
+    }
+    Ok(Booking::Posted {
+        entries,
+        note: None,
+    })
+}
+
+/// Try again every flow posting still PENDING — a period reopened, a source
+/// allowed, the sweep booked it meanwhile — one transaction per document.
+/// Returns how many posted. Run beside the allotment sweep.
+pub async fn post_pending_flow_postings(
+    pool: &sqlx::PgPool,
+    actor: &str,
+) -> Result<usize, AppError> {
+    let documents: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT DISTINCT document_id FROM flow_posting
+          WHERE status = 'PENDING'
+          ORDER BY document_id
+          LIMIT 200",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut posted = 0;
+    for document_id in documents {
+        let mut tx = pool.begin().await?;
+        posted += post_document_postings_tx(&mut tx, document_id, None, actor, Utc::now()).await?;
+        tx.commit().await?;
+    }
+    Ok(posted)
+}
+
+// ---- the outbox, relayed ------------------------------------------------------------
+
+/// How many documents one heartbeat relays waiting events for.
+const FLOW_RELAYS_PER_HEARTBEAT: i64 = 200;
+
+/// Whether a node's build takes the flow commands, as its latest heartbeat
+/// says (`sync::flow::FLOWS_CAPABILITY`).
+async fn origin_takes_flows_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+) -> Result<bool, AppError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT COALESCE(status->'capabilities' ? $2, false)
+           FROM node_heartbeat WHERE origin_id = $1",
+    )
+    .bind(origin_id)
+    .bind(FLOWS_CAPABILITY)
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or(false))
+}
+
+/// Carry a document's outbox to the nodes of the sites it touches: each
+/// event to the node of its stage's site, and the document's own status to
+/// the nodes at both ends. One command per node, carrying every event of the
+/// document that node does not have yet, in order.
+///
+/// A node that does not advertise `inventory.flows.v1` is sent nothing — an
+/// older build blocks its whole command stream on an unknown type — and its
+/// events wait for [`relay_waiting_flow_events_tx`]. Never fails the stage
+/// that wrote the events: a relay that trips is rolled back to its savepoint,
+/// logged, and tried again by the next.
+pub(super) async fn relay_document_events_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    document: &DocumentRow,
+    at: DateTime<Utc>,
+) -> Result<(), AppError> {
+    let mut savepoint = sqlx::Connection::begin(&mut **tx).await?;
+    match relay_events_tx(&mut savepoint, document, at).await {
+        Ok(()) => savepoint.commit().await?,
+        Err(error) => {
+            savepoint.rollback().await?;
+            tracing::warn!(
+                document = %document.number,
+                %error,
+                "a flow's events could not be relayed now; they wait for the next relay"
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn relay_events_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    document: &DocumentRow,
+    at: DateTime<Utc>,
+) -> Result<(), AppError> {
+    let events = sqlx::query(
+        "SELECT e.id, e.stage_index, s.stage_kind, e.event_type, e.executed_at,
+                e.target_site_id, e.payload, e.created_at
+           FROM flow_event e
+           LEFT JOIN flow_stage_state s
+                  ON s.document_id = e.document_id AND s.stage_index = e.stage_index
+          WHERE e.document_id = $1 AND e.relayed_at IS NULL
+          ORDER BY e.id",
+    )
+    .bind(document.id)
+    .fetch_all(&mut **tx)
+    .await?;
+    if events.is_empty() {
+        return Ok(());
+    }
+
+    // Each site's node, and whether it takes flows: asked once per site.
+    let mut nodes: BTreeMap<String, Option<(String, bool)>> = BTreeMap::new();
+    let mut outgoing: BTreeMap<String, Vec<FlowEventNotice>> = BTreeMap::new();
+    let mut everywhere: Vec<i64> = Vec::new();
+    for event in &events {
+        let id: i64 = event.try_get("id")?;
+        let target: Option<String> = event.try_get("target_site_id")?;
+        let sites: Vec<String> = match &target {
+            Some(site) => vec![site.clone()],
+            None => [
+                document.origin_site_id.clone(),
+                document.destination_site_id.clone(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+        };
+        let has: Vec<String> =
+            sqlx::query_scalar("SELECT origin_id FROM flow_event_delivery WHERE event_id = $1")
+                .bind(id)
+                .fetch_all(&mut **tx)
+                .await?;
+        let notice = FlowEventNotice {
+            event_id: id,
+            stage_index: event.try_get("stage_index")?,
+            stage_kind: event.try_get("stage_kind")?,
+            event_type: event.try_get("event_type")?,
+            executed_at: event.try_get("executed_at")?,
+            target_site_id: target.clone(),
+            payload: event.try_get("payload")?,
+            created_at: event.try_get("created_at")?,
+        };
+        let mut all_told = true;
+        for site in sites {
+            let node = match nodes.get(&site) {
+                Some(node) => node.clone(),
+                None => {
+                    let node = match super::sync::inventory_owner_tx(tx, &site).await? {
+                        Some(origin_id) => {
+                            let takes = origin_takes_flows_tx(tx, &origin_id).await?;
+                            Some((origin_id, takes))
+                        }
+                        None => None,
+                    };
+                    nodes.insert(site.clone(), node.clone());
+                    node
+                }
+            };
+            // A site no node owns has nobody to tell.
+            let Some((origin_id, takes)) = node else {
+                continue;
+            };
+            if has.contains(&origin_id) {
+                continue;
+            }
+            if !takes {
+                all_told = false;
+                continue;
+            }
+            let queue = outgoing.entry(origin_id).or_default();
+            if !queue.iter().any(|queued| queued.event_id == id) {
+                queue.push(notice.clone());
+            }
+        }
+        if all_told {
+            everywhere.push(id);
+        }
+    }
+
+    if !outgoing.is_empty() {
+        let status: String = sqlx::query_scalar("SELECT status FROM flow_document WHERE id = $1")
+            .bind(document.id)
+            .fetch_one(&mut **tx)
+            .await?;
+        let current_stage: Option<String> = sqlx::query_scalar(
+            "SELECT stage_kind FROM flow_stage_state
+              WHERE document_id = $1 AND status IN ('PENDING', 'PARKED')
+              ORDER BY stage_index LIMIT 1",
+        )
+        .bind(document.id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        for (origin_id, notices) in outgoing {
+            // The ends as this node spells our sites: the Gudang's node calls
+            // itself its own way (inventory-fleet G1).
+            let origin_site_id = match document.origin_site_id.as_deref() {
+                Some(site) => Some(super::sync::node_site_id_tx(tx, site).await?),
+                None => None,
+            };
+            let destination_site_id = match document.destination_site_id.as_deref() {
+                Some(site) => Some(super::sync::node_site_id_tx(tx, site).await?),
+                None => None,
+            };
+            let payload = FlowEventsPayload {
+                document_id: document.id,
+                document_number: document.number.clone(),
+                template_code: document.template_code.clone(),
+                template_name: document.template_name.clone(),
+                source_kind: document.source_kind.clone(),
+                source_id: document.source_id.clone(),
+                origin_site_id,
+                destination_site_id,
+                destination_party_kind: document.destination_party_kind.clone(),
+                status: status.clone(),
+                current_stage: current_stage.clone(),
+                events: notices,
+            };
+            let command_id = super::sync::issue_command_tx(
+                tx,
+                INVENTORY_FLOW_EVENTS_V1,
+                &serde_json::to_value(&payload)?,
+                "system:flow-relay",
+                None,
+                std::slice::from_ref(&origin_id),
+            )
+            .await?;
+            for notice in &payload.events {
+                sqlx::query(
+                    "INSERT INTO flow_event_delivery (event_id, origin_id, command_id, relayed_at)
+                     VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+                )
+                .bind(notice.event_id)
+                .bind(&origin_id)
+                .bind(command_id)
+                .bind(at)
+                .execute(&mut **tx)
+                .await?;
+            }
+        }
+    }
+    if !everywhere.is_empty() {
+        sqlx::query(
+            "UPDATE flow_event SET relayed_at = $2 WHERE id = ANY($1) AND relayed_at IS NULL",
+        )
+        .bind(&everywhere)
+        .bind(at)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// The events a node was not sent while its build could not take them, sent
+/// once its heartbeat says it can (`postgres::node_health`). A bounded
+/// instalment of documents per heartbeat. Returns how many were considered.
+pub(super) async fn relay_waiting_flow_events_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+    at: DateTime<Utc>,
+) -> Result<usize, AppError> {
+    let site_id = node_site_tx(tx, origin_id).await?;
+    let documents: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT DISTINCT e.document_id
+           FROM flow_event e
+           JOIN flow_document d ON d.id = e.document_id
+          WHERE e.relayed_at IS NULL
+            AND (e.target_site_id = $1
+                 OR (e.target_site_id IS NULL
+                     AND (d.origin_site_id = $1 OR d.destination_site_id = $1)))
+            AND NOT EXISTS (SELECT 1 FROM flow_event_delivery x
+                             WHERE x.event_id = e.id AND x.origin_id = $2)
+          ORDER BY e.document_id
+          LIMIT $3",
+    )
+    .bind(&site_id)
+    .bind(origin_id)
+    .bind(FLOW_RELAYS_PER_HEARTBEAT)
+    .fetch_all(&mut **tx)
+    .await?;
+    for document_id in &documents {
+        let document = flows::load_document(&mut **tx, *document_id, false).await?;
+        relay_document_events_tx(tx, &document, at).await?;
+    }
+    Ok(documents.len())
+}
+
+/// The allotment lines a document runs: the allotment's lines to the
+/// document's destination (a site in the centre's spelling, or the supplier)
+/// from its origin.
+struct DocumentLine {
+    line_id: Uuid,
+    sku_id: Uuid,
+    article_id: Uuid,
+}
+
+async fn document_lines_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    document: &DocumentRow,
+    allotment_id: Uuid,
+) -> Result<Vec<DocumentLine>, AppError> {
+    let rows = sqlx::query(
+        "SELECT l.id, l.sku_id, sku.article_id, l.destination_type, l.destination_id,
+                l.source_site_id
+           FROM allotment_line l
+           JOIN sku ON sku.id = l.sku_id
+          WHERE l.allotment_id = $1
+          ORDER BY l.id",
+    )
+    .bind(allotment_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let mut spellings: BTreeMap<String, String> = BTreeMap::new();
+    let mut lines = Vec::new();
+    for row in &rows {
+        let destination_type: Option<String> = row.try_get("destination_type")?;
+        let destination_id: Option<String> = row.try_get("destination_id")?;
+        let source_site_id: Option<String> = row.try_get("source_site_id")?;
+        if !belongs_to_document_tx(
+            tx,
+            &mut spellings,
+            document,
+            destination_type.as_deref(),
+            destination_id.as_deref(),
+            source_site_id.as_deref(),
+        )
+        .await?
+        {
+            continue;
+        }
+        lines.push(DocumentLine {
+            line_id: row.try_get("id")?,
+            sku_id: row.try_get("sku_id")?,
+            article_id: row.try_get("article_id")?,
+        });
+    }
+    Ok(lines)
+}
+
+/// Whether an allotment line runs under this document: it goes to the
+/// document's destination and leaves from its origin, each read in the
+/// centre's spelling (a node may spell the Gudang its own way, G1).
+async fn belongs_to_document_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    spellings: &mut BTreeMap<String, String>,
+    document: &DocumentRow,
+    destination_type: Option<&str>,
+    destination_id: Option<&str>,
+    source_site_id: Option<&str>,
+) -> Result<bool, AppError> {
+    let to_supplier = destination_type == Some("SUPPLIER");
+    let goes_there = match (
+        document.destination_site_id.as_deref(),
+        document.destination_party_kind.as_deref(),
+    ) {
+        (Some(site), _) if !to_supplier => match destination_id {
+            Some(spelled) => canonical_tx(tx, spellings, spelled).await? == site,
+            None => false,
+        },
+        (None, Some("SUPPLIER")) => to_supplier,
+        _ => false,
+    };
+    if !goes_there {
+        return Ok(false);
+    }
+    match (document.origin_site_id.as_deref(), source_site_id) {
+        (Some(origin), Some(spelled)) => Ok(canonical_tx(tx, spellings, spelled).await? == origin),
+        _ => Ok(true),
+    }
 }
 
 // ---- node → flow: the entry points ------------------------------------------------
@@ -821,26 +1594,18 @@ async fn allotment_progress_tx(
     for line in &rows {
         let destination_type: Option<String> = line.try_get("destination_type")?;
         let destination_id: Option<String> = line.try_get("destination_id")?;
-        let to_supplier = destination_type.as_deref() == Some("SUPPLIER");
-        let ours = match (
-            row.destination_site_id.as_deref(),
-            row.destination_party_kind.as_deref(),
-        ) {
-            (Some(site), _) if !to_supplier => match destination_id.as_deref() {
-                Some(spelled) => canonical_tx(tx, &mut spellings, spelled).await? == site,
-                None => false,
-            },
-            (None, Some("SUPPLIER")) => to_supplier,
-            _ => false,
-        };
-        if !ours {
+        let source_site_id: Option<String> = line.try_get("source_site_id")?;
+        if !belongs_to_document_tx(
+            tx,
+            &mut spellings,
+            row,
+            destination_type.as_deref(),
+            destination_id.as_deref(),
+            source_site_id.as_deref(),
+        )
+        .await?
+        {
             continue;
-        }
-        let source: Option<String> = line.try_get("source_site_id")?;
-        if let (Some(origin), Some(spelled)) = (row.origin_site_id.as_deref(), source.as_deref()) {
-            if canonical_tx(tx, &mut spellings, spelled).await? != origin {
-                continue;
-            }
         }
         let line_id: Option<Uuid> = line.try_get("allotment_line_id")?;
         let sku_id: Option<Uuid> = line.try_get("sku_id")?;

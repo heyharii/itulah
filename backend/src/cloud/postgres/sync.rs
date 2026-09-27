@@ -5302,6 +5302,11 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
             crate::sync::transfer::parse_in_transit_release(payload)
                 .map_err(AppError::Validation)?;
         }
+        crate::sync::flow::INVENTORY_FLOW_EVENTS_V1 => {
+            // A flow's outbox for one node (`flow_stages::after_stage_tx`),
+            // refused here rather than at a node that cannot read it.
+            crate::sync::flow::parse_flow_events(payload).map_err(AppError::Validation)?;
+        }
         crate::cloud::domain::COMMAND_ATTENDANCE_BOOK_REPLACE => {
             // Refused at the issuing desk rather than at the unit, for the
             // reason the purchase-order arm above gives: a command the edge
