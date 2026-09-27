@@ -94,8 +94,8 @@ const FIELDS: FilterField[] = [
     },
   },
   {
-    column: "place_id",
-    label: "Posted at",
+    column: "unit_id",
+    label: "Unit",
     spec: { kind: "option", single: true, operators: ["isAnyOf"] },
   },
 ]
@@ -103,14 +103,14 @@ const FIELDS: FilterField[] = [
 function scopeFromFilters(filters: readonly Filter[]): {
   role?: string
   state?: string
-  place_id?: string
+  unit_id?: string
 } {
-  const scope: { role?: string; state?: string; place_id?: string } = {}
+  const scope: { role?: string; state?: string; unit_id?: string } = {}
   for (const { column, operator, values } of filters) {
     if (values.length === 0 || operator !== "isAnyOf") continue
     if (column === "role") scope.role = values[0]
     else if (column === "state") scope.state = values[0]
-    else if (column === "place_id") scope.place_id = values[0]
+    else if (column === "unit_id") scope.unit_id = values[0]
   }
   return scope
 }
@@ -285,11 +285,11 @@ export function Account() {
                   ? head.facets.roles
                   : field.column === "state"
                     ? head.facets.states
-                    : head.facets.places,
-              ...(field.column === "place_id"
+                    : head.facets.units,
+              ...(field.column === "unit_id"
                 ? {
                     format: (value: string) =>
-                      head.facets.places.find((one) => one.value === value)
+                      head.facets.units.find((one) => one.value === value)
                         ?.label ?? value,
                   }
                 : {}),
