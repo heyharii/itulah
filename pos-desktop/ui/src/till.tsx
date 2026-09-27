@@ -218,6 +218,8 @@ export type Where =
   | "setup"
   /// What is plugged into this till — reachable before signing in, like setup.
   | "peripherals"
+  /// Finding the shop's node and asking it to let this till in.
+  | "join"
 
 export function Till({
   actorId,

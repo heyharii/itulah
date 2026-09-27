@@ -2,6 +2,7 @@ import { useCallback, useState } from "react"
 
 import { useIdleLock, LockScreen } from "@/lock"
 import { CustomerScreen } from "@/screens/customer"
+import { JoinScreen } from "@/screens/join"
 import { LoginScreen, SetupScreen } from "@/screens/login"
 import { PeripheralsScreen } from "@/screens/peripherals"
 import { RedeemScreen } from "@/screens/redeem"
@@ -66,17 +67,29 @@ function Counter() {
   // moment it was pointed at the wrong shop. The same goes for what is plugged
   // into it — the person installing a counter is rarely a person with an
   // account at that shop yet.
+  //
+  // Joining is the first thing a new till does, and it needs nobody signed in:
+  // the till asks, and a supervisor answers from a till that already belongs.
   if (session.me === null) {
     if (where === "setup") {
       return (
         <SetupScreen
           onDone={() => setWhere("sale")}
           onPeripherals={() => setWhere("peripherals")}
+          onJoin={() => setWhere("join")}
         />
       )
     }
     if (where === "peripherals") {
       return <PeripheralsScreen onBack={() => setWhere("setup")} />
+    }
+    if (where === "join") {
+      return (
+        <JoinScreen
+          onDone={() => setWhere("sale")}
+          onPeripherals={() => setWhere("peripherals")}
+        />
+      )
     }
   }
 
@@ -85,6 +98,7 @@ function Counter() {
       <LoginScreen
         onSignedIn={() => setWhere("sale")}
         onSetup={() => setWhere("setup")}
+        onJoin={() => setWhere("join")}
       />
     )
   }
@@ -110,9 +124,15 @@ function Counter() {
       <SetupScreen
         onDone={() => setWhere("sale")}
         onPeripherals={() => setWhere("peripherals")}
+        onJoin={() => setWhere("join")}
       />
     ) : where === "peripherals" ? (
       <PeripheralsScreen onBack={() => setWhere("setup")} />
+    ) : where === "join" ? (
+      <JoinScreen
+        onDone={() => setWhere("sale")}
+        onPeripherals={() => setWhere("peripherals")}
+      />
     ) : where === "sale" || where === "payment" ? null : where === "shift" ? (
       <ShiftScreen
         actorId={actorId}
