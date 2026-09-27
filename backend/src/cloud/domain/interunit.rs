@@ -22,11 +22,17 @@
 //!
 //! ```text
 //!   Dr Biaya Listrik  @store-03   1,000,000     head office pays store 03's
-//!   Cr Bank BCA       @dc         1,000,000     electricity from its own bank
+//!   Cr Bank BCA       @ho         1,000,000     electricity from its own bank
 //!
-//!   + Cr Hutang Affiliasi   @store-03  (counter dc)        1,000,000
-//!   + Dr Piutang Affiliasi  @dc        (counter store-03)  1,000,000
+//!   + Cr Hutang Affiliasi   @store-03  (counter ho)        1,000,000
+//!   + Dr Piutang Affiliasi  @ho        (counter store-03)  1,000,000
 //! ```
+//!
+//! `@` is the UNIT whose books a line is in (0605): head office or a store.
+//! A document that happened at a site — the Gudang, a shop — is booked to the
+//! unit that owns it before it reaches this module, so nothing here ever sees
+//! a premises. Head office is whichever unit is of kind `HO`, handed in by the
+//! caller (`sites::head_office_unit_id`); this module never spells it.
 //!
 //! Store 03 now balances on its own — a cost and the debt that funded it — and
 //! so does head office: money out, and a receivable in its place.
@@ -80,7 +86,7 @@ pub enum AffiliateKind {
     /// principal (owner) transaction. `1059 Piutang Affiliasi Lain-lain` at
     /// head office and `2030 Hutang Lain-lain Principal` at the unit (owner
     /// decision 25 Sep, migration 0380); the account map makes both meanings
-    /// resolve that way at each site.
+    /// resolve that way in each unit.
     Other,
 }
 
@@ -153,19 +159,20 @@ pub fn kind_for_source(source_kind: &str) -> AffiliateKind {
 /// One posting line, as the balancer needs to see it.
 ///
 /// Not the poster's `PostingLine`: this module never learns which account a
-/// line names, only where it lands and which way it goes. That is the whole
-/// input, and it is why the answer is a function of its arguments.
+/// line names, only whose books it lands in and which way it goes. That is the
+/// whole input, and it is why the answer is a function of its arguments.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SiteMovement {
-    pub site_id: String,
+pub struct UnitMovement {
+    /// The unit whose books the line is in.
+    pub unit_id: String,
     pub debit_minor: i64,
     pub credit_minor: i64,
 }
 
-impl SiteMovement {
-    pub fn new(site_id: &str, debit_minor: i64, credit_minor: i64) -> Self {
+impl UnitMovement {
+    pub fn new(unit_id: &str, debit_minor: i64, credit_minor: i64) -> Self {
         Self {
-            site_id: site_id.to_string(),
+            unit_id: unit_id.to_string(),
             debit_minor,
             credit_minor,
         }
@@ -184,15 +191,16 @@ pub struct AffiliateLeg {
     /// The family alone, e.g. `BARANG`. Since 0380 the counterparty decides
     /// nothing about the leaf — a unit is on the family's hutang account and
     /// head office on its piutang account whoever is on the other side — so
-    /// the family and the site are all `account_resolution` needs (0460). The
-    /// counterparty travels as `counter_site_id`.
+    /// the family and the unit are all `account_resolution` needs (0460,
+    /// 0606). The counterparty travels as `counter_unit_id`.
     pub qualifier: String,
     /// Whose books this leg lands in.
-    pub site_id: String,
-    /// The unit on the other side of it. Written onto the line so a shop's
+    pub unit_id: String,
+    /// The unit on the other side of it. Written onto the line so a store's
     /// ledger can say who the balance is with, rather than leaving somebody to
-    /// decode a twelve-digit account code.
-    pub counter_site_id: String,
+    /// decode a twelve-digit account code. Always head office on a store's
+    /// leg and always the store on head office's (I8).
+    pub counter_unit_id: String,
     pub debit_minor: i64,
     pub credit_minor: i64,
 }
@@ -201,7 +209,7 @@ pub struct AffiliateLeg {
 ///
 /// A `Vec` and not a map: the order legs come out in has to be the same on
 /// every run, and a hash map's is not.
-fn net_by_site(lines: &[SiteMovement]) -> Vec<(String, i64)> {
+fn net_by_unit(lines: &[UnitMovement]) -> Vec<(String, i64)> {
     let mut nets: Vec<(String, i64)> = Vec::new();
     for line in lines {
         // Saturating rather than checked, and it cannot bite: the poster has
@@ -209,9 +217,9 @@ fn net_by_site(lines: &[SiteMovement]) -> Vec<(String, i64)> {
         // every partial sum here is inside one, and a net is a difference of
         // two non-negative i64s.
         let signed = line.debit_minor.saturating_sub(line.credit_minor);
-        match nets.iter_mut().find(|(site, _)| site == &line.site_id) {
+        match nets.iter_mut().find(|(unit, _)| unit == &line.unit_id) {
             Some((_, net)) => *net = net.saturating_add(signed),
-            None => nets.push((line.site_id.clone(), signed)),
+            None => nets.push((line.unit_id.clone(), signed)),
         }
     }
     nets
@@ -223,28 +231,33 @@ fn net_by_site(lines: &[SiteMovement]) -> Vec<(String, i64)> {
 /// question: an entry that still has a unit out of balance after the legs were
 /// added is a bug in this file, and one that would otherwise reach the ledger
 /// looking correct.
-pub fn first_unbalanced_site(lines: &[SiteMovement]) -> Option<(String, i64)> {
-    net_by_site(lines).into_iter().find(|(_, net)| *net != 0)
+pub fn first_unbalanced_unit(lines: &[UnitMovement]) -> Option<(String, i64)> {
+    net_by_unit(lines).into_iter().find(|(_, net)| *net != 0)
 }
 
 /// The legs that make every unit balance on its own.
 ///
 /// Empty when there is nothing to do: one unit, or several that already balance
 /// individually. That is what makes this safe to run on every posting — the
-/// overwhelming majority of entries are at one location and come back untouched.
+/// overwhelming majority of entries are in one unit's books and come back
+/// untouched.
+///
+/// `head_office_unit` is the unit of kind `HO`, read from data by the caller.
+/// Every other unit's net is carried to it: a store's leg is always against
+/// head office, and a store-to-store entry becomes two pairs through it (I8).
 ///
 /// The caller must have checked that the entry balances in total. When it does
 /// not, the legs below would silently push the whole difference onto head
 /// office; when it does, head office's own net is cured by the shops' legs
 /// without a leg of its own, because the nets sum to zero.
 pub fn balancing_legs(
-    lines: &[SiteMovement],
+    lines: &[UnitMovement],
     kind: AffiliateKind,
-    ho_site_id: &str,
+    head_office_unit: &str,
 ) -> Vec<AffiliateLeg> {
     let mut legs = Vec::new();
-    for (site, net) in net_by_site(lines) {
-        if net == 0 || site == ho_site_id {
+    for (unit, net) in net_by_unit(lines) {
+        if net == 0 || unit == head_office_unit {
             continue;
         }
         // `net` is what the shop is holding that nobody in its own books has
@@ -252,9 +265,9 @@ pub fn balancing_legs(
         // stock — so the shop owes head office more, and a payable grows by a
         // credit. A credit excess is the mirror: the shop gave up value on head
         // office's behalf, so head office owes it.
-        // The meaning follows the direction; the ACCOUNT follows the site
-        // (0380): at a unit both meanings resolve to the family's hutang
-        // account and at head office to its piutang account. Head office
+        // The meaning follows the direction; the ACCOUNT follows the unit's
+        // kind (0380, 0606): at a store both meanings resolve to the family's
+        // hutang account and at head office to its piutang account (I7). Head office
         // funding a unit: HO Dr 1057 / unit Cr 2028. A unit's takings landing
         // in a head-office bank: unit Dr 2028 / HO Cr 1057.
         let (store_key, ho_key) = if net > 0 {
@@ -266,16 +279,16 @@ pub fn balancing_legs(
         legs.push(AffiliateLeg {
             semantic_key: store_key,
             qualifier: kind.as_str().to_string(),
-            site_id: site.clone(),
-            counter_site_id: ho_site_id.to_string(),
+            unit_id: unit.clone(),
+            counter_unit_id: head_office_unit.to_string(),
             debit_minor: store_debit,
             credit_minor: store_credit,
         });
         legs.push(AffiliateLeg {
             semantic_key: ho_key,
             qualifier: kind.as_str().to_string(),
-            site_id: ho_site_id.to_string(),
-            counter_site_id: site,
+            unit_id: head_office_unit.to_string(),
+            counter_unit_id: unit,
             debit_minor: store_credit,
             credit_minor: store_debit,
         });
@@ -287,23 +300,23 @@ pub fn balancing_legs(
 mod tests {
     use super::*;
 
-    fn legs(lines: &[SiteMovement], kind: AffiliateKind) -> Vec<AffiliateLeg> {
-        balancing_legs(lines, kind, "dc")
+    fn legs(lines: &[UnitMovement], kind: AffiliateKind) -> Vec<AffiliateLeg> {
+        balancing_legs(lines, kind, "ho")
     }
 
     /// The case 0098 refused: head office pays a shop's electricity.
     #[test]
     fn head_office_paying_a_shops_cost_leaves_both_books_balanced() {
         let lines = [
-            SiteMovement::new("store-03", 1_000_000, 0),
-            SiteMovement::new("dc", 0, 1_000_000),
+            UnitMovement::new("store-03", 1_000_000, 0),
+            UnitMovement::new("ho", 0, 1_000_000),
         ];
         let added = legs(&lines, AffiliateKind::Financing);
         assert_eq!(added.len(), 2);
 
         assert_eq!(added[0].semantic_key, AFFILIATE_PAYABLE);
-        assert_eq!(added[0].site_id, "store-03");
-        assert_eq!(added[0].counter_site_id, "dc");
+        assert_eq!(added[0].unit_id, "store-03");
+        assert_eq!(added[0].counter_unit_id, "ho");
         assert_eq!(added[0].qualifier, "PEMBIAYAAN");
         // The shop owes more, so its payable is credited.
         assert_eq!(
@@ -312,8 +325,8 @@ mod tests {
         );
 
         assert_eq!(added[1].semantic_key, AFFILIATE_RECEIVABLE);
-        assert_eq!(added[1].site_id, "dc");
-        assert_eq!(added[1].counter_site_id, "store-03");
+        assert_eq!(added[1].unit_id, "ho");
+        assert_eq!(added[1].counter_unit_id, "store-03");
         assert_eq!(added[1].qualifier, "PEMBIAYAAN");
         assert_eq!(
             (added[1].debit_minor, added[1].credit_minor),
@@ -325,10 +338,10 @@ mod tests {
     #[test]
     fn a_shop_banking_its_takings_reduces_what_it_owes() {
         let lines = [
-            SiteMovement::new("dc", 5_000_000, 0),
-            SiteMovement::new("store-01", 0, 5_000_000),
+            UnitMovement::new("ho", 5_000_000, 0),
+            UnitMovement::new("store-01", 0, 5_000_000),
         ];
-        let added = balancing_legs(&lines, kind_for_source("STORE_DEPOSIT"), "dc");
+        let added = balancing_legs(&lines, kind_for_source("STORE_DEPOSIT"), "ho");
         assert_eq!(added[0].qualifier, "PEMBIAYAAN");
         // The shop gave the money, so the shop is owed: Dr its Piutang, and
         // head office owes it back: Cr its Hutang (client accountant, 25 Sep).
@@ -348,33 +361,33 @@ mod tests {
     #[test]
     fn a_move_between_two_shops_is_routed_through_head_office() {
         let lines = [
-            SiteMovement::new("store-01", 0, 800_000),
-            SiteMovement::new("store-02", 800_000, 0),
+            UnitMovement::new("store-01", 0, 800_000),
+            UnitMovement::new("store-02", 800_000, 0),
         ];
-        let added = balancing_legs(&lines, kind_for_source("TRANSFER"), "dc");
+        let added = balancing_legs(&lines, kind_for_source("TRANSFER"), "ho");
         assert_eq!(added.len(), 4);
         let ho_debits: i64 = added
             .iter()
-            .filter(|leg| leg.site_id == "dc")
+            .filter(|leg| leg.unit_id == "ho")
             .map(|leg| leg.debit_minor)
             .sum();
         let ho_credits: i64 = added
             .iter()
-            .filter(|leg| leg.site_id == "dc")
+            .filter(|leg| leg.unit_id == "ho")
             .map(|leg| leg.credit_minor)
             .sum();
         // Head office nets to nothing and still carries both counterparties,
         // which is the point of routing through it.
         assert_eq!(ho_debits, ho_credits);
-        assert_eq!(added[0].site_id, "store-01");
-        assert_eq!(added[2].site_id, "store-02");
+        assert_eq!(added[0].unit_id, "store-01");
+        assert_eq!(added[2].unit_id, "store-02");
     }
 
     #[test]
     fn an_entry_at_one_location_is_left_exactly_as_it_was() {
         let lines = [
-            SiteMovement::new("dc", 8_600_000, 0),
-            SiteMovement::new("dc", 0, 8_600_000),
+            UnitMovement::new("ho", 8_600_000, 0),
+            UnitMovement::new("ho", 0, 8_600_000),
         ];
         assert!(legs(&lines, AffiliateKind::Financing).is_empty());
     }
@@ -385,10 +398,10 @@ mod tests {
     #[test]
     fn units_that_already_balance_get_no_legs() {
         let lines = [
-            SiteMovement::new("dc", 100, 0),
-            SiteMovement::new("dc", 0, 100),
-            SiteMovement::new("store-05", 250, 0),
-            SiteMovement::new("store-05", 0, 250),
+            UnitMovement::new("ho", 100, 0),
+            UnitMovement::new("ho", 0, 100),
+            UnitMovement::new("store-05", 250, 0),
+            UnitMovement::new("store-05", 0, 250),
         ];
         assert!(legs(&lines, AffiliateKind::Financing).is_empty());
     }
@@ -413,18 +426,18 @@ mod tests {
     #[test]
     fn balancing_an_already_balanced_entry_adds_nothing() {
         let mut lines = vec![
-            SiteMovement::new("store-03", 1_000_000, 0),
-            SiteMovement::new("dc", 0, 1_000_000),
+            UnitMovement::new("store-03", 1_000_000, 0),
+            UnitMovement::new("ho", 0, 1_000_000),
         ];
         for leg in legs(&lines, AffiliateKind::Financing) {
-            lines.push(SiteMovement::new(
-                &leg.site_id,
+            lines.push(UnitMovement::new(
+                &leg.unit_id,
                 leg.debit_minor,
                 leg.credit_minor,
             ));
         }
         assert!(legs(&lines, AffiliateKind::Financing).is_empty());
-        assert_eq!(first_unbalanced_site(&lines), None);
+        assert_eq!(first_unbalanced_unit(&lines), None);
     }
 
     /// Every entry that can be built out of these pieces, checked exhaustively.
@@ -434,20 +447,20 @@ mod tests {
     /// example cannot find. The generator only builds entries that balance in
     /// TOTAL, because that is the precondition `balancing_legs` documents and
     /// the poster enforces before it calls in.
-    fn every_balanced_entry(mut check: impl FnMut(&[SiteMovement])) {
-        let sites = ["dc", "store-01", "store-02", "store-03", "store-11", "dc"];
+    fn every_balanced_entry(mut check: impl FnMut(&[UnitMovement])) {
+        let units = ["ho", "store-01", "store-02", "store-03", "store-11", "ho"];
         let amounts = [1_i64, 250, 1_000_000, 8_600_001, 9_000_000_000];
-        for first in sites {
-            for second in sites {
-                for third in sites {
-                    for fourth in sites {
+        for first in units {
+            for second in units {
+                for third in units {
+                    for fourth in units {
                         for left in amounts {
                             for right in amounts {
                                 check(&[
-                                    SiteMovement::new(first, left, 0),
-                                    SiteMovement::new(second, 0, left),
-                                    SiteMovement::new(third, right, 0),
-                                    SiteMovement::new(fourth, 0, right),
+                                    UnitMovement::new(first, left, 0),
+                                    UnitMovement::new(second, 0, left),
+                                    UnitMovement::new(third, right, 0),
+                                    UnitMovement::new(fourth, 0, right),
                                 ]);
                             }
                         }
@@ -462,15 +475,15 @@ mod tests {
     fn every_unit_balances_once_the_legs_are_added() {
         every_balanced_entry(|lines| {
             let mut all = lines.to_vec();
-            for leg in balancing_legs(lines, AffiliateKind::Financing, "dc") {
-                all.push(SiteMovement::new(
-                    &leg.site_id,
+            for leg in balancing_legs(lines, AffiliateKind::Financing, "ho") {
+                all.push(UnitMovement::new(
+                    &leg.unit_id,
                     leg.debit_minor,
                     leg.credit_minor,
                 ));
             }
             assert_eq!(
-                first_unbalanced_site(&all),
+                first_unbalanced_unit(&all),
                 None,
                 "left a unit out: {lines:?}"
             );
@@ -483,7 +496,7 @@ mod tests {
     #[test]
     fn the_legs_add_as_much_debit_as_credit() {
         every_balanced_entry(|lines| {
-            let legs = balancing_legs(lines, AffiliateKind::Goods, "dc");
+            let legs = balancing_legs(lines, AffiliateKind::Goods, "ho");
             let debits: i64 = legs.iter().map(|leg| leg.debit_minor).sum();
             let credits: i64 = legs.iter().map(|leg| leg.credit_minor).sum();
             assert_eq!(debits, credits, "unbalanced legs for {lines:?}");
@@ -505,15 +518,15 @@ mod tests {
     fn balancing_is_idempotent_everywhere_not_just_in_the_example() {
         every_balanced_entry(|lines| {
             let mut all = lines.to_vec();
-            for leg in balancing_legs(lines, AffiliateKind::Financing, "dc") {
-                all.push(SiteMovement::new(
-                    &leg.site_id,
+            for leg in balancing_legs(lines, AffiliateKind::Financing, "ho") {
+                all.push(UnitMovement::new(
+                    &leg.unit_id,
                     leg.debit_minor,
                     leg.credit_minor,
                 ));
             }
             assert!(
-                balancing_legs(&all, AffiliateKind::Financing, "dc").is_empty(),
+                balancing_legs(&all, AffiliateKind::Financing, "ho").is_empty(),
                 "a second pass wanted more legs for {lines:?}"
             );
         });
@@ -522,9 +535,9 @@ mod tests {
     #[test]
     fn an_unbalanced_unit_is_named_with_what_it_is_out_by() {
         let lines = [
-            SiteMovement::new("dc", 500, 0),
-            SiteMovement::new("store-02", 0, 300),
+            UnitMovement::new("ho", 500, 0),
+            UnitMovement::new("store-02", 0, 300),
         ];
-        assert_eq!(first_unbalanced_site(&lines), Some(("dc".to_string(), 500)));
+        assert_eq!(first_unbalanced_unit(&lines), Some(("ho".to_string(), 500)));
     }
 }
