@@ -52,7 +52,7 @@ pub mod fleet;
 pub mod exit;
 pub mod files;
 /// Flow templates (Admin's) and the flow documents that run them: the hub's
-/// "Alur barang". See `domain::flow`.
+/// "Goods flows". See `domain::flow`.
 pub mod flows;
 pub mod ga;
 pub mod finance;

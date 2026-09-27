@@ -284,9 +284,7 @@ impl FlowState {
     /// The stage now due: the first one still open. `None` when every stage
     /// is done or skipped.
     pub fn cursor(&self) -> Option<usize> {
-        self.stages
-            .iter()
-            .position(|stage| stage.status.is_open())
+        self.stages.iter().position(|stage| stage.status.is_open())
     }
 
     pub fn current(&self) -> Option<&StageRuntime> {
@@ -346,7 +344,9 @@ impl FlowState {
     pub fn plan_is_visible(&self) -> bool {
         match self.stage_of(StageKind::BlindCount) {
             Some(blind) => blind.status == StageStatus::Done,
-            None => !self.current().is_some_and(|stage| stage.stage.kind.spec().blind),
+            None => !self
+                .current()
+                .is_some_and(|stage| stage.stage.kind.spec().blind),
         }
     }
 }

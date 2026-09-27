@@ -2,10 +2,10 @@ import { useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 
-/// Flow templates — "Alur barang" (migrations 0615–0619, `domain::flow`).
+/// Flow templates — "Goods flows" (migrations 0615–0619, `domain::flow`).
 ///
-/// A stage's MEANING is code on the server (pick, pack, masuk surat jalan,
-/// muat, berangkat, terima…); a template is the data an Admin edits: a route,
+/// A stage's MEANING is code on the server (pick, pack, ship into a surat
+/// jalan, load, depart, receive…); a template is the data an Admin edits: a route,
 /// the stages in order, who raises the source document, who performs each
 /// stage, proof, deadlines, what may be skipped and where the goods land.
 /// Every save is a new version; a running flow keeps the one it started on.
@@ -44,19 +44,10 @@ export type FlowRoleCode =
   | "STORE_MANAGER"
 
 export type ProofKindCode =
-  | "RFID_SCAN"
-  | "MANUAL_COUNT"
-  | "PHOTO"
-  | "SIGNATURE"
-  | "SIGNED_RETURN_NOTE"
+  "RFID_SCAN" | "MANUAL_COUNT" | "PHOTO" | "SIGNATURE" | "SIGNED_RETURN_NOTE"
 
 export type PoolRoleCode =
-  | "PENDING"
-  | "WAREHOUSE"
-  | "RETURN"
-  | "REJECT"
-  | "STOCKROOM"
-  | "FLOOR"
+  "PENDING" | "WAREHOUSE" | "RETURN" | "REJECT" | "STOCKROOM" | "FLOOR"
 
 export interface TemplateStage {
   kind: StageKindCode

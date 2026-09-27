@@ -229,6 +229,20 @@ pub fn dc_router_with_sync(
             "/api/v1/dc/inbound/{delivery_id}/receive",
             post(store_inbound_receive),
         )
+        // Inspecting a store's return once it is received into that store's
+        // return pool: good goods to the racks, damaged goods to reject — the
+        // goods flow's Inspect stage (`edge::flows`).
+        .route("/api/v1/dc/inspections", get(dc_return_inspections))
+        .route(
+            "/api/v1/dc/inbound/{delivery_id}/inspection",
+            get(dc_return_inspection).post(dc_inspect_return),
+        )
+        // Tagged goods recorded as put away on the racks — the goods flow's
+        // Putaway stage.
+        .route(
+            "/api/v1/dc/putaways",
+            get(dc_putaway_work).post(dc_put_away),
+        )
         .route("/api/v1/dc/official-counts", get(dc_official_counts))
         .route(
             "/api/v1/dc/official-counts/{count_id}",
@@ -627,6 +641,9 @@ fn common_router() -> Router<EdgeState> {
         )
         .route(RFID_OBSERVATION_PATH, post(rfid_observations))
         .route("/api/v1/inventory/pools", get(pools))
+        // What the goods flows touching this site did, as head office relayed
+        // it (`edge::flows`): which document a piece of work belongs to.
+        .route("/api/v1/flow-notices", get(flow_notices))
         .route("/api/v1/inventory/movements", get(movements))
         .route("/api/v1/sync/status", get(sync_status))
         .route("/api/v1/sync/trigger", post(sync_trigger))
@@ -674,13 +691,15 @@ async fn health(State(state): State<EdgeState>) -> Json<Value> {
         EdgeRole::Dc => json!([
             "inventory.pools.owned",
             "inventory.movements.read",
-            crate::sync::workflow::GOODS_ROUTES_CAPABILITY
+            crate::sync::workflow::GOODS_ROUTES_CAPABILITY,
+            crate::sync::flow::FLOWS_CAPABILITY
         ]),
         EdgeRole::Store => json!([
             "inventory.pools.owned",
             "inventory.movements.read",
             crate::sync::workflow::STORE_INBOUND_CAPABILITY,
-            crate::sync::workflow::GOODS_ROUTES_CAPABILITY
+            crate::sync::workflow::GOODS_ROUTES_CAPABILITY,
+            crate::sync::flow::FLOWS_CAPABILITY
         ]),
     };
     let policy = state.auth.policy_version().ok().flatten();
@@ -1692,6 +1711,88 @@ async fn move_stock(
     }
     let result = run_blocking(move || state.inventory.move_stock(request)).await?;
     Ok(Json(serde_json::to_value(result)?))
+}
+
+#[derive(serde::Deserialize)]
+struct FlowNoticeQuery {
+    /// Only the documents still running. The default: a screen asks what is
+    /// still to do.
+    #[serde(default)]
+    open: Option<bool>,
+}
+
+/// The goods flows touching this site, as head office last described them.
+async fn flow_notices(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<FlowNoticeQuery>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let open = query.open.unwrap_or(true);
+    let result = run_blocking(move || state.inventory.flow_notices(open)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// A store's returns received here with units still waiting to be inspected.
+async fn dc_return_inspections(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let result = run_blocking(move || state.inventory.return_inspections()).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// One received return and the units still waiting in its return pool.
+async fn dc_return_inspection(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(delivery_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let result = run_blocking(move || state.inventory.return_inspection(&delivery_id)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// Inspect a received return. A supervisor's, because it decides what is fit
+/// to sell and moves stock out of a store's return pool.
+async fn dc_inspect_return(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(delivery_id): Path<String>,
+    Json(mut request): Json<crate::edge::flows::InspectReturnRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::InventoryMove)? {
+        request.actor_id = principal.username;
+    }
+    name_the_actor(&mut request.actor_id);
+    let result =
+        run_blocking(move || state.inventory.inspect_return(&delivery_id, request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
+}
+
+/// Tagged jobs whose goods are not yet recorded as put away.
+async fn dc_putaway_work(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let result = run_blocking(move || state.inventory.putaway_work()).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// Record a tagged job's goods as put away on the racks.
+async fn dc_put_away(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::flows::PutawayRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::DcOperate)? {
+        request.actor_id = principal.username;
+    }
+    name_the_actor(&mut request.actor_id);
+    let result = run_blocking(move || state.inventory.put_away(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
 }
 
 /// What this basket would come to, and why.

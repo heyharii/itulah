@@ -291,6 +291,98 @@ pub(crate) fn apply_announcement(
     Ok(())
 }
 
+/// Tell head office what one delivery's receipt handed over and found, per
+/// allotment line (`inventory.inbound.received.v1`), inside the receipt's own
+/// transaction and after its transfer claims — so the centre, which applies
+/// this node's facts in order, has every claim of the delivery before it reads
+/// the delivery. The flow the goods travel on confirms its receipt from this
+/// (`cloud::postgres::flow_stages`): what came off the lorry was handed over,
+/// and what of it was not found is Missing at this site (allotment ALT-D01).
+///
+/// Nothing is sent when this node captures no facts, as with every other fact.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn enqueue_received(
+    tx: &Transaction<'_>,
+    site_id: &str,
+    delivery_id: &str,
+    receipt_id: Uuid,
+    source_site_id: &str,
+    shipment_reference: Option<&str>,
+    landing_pool_id: &str,
+    received_by: &str,
+    received_at: DateTime<Utc>,
+) -> Result<(), EdgeError> {
+    use crate::sync::flow::{
+        InboundReceivedLine, InboundReceivedPayload, FLOW_FACT_SCHEMA_VERSION,
+        INVENTORY_INBOUND_RECEIVED_V1,
+    };
+    let mut by_line = tx
+        .prepare(
+            "SELECT allotment_line_id, sku_code, COUNT(*),
+                    COALESCE(SUM(CASE WHEN outcome='RECEIVED' THEN 1 ELSE 0 END),0)
+             FROM store_inbound_unit
+             WHERE delivery_id=?1 AND late_announcement=0
+             GROUP BY allotment_line_id, sku_code
+             ORDER BY allotment_line_id, sku_code",
+        )
+        .map_err(db)?;
+    let lines: Vec<InboundReceivedLine> = by_line
+        .query_map([delivery_id], |row| {
+            Ok(InboundReceivedLine {
+                allotment_line_id: row
+                    .get::<_, Option<String>>(0)?
+                    .and_then(|line| Uuid::parse_str(&line).ok()),
+                sku_code: row.get(1)?,
+                expected: row.get(2)?,
+                received: row.get(3)?,
+            })
+        })
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?;
+    drop(by_line);
+    let mut koli = tx
+        .prepare(
+            "SELECT DISTINCT koli_id FROM store_inbound_unit
+             WHERE delivery_id=?1 AND late_announcement=0
+             ORDER BY koli_id",
+        )
+        .map_err(db)?;
+    let koli_ids: Vec<Uuid> = koli
+        .query_map([delivery_id], |row| row.get::<_, String>(0))
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?
+        .iter()
+        .filter_map(|koli_id| Uuid::parse_str(koli_id).ok())
+        .collect();
+    drop(koli);
+    let extra_units: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM store_inbound_extra WHERE delivery_id=?1",
+            [delivery_id],
+            |row| row.get(0),
+        )
+        .map_err(db)?;
+    let payload = InboundReceivedPayload {
+        schema_version: FLOW_FACT_SCHEMA_VERSION,
+        receipt_id,
+        delivery_id: delivery_id.to_owned(),
+        source_site_id: source_site_id.to_owned(),
+        destination_site_id: site_id.to_owned(),
+        shipment_reference: shipment_reference.map(str::to_owned),
+        landing_pool_id: landing_pool_id.to_owned(),
+        koli_ids,
+        lines,
+        extra_units,
+        received_by: received_by.to_owned(),
+        received_at,
+    };
+    crate::edge::sync::enqueue_fact(tx, receipt_id, INVENTORY_INBOUND_RECEIVED_V1, &payload)
+        .map_err(db)?;
+    Ok(())
+}
+
 struct DeliveryRow {
     delivery_id: String,
     source_site_id: String,

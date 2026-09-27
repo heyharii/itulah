@@ -1,4 +1,4 @@
-//! Flow templates and flow documents on the wire: the hub's "Alur barang".
+//! Flow templates and flow documents on the wire: the hub's "Goods flows".
 //!
 //! # Templates — Admin's
 //!
@@ -20,6 +20,10 @@
 //! property of the path: it is the template's. Starting needs one of the
 //! version's starter roles; each stage needs its performer's role. Both are
 //! checked by the flow itself (`domain::flow`), against the caller's rung.
+//! A rung is not a place, so each stage also needs the caller's reach
+//! (`domain::employment::Reach`, resolved per request from their posting) to
+//! cover the unit of the site the stage happens at — see
+//! `postgres::flows::stage_reach`.
 //!
 //! Preview writes nothing. Confirm applies the actions for one stage once.
 //! Resume finishes a parked stage by its key, `<document>:<STAGE_KIND>`.
@@ -32,9 +36,10 @@ use crate::cloud::{
             self, Actor, FlowActionInput, FlowRole, FlowTemplateDraft, PartyKind, PoolRole,
             ProofKind, RouteEnd, StageCatalogueEntry, TemplateProblem,
         },
-        Role,
+        Posting, Reach, Role, UnitId, UnitKind,
     },
     postgres::{
+        self as infrastructure,
         flow_stages::{self, StageDelegate},
         flows::{
             self as store, ConfirmFlowRequest, FlowDocumentFilter, FlowDocumentSummary,
@@ -57,6 +62,28 @@ fn actor_of(principal: &Principal) -> Actor {
         id: principal.username.clone(),
         rung: principal.role,
     }
+}
+
+/// Where the caller may perform a stage: their own open posting, read on this
+/// request rather than carried in the session (a transfer is exactly when a
+/// stale unit would matter), widened for head office and bounded by a relaying
+/// node as `store::stage_reach` says.
+async fn reach_of(state: &AppState, principal: &Principal) -> Result<Reach, AppError> {
+    let caller = infrastructure::caller_record(&state.db, &principal.username).await?;
+    let posting = caller.posting.as_ref().and_then(|(unit_id, kind)| {
+        let unit = UnitId::try_new(unit_id).ok()?;
+        // A kind this build has not been taught is read as a store's: the
+        // narrow reading, as `http::employment` reads it.
+        Some(Posting::new(
+            unit,
+            UnitKind::parse(kind).unwrap_or(UnitKind::Store),
+        ))
+    });
+    Ok(store::stage_reach(
+        principal.role,
+        posting.as_ref(),
+        principal.bound_unit(),
+    ))
 }
 
 /// Templates are head office's to write. Checked here as well as at the
@@ -288,8 +315,13 @@ pub async fn start_document(
     Json(request): Json<StartFlowRequest>,
 ) -> Result<Json<FlowDocumentView>, AppError> {
     Ok(Json(
-        store::start_flow_document(&state.db, &request, &actor_of(&principal), state.clock.now())
-            .await?,
+        store::start_flow_document(
+            &state.db,
+            &request,
+            &actor_of(&principal),
+            state.clock.now(),
+        )
+        .await?,
     ))
 }
 
@@ -316,8 +348,10 @@ pub async fn preview_actions(
     Path(id): Path<Uuid>,
     Json(body): Json<PreviewBody>,
 ) -> Result<Json<FlowPreviewView>, AppError> {
+    let reach = reach_of(&state, &principal).await?;
     Ok(Json(
-        store::preview_flow_actions(&state.db, id, &body.actions, &actor_of(&principal)).await?,
+        store::preview_flow_actions(&state.db, id, &body.actions, &actor_of(&principal), &reach)
+            .await?,
     ))
 }
 
@@ -328,12 +362,14 @@ pub async fn confirm_actions(
     Path(id): Path<Uuid>,
     Json(request): Json<ConfirmFlowRequest>,
 ) -> Result<Json<Value>, AppError> {
+    let reach = reach_of(&state, &principal).await?;
     Ok(Json(
         store::confirm_flow_actions(
             &state.db,
             id,
             &request,
             &actor_of(&principal),
+            &reach,
             state.clock.now(),
         )
         .await?,
@@ -347,8 +383,15 @@ pub async fn resume_stage(
     Extension(principal): Extension<Principal>,
     Json(request): Json<ResumeFlowRequest>,
 ) -> Result<Json<Value>, AppError> {
+    let reach = reach_of(&state, &principal).await?;
     Ok(Json(
-        store::resume_parked_stage(&state.db, &request, &actor_of(&principal), state.clock.now())
-            .await?,
+        store::resume_parked_stage(
+            &state.db,
+            &request,
+            &actor_of(&principal),
+            &reach,
+            state.clock.now(),
+        )
+        .await?,
     ))
 }

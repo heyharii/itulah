@@ -52,7 +52,7 @@ use crate::cloud::domain::flow::{
     ProofRecord, RouteEnd, SourceKind, StageKind, StageRuntime, StageSide, StageStatus,
     TemplateProblem, TemplateStage,
 };
-use crate::cloud::domain::{DestinationType, Role};
+use crate::cloud::domain::{DestinationType, Posting, Reach, Role, UnitId, UnitKind};
 use crate::ids::SiteKind;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -75,9 +75,9 @@ fn problems_error(problems: &[TemplateProblem]) -> AppError {
     let first = problems
         .first()
         .map(|problem| problem.message.clone())
-        .unwrap_or_else(|| "template tidak valid".into());
+        .unwrap_or_else(|| "the template is not valid".into());
     if problems.len() > 1 {
-        AppError::Validation(format!("{first} (dan {} masalah lain)", problems.len() - 1))
+        AppError::Validation(format!("{first} (and {} more)", problems.len() - 1))
     } else {
         AppError::Validation(first)
     }
@@ -87,7 +87,7 @@ fn problems_error(problems: &[TemplateProblem]) -> AppError {
 /// by hand. Refused by name rather than read as something else.
 fn unknown(what: &str, raw: &str) -> AppError {
     AppError::Conflict(format!(
-        "{what} `{raw}` tersimpan tetapi tidak dikenal oleh build ini"
+        "{what} `{raw}` is stored but this build does not know it"
     ))
 }
 
@@ -237,11 +237,11 @@ async fn load_version_draft(
         let proof: Vec<String> = row.try_get("proof")?;
         let deadline: Option<i32> = row.try_get("deadline_hours")?;
         stages.push(TemplateStage {
-            kind: stored(StageKind::parse(&kind), "tahap", &kind)?,
-            performer: stored(FlowRole::parse(&performer), "peran", &performer)?,
+            kind: stored(StageKind::parse(&kind), "stage", &kind)?,
+            performer: stored(FlowRole::parse(&performer), "role", &performer)?,
             proof: proof
                 .iter()
-                .map(|code| stored(ProofKind::parse(code), "bukti", code))
+                .map(|code| stored(ProofKind::parse(code), "proof", code))
                 .collect::<Result<Vec<_>, _>>()?,
             deadline_hours: deadline.and_then(|hours| u32::try_from(hours).ok()),
             skippable: row.try_get("skippable")?,
@@ -253,12 +253,12 @@ async fn load_version_draft(
         code: head.try_get("code")?,
         name: head.try_get("name")?,
         route: FlowRoute {
-            origin: stored(RouteEnd::parse(&origin), "ujung rute", &origin)?,
-            destination: stored(RouteEnd::parse(&destination), "ujung rute", &destination)?,
+            origin: stored(RouteEnd::parse(&origin), "route end", &origin)?,
+            destination: stored(RouteEnd::parse(&destination), "route end", &destination)?,
         },
         starters: starters
             .iter()
-            .map(|code| stored(FlowRole::parse(code), "peran", code))
+            .map(|code| stored(FlowRole::parse(code), "role", code))
             .collect::<Result<Vec<_>, _>>()?,
         destination_pool: match pool {
             Some(code) => Some(stored(PoolRole::parse(&code), "pool", &code)?),
@@ -299,7 +299,9 @@ async fn read_template_detail(
         versions.push(FlowTemplateVersionView {
             id,
             version: row.try_get("version")?,
-            is_current: row.try_get::<Option<bool>, _>("is_current")?.unwrap_or(false),
+            is_current: row
+                .try_get::<Option<bool>, _>("is_current")?
+                .unwrap_or(false),
             created_by: row.try_get("created_by")?,
             created_at: row.try_get("created_at")?,
             documents: row.try_get("documents")?,
@@ -330,18 +332,17 @@ pub async fn validate_flow_template(
     let mut problems = flow::validate_template(draft);
     match template_id {
         None => {
-            let taken: bool = sqlx::query_scalar(
-                "SELECT EXISTS (SELECT 1 FROM flow_template WHERE code = $1)",
-            )
-            .bind(draft.code.trim())
-            .fetch_one(pool)
-            .await?;
+            let taken: bool =
+                sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM flow_template WHERE code = $1)")
+                    .bind(draft.code.trim())
+                    .fetch_one(pool)
+                    .await?;
             if taken {
                 problems.push(TemplateProblem {
                     stage: None,
                     field: Some("code"),
                     rule: "template.code_taken",
-                    message: format!("Kode {} sudah dipakai alur lain.", draft.code.trim()),
+                    message: format!("The code {} is taken by another flow.", draft.code.trim()),
                 });
             }
         }
@@ -372,7 +373,7 @@ fn keeps_identity(
             stage: None,
             field: Some("code"),
             rule: "template.code_fixed",
-            message: format!("Kode alur tetap {code}; versi baru tidak mengganti kode."),
+            message: format!("This flow's code stays {code}; a new version does not change it."),
         });
     }
     if draft.route.origin.code() != origin || draft.route.destination.code() != destination {
@@ -381,7 +382,7 @@ fn keeps_identity(
             field: Some("route"),
             rule: "template.route_fixed",
             message: format!(
-                "Rute alur ini tetap {origin} → {destination}. Untuk rute lain, buat alur baru."
+                "This flow's route stays {origin} → {destination}. For another route, create a new flow."
             ),
         });
     }
@@ -503,7 +504,7 @@ pub async fn create_flow_template(
             .await?;
     if taken {
         return Err(AppError::Conflict(format!(
-            "kode {} sudah dipakai alur lain",
+            "the code {} is taken by another flow",
             draft.code.trim()
         )));
     }
@@ -563,7 +564,7 @@ pub async fn save_flow_template_version(
     let status: String = row.try_get("status")?;
     if status != "ACTIVE" {
         return Err(AppError::Conflict(
-            "alur ini sudah dipensiunkan; aktifkan dulu sebelum menyimpan versi baru".into(),
+            "this flow is retired; reactivate it before saving a new version".into(),
         ));
     }
     let next: i32 = sqlx::query_scalar(
@@ -629,8 +630,8 @@ pub async fn update_flow_template(
     let origin: String = row.try_get("origin_kind")?;
     let destination: String = row.try_get("destination_kind")?;
     let route = FlowRoute {
-        origin: stored(RouteEnd::parse(&origin), "ujung rute", &origin)?,
-        destination: stored(RouteEnd::parse(&destination), "ujung rute", &destination)?,
+        origin: stored(RouteEnd::parse(&origin), "route end", &origin)?,
+        destination: stored(RouteEnd::parse(&destination), "route end", &destination)?,
     };
     let mut status: String = row.try_get("status")?;
 
@@ -667,7 +668,7 @@ pub async fn update_flow_template(
             "RETIRED" | "ACTIVE" => {}
             other => {
                 return Err(AppError::Validation(format!(
-                    "status `{other}` tidak dikenal: ACTIVE atau RETIRED"
+                    "status `{other}` is not known: ACTIVE or RETIRED"
                 )))
             }
         }
@@ -675,7 +676,7 @@ pub async fn update_flow_template(
 
     if let Some(name) = patch.name.as_deref().map(str::trim) {
         if name.is_empty() {
-            return Err(AppError::Validation("nama alur wajib diisi".into()));
+            return Err(AppError::Validation("a flow needs a name".into()));
         }
         sqlx::query(
             "UPDATE flow_template SET name = $2, updated_by = $3, updated_at = $4 WHERE id = $1",
@@ -696,7 +697,7 @@ pub async fn update_flow_template(
         .bind(version)
         .fetch_optional(&mut *tx)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("versi {version} alur ini")))?;
+        .ok_or_else(|| AppError::NotFound(format!("version {version} of this flow")))?;
         // A version saved under older rules may not hold the rules of this
         // build. Going back to it is refused rather than started on.
         let draft = load_version_draft(&mut tx, version_id).await?;
@@ -721,7 +722,7 @@ pub async fn update_flow_template(
         Some(true) => {
             if status != "ACTIVE" {
                 return Err(AppError::Conflict(
-                    "alur yang dipensiunkan tidak bisa jadi bawaan rutenya".into(),
+                    "a retired flow cannot be its route's default".into(),
                 ));
             }
             clear_default_for_route(&mut tx, route, actor, at).await?;
@@ -789,7 +790,7 @@ pub async fn choose_flow_template_tx(
         .bind(code)
         .fetch_optional(&mut **tx)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("alur {code}")))?,
+        .ok_or_else(|| AppError::NotFound(format!("flow {code}")))?,
         None => sqlx::query(
             "SELECT t.id, t.code, t.origin_kind, t.destination_kind, t.status, t.current_version_id, v.version
                FROM flow_template t
@@ -802,7 +803,7 @@ pub async fn choose_flow_template_tx(
         .await?
         .ok_or_else(|| {
             AppError::NotFound(format!(
-                "belum ada alur bawaan untuk {} → {}; atur di Alur barang",
+                "there is no default flow for {} → {} yet; set one up in Goods flows",
                 route.origin.label(),
                 route.destination.label()
             ))
@@ -813,26 +814,26 @@ pub async fn choose_flow_template_tx(
     let destination: String = row.try_get("destination_kind")?;
     if origin != route.origin.code() || destination != route.destination.code() {
         return Err(AppError::Validation(format!(
-            "alur {template_code} untuk {origin} → {destination}, bukan {} → {}",
+            "flow {template_code} is for {origin} → {destination}, not {} → {}",
             route.origin, route.destination
         )));
     }
     let status: String = row.try_get("status")?;
     if status != "ACTIVE" {
         return Err(AppError::Conflict(format!(
-            "alur {template_code} sudah dipensiunkan"
+            "flow {template_code} is retired"
         )));
     }
     let version_id: Option<Uuid> = row.try_get("current_version_id")?;
     let version_id = version_id.ok_or_else(|| {
-        AppError::Conflict(format!("alur {template_code} belum punya versi aktif"))
+        AppError::Conflict(format!("flow {template_code} has no current version"))
     })?;
     let version: Option<i32> = row.try_get("version")?;
     let template = load_version_draft(&mut **tx, version_id).await?;
     let problems = flow::validate_template(&template);
     if !problems.is_empty() {
         return Err(AppError::Conflict(format!(
-            "alur {template_code} versi aktifnya tidak lagi memenuhi aturan: {}",
+            "flow {template_code}'s current version no longer holds the rules: {}",
             problems_error(&problems)
         )));
     }
@@ -869,15 +870,15 @@ pub async fn authorise_source_tx(
             .map(|role| role.label())
             .collect();
         return Err(AppError::Forbidden(format!(
-            "alur {} dimulai oleh {}, bukan {}",
+            "flow {} is started by {}, not {}",
             choice.template_code,
-            starters.join(" atau "),
+            starters.join(" or "),
             as_role.label()
         )));
     }
     if !as_role.holds(actor.rung) {
         return Err(AppError::Forbidden(format!(
-            "{} tidak memegang peran {}",
+            "{} does not hold the role {}",
             actor.id,
             as_role.label()
         )));
@@ -945,7 +946,9 @@ async fn resolve_end(
                 .ok_or_else(|| AppError::NotFound(format!("site {site_id}")))?;
             let kind: String = row.try_get("kind")?;
             let site_kind = SiteKind::from_code(&kind).ok_or_else(|| {
-                AppError::Conflict(format!("site {site_id} berjenis {kind}, yang belum dikenal alur"))
+                AppError::Conflict(format!(
+                    "site {site_id} is of kind {kind}, which flows do not know yet"
+                ))
             })?;
             Ok(ResolvedEnd {
                 end: RouteEnd::Site(site_kind),
@@ -962,7 +965,7 @@ async fn resolve_end(
                 .map(str::trim)
                 .filter(|id| !id.is_empty())
                 .ok_or_else(|| {
-                    AppError::Validation(format!("{which}: pihak luar disebut dengan id-nya"))
+                    AppError::Validation(format!("{which}: an outside party is named by its id"))
                 })?;
             Ok(ResolvedEnd {
                 end: RouteEnd::Party(party),
@@ -973,7 +976,7 @@ async fn resolve_end(
             })
         }
         _ => Err(AppError::Validation(format!(
-            "{which}: sebut site kita atau pihak luar, salah satu"
+            "{which}: name one of our sites or an outside party, one of the two"
         ))),
     }
 }
@@ -1027,8 +1030,8 @@ pub async fn start_flow_document_tx(
         return Ok(existing);
     }
 
-    let origin = resolve_end(&mut **tx, &request.origin, "asal").await?;
-    let destination = resolve_end(&mut **tx, &request.destination, "tujuan").await?;
+    let origin = resolve_end(&mut **tx, &request.origin, "origin").await?;
+    let destination = resolve_end(&mut **tx, &request.destination, "destination").await?;
     let route = FlowRoute {
         origin: origin.end,
         destination: destination.end,
@@ -1048,12 +1051,12 @@ pub async fn start_flow_document_tx(
     };
     if source.id.is_empty() {
         return Err(AppError::Validation(
-            "alur lahir dari dokumen sumbernya: sebut id allotment, PO, atau delivery-nya".into(),
+            "a flow is born from its source document: name the allotment, PO or delivery id".into(),
         ));
     }
     if !source.kind.fits(route) {
         return Err(AppError::Validation(format!(
-            "alur {} → {} tidak lahir dari {}: keluar dari site kita lahir dari allotment, dari supplier dari PO atau delivery",
+            "a flow {} → {} is not born from {}: goods leaving our site run an allotment, goods from a supplier a PO or a delivery",
             route.origin.label(),
             route.destination.label(),
             source.kind.code()
@@ -1061,16 +1064,20 @@ pub async fn start_flow_document_tx(
     }
 
     if request.lines.is_empty() {
-        return Err(AppError::Validation("alur butuh minimal satu baris barang".into()));
+        return Err(AppError::Validation(
+            "a flow needs at least one line of goods".into(),
+        ));
     }
     let mut planned = BTreeMap::new();
     for line in &request.lines {
         if line.quantity <= 0 {
-            return Err(AppError::Validation("kuantitas baris harus positif".into()));
+            return Err(AppError::Validation(
+                "a line quantity must be positive".into(),
+            ));
         }
         if planned.insert(line.sku_id, line.quantity).is_some() {
             return Err(AppError::Validation(format!(
-                "SKU {} disebut dua kali",
+                "SKU {} is named twice",
                 line.sku_id
             )));
         }
@@ -1095,9 +1102,10 @@ pub async fn start_flow_document_tx(
     );
     let confirmed = state.status == FlowStatus::Confirmed;
 
-    let sequence: i64 = sqlx::query_scalar("SELECT nextval('flow_document_number_sequence')::bigint")
-        .fetch_one(&mut **tx)
-        .await?;
+    let sequence: i64 =
+        sqlx::query_scalar("SELECT nextval('flow_document_number_sequence')::bigint")
+            .fetch_one(&mut **tx)
+            .await?;
     let number = format!("ALR-{sequence:08}");
 
     sqlx::query(
@@ -1332,12 +1340,11 @@ pub(super) async fn load_state(
     row: &DocumentRow,
 ) -> Result<FlowState, AppError> {
     let template = load_version_draft(&mut *connection, row.template_version_id).await?;
-    let lines = sqlx::query(
-        "SELECT sku_id, quantity FROM flow_document_line WHERE document_id = $1",
-    )
-    .bind(row.id)
-    .fetch_all(&mut *connection)
-    .await?;
+    let lines =
+        sqlx::query("SELECT sku_id, quantity FROM flow_document_line WHERE document_id = $1")
+            .bind(row.id)
+            .fetch_all(&mut *connection)
+            .await?;
     let mut planned = BTreeMap::new();
     for line in &lines {
         planned.insert(
@@ -1348,11 +1355,15 @@ pub(super) async fn load_state(
     let destination_party = match row.destination_party_kind.as_deref() {
         Some("SUPPLIER") => Some(PartyKind::Supplier),
         Some("CUSTOMER") => Some(PartyKind::Customer),
-        Some(other) => return Err(unknown("pihak", other)),
+        Some(other) => return Err(unknown("party", other)),
         None => None,
     };
     let source = FlowSource {
-        kind: stored(SourceKind::parse(&row.source_kind), "sumber", &row.source_kind)?,
+        kind: stored(
+            SourceKind::parse(&row.source_kind),
+            "source",
+            &row.source_kind,
+        )?,
         id: row.source_id.clone(),
     };
     let mut state = FlowState::start(
@@ -1397,7 +1408,7 @@ pub(super) async fn load_state(
     }
     flow::replay(&mut state, &history).map_err(|error| {
         AppError::Conflict(format!(
-            "riwayat {} tidak bisa diputar ulang dengan aturan build ini: {error}",
+            "the history of {} cannot be replayed under this build's rules: {error}",
             row.number
         ))
     })?;
@@ -1779,17 +1790,24 @@ pub struct FlowPreviewView {
 }
 
 /// Replay the document and the new actions in memory. Writes nothing.
+///
+/// Refused the way the confirm would be, reach included, so a person who
+/// cannot do the stage hears it before they press anything.
 pub async fn preview_flow_actions(
     pool: &PgPool,
     document_id: Uuid,
     actions: &[FlowActionInput],
     actor: &Actor,
+    reach: &Reach,
 ) -> Result<FlowPreviewView, AppError> {
     let mut connection = pool.acquire().await?;
     let row = load_document(&mut connection, document_id, false).await?;
     let state = load_state(&mut connection, &row).await?;
     let times = load_stage_times(&mut connection, document_id).await?;
-    flow::single_stage(actions).map_err(flow_error)?;
+    let stage_index = flow::single_stage(actions).map_err(flow_error)?;
+    if let Some(stage) = state.stages.get(stage_index) {
+        check_reach(&mut connection, &row, stage.kind(), actions, actor, reach).await?;
+    }
     let preview = flow::preview(&state, actions, actor).map_err(flow_error)?;
     Ok(FlowPreviewView {
         document: document_view(&row, &preview.state, &times, actor),
@@ -1821,14 +1839,97 @@ pub struct ResumeFlowRequest {
     pub idempotency_key: String,
 }
 
+/// Where a person may perform a stage, read for goods flows.
+///
+/// `domain::employment::Reach` answers it — their open posting's unit, and
+/// every unit for an Admin — with one widening that is the flows' own: head
+/// office runs the goods flows, so a person posted to the head-office unit
+/// reaches every site a flow touches (a head-office driver collecting a
+/// shop's return, a Gudang supervisor finishing a shop's receipt from the
+/// hub). A call a store's node relayed stays bounded to that node's unit
+/// whoever it is relayed for (`Reach::bounded_to`), exactly as HR's is.
+pub fn stage_reach(rung: Role, posting: Option<&Posting>, bound: Option<&UnitId>) -> Reach {
+    let head_office = posting.is_some_and(|posting| posting.kind() == UnitKind::HeadOffice);
+    let reach = if head_office {
+        Reach::Everywhere
+    } else {
+        Reach::resolve(rung, posting)
+    };
+    match bound {
+        Some(unit) => reach.bounded_to(unit),
+        None => reach,
+    }
+}
+
+/// The unit whose site a stage happens at: the origin's or the destination's,
+/// and head office's for a stage that happens there whatever the route (an
+/// approval). `None` for the side that is an outside party.
+async fn stage_unit(
+    connection: &mut PgConnection,
+    row: &DocumentRow,
+    kind: StageKind,
+) -> Result<Option<String>, AppError> {
+    Ok(match kind.spec().side {
+        StageSide::Origin => row.origin_unit_id.clone(),
+        StageSide::Destination => row.destination_unit_id.clone(),
+        StageSide::HeadOffice => Some(super::sites::head_office_unit_id(&mut *connection).await?),
+    })
+}
+
+/// A stage is performed where it happens: the rung the template asks for is
+/// the flow's own check (`domain::flow`), and this is the other half — the
+/// person's reach has to cover the unit of the site the stage is at. A store's
+/// staff receive at their own store and nowhere else.
+///
+/// Cancelling a document is not performing a stage; who may cancel is the
+/// flow's rule (the person who asked, or an Admin).
+async fn check_reach(
+    connection: &mut PgConnection,
+    row: &DocumentRow,
+    kind: StageKind,
+    actions: &[FlowActionInput],
+    actor: &Actor,
+    reach: &Reach,
+) -> Result<(), AppError> {
+    if actions
+        .iter()
+        .all(|action| action.action_type.trim() == flow::FLOW_ACTION_CANCEL_FLOW)
+    {
+        return Ok(());
+    }
+    let unit = stage_unit(&mut *connection, row, kind).await?;
+    if reach.covers(unit.as_deref()) {
+        return Ok(());
+    }
+    let place = match kind.spec().side {
+        StageSide::Origin => row.origin_site_id.clone(),
+        StageSide::Destination => row.destination_site_id.clone(),
+        StageSide::HeadOffice => None,
+    }
+    .or(unit)
+    .unwrap_or_else(|| "an outside party".into());
+    Err(AppError::Forbidden(format!(
+        "{} on {} happens at {place}; {} is not posted where that unit is reached",
+        kind.spec().label,
+        row.number,
+        actor.id
+    )))
+}
+
 /// Apply actions for one stage and write everything they produced, in the
 /// caller's transaction.
+///
+/// `reach` is where the actor may perform a stage ([`stage_reach`] for a
+/// person, the node's own unit for a node's fact): refused before anything is
+/// written when it does not cover the stage's unit.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn apply_stage_tx(
     tx: &mut Transaction<'_, Postgres>,
     document_id: Uuid,
     actions: &[FlowActionInput],
     expected_seq: Option<i32>,
     actor: &Actor,
+    reach: &Reach,
     request_key: &str,
     at: DateTime<Utc>,
 ) -> Result<Vec<Effect>, AppError> {
@@ -1836,7 +1937,7 @@ pub(super) async fn apply_stage_tx(
     if let Some(expected) = expected_seq {
         if expected != row.action_seq {
             return Err(AppError::Conflict(format!(
-                "{} sudah berubah sejak dibuka ({} aksi, bukan {expected}); muat ulang",
+                "{} has changed since it was opened ({} actions, not {expected}); reload it",
                 row.number, row.action_seq
             )));
         }
@@ -1852,7 +1953,10 @@ pub(super) async fn apply_stage_tx(
         .stages
         .get(stage_index)
         .map(StageRuntime::kind)
-        .ok_or_else(|| AppError::Validation(format!("tahap #{} tidak ada", stage_index + 1)))?;
+        .ok_or_else(|| {
+            AppError::Validation(format!("stage #{} does not exist", stage_index + 1))
+        })?;
+    check_reach(&mut **tx, &row, named_kind, actions, actor, reach).await?;
 
     let mut effects = Vec::new();
     for input in actions {
@@ -1889,7 +1993,8 @@ pub(super) async fn apply_stage_tx(
     // The stages that changed: the one named, and any the actions reopened.
     for stage in &state.stages {
         let (status, counted) = before[stage.index];
-        let touched = stage.index == stage_index || status != stage.status || counted != stage.counted;
+        let touched =
+            stage.index == stage_index || status != stage.status || counted != stage.counted;
         if touched {
             write_stage(&mut **tx, document_id, stage, actor, at).await?;
         }
@@ -2124,6 +2229,7 @@ pub async fn confirm_flow_actions(
     document_id: Uuid,
     request: &ConfirmFlowRequest,
     actor: &Actor,
+    reach: &Reach,
     at: DateTime<Utc>,
 ) -> Result<Value, AppError> {
     let digest = payload_digest(&(document_id, &request.actions, request.expected_seq))?;
@@ -2140,10 +2246,13 @@ pub async fn confirm_flow_actions(
         &request.actions,
         request.expected_seq,
         actor,
+        reach,
         request.idempotency_key.trim(),
         at,
     )
     .await?;
+    // What the nodes did while the flow waited for this person.
+    super::flow_stages::catch_up_tx(&mut tx, document_id, at).await?;
     let document = read_document_view(&mut tx, document_id, actor).await?;
     let response = json!({ "document": document, "effects": effects });
     complete_idempotent(&mut tx, &request.idempotency_key, &response).await?;
@@ -2154,14 +2263,17 @@ pub async fn confirm_flow_actions(
 /// Resume a parked stage by its key, inside the caller's transaction. A stage
 /// already done or skipped is answered as it stands: twice is once.
 ///
-/// This is the door a node's fact comes through (`flow_stages`): a pick, a
-/// pack, a departure or a receipt a node wrote in its own transaction resumes
-/// the stage that was waiting for it.
+/// The hub's door for a parked stage: a person finishing, by its key, the
+/// scan, decision or signature it waited for. A node's facts come through
+/// `flow_stages::sync_from_nodes_tx` instead, which reads what the node's
+/// ledger says rather than taking a list of actions.
+#[allow(clippy::too_many_arguments)]
 pub async fn resume_parked_stage_tx(
     tx: &mut Transaction<'_, Postgres>,
     stage_key: &str,
     actions: &[FlowActionInput],
     actor: &Actor,
+    reach: &Reach,
     request_key: &str,
     at: DateTime<Utc>,
 ) -> Result<(Uuid, Vec<Effect>), AppError> {
@@ -2172,7 +2284,7 @@ pub async fn resume_parked_stage_tx(
     .bind(stage_key.trim())
     .fetch_optional(&mut **tx)
     .await?
-    .ok_or_else(|| AppError::NotFound(format!("tahap {stage_key}")))?;
+    .ok_or_else(|| AppError::NotFound(format!("stage {stage_key}")))?;
     let document_id: Uuid = row.try_get("document_id")?;
     let stage_index: i32 = row.try_get("stage_index")?;
     let status: String = row.try_get("status")?;
@@ -2181,7 +2293,7 @@ pub async fn resume_parked_stage_tx(
         "PARKED" => {}
         _ => {
             return Err(AppError::Conflict(format!(
-                "tahap {stage_key} tidak sedang menunggu; kerjakan lewat konfirmasi"
+                "stage {stage_key} is not waiting; do it through a confirm"
             )))
         }
     }
@@ -2194,8 +2306,17 @@ pub async fn resume_parked_stage_tx(
             action
         })
         .collect();
-    let effects =
-        apply_stage_tx(tx, document_id, &actions, None, actor, request_key, at).await?;
+    let effects = apply_stage_tx(
+        tx,
+        document_id,
+        &actions,
+        None,
+        actor,
+        reach,
+        request_key,
+        at,
+    )
+    .await?;
     Ok((document_id, effects))
 }
 
@@ -2203,6 +2324,7 @@ pub async fn resume_parked_stage(
     pool: &PgPool,
     request: &ResumeFlowRequest,
     actor: &Actor,
+    reach: &Reach,
     at: DateTime<Utc>,
 ) -> Result<Value, AppError> {
     let digest = payload_digest(&(&request.stage_key, &request.actions))?;
@@ -2218,10 +2340,13 @@ pub async fn resume_parked_stage(
         &request.stage_key,
         &request.actions,
         actor,
+        reach,
         request.idempotency_key.trim(),
         at,
     )
     .await?;
+    // What the nodes did while the flow waited for this person.
+    super::flow_stages::catch_up_tx(&mut tx, document_id, at).await?;
     let document = read_document_view(&mut tx, document_id, actor).await?;
     let response = json!({ "document": document, "effects": effects });
     complete_idempotent(&mut tx, &request.idempotency_key, &response).await?;
@@ -2256,8 +2381,10 @@ pub async fn start_flow_for_allotment_tx(
     at: DateTime<Utc>,
 ) -> Result<Vec<Uuid>, AppError> {
     let head_office = super::sites::head_office_site_id(&mut **tx).await?;
-    let mut by_destination: BTreeMap<(String, String), (FlowEndInput, FlowEndInput, BTreeMap<Uuid, i64>)> =
-        BTreeMap::new();
+    let mut by_destination: BTreeMap<
+        (String, String),
+        (FlowEndInput, FlowEndInput, BTreeMap<Uuid, i64>),
+    > = BTreeMap::new();
     for (source_site_id, destination_type, destination_id, sku_id, quantity) in lines {
         let destination = match destination_type {
             DestinationType::Store | DestinationType::Site => {
@@ -2377,7 +2504,7 @@ pub async fn live_flow_for_source_tx(
         [] => Ok(None),
         [one] => Ok(Some(*one)),
         _ => Err(AppError::Conflict(format!(
-            "{} {} berjalan ke beberapa tujuan; sebut tujuannya",
+            "{} {} runs to several destinations; name the destination",
             source.kind.code(),
             source.id
         ))),

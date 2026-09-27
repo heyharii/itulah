@@ -40,11 +40,11 @@ import { useIdentity } from "@/lib/session"
 import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
 
-/// Alur barang — the flow templates.
+/// Goods flows — the flow templates.
 ///
 /// What a stage MEANS is fixed on the server: pick takes goods off the racks,
-/// "Masuk surat jalan" puts sealed koli into one SJ for one destination,
-/// "Muat (dispatch)" puts them on a vehicle run, receive is one confirm with no
+/// "Ship (surat jalan)" puts sealed koli into one SJ for one destination,
+/// "Load (dispatch)" puts them on a vehicle run, receive is one confirm with no
 /// refusal. What this screen edits is the order of those stages for a route,
 /// who raises the plan (the allotment, or the PO from a supplier), who does
 /// each stage, the proof and the deadline, what may be skipped, and where the
@@ -54,44 +54,44 @@ import { cn } from "@/lib/utils"
 /// started on, so nothing here rewrites work in progress.
 ///
 /// The invariants hold whatever is typed: a flow to our own site ends in
-/// Terima; to a supplier or customer in Serah terima with proof; goods
+/// Receive; to a supplier or customer in Handover with proof; goods
 /// between our sites travel under a surat jalan; suppliers only meet the
 /// Gudang. The server answers every problem with the row it belongs to, as
 /// the author types, and this screen puts each sentence beside that row.
 
 /// Used before the catalogue has answered, and for codes it does not name.
 const STAGE_LABEL: Record<StageKindCode, string> = {
-  APPROVAL: "Persetujuan",
-  PICK: "Ambil (pick)",
-  PACK: "Kemas (pack)",
-  CLOSE_KOLI: "Tutup koli",
-  SHIP: "Masuk surat jalan",
-  LOAD: "Muat (dispatch)",
-  DEPART: "Berangkat",
-  RECEIVE: "Terima",
-  INSPECT: "Periksa",
-  READY_FOR_PICKUP: "Siap diambil",
-  HANDOVER_WITH_PROOF: "Serah terima dengan bukti",
-  ARRIVAL: "Kedatangan",
-  BLIND_COUNT: "Hitung buta",
-  VERIFICATION: "Verifikasi",
+  APPROVAL: "Approval",
+  PICK: "Pick",
+  PACK: "Pack",
+  CLOSE_KOLI: "Close koli",
+  SHIP: "Ship (surat jalan)",
+  LOAD: "Load (dispatch)",
+  DEPART: "Depart",
+  RECEIVE: "Receive",
+  INSPECT: "Inspect",
+  READY_FOR_PICKUP: "Ready for pickup",
+  HANDOVER_WITH_PROOF: "Handover with proof",
+  ARRIVAL: "Arrival",
+  BLIND_COUNT: "Blind count",
+  VERIFICATION: "Verification",
   TAGGING: "Tagging",
-  PUTAWAY: "Simpan ke rak",
+  PUTAWAY: "Putaway",
 }
 
 const END_LABEL: Record<RouteEndCode, string> = {
   HO: "Gudang (HO)",
-  STORE: "Toko",
+  STORE: "Store",
   SUPPLIER: "Supplier",
-  CUSTOMER: "Pelanggan",
+  CUSTOMER: "Customer",
 }
 
 const ENDS: readonly RouteEndCode[] = ["HO", "STORE", "SUPPLIER", "CUSTOMER"]
 
 const WIRING_LABEL = {
-  IN_FLOW: { label: "Di alur", tone: "ok" },
-  EXISTING_SURFACE: { label: "Layar sudah ada", tone: "neutral" },
-  MISSING: { label: "Belum ada layar", tone: "warn" },
+  IN_FLOW: { label: "In the flow", tone: "ok" },
+  EXISTING_SURFACE: { label: "Screen exists", tone: "neutral" },
+  MISSING: { label: "No screen yet", tone: "warn" },
 } as const
 
 function isSite(end: RouteEndCode): boolean {
@@ -128,7 +128,8 @@ function cleanDraft(draft: FlowTemplateDraft): FlowTemplateDraft {
       skippable: stage.skippable,
       params: stage.params,
     })),
-    notes: draft.notes === null || draft.notes.trim() === "" ? null : draft.notes,
+    notes:
+      draft.notes === null || draft.notes.trim() === "" ? null : draft.notes,
   }
 }
 
@@ -152,13 +153,16 @@ export function Flows() {
     <PageContent>
       <PageHeader
         crumb="Inventory"
-        title="Alur barang"
-        sub="Urutan tahap tiap rute barang: siapa membuat rencananya, siapa mengerjakan tiap tahap, bukti, dan tenggat. Makna tahap ada di sistem; urutannya diatur di sini."
+        title="Goods flows"
+        sub="The stages each route of goods runs: who raises its plan, who does each stage, the proof and the deadline. What a stage means is fixed in the system; the order is set here."
         actions={
           isAdmin ? (
-            <Button variant="primary" onClick={() => setEditing({ mode: "new" })}>
+            <Button
+              variant="primary"
+              onClick={() => setEditing({ mode: "new" })}
+            >
               <Plus />
-              Alur baru
+              New flow
             </Button>
           ) : undefined
         }
@@ -167,25 +171,25 @@ export function Flows() {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <Segmented
           options={[
-            { value: "active", label: "Aktif" },
-            { value: "all", label: "Termasuk yang dipensiunkan" },
+            { value: "active", label: "Active" },
+            { value: "all", label: "Including retired" },
           ]}
           value={showRetired ? "all" : "active"}
           onChange={(next) => setShowRetired(next === "all")}
         />
         {!isAdmin && identity.data !== undefined && (
           <span className="text-[0.875rem] text-mute">
-            Hanya Admin HO yang bisa mengubah alur.
+            Only a head-office Admin can change a flow.
           </span>
         )}
       </div>
 
       <Card className="overflow-hidden">
         {queryState(templates, {
-          loading: "Membaca alur…",
+          loading: "Reading the flows…",
           render: (rows) =>
             rows.length === 0 ? (
-              <EmptyState>Belum ada alur.</EmptyState>
+              <EmptyState>No flows yet.</EmptyState>
             ) : (
               <TemplateTable
                 rows={rows}
@@ -230,17 +234,20 @@ function TemplateTable({
       <table className="w-full text-[0.875rem]">
         <thead>
           <tr className="border-b border-hairline text-left text-meta text-mute">
-            <th className="px-3 py-2 font-medium">Alur</th>
-            <th className="px-3 py-2 font-medium">Rute</th>
-            <th className="px-3 py-2 font-medium">Tahap</th>
-            <th className="px-3 py-2 text-right font-medium">Versi</th>
+            <th className="px-3 py-2 font-medium">Flow</th>
+            <th className="px-3 py-2 font-medium">Route</th>
+            <th className="px-3 py-2 font-medium">Stages</th>
+            <th className="px-3 py-2 text-right font-medium">Version</th>
             <th className="px-3 py-2 font-medium">Status</th>
             <th className="px-3 py-2" />
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.id} className="border-b border-hairline last:border-b-0">
+            <tr
+              key={row.id}
+              className="border-b border-hairline last:border-b-0"
+            >
               <td className="px-3 py-2 align-top">
                 <div className="text-ink">{row.name}</div>
                 <div className="font-mono text-id text-mute">{row.code}</div>
@@ -254,22 +261,26 @@ function TemplateTable({
                   ? "—"
                   : row.stages.map(stageLabel).join(" · ")}
               </td>
-              <td className="px-3 py-2 text-right align-top tabular-nums text-body">
+              <td className="px-3 py-2 text-right align-top text-body tabular-nums">
                 {row.current_version === null ? "—" : `v${row.current_version}`}
               </td>
               <td className="px-3 py-2 align-top">
                 <div className="flex flex-wrap gap-1.5">
                   {row.status === "RETIRED" ? (
-                    <Pill tone="neutral">Dipensiunkan</Pill>
+                    <Pill tone="neutral">Retired</Pill>
                   ) : (
-                    <Pill tone="ok">Aktif</Pill>
+                    <Pill tone="ok">Active</Pill>
                   )}
-                  {row.is_default && <Pill tone="accent">Bawaan rute</Pill>}
+                  {row.is_default && <Pill tone="accent">Route default</Pill>}
                 </div>
               </td>
               <td className="px-3 py-2 text-right align-top">
-                <Button size="sm" variant="quiet" onClick={() => onOpen(row.id)}>
-                  Buka
+                <Button
+                  size="sm"
+                  variant="quiet"
+                  onClick={() => onOpen(row.id)}
+                >
+                  Open
                 </Button>
               </td>
             </tr>
@@ -301,9 +312,9 @@ function TemplateEditor({
   const current = detail.data?.versions.find((version) => version.is_current)
   const title =
     target?.mode === "new"
-      ? "Alur baru"
+      ? "New flow"
       : detail.data === undefined
-        ? "Alur"
+        ? "Flow"
         : detail.data.name
 
   return (
@@ -322,7 +333,7 @@ function TemplateEditor({
       }
     >
       {target === null ? null : vocabulary === undefined ? (
-        <EmptyState>Membaca katalog tahap…</EmptyState>
+        <EmptyState>Reading the stage catalogue…</EmptyState>
       ) : target.mode === "new" ? (
         <EditorBody
           key="new"
@@ -337,7 +348,7 @@ function TemplateEditor({
         detail.isError ? (
           <Banner tone="bad">{problemOf(detail.error)}</Banner>
         ) : (
-          <EmptyState>Membaca alur…</EmptyState>
+          <EmptyState>Reading the flow…</EmptyState>
         )
       ) : (
         <EditorBody
@@ -375,7 +386,9 @@ function defaultPerformer(
 function defaultProof(stage: StageCatalogueEntry): ProofKindCode[] {
   switch (stage.required_proof.type) {
     case "COUNT_METHOD":
-      return stage.allowed_proof.includes("RFID_SCAN") ? ["RFID_SCAN"] : ["MANUAL_COUNT"]
+      return stage.allowed_proof.includes("RFID_SCAN")
+        ? ["RFID_SCAN"]
+        : ["MANUAL_COUNT"]
     case "ANY_OF":
       return stage.required_proof.kinds.slice(0, 1)
     case "NONE":
@@ -412,7 +425,10 @@ function EditorBody({
     [vocabulary]
   )
   const delegates = useMemo(
-    () => new Map(vocabulary.delegates.map((delegate) => [delegate.stage, delegate])),
+    () =>
+      new Map(
+        vocabulary.delegates.map((delegate) => [delegate.stage, delegate])
+      ),
     [vocabulary]
   )
 
@@ -549,44 +565,47 @@ function EditorBody({
   return (
     <div className="flex flex-col gap-5">
       <Banner tone="info">
-        Tiap simpan menjadi versi baru. Alur yang sedang berjalan tetap memakai
-        versinya sendiri. Alur lahir dari rencananya — allotment, atau PO dari
-        supplier — dan tidak pernah membuatnya.
+        Every save is a new version. A flow already running keeps its own
+        version. A flow is born from its plan — an allotment, or a PO from a
+        supplier — and never creates it.
       </Banner>
       {!isAdmin && (
         <Banner tone="warn">
-          Anda bisa membaca alur ini. Mengubahnya hanya Admin HO.
+          You can read this flow. Only a head-office Admin can change it.
         </Banner>
       )}
       {detail?.status === "RETIRED" && (
         <Banner tone="warn">
-          Alur ini dipensiunkan: tidak memulai dokumen baru. Aktifkan dulu untuk
-          mengubahnya.
+          This flow is retired: it starts no new documents. Reactivate it to
+          change it.
         </Banner>
       )}
       {saveProblem !== null && <Banner tone="bad">{saveProblem}</Banner>}
       {patchProblem !== null && <Banner tone="bad">{patchProblem}</Banner>}
       {validation.isError && isAdmin && (
         <Banner tone="warn">
-          Pemeriksaan otomatis tidak menjawab: {problemOf(validation.error)}
+          The automatic check did not answer: {problemOf(validation.error)}
         </Banner>
       )}
 
       {/* The template */}
       <section className="grid gap-4 md:grid-cols-2">
-        <Field label="Nama" problem={onTemplate("name")[0]}>
+        <Field label="Name" problem={onTemplate("name")[0]}>
           <Input
             value={draft.name}
             disabled={readOnly}
             onChange={(event) =>
-              setDraft((previous) => ({ ...previous, name: event.target.value }))
+              setDraft((previous) => ({
+                ...previous,
+                name: event.target.value,
+              }))
             }
-            placeholder="Kirim gudang → toko"
+            placeholder="Gudang → store"
           />
         </Field>
         <Field
-          label="Kode"
-          aside={creating ? undefined : "tetap"}
+          label="Code"
+          aside={creating ? undefined : "fixed"}
           problem={onTemplate("code")[0]}
         >
           <Input
@@ -603,8 +622,8 @@ function EditorBody({
           />
         </Field>
         <Field
-          label="Dari"
-          aside={creating ? undefined : "rute tetap"}
+          label="From"
+          aside={creating ? undefined : "route fixed"}
           problem={onTemplate("route")[0]}
         >
           <Select
@@ -619,7 +638,7 @@ function EditorBody({
             ))}
           </Select>
         </Field>
-        <Field label="Ke">
+        <Field label="To">
           <Select
             value={draft.route.destination}
             disabled={readOnly || !creating}
@@ -641,8 +660,8 @@ function EditorBody({
           ))}
         {isSite(draft.route.destination) && (
           <Field
-            label="Pool tujuan"
-            hint="Tempat barang diterima di tujuan."
+            label="Destination pool"
+            hint="Where goods are received at the destination."
             problem={onTemplate("destination_pool")[0]}
           >
             <Select
@@ -651,11 +670,12 @@ function EditorBody({
               onChange={(value) =>
                 setDraft((previous) => ({
                   ...previous,
-                  destination_pool: value === "" ? null : (value as PoolRoleCode),
+                  destination_pool:
+                    value === "" ? null : (value as PoolRoleCode),
                 }))
               }
             >
-              <option value="">Pilih pool…</option>
+              <option value="">Choose a pool…</option>
               {vocabulary.pool_roles.map((pool) => (
                 <option key={pool.code} value={pool.code}>
                   {pool.label}
@@ -666,10 +686,10 @@ function EditorBody({
         )}
         <div className="flex flex-col gap-2 md:col-span-2">
           <span className="text-[0.875rem] font-medium text-text">
-            Siapa boleh memulai
+            Who may start it
           </span>
           <span className="text-[0.875rem] text-mute">
-            Yang boleh membuat rencananya untuk rute ini: allotment, atau PO dari
+            Who may raise its plan for this route: an allotment, or a PO from a
             supplier.
           </span>
           <div className="flex flex-wrap gap-x-5 gap-y-2">
@@ -702,15 +722,15 @@ function EditorBody({
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h4 className="text-card-title font-semibold text-ink">
-            Tahap, berurutan
+            Stages, in order
           </h4>
           <span className="text-[0.875rem] text-mute">
-            Seret atau pakai panah untuk mengubah urutan.
+            Drag, or use the arrows, to change the order.
           </span>
         </div>
 
         {draft.stages.length === 0 ? (
-          <EmptyState>Belum ada tahap. Tambahkan dari daftar di bawah.</EmptyState>
+          <EmptyState>No stages yet. Add them from the list below.</EmptyState>
         ) : (
           <ol className="flex flex-col gap-2.5">
             {draft.stages.map((stage, index) => {
@@ -718,7 +738,9 @@ function EditorBody({
               const delegate = delegates.get(stage.kind)
               const rowProblems = onStage(index)
               const wiring =
-                delegate === undefined ? undefined : WIRING_LABEL[delegate.wiring]
+                delegate === undefined
+                  ? undefined
+                  : WIRING_LABEL[delegate.wiring]
               return (
                 <li
                   key={`${stage.kind}-${index}`}
@@ -738,7 +760,9 @@ function EditorBody({
                   onDragEnd={() => setDragging(null)}
                   className={cn(
                     "rounded-inner border bg-canvas p-3 transition-colors",
-                    rowProblems.length > 0 ? "border-bad-fg/40" : "border-hairline",
+                    rowProblems.length > 0
+                      ? "border-bad-fg/40"
+                      : "border-hairline",
                     dragging === index && "opacity-60"
                   )}
                 >
@@ -754,7 +778,7 @@ function EditorBody({
                       {index + 1}
                     </span>
                     <div className="grid min-w-0 flex-1 gap-3 md:grid-cols-[1.3fr_1fr_0.6fr]">
-                      <Field label="Tahap">
+                      <Field label="Stage">
                         <Select
                           value={stage.kind}
                           disabled={readOnly}
@@ -767,7 +791,8 @@ function EditorBody({
                               key={option.code}
                               value={option.code}
                               disabled={
-                                option.code !== stage.kind && used.has(option.code)
+                                option.code !== stage.kind &&
+                                used.has(option.code)
                               }
                             >
                               {option.label}
@@ -775,12 +800,14 @@ function EditorBody({
                           ))}
                         </Select>
                       </Field>
-                      <Field label="Dikerjakan oleh">
+                      <Field label="Done by">
                         <Select
                           value={stage.performer}
                           disabled={readOnly}
                           onChange={(value) =>
-                            setStage(index, { performer: value as FlowRoleCode })
+                            setStage(index, {
+                              performer: value as FlowRoleCode,
+                            })
                           }
                         >
                           {vocabulary.roles.map((role) => (
@@ -790,7 +817,7 @@ function EditorBody({
                           ))}
                         </Select>
                       </Field>
-                      <Field label="Tenggat (jam)">
+                      <Field label="Deadline (hours)">
                         <Input
                           type="number"
                           inputMode="numeric"
@@ -816,7 +843,7 @@ function EditorBody({
                       <Button
                         size="icon"
                         variant="quiet"
-                        aria-label="Naikkan"
+                        aria-label="Move up"
                         disabled={readOnly || index === 0}
                         onClick={() => move(index, index - 1)}
                       >
@@ -825,7 +852,7 @@ function EditorBody({
                       <Button
                         size="icon"
                         variant="quiet"
-                        aria-label="Turunkan"
+                        aria-label="Move down"
                         disabled={readOnly || index === draft.stages.length - 1}
                         onClick={() => move(index, index + 1)}
                       >
@@ -834,7 +861,7 @@ function EditorBody({
                       <Button
                         size="icon"
                         variant="quiet"
-                        aria-label="Hapus tahap"
+                        aria-label="Remove stage"
                         disabled={readOnly}
                         onClick={() => remove(index)}
                       >
@@ -845,15 +872,18 @@ function EditorBody({
 
                   <div className="mt-2 flex flex-col gap-2 pl-[3.25rem]">
                     {entry !== undefined && (
-                      <p className="text-[0.875rem] text-body">{entry.meaning}</p>
+                      <p className="text-[0.875rem] text-body">
+                        {entry.meaning}
+                      </p>
                     )}
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                       {(entry?.allowed_proof ?? []).map((proof) => (
                         <Checkbox
                           key={proof}
                           label={
-                            vocabulary.proofs.find((choice) => choice.code === proof)
-                              ?.label ?? proof
+                            vocabulary.proofs.find(
+                              (choice) => choice.code === proof
+                            )?.label ?? proof
                           }
                           disabled={readOnly}
                           checked={stage.proof.includes(proof)}
@@ -867,10 +897,12 @@ function EditorBody({
                         />
                       ))}
                       <Checkbox
-                        label="Boleh dilewati"
+                        label="May be skipped"
                         disabled={readOnly || entry?.may_skip !== true}
                         hint={
-                          entry?.may_skip === true ? undefined : "tahap ini wajib"
+                          entry?.may_skip === true
+                            ? undefined
+                            : "this stage is required"
                         }
                         checked={stage.skippable}
                         onChange={(checked) =>
@@ -885,13 +917,17 @@ function EditorBody({
                         </Pill>
                       )}
                       {entry?.executed_at === "HUB" && (
-                        <Pill tone="neutral">Di hub</Pill>
+                        <Pill tone="neutral">In the hub</Pill>
                       )}
                       {entry?.blind === true && (
-                        <Pill tone="info">Buta: tanpa kuantitas rencana</Pill>
+                        <Pill tone="info">Blind: no planned quantities</Pill>
                       )}
                       {(entry?.fixed_rule_texts ?? []).map((text) => (
-                        <Pill key={text} tone="neutral" className="whitespace-normal">
+                        <Pill
+                          key={text}
+                          tone="neutral"
+                          className="whitespace-normal"
+                        >
                           {text}
                         </Pill>
                       ))}
@@ -915,13 +951,13 @@ function EditorBody({
           <div className="max-w-sm">
             <Select
               value={adding}
-              aria-label="Tambah tahap"
+              aria-label="Add a stage"
               onChange={(value) => {
                 if (value !== "") add(value as StageKindCode)
                 setAdding("")
               }}
             >
-              <option value="">Tambah tahap…</option>
+              <option value="">Add a stage…</option>
               {vocabulary.stages
                 .filter((option) => !used.has(option.code))
                 .map((option) => (
@@ -934,7 +970,7 @@ function EditorBody({
         )}
       </section>
 
-      <Field label="Catatan" hint="Untuk orang yang membaca alur ini nanti.">
+      <Field label="Notes" hint="For whoever reads this flow later.">
         <Textarea
           rows={2}
           disabled={readOnly}
@@ -950,27 +986,27 @@ function EditorBody({
         <section className="flex flex-col gap-3 border-t border-hairline pt-4">
           {problems.length > 0 && (
             <Banner tone="warn">
-              {count(problems.length)} hal harus dibenahi sebelum disimpan; tiap
-              kalimat ada di baris yang bersangkutan.
+              {count(problems.length)} to fix before saving; each sentence is on
+              the row it is about.
             </Banner>
           )}
           <div className="flex flex-wrap items-center justify-between gap-3">
             {creating ? (
               <Checkbox
-                label="Jadikan alur bawaan rute ini"
+                label="Make this the route's default flow"
                 checked={makeDefault}
                 onChange={setMakeDefault}
               />
             ) : (
               <Checkbox
-                label="Langsung dipakai untuk dokumen baru"
+                label="Use it for new documents straight away"
                 checked={activate}
                 onChange={setActivate}
               />
             )}
             <div className="flex gap-2">
               <Button variant="quiet" onClick={onDone}>
-                Batal
+                Cancel
               </Button>
               <Button
                 variant="primary"
@@ -978,10 +1014,10 @@ function EditorBody({
                 onClick={() => save.mutate()}
               >
                 {save.isPending
-                  ? "Menyimpan…"
+                  ? "Saving…"
                   : creating
-                    ? "Buat alur"
-                    : "Simpan versi baru"}
+                    ? "Create flow"
+                    : "Save new version"}
               </Button>
             </div>
           </div>
@@ -999,7 +1035,7 @@ function EditorBody({
                   disabled={patch.isPending}
                   onClick={() => patch.mutate({ is_default: true })}
                 >
-                  Jadikan bawaan rute
+                  Make route default
                 </Button>
               )}
               {detail.status === "ACTIVE" ? (
@@ -1008,7 +1044,7 @@ function EditorBody({
                   disabled={patch.isPending}
                   onClick={() => patch.mutate({ status: "RETIRED" })}
                 >
-                  Pensiunkan
+                  Retire
                 </Button>
               ) : (
                 <Button
@@ -1016,34 +1052,40 @@ function EditorBody({
                   disabled={patch.isPending}
                   onClick={() => patch.mutate({ status: "ACTIVE" })}
                 >
-                  Aktifkan lagi
+                  Reactivate
                 </Button>
               )}
             </div>
           )}
-          <h4 className="text-card-title font-semibold text-ink">Versi</h4>
+          <h4 className="text-card-title font-semibold text-ink">Versions</h4>
           <ul className="flex flex-col gap-1.5 text-[0.875rem]">
             {detail.versions.map((version) => (
               <li
                 key={version.id}
                 className="flex flex-wrap items-baseline gap-x-2 gap-y-1"
               >
-                <span className="font-mono text-id text-ink">v{version.version}</span>
-                {version.is_current && <Pill tone="accent">Dipakai</Pill>}
+                <span className="font-mono text-id text-ink">
+                  v{version.version}
+                </span>
+                {version.is_current && <Pill tone="accent">In use</Pill>}
                 <span className="text-mute">
                   {day(version.created_at)} · {version.created_by} ·{" "}
-                  {count(version.documents)} dokumen
+                  {count(version.documents)} documents
                 </span>
-                {isAdmin && !version.is_current && detail.status === "ACTIVE" && (
-                  <Button
-                    size="sm"
-                    variant="quiet"
-                    disabled={patch.isPending}
-                    onClick={() => patch.mutate({ current_version: version.version })}
-                  >
-                    Pakai versi ini
-                  </Button>
-                )}
+                {isAdmin &&
+                  !version.is_current &&
+                  detail.status === "ACTIVE" && (
+                    <Button
+                      size="sm"
+                      variant="quiet"
+                      disabled={patch.isPending}
+                      onClick={() =>
+                        patch.mutate({ current_version: version.version })
+                      }
+                    >
+                      Use this version
+                    </Button>
+                  )}
               </li>
             ))}
           </ul>

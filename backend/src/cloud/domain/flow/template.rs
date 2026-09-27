@@ -119,9 +119,9 @@ impl RouteEnd {
     pub fn label(self) -> &'static str {
         match self {
             Self::Site(SiteKind::HeadOffice) => "Gudang (HO)",
-            Self::Site(SiteKind::Store) => "Toko",
+            Self::Site(SiteKind::Store) => "Store",
             Self::Party(PartyKind::Supplier) => "Supplier",
-            Self::Party(PartyKind::Customer) => "Pelanggan",
+            Self::Party(PartyKind::Customer) => "Customer",
         }
     }
 }
@@ -131,7 +131,7 @@ impl TryFrom<String> for RouteEnd {
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         Self::parse(&value).ok_or_else(|| {
-            format!("`{value}` bukan ujung rute: pilih HO, STORE, SUPPLIER atau CUSTOMER")
+            format!("`{value}` is not a route end: choose HO, STORE, SUPPLIER or CUSTOMER")
         })
     }
 }
@@ -228,11 +228,11 @@ impl FlowRole {
             Self::HoMd => "HO · MD",
             Self::HoBuyer => "HO · Buyer",
             Self::HoAdmin => "HO · Admin",
-            Self::GudangStaff => "Gudang · Staf",
+            Self::GudangStaff => "Gudang · Staff",
             Self::GudangSupervisor => "Gudang · Supervisor",
-            Self::HoDelivery => "HO · Pengiriman",
-            Self::StoreStaff => "Toko · Staf",
-            Self::StoreManager => "Toko · Kepala toko",
+            Self::HoDelivery => "HO · Delivery",
+            Self::StoreStaff => "Store · Staff",
+            Self::StoreManager => "Store · Manager",
         }
     }
 
@@ -309,12 +309,12 @@ impl PoolRole {
 
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Pending => "Area penerimaan",
-            Self::Warehouse => "Rak Gudang",
-            Self::Return => "Pool retur per toko (Gudang)",
+            Self::Pending => "Receiving area",
+            Self::Warehouse => "Gudang racks",
+            Self::Return => "The store's return pool (Gudang)",
             Self::Reject => "Reject",
-            Self::Stockroom => "Gudang belakang toko",
-            Self::Floor => "Lantai toko",
+            Self::Stockroom => "Store stockroom",
+            Self::Floor => "Store floor",
         }
     }
 
@@ -460,24 +460,24 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
     let code_well_formed = code.len() >= 2
         && code.len() <= 40
         && code.starts_with(|first: char| first.is_ascii_uppercase())
-        && code
-            .chars()
-            .all(|character| character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_');
+        && code.chars().all(|character| {
+            character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_'
+        });
     if !code_well_formed {
         problems.template(
             "code",
             "template.code",
-            "Kode 2–40 karakter: huruf besar, angka, atau garis bawah, diawali huruf (mis. KIRIM_GUDANG_TOKO).",
+            "A code is 2–40 characters: capital letters, digits or underscores, starting with a letter (e.g. KIRIM_GUDANG_TOKO).",
         );
     }
     if draft.name.trim().is_empty() {
-        problems.template("name", "template.name", "Nama alur wajib diisi.");
+        problems.template("name", "template.name", "A flow needs a name.");
     }
     if draft.starters.is_empty() {
         problems.template(
             "starters",
             "template.starters",
-            "Pilih minimal satu peran yang boleh memulai alur ini.",
+            "Choose at least one role that may start this flow.",
         );
     }
     let unique_starters: BTreeSet<FlowRole> = draft.starters.iter().copied().collect();
@@ -485,7 +485,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
         problems.template(
             "starters",
             "template.starters_repeat",
-            "Satu peran cukup disebut sekali.",
+            "Name each role once.",
         );
     }
 
@@ -494,25 +494,25 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
         (RouteEnd::Party(_), RouteEnd::Party(_)) => problems.template(
             "route",
             "route.party_to_party",
-            "Alur harus menyentuh minimal satu site kita: pihak luar ke pihak luar bukan alur barang kita.",
+            "A flow must touch at least one of our sites: outside party to outside party is not a flow of our goods.",
         ),
         (RouteEnd::Party(PartyKind::Customer), _) => problems.template(
             "route",
             "route.customer_origin",
-            "Barang dari pelanggan belum punya alur: retur pelanggan dicatat di kasir.",
+            "Goods from a customer have no flow yet: a customer return is recorded at the till.",
         ),
         (RouteEnd::Party(PartyKind::Supplier), destination) if !destination.is_head_office() => {
             problems.template(
                 "route",
                 "route.supplier_to_store",
-                "Toko tidak berurusan dengan supplier: barang dari supplier hanya diterima di site HO (Gudang).",
+                "Stores never deal with suppliers: goods from a supplier are received only at a head-office site (the Gudang).",
             )
         }
         (origin, RouteEnd::Party(PartyKind::Supplier)) if !origin.is_head_office() => problems
             .template(
                 "route",
                 "route.supplier_return_from_store",
-                "Retur ke supplier hanya boleh berangkat dari site unit HO (Gudang). Toko tidak berurusan dengan supplier.",
+                "A return to a supplier leaves only from a site of the head-office unit (the Gudang). Stores never deal with suppliers.",
             ),
         _ => {}
     }
@@ -522,13 +522,13 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
         (Some(_), None) => problems.template(
             "destination_pool",
             "pool.required",
-            "Alur ke site kita harus menyebut pool tujuan (mis. gudang belakang toko, atau pool retur per toko di Gudang).",
+            "A flow to one of our sites names the pool goods land in (e.g. the store stockroom, or the store's return pool at the Gudang).",
         ),
         (Some(kind), Some(pool)) if !pool.exists_at(kind) => problems.template(
             "destination_pool",
             "pool.not_at_destination",
             format!(
-                "{} tidak ada di {}.",
+                "{} does not exist at {}.",
                 pool.label(),
                 route.destination.label()
             ),
@@ -539,20 +539,20 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
             problems.template(
                 "destination_pool",
                 "pool.return_is_a_store_s",
-                "Pool retur per toko hanya untuk barang yang kembali dari toko.",
+                "A store's return pool is only for goods coming back from a store.",
             )
         }
         (None, Some(_)) => problems.template(
             "destination_pool",
             "pool.outside_party",
-            "Alur ke pihak luar tidak berakhir di pool kita; kosongkan pool tujuan.",
+            "A flow to an outside party does not end in a pool of ours; leave the destination pool empty.",
         ),
         _ => {}
     }
 
     // --- the stages -------------------------------------------------------
     if draft.stages.is_empty() {
-        problems.template("route", "stages.empty", "Alur butuh minimal satu tahap.");
+        problems.template("route", "stages.empty", "A flow needs at least one stage.");
         return problems.0;
     }
 
@@ -568,7 +568,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                 index,
                 "kind",
                 "stage.repeated",
-                format!("{label} sudah ada di alur ini. Satu jenis tahap hanya sekali, supaya tidak ada yang terhitung dua kali."),
+                format!("{label} is already in this flow. Each kind of stage appears once, so nothing is counted twice."),
             );
         }
 
@@ -585,7 +585,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                     "performer",
                     "stage.performer_elsewhere",
                     format!(
-                        "{label} dikerjakan di {}; {} tidak bekerja di sana.",
+                        "{label} happens at {}; {} does not work there.",
                         RouteEnd::Site(kind).label(),
                         stage.performer.label()
                     ),
@@ -599,7 +599,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                 index,
                 "skippable",
                 "stage.never_skipped",
-                format!("{label} tidak pernah boleh dilewati."),
+                format!("{label} can never be skipped."),
             );
         }
         if stage.skippable
@@ -610,7 +610,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                 index,
                 "skippable",
                 "stage.ship_to_own_site",
-                "Ke site sendiri, surat jalan tidak boleh dilewati: SJ yang ditandatangani tujuan.",
+                "To our own site the surat jalan is never skipped: the SJ is what the destination signs.",
             );
         }
 
@@ -622,7 +622,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                     index,
                     "proof",
                     "proof.repeated",
-                    format!("{} disebut dua kali.", proof.label()),
+                    format!("{} is named twice.", proof.label()),
                 );
             }
             if !spec.allowed_proof.contains(proof) {
@@ -630,7 +630,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                     index,
                     "proof",
                     "proof.not_allowed",
-                    format!("{label} tidak memakai bukti {}.", proof.label()),
+                    format!("{label} does not take {} as proof.", proof.label()),
                 );
             }
         }
@@ -639,7 +639,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                 index,
                 "proof",
                 "proof.two_count_methods",
-                "Pilih scan RFID atau hitung manual, bukan keduanya: itu dua cara menyebut satu angka.",
+                "Choose an RFID scan or a manual count, not both: they are two ways of saying one number.",
             );
         }
         match spec.required_proof {
@@ -650,7 +650,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                         index,
                         "proof",
                         "proof.count_method_required",
-                        format!("{label} wajib menyebut cara hitung: scan RFID atau hitung manual."),
+                        format!("{label} must name how it counts: an RFID scan or a manual count."),
                     );
                 }
             }
@@ -661,7 +661,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                         index,
                         "proof",
                         "proof.required",
-                        format!("{label} wajib bukti: {}.", names.join(" atau ")),
+                        format!("{label} requires proof: {}.", names.join(" or ")),
                     );
                 }
             }
@@ -674,7 +674,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                 index,
                 "proof",
                 "proof.supplier_return_note",
-                "Serah terima ke supplier wajib nota retur bertanda tangan.",
+                "A handover to a supplier requires the supplier's signed return note.",
             );
         }
 
@@ -685,7 +685,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                     index,
                     "deadline_hours",
                     "stage.deadline_range",
-                    "Tenggat 1 sampai 720 jam (30 hari).",
+                    "A deadline is 1 to 720 hours (30 days).",
                 );
             }
         }
@@ -699,7 +699,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                         index,
                         "params",
                         "stage.params_name_an_account",
-                        "Template menyebut makna, bukan akun (aturan I9): parameter tidak boleh berisi akun. Akun ditentukan peta akun Finance.",
+                        "A template names meanings, never accounts (rule I9): parameters may not carry an account. Finance's account map decides the account.",
                     );
                 }
             }
@@ -707,7 +707,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                 index,
                 "params",
                 "stage.params_shape",
-                "Parameter tahap berupa objek.",
+                "Stage parameters are an object.",
             ),
         }
     }
@@ -720,7 +720,11 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                     b,
                     "kind",
                     "stage.order",
-                    format!("{} harus sesudah {}.", second.spec().label, first.spec().label),
+                    format!(
+                        "{} must come after {}.",
+                        second.spec().label,
+                        first.spec().label
+                    ),
                 );
             }
         }
@@ -732,7 +736,11 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                     at,
                     "kind",
                     "stage.needs",
-                    format!("{} butuh {} sebelumnya.", stage.spec().label, needed.spec().label),
+                    format!(
+                        "{} needs {} before it.",
+                        stage.spec().label,
+                        needed.spec().label
+                    ),
                 );
             }
         }
@@ -748,7 +756,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                     approval,
                     "kind",
                     "approval.after_goods_moved",
-                    "Persetujuan harus sebelum barang bergerak: menyetujui yang sudah jalan bukan persetujuan.",
+                    "Approval comes before any goods move: approving what has already gone is not an approval.",
                 );
             }
         }
@@ -767,7 +775,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                     "route",
                     "end.own_site_receives",
                     format!(
-                        "Alur ke site sendiri berakhir di {}: tahap itu belum ada.",
+                        "A flow to our own site ends in {}: that stage is missing.",
                         accepting.spec().label
                     ),
                 ),
@@ -779,7 +787,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                                 "kind",
                                 "end.after_receipt",
                                 format!(
-                                    "Alur ke site sendiri berakhir di {}: sesudahnya hanya Periksa, Tagging, atau Simpan ke rak.",
+                                    "A flow to our own site ends in {}: only Inspect, Tagging or Putaway may follow it.",
                                     accepting.spec().label
                                 ),
                             );
@@ -791,14 +799,14 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                 problems.template(
                     "route",
                     "end.travel_departs",
-                    "Barang yang pindah site harus Berangkat dulu sebelum diterima.",
+                    "Goods moving between sites must Depart before they are received.",
                 );
             }
             if route.origin.site_kind().is_some() && position(StageKind::Ship).is_none() {
                 problems.template(
                     "route",
                     "end.travel_ships",
-                    "Barang antar site kita berjalan dengan surat jalan: tambahkan Masuk surat jalan.",
+                    "Goods between our sites travel under a surat jalan: add Ship (surat jalan).",
                 );
             }
         }
@@ -808,14 +816,14 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                     last,
                     "kind",
                     "end.party_handover",
-                    "Alur ke pihak luar berakhir di Serah terima dengan bukti.",
+                    "A flow to an outside party ends in Handover with proof.",
                 );
             }
             if party == PartyKind::Supplier && position(StageKind::Depart).is_none() {
                 problems.template(
                     "route",
                     "end.travel_departs",
-                    "Retur ke supplier harus Berangkat dulu sebelum diserahterimakan.",
+                    "A return to a supplier must Depart before it is handed over.",
                 );
             }
             if party == PartyKind::Customer
@@ -825,7 +833,7 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                 problems.template(
                     "route",
                     "end.customer_collects_or_receives",
-                    "Ke pelanggan: barang Berangkat (diantar) atau Siap diambil sebelum diserahkan.",
+                    "To a customer: goods Depart (delivered) or are Ready for pickup before they are handed over.",
                 );
             }
         }
@@ -843,7 +851,7 @@ fn misplaced(kind: StageKind, route: FlowRoute) -> Option<String> {
     let refuse = |why: &str| Some(format!("{label} {why}"));
     match kind {
         StageKind::Arrival | StageKind::BlindCount | StageKind::Verification if !from_supplier => {
-            refuse("hanya untuk barang datang dari supplier.")
+            refuse("is only for goods arriving from a supplier.")
         }
         StageKind::Pick
         | StageKind::Pack
@@ -853,21 +861,21 @@ fn misplaced(kind: StageKind, route: FlowRoute) -> Option<String> {
         | StageKind::Depart
             if !from_own_site =>
         {
-            refuse("hanya untuk barang yang keluar dari site kita.")
+            refuse("is only for goods leaving one of our sites.")
         }
         StageKind::Receive if !(from_own_site && to_own_site) => {
-            refuse("hanya antar site kita; dari supplier penerimaannya lewat Kedatangan, Hitung buta, dan Verifikasi.")
+            refuse("is only between our own sites; from a supplier, goods are received through Arrival, Blind count and Verification.")
         }
         StageKind::HandoverWithProof if to_own_site => {
-            refuse("hanya ke pihak luar; ke site sendiri penerimaannya lewat Terima.")
+            refuse("is only to an outside party; our own site receives through Receive.")
         }
         StageKind::ReadyForPickup if route.destination != RouteEnd::Party(PartyKind::Customer) => {
-            refuse("hanya untuk pelanggan yang mengambil sendiri.")
+            refuse("is only for a customer who collects.")
         }
         StageKind::Tagging | StageKind::Putaway if !route.destination.is_head_office() => {
-            refuse("hanya di Gudang.")
+            refuse("happens only at the Gudang.")
         }
-        StageKind::Inspect if !to_own_site => refuse("hanya di site kita."),
+        StageKind::Inspect if !to_own_site => refuse("happens only at one of our sites."),
         _ => None,
     }
 }
@@ -877,7 +885,10 @@ fn names_an_account(value: &Value) -> bool {
     match value {
         Value::Object(map) => map.iter().any(|(key, inner)| {
             let key = key.to_ascii_lowercase();
-            key.contains("account") || key.contains("akun") || key == "coa" || names_an_account(inner)
+            key.contains("account")
+                || key.contains("akun")
+                || key == "coa"
+                || names_an_account(inner)
         }),
         Value::Array(items) => items.iter().any(names_an_account),
         _ => false,
