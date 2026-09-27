@@ -21,6 +21,7 @@ import {
   type StoreServerInstall,
   type StoreSummary,
 } from "@/lib/queries/stores"
+import { ServerActionsButton } from "@/screens/stores/actions"
 import { ServerDot, serverStateLabel } from "@/screens/stores/shared"
 import { saying } from "@/screens/system/units"
 
@@ -103,6 +104,8 @@ export function ServerTab({
           {serverStateLabel(server.state)}
         </b>
         <ServerAge server={server} />
+        <span className="flex-1" />
+        <ServerActionsButton unit={store.unit_id} />
       </div>
 
       {server.state === "NOT_INSTALLED" && (

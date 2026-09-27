@@ -16,6 +16,7 @@ import {
 import { testPrint, type StoreTills } from "@/lib/queries/stores"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
+import { DeviceActionsMenu } from "@/screens/stores/actions"
 import { FLEET_PILL_TONE, FleetDot } from "@/screens/system/fleet-shared"
 
 const KIND_LABEL: Record<DeviceKind, string> = {
@@ -42,9 +43,11 @@ function recentlySeen(iso: string): boolean {
 /// (CONTEXT.md: a till joins by discovering the node and a supervisor's
 /// approval) — head office only watches the count here.
 export function DevicesTab({
+  unit,
   siteId,
   tills,
 }: {
+  unit: string
   siteId: string
   tills: StoreTills
 }) {
@@ -102,6 +105,7 @@ export function DevicesTab({
                 {rows.map((device) => (
                   <DeviceRow
                     key={device.device_id}
+                    unit={unit}
                     device={device}
                     component={componentByDevice.get(device.device_id)}
                   />
@@ -115,9 +119,11 @@ export function DevicesTab({
 }
 
 function DeviceRow({
+  unit,
   device,
   component,
 }: {
+  unit: string
   device: RegistryDevice
   /// This device's row on the fleet page, once it has loaded — absent while
   /// that fetch is still running, or for a device the sweep has not judged
@@ -197,6 +203,7 @@ function DeviceRow({
       {printable && print.isError && (
         <Problem error={print.error} className="shrink-0" />
       )}
+      <DeviceActionsMenu unit={unit} deviceId={device.device_id} />
     </li>
   )
 }

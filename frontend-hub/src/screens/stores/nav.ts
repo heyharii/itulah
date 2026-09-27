@@ -1,4 +1,4 @@
-import { Store } from "lucide-react"
+import { AlertTriangle, Store } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
@@ -19,6 +19,11 @@ export const storesNav: AppModule = {
     {
       items: [
         { path: "/stores", label: "Stores", icon: Store },
+        {
+          path: "/stores/exceptions",
+          label: "Exceptions",
+          icon: AlertTriangle,
+        },
         {
           path: "/stores/$unit",
           label: "Store",

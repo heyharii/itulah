@@ -13,6 +13,7 @@ import {
   type StoreDetail as StoreDetailAnswer,
 } from "@/lib/queries/stores"
 import { cn } from "@/lib/utils"
+import { ExceptionsCard } from "@/screens/stores/exceptions-shared"
 import { FleetStoreStrip } from "@/screens/system/fleet-shared"
 import { Section } from "@/screens/stores/shared"
 
@@ -40,6 +41,8 @@ export function OverviewTab({ detail }: { detail: StoreDetailAnswer }) {
           sync and its devices are the Server, Devices and Sync tabs; the
           full detail is System › Store servers. */}
       <FleetStoreStrip unitId={store.unit_id} />
+
+      <ExceptionsCard unitId={store.unit_id} />
 
       <Card className="p-4">
         <Facts>
