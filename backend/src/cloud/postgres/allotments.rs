@@ -263,16 +263,15 @@ pub async fn create_allotment(
             (
                 // Facts, in the owner's namespace: `edge_inventory_fact_position`
                 // holds `place_id` exactly as the Edge emitted it.
-                edge_normal_balance_tx(
-                    &mut tx,
-                    origin_id,
-                    &pool_id_for_site(
-                        &line.identity.source_pool_id,
-                        owner_site_id.as_deref().unwrap_or(&source_site_id),
-                    ),
-                    &sku_code,
-                )
-                .await?,
+                {
+                    let owner_site = owner_site_id.as_deref().unwrap_or(&source_site_id);
+                    let scope = eligible_supply_pools_tx(&mut tx, &line.identity.source_pool_id)
+                        .await?
+                        .iter()
+                        .map(|pool_id| pool_id_for_site(pool_id, owner_site))
+                        .collect::<Vec<_>>();
+                    edge_normal_balance_tx(&mut tx, origin_id, &scope, &sku_code).await?
+                },
                 // Reservations, in ours: both halves of that sum read cloud
                 // tables — `edge_allotment_line_progress` and `allotment_line`
                 // — which record what THIS node authored.
@@ -1625,9 +1624,17 @@ pub async fn get_availability(pool: &PgPool, query: AvailabilityQuery) -> Result
     let source_site_id: String = source.get("site_id");
     let mut ownership_tx = pool.begin().await?;
     let edge_origin_id = inventory_owner_tx(&mut ownership_tx, &source_site_id).await?;
-    let edge_source_pool_id = if let Some(origin_id) = edge_origin_id.as_deref() {
+    // The same supply scope as the centre's ledger reads (`eligible_pool`
+    // below), in the owner's spelling.
+    let edge_source_pools = if let Some(origin_id) = edge_origin_id.as_deref() {
         let owner_site_id = origin_site_id_tx(&mut ownership_tx, origin_id).await?;
-        Some(pool_id_for_site(&source_pool_id, &owner_site_id))
+        Some(
+            eligible_supply_pools_tx(&mut ownership_tx, &source_pool_id)
+                .await?
+                .iter()
+                .map(|pool_id| pool_id_for_site(pool_id, &owner_site_id))
+                .collect::<Vec<String>>(),
+        )
     } else {
         None
     };
@@ -1648,13 +1655,15 @@ WITH eligible_pool AS (
     -- The per-store `picked.{store}` pools are legacy and take no new writes,
     -- but the goods standing in them are as packable as any other, so they
     -- are supply too.
+    --
+    -- Which pools those are is their ROLE (0610): a stockroom's supply is the
+    -- stockroom and every pick area at its site — the one pick area, and the
+    -- legacy per-store ones.
     SELECT pool.id
     FROM operational_pool pool
+    JOIN operational_pool source ON source.id=$2
     WHERE pool.id=$2
-       OR ($2 LIKE '%.warehouse'
-           AND pool.site_id=split_part($2,'.',1)
-           AND (pool.id=split_part($2,'.',1)||'.outbound.picking'
-                OR pool.id LIKE split_part($2,'.',1)||'.outbound.picked%'))
+       OR (source.role='STOCKROOM' AND pool.site_id=source.site_id AND pool.role='PICKING')
 ), ledger_delta AS (
     SELECT subject.sku_id,place.state,movement.quantity delta
     FROM movement
@@ -1683,13 +1692,10 @@ WITH eligible_pool AS (
            COALESCE(SUM(position.quantity) FILTER(WHERE split_part(position.place_id,':',2)='missing'),0)::bigint missing_quantity
     FROM edge_inventory_fact_position position
     JOIN sku ON sku.sku_code=position.sku_code
+    -- A place id is `{pool}:{state}`; the pools are the eligible scope in the
+    -- owner's spelling, worked out from the roles before this query.
     WHERE position.origin_id=$8
-      AND (position.place_id=$9||':on_hand' OR position.place_id=$9||':missing'
-           OR ($9 LIKE '%.warehouse'
-               AND (position.place_id=split_part($9,'.',1)||'.outbound.picking:on_hand'
-                    OR position.place_id=split_part($9,'.',1)||'.outbound.picking:missing'
-                    OR position.place_id LIKE split_part($9,'.',1)||'.outbound.picked%:on_hand'
-                    OR position.place_id LIKE split_part($9,'.',1)||'.outbound.picked%:missing')))
+      AND split_part(position.place_id,':',1)=ANY($9::text[])
     GROUP BY sku.id
 ), ledger_balance AS (
     -- Edge owns the supply when registered; otherwise retain the Cloud
@@ -1804,7 +1810,7 @@ LIMIT $5
         .bind(query.held.unwrap_or(false))
         .bind(query.shortfall.unwrap_or(false))
         .bind(edge_origin_id.as_deref())
-        .bind(edge_source_pool_id.as_deref())
+        .bind(edge_source_pools)
         .fetch_all(pool)
         .await?;
     let has_more = !query.unbounded && rows.len() > limit as usize;
@@ -2268,13 +2274,37 @@ async fn lock_open_allotment(
 ///
 /// The per-store `picked.{store}` pools are legacy and take no new writes, but
 /// what stands in them is as packable as anything else, so it is supply too.
+///
+/// Which pools those are is their ROLE (0610), never their spelling: a
+/// stockroom's supply is itself and every PICKING pool at its site.
 const ELIGIBLE_SUPPLY_PLACES: &str = "SELECT pool.id||':on_hand' AS place_id
      FROM operational_pool pool
+     JOIN operational_pool source ON source.id=$2
      WHERE pool.id=$2
-        OR ($2 LIKE '%.warehouse'
-            AND pool.site_id=split_part($2,'.',1)
-            AND (pool.id=split_part($2,'.',1)||'.outbound.picking'
-                 OR pool.id LIKE split_part($2,'.',1)||'.outbound.picked%'))";
+        OR (source.role='STOCKROOM' AND pool.site_id=source.site_id AND pool.role='PICKING')";
+
+/// The pools of [`ELIGIBLE_SUPPLY_PLACES`], as ids in the centre's spelling —
+/// for a reader that has to respell them for a node.
+async fn eligible_supply_pools_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    source_pool_id: &str,
+) -> Result<Vec<String>, AppError> {
+    let mut pools: Vec<String> = sqlx::query_scalar(
+        "SELECT pool.id
+           FROM operational_pool pool
+           JOIN operational_pool source ON source.id=$1
+          WHERE pool.id=$1
+             OR (source.role='STOCKROOM' AND pool.site_id=source.site_id AND pool.role='PICKING')",
+    )
+    .bind(source_pool_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    // A pool the centre holds no row for is still its own scope.
+    if pools.is_empty() {
+        pools.push(source_pool_id.to_string());
+    }
+    Ok(pools)
+}
 
 async fn normal_balance_tx(
     tx: &mut Transaction<'_, Postgres>,
@@ -2322,23 +2352,24 @@ async fn active_allotment_tx(
 async fn edge_normal_balance_tx(
     tx: &mut Transaction<'_, Postgres>,
     origin_id: &str,
-    source_pool_id: &str,
+    scope_pool_ids: &[String],
     sku_code: &str,
 ) -> Result<i64, AppError> {
-    // The node's own spelling of the same scope as `ELIGIBLE_SUPPLY_PLACES`:
-    // its warehouse and its picking area are one supply, because a carton is
-    // what binds a piece to a shop.
+    // The node's own spelling of the same scope as `ELIGIBLE_SUPPLY_PLACES`
+    // (`eligible_supply_pools_tx`, respelled by the caller): its stockroom and
+    // its pick areas are one supply, because a carton is what binds a piece to
+    // a destination.
+    let places: Vec<String> = scope_pool_ids
+        .iter()
+        .map(|pool_id| format!("{pool_id}:on_hand"))
+        .collect();
     let row = sqlx::query(
         "SELECT COALESCE(SUM(quantity),0)::bigint quantity
          FROM edge_inventory_fact_position
-         WHERE origin_id=$1 AND sku_code=$3
-           AND (place_id=$2||':on_hand'
-                OR ($2 LIKE '%.warehouse'
-                    AND (place_id=split_part($2,'.',1)||'.outbound.picking:on_hand'
-                         OR place_id LIKE split_part($2,'.',1)||'.outbound.picked%:on_hand')))",
+         WHERE origin_id=$1 AND sku_code=$3 AND place_id=ANY($2)",
     )
     .bind(origin_id)
-    .bind(source_pool_id)
+    .bind(&places)
     .bind(sku_code)
     .fetch_one(&mut **tx)
     .await?;
