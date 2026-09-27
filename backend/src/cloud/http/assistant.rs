@@ -88,7 +88,6 @@ const MAX_TOOL_ROUNDS: usize = 6;
 /// ceiling rather than a timeout risk.
 const MAX_TOKENS: u32 = 8_000;
 
-
 /// How many rows of a query the model is shown.
 ///
 /// Enough to see the shape, the order of magnitude and whether the join went
@@ -137,9 +136,12 @@ pub async fn capabilities(
 ) -> Result<Json<Value>, AppError> {
     let allowed = super::auth::gate_allows(&state, "POST", ASK_PATH, principal.role).await;
     let scope = Scope::of(&state, &principal).await?;
-    let budget =
-        infrastructure::assistant_budget(&state.db, state.clock.now(), LOCAL_OFFSET_MINUTES)
-            .await?;
+    let budget = infrastructure::assistant_budget(
+        &state.db,
+        state.clock.now(),
+        head_office_offset(&state.db).await,
+    )
+    .await?;
     Ok(Json(json!({
         "enabled": state.config.assistant_api_key.is_some(),
         "allowed": allowed,
@@ -399,9 +401,12 @@ pub async fn ask(
     // The month's ceiling, before a conversation is opened or a token spent.
     // Refusing here is Finance's setting doing its job rather than a fault, so
     // the refusal says which setting and where it is changed.
-    let budget =
-        infrastructure::assistant_budget(&state.db, state.clock.now(), LOCAL_OFFSET_MINUTES)
-            .await?;
+    let budget = infrastructure::assistant_budget(
+        &state.db,
+        state.clock.now(),
+        head_office_offset(&state.db).await,
+    )
+    .await?;
     if budget.exhausted() {
         return Err(AppError::Conflict(format!(
             "the assistant's budget for {} is spent (US${:.2} of US${:.2}); Finance \
@@ -1264,7 +1269,7 @@ enum Audience {
     Anyone,
     /// One site's own figures — takings, receipts, stock, missing tags. The
     /// read answers for every shop; `run_tool` holds a bounded caller to their
-    /// own site, by the site it asks for or by the rows it keeps.
+    /// own unit's sites, by the site it asks for or by the rows it keeps.
     Site,
     /// Every shop at once, the ledger, or anything in the database. No
     /// per-site cut makes these safe, so they go only to a caller whose reach
@@ -1283,15 +1288,17 @@ enum Audience {
 enum Scope {
     /// Every shop, the ledger, the database: an Admin.
     Everywhere,
-    /// One site's own figures and nobody else's.
+    /// One unit's own figures and nobody else's: those of the sites that
+    /// belong to it (`site.unit_id`, 0600), listed here.
     ///
-    /// The site is the place the caller is posted to: a shop or the warehouse
-    /// is a site under its place's own id (`org_place`, 0060), the convention
-    /// `acquirer::at_store` already reads. Head office is a place but not a
-    /// site, so a posting there finds no shop's figures — which is the reach
-    /// head office has.
-    Site(String),
-    /// No shop's figures at all: nobody has posted this person anywhere.
+    /// Reach is a unit (`employment::reach`) and figures are a site's, so the
+    /// unit a caller is posted to is read as its premises — a store's shop, or
+    /// head office's, which may be several. What is covered is membership of
+    /// that list, never a comparison with the unit's id: a unit's id and its
+    /// sites' ids are different labels, and head office's never matched.
+    Unit(Vec<String>),
+    /// No shop's figures at all: nobody has posted this person anywhere, or
+    /// the unit they are posted to has no premises yet.
     Nowhere,
 }
 
@@ -1299,7 +1306,14 @@ impl Scope {
     async fn of(state: &AppState, principal: &Principal) -> Result<Self, AppError> {
         Ok(match super::employment::reach_of(state, principal).await? {
             Reach::Everywhere => Self::Everywhere,
-            Reach::Only(place) => Self::Site(place.as_str().to_owned()),
+            Reach::Only(unit) => {
+                let sites = infrastructure::sites::sites_of_unit(&state.db, unit.as_str()).await?;
+                if sites.is_empty() {
+                    Self::Nowhere
+                } else {
+                    Self::Unit(sites)
+                }
+            }
             Reach::Nowhere => Self::Nowhere,
         })
     }
@@ -1308,7 +1322,7 @@ impl Scope {
     fn covers(&self, site_id: &str) -> bool {
         match self {
             Self::Everywhere => true,
-            Self::Site(own) => own.as_str() == site_id,
+            Self::Unit(sites) => sites.iter().any(|own| own == site_id),
             Self::Nowhere => false,
         }
     }
@@ -1317,18 +1331,19 @@ impl Scope {
 /// What the model is told when it asks for a site it may not read.
 fn outside(site_id: &str) -> String {
     format!(
-        "{site_id} is outside what this person may see. Answer about their own site \
-         only, and say plainly that other shops' figures are not open to them here."
+        "{site_id} is outside what this person may see. Answer about their own unit's \
+         sites only, and say plainly that other shops' figures are not open to them \
+         here."
     )
 }
 
 /// A bounded read's answer, cut to the sites this caller may see.
 ///
 /// The reads below answer for every shop, so for a caller whose reach is one
-/// site the rows of every other site are removed here — before either
+/// unit the rows of every site outside it are removed here — before either
 /// audience, the model or the browser, is shown anything. The reads that are
 /// bounded by what they are asked for instead (`sales_daily`, `list_sales`)
-/// are held to the caller's site where the question is taken apart.
+/// are held to the caller's sites where the question is taken apart.
 fn bound(name: &str, mut value: Value, scope: &Scope) -> Value {
     if *scope == Scope::Everywhere {
         return value;
@@ -1819,12 +1834,20 @@ async fn run_tool(
             .await
         }
         "list_sales" => {
-            // A bounded caller's receipts are their own site's, whether or not
-            // the model thought to name it.
+            // A bounded caller's receipts are their own unit's, whether or not
+            // the model thought to name a site: the one it named when that is
+            // theirs, their one shop when it named none, and a question back
+            // when their unit has several premises and it did not say which.
             let site_id = match (scope, text("site_id")) {
                 (Scope::Everywhere, named) => named,
-                (Scope::Site(own), None) => Some(own.clone()),
-                (Scope::Site(own), Some(named)) if named == *own => Some(named),
+                (Scope::Unit(sites), Some(named)) if sites.contains(&named) => Some(named),
+                (Scope::Unit(sites), None) if sites.len() == 1 => sites.first().cloned(),
+                (Scope::Unit(sites), None) if !sites.is_empty() => {
+                    return Err(format!(
+                        "name the site: this person's unit has {}",
+                        sites.join(", ")
+                    ))
+                }
                 (_, named) => return Err(outside(named.as_deref().unwrap_or("every shop"))),
             };
             infrastructure::list_sales(
@@ -1995,16 +2018,21 @@ fn system_prompt(
     // something to a caller who can reach that far — see `Scope`.
     let (reach, analysis) = match scope {
         Scope::Everywhere => (REACH_EVERYWHERE.to_owned(), ANSWERING_WITH_ANALYSIS),
-        Scope::Site(site) => (
+        Scope::Unit(sites) => (
             format!(
                 "What you can reach for this person: the article master, what each \
                  shop charges, which pricelist each shop is running, and — for their \
-                 own site `{site}` only — its takings, receipts, stock and missing \
-                 tags. Every read is already cut to that site; never name another. \
-                 Other shops' figures, the ledger and the rest of the database are \
-                 not open to them through you. If they ask for any of it, say so \
-                 plainly and name the screen in the hub that shows it to the people \
-                 who may see it."
+                 own unit's premises only, {} — their takings, receipts, stock and \
+                 missing tags. Every read is already cut to those sites; never name \
+                 another. Other shops' figures, the ledger and the rest of the \
+                 database are not open to them through you. If they ask for any of \
+                 it, say so plainly and name the screen in the hub that shows it to \
+                 the people who may see it.",
+                sites
+                    .iter()
+                    .map(|site| format!("`{site}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             "",
         ),
@@ -2670,7 +2698,7 @@ mod tests {
             .unwrap_or_default()
     }
 
-    /// A caller whose reach is one site is shown that site's rows and no
+    /// A caller whose reach is one unit is shown its sites' rows and no
     /// other's, in every list a bounded read returns; a caller whose reach is
     /// everywhere is shown them all.
     #[test]
@@ -2683,7 +2711,7 @@ mod tests {
                 { "site_id": "store-07", "gross_minor": 700 }
             ]
         });
-        let own = Scope::Site("store-07".to_owned());
+        let own = Scope::Unit(vec!["store-07".to_owned()]);
 
         let cut = bound("sales_series", series.clone(), &own);
         assert_eq!(sites_in(&cut, "sites"), ["store-07"]);
@@ -2701,7 +2729,7 @@ mod tests {
         assert_eq!(sites_in(&pools, "items"), ["store-07"]);
     }
 
-    /// Every read offered to a caller bounded to one site must be bounded —
+    /// Every read offered to a caller bounded to one unit must be bounded —
     /// by the rows `bound` keeps or by the site `run_tool` insists on. A tool
     /// marked `Site` and taught to neither would answer a store manager from
     /// every shop.
@@ -2719,9 +2747,9 @@ mod tests {
         }
     }
 
-    /// The reads `bound` cuts, and the reads `run_tool` holds to one site by
-    /// what they are asked for — written out so the test above fails when a
-    /// `Site` tool is added and neither is taught about it.
+    /// The reads `bound` cuts, and the reads `run_tool` holds to the caller's
+    /// sites by what they are asked for — written out so the test above fails
+    /// when a `Site` tool is added and neither is taught about it.
     const BOUNDED_BY_ROWS: &[&str] = &["inventory_pools", "missing_stock", "sales_series"];
     const BOUNDED_BY_INPUT: &[&str] = &["sales_daily", "list_sales"];
 

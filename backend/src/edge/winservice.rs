@@ -7,8 +7,9 @@
 //!   by hand; it blocks waiting for the SCM.
 //! - `store.exe install-service` — registers the service, sets it to restart on
 //!   failure, gives it a data directory only it and administrators can read,
-//!   opens the port to the private network, and starts it. The installer runs
-//!   this; so can a person with an elevated prompt.
+//!   opens the port to the private network — TCP 8082 for the tills' calls,
+//!   UDP 5353 so they can find it (`edge/discovery.rs`) — and starts it. The
+//!   installer runs this; so can a person with an elevated prompt.
 //! - `store.exe uninstall-service` — stops and removes it. The data directory
 //!   is kept: it holds the shop's unsynced sales.
 //!
@@ -48,6 +49,10 @@ pub const SERVICE_NAME: &str = "ItulahStore";
 const DISPLAY_NAME: &str = "itulah Store Server";
 const DESCRIPTION: &str = "The shop's own node: sells offline, syncs with head office.";
 const FIREWALL_RULE: &str = "itulah Store Server";
+/// The rule that lets tills hear this node on the LAN (`edge/discovery.rs`):
+/// multicast DNS, UDP 5353 in. Its own name, so it is added and removed
+/// without touching the one for 8082.
+const DISCOVERY_RULE: &str = "itulah Store Server discovery";
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -240,6 +245,38 @@ pub fn install() -> Result<(), BoxError> {
     ) {
         eprintln!("warning: could not add the firewall rule for port 8082");
     }
+    // And the node answers tills looking for it: an mDNS query arrives on UDP
+    // 5353, and a node whose firewall drops it is a node every till has to be
+    // given by address. The same profiles, for the same reason.
+    run_quietly(
+        "netsh",
+        &[
+            "advfirewall",
+            "firewall",
+            "delete",
+            "rule",
+            &format!("name={DISCOVERY_RULE}"),
+        ],
+    );
+    if !run_quietly(
+        "netsh",
+        &[
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            &format!("name={DISCOVERY_RULE}"),
+            "dir=in",
+            "action=allow",
+            "protocol=UDP",
+            "localport=5353",
+            "profile=private,domain",
+        ],
+    ) {
+        eprintln!(
+            "warning: could not add the firewall rule for UDP 5353; tills will not find this node on the LAN and must be given its address"
+        );
+    }
 
     service.start(&[] as &[&OsStr])?;
     println!("{DISPLAY_NAME} installed and started.");
@@ -263,16 +300,18 @@ pub fn uninstall() -> Result<(), BoxError> {
         }
     }
     service.delete()?;
-    run_quietly(
-        "netsh",
-        &[
-            "advfirewall",
-            "firewall",
-            "delete",
-            "rule",
-            &format!("name={FIREWALL_RULE}"),
-        ],
-    );
+    for rule in [FIREWALL_RULE, DISCOVERY_RULE] {
+        run_quietly(
+            "netsh",
+            &[
+                "advfirewall",
+                "firewall",
+                "delete",
+                "rule",
+                &format!("name={rule}"),
+            ],
+        );
+    }
     println!("{DISPLAY_NAME} removed. Its data directory was kept.");
     Ok(())
 }

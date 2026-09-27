@@ -41,6 +41,10 @@ import { saying } from "@/screens/system/units"
 /// signature is checked — and head office's suspend or revoke is shown as
 /// "asked" until the node's next heartbeat reports it done.
 ///
+/// Punch stations and EDCs are registered here at head office, against a site,
+/// and listed from those registrations with the node that serves their site.
+/// They are switched where they are registered, not on this screen.
+///
 /// Peripherals (the customer display, a USB desk reader, the drawer) are not
 /// rows here. They belong to one till and are shown on its sheet.
 
@@ -63,6 +67,11 @@ const STATUS_WORD: Record<DeviceStatus, string> = {
   ACTIVE: "Active",
   SUSPENDED: "Suspended",
   REVOKED: "Revoked",
+}
+
+/// The node a row is listed under, in words.
+function nodeName(device: RegistryDevice): string {
+  return device.node_label ?? device.origin_id ?? "No node at this site"
 }
 
 function StatusPill({ device }: { device: RegistryDevice }) {
@@ -128,18 +137,18 @@ const columns: ColumnDef<TableSetup, RegistryDevice>[] = [
       row.original.last_seen_at ? (
         ago(row.original.last_seen_at)
       ) : (
-        <span className="text-mute">Never</span>
+        <span className="text-mute">
+          {row.original.source === "EDC_TERMINAL" ? "—" : "Never"}
+        </span>
       ),
   },
   {
     id: "node",
-    accessorFn: (row) => row.node_label ?? row.origin_id,
+    accessorFn: (row) => nodeName(row),
     header: "Node",
     size: 170,
     cell: ({ row }) => (
-      <span className="font-mono text-meta">
-        {row.original.node_label ?? row.original.origin_id}
-      </span>
+      <span className="font-mono text-meta">{nodeName(row.original)}</span>
     ),
   },
 ]
@@ -186,7 +195,7 @@ export function Devices() {
       <PageHeader
         crumb="System"
         title="Devices"
-        sub="Every till, printer and reader enrolled to a node, as the node last reported it."
+        sub="Every till, printer and reader enrolled to a node, as the node last reported it, and the punch stations and EDCs registered at each site."
         actions={
           <Input
             value={query}
@@ -207,9 +216,9 @@ export function Devices() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                No node has reported a device yet. A till appears here once it
-                has joined its shop's node and the node has sent its next
-                heartbeat.
+                No node has reported a device yet, and no punch station or EDC
+                is registered. A till appears here once it has joined its shop's
+                node and the node has sent its next heartbeat.
               </EmptyState>
             ) : (
               <DataTable<RegistryDevice>
@@ -242,9 +251,7 @@ function ConfigFacts({ device }: { device: RegistryDevice }) {
     return (
       <>
         <Fact term="Address">{address}</Fact>
-        <Fact term="Language">
-          {String(config.language ?? "Node default")}
-        </Fact>
+        <Fact term="Language">{String(config.language ?? "Node default")}</Fact>
         <Fact term="For">{purpose === "RECEIPT" ? "Receipts" : "Labels"}</Fact>
       </>
     )
@@ -277,11 +284,44 @@ function ConfigFacts({ device }: { device: RegistryDevice }) {
   }
   if (device.kind === "RFID_READER" || device.kind === "HANDHELD") {
     const pools = Array.isArray(config.pools) ? (config.pools as string[]) : []
+    return <Fact term="Pools">{pools.length > 0 ? pools.join(", ") : "—"}</Fact>
+  }
+  if (device.kind === "EDC") {
     return (
-      <Fact term="Pools">{pools.length > 0 ? pools.join(", ") : "—"}</Fact>
+      <>
+        <Fact term="Bank">{String(config.bank_code ?? "—")}</Fact>
+        <Fact term="Terminal ID">{String(config.terminal_id ?? "—")}</Fact>
+      </>
+    )
+  }
+  if (device.kind === "ATTENDANCE_TERMINAL") {
+    const synced =
+      typeof config.synced_at === "string" ? config.synced_at : null
+    const punched =
+      typeof config.punched_at === "string" ? config.punched_at : null
+    return (
+      <>
+        <Fact term="Templates taken">{synced ? moment(synced) : "Never"}</Fact>
+        <Fact term="Last punch">{punched ? moment(punched) : "Never"}</Fact>
+      </>
     )
   }
   return null
+}
+
+/// Where a device head office cannot switch from here is switched instead.
+function switchedWhere(device: RegistryDevice): string {
+  switch (device.kind) {
+    case "TILL":
+    case "PRINTER":
+      return "This node runs a version that cannot take a device decision from head office yet. Switch it at the shop, or update the node."
+    case "ATTENDANCE_TERMINAL":
+      return "Suspended and revoked in People → Settings → Punch stations, where its authority is kept."
+    case "EDC":
+      return "Switched on and off in Finance → Sales & banks, where its bank is kept."
+    default:
+      return "Switched on and off in System → Access, where its key is kept."
+  }
 }
 
 function DeviceSheet({
@@ -347,7 +387,7 @@ function DeviceSheet({
           <Facts>
             <Fact term="Kind">{KIND_LABEL[device.kind] ?? device.kind}</Fact>
             <Fact term="Site">{device.site_name ?? device.site_id}</Fact>
-            <Fact term="Node">{device.node_label ?? device.origin_id}</Fact>
+            <Fact term="Node">{nodeName(device)}</Fact>
             <Fact term="Last seen">
               {device.last_seen_at ? moment(device.last_seen_at) : "Never"}
             </Fact>
@@ -415,11 +455,7 @@ function DeviceSheet({
             </Section>
           ) : (
             device.status !== "REVOKED" && (
-              <p className="text-meta text-mute">
-                {device.kind === "TILL" || device.kind === "PRINTER"
-                  ? "This node runs a version that cannot take a device decision from head office yet. Switch it at the shop, or update the node."
-                  : "Switched on and off where its key is kept, not here."}
-              </p>
+              <p className="text-meta text-mute">{switchedWhere(device)}</p>
             )
           )}
 

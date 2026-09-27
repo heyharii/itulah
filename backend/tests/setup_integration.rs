@@ -3,8 +3,9 @@
 //!
 //! The store test compares the new store against the first one rather than
 //! against a list written here. That is the claim the code makes — a new store
-//! has exactly the shape the stores already have — and a list here would pass
-//! on the day both it and a migration forgot the same pool.
+//! has exactly the shape the stores already have, because both are furnished
+//! from the pool template (0610) — and a list here would pass on the day both
+//! it and a migration forgot the same pool.
 
 use inventory_backend::cloud::application::AppError;
 use inventory_backend::cloud::postgres::{self as cloud};
@@ -19,6 +20,8 @@ fn stores(names: &[(&str, &str)]) -> cloud::OpenStoresRequest {
             .map(|(name, city)| cloud::NewStore {
                 name: (*name).into(),
                 city: (*city).into(),
+                // As the wizard sends it: the next number in the series.
+                code: None,
             })
             .collect(),
     }
@@ -30,44 +33,70 @@ async fn open(pool: &PgPool, names: &[(&str, &str)], key: &str) -> cloud::OpenSt
         .unwrap_or_else(|error| panic!("open stores: {error}"))
 }
 
-/// Everything that belongs to a store or names it, as `(kind, count)` —
-/// pools on the store, the warehouse's pools pointing at it, and their places.
-async fn shape_of(pool: &PgPool, site_id: &str) -> (i64, i64, i64, i64) {
-    let own: i64 = sqlx::query_scalar("SELECT count(*) FROM operational_pool WHERE site_id = $1")
-        .bind(site_id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or_else(|error| panic!("own pools: {error}"));
-    let outbound: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM operational_pool WHERE destination_store_id = $1")
-            .bind(site_id)
-            .fetch_one(pool)
-            .await
-            .unwrap_or_else(|error| panic!("outbound leaves: {error}"));
-    let returns: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM operational_pool WHERE store_origin_site_id = $1")
-            .bind(site_id)
-            .fetch_one(pool)
-            .await
-            .unwrap_or_else(|error| panic!("return pools: {error}"));
+/// The pools a shop works with — one per role at the shop — and the return
+/// pool the Gudang keeps for its unit, as `(roles, return pools, places)`.
+///
+/// The Gudang's per-destination leaves for the first stores (0009) are not
+/// part of it: they are read for ever and written never, and a new store is
+/// rightly given none (0610).
+async fn shape_of(pool: &PgPool, site_id: &str) -> (String, i64, i64) {
+    let roles: String = sqlx::query_scalar(
+        "SELECT COALESCE(string_agg(role, ',' ORDER BY role), '') FROM operational_pool
+          WHERE site_id = $1 AND active AND is_placement
+            AND destination_store_id IS NULL AND origin_unit_id IS NULL",
+    )
+    .bind(site_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("own pools: {error}"));
+    let returns: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM operational_pool p
+           JOIN site s ON s.unit_id = p.origin_unit_id
+          WHERE s.id = $1 AND p.role = 'RETURN'",
+    )
+    .bind(site_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("return pools: {error}"));
     let places: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM inventory_place place
            JOIN operational_pool p ON p.id = place.pool_id
-          WHERE p.site_id = $1 OR p.destination_store_id = $1 OR p.store_origin_site_id = $1",
+          WHERE (p.site_id = $1 AND p.active AND p.is_placement
+                 AND p.destination_store_id IS NULL AND p.origin_unit_id IS NULL)
+             OR (p.role = 'RETURN'
+                 AND p.origin_unit_id = (SELECT unit_id FROM site WHERE id = $1))",
     )
     .bind(site_id)
     .fetch_one(pool)
     .await
     .unwrap_or_else(|error| panic!("places: {error}"));
-    (own, outbound, returns, places)
+    (roles, returns, places)
 }
 
+/// A store's shop, found through its unit's code — the one place the code
+/// lives (0621).
 async fn site_id_of(pool: &PgPool, code: &str) -> String {
-    sqlx::query_scalar("SELECT id FROM site WHERE client_code = $1")
-        .bind(code)
-        .fetch_one(pool)
-        .await
-        .unwrap_or_else(|error| panic!("site for {code}: {error}"))
+    sqlx::query_scalar(
+        "SELECT s.id FROM site s JOIN unit u ON u.id = s.unit_id
+          WHERE u.code = $1 AND s.kind = 'STORE'",
+    )
+    .bind(code)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("site for {code}: {error}"))
+}
+
+/// The label of the return pool the Gudang keeps for a shop's unit.
+async fn return_label_of(pool: &PgPool, site_id: &str) -> String {
+    sqlx::query_scalar(
+        "SELECT p.label FROM operational_pool p
+           JOIN site s ON s.unit_id = p.origin_unit_id
+          WHERE s.id = $1 AND p.role = 'RETURN'",
+    )
+    .bind(site_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("return pool: {error}"))
 }
 
 /// The client was set up by migrations, not by the wizard, and must not be
@@ -106,9 +135,9 @@ async fn the_clients_database_reads_as_already_set_up(pool: PgPool) {
     assert_eq!(site_id_of(&pool, "C001").await, "store-01");
 }
 
-/// A new store has exactly the first store's shape — its own pools, the
-/// warehouse's outbound leaves and return pool for it, and a place for each —
-/// under its own id, with its own name on the rows that carry one.
+/// A new store has exactly the first store's shape — a pool per role at its
+/// shop, the Gudang's return pool for its unit, and a place for each — under
+/// its own id, with its own name on the rows that carry one.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn opening_a_store_copies_the_first_stores_shape(pool: PgPool) {
     // The highest paper code there is, which the new ones follow.
@@ -141,23 +170,17 @@ async fn opening_a_store_copies_the_first_stores_shape(pool: PgPool) {
         "codes follow the last one, and the clock follows the city"
     );
 
-    let template = shape_of(&pool, "store-01").await;
+    let first = shape_of(&pool, "store-01").await;
     let tegal = site_id_of(&pool, &answer.created[0].unit_code).await;
-    assert_eq!(shape_of(&pool, &tegal).await, template);
+    assert_eq!(shape_of(&pool, &tegal).await, first);
     assert!(
-        template.0 > 0 && template.3 > 0,
-        "the template has a shape to copy"
+        !first.0.is_empty() && first.1 == 1 && first.2 > 0,
+        "the first store has a shape to compare with: {first:?}"
     );
 
-    // The return pool stays at the warehouse, points at the new store, and is
-    // called by its name.
-    let label: String =
-        sqlx::query_scalar("SELECT label FROM operational_pool WHERE store_origin_site_id = $1")
-            .bind(&tegal)
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("return pool: {error}"));
-    assert_eq!(label, "Tegal");
+    // The return pool stays at the Gudang, belongs to the new store's unit,
+    // and is called by its name.
+    assert_eq!(return_label_of(&pool, &tegal).await, "Return Tegal");
 
     // Only the floor sells, as on every other store.
     let saleable: Vec<String> = sqlx::query_scalar(
@@ -171,14 +194,17 @@ async fn opening_a_store_copies_the_first_stores_shape(pool: PgPool) {
     .unwrap_or_else(|error| panic!("saleable: {error}"));
     assert_eq!(saleable, vec![format!("{tegal}.floor:on_hand")]);
 
-    // A posting for HR, and tills that take cash and nothing else yet.
-    let posted: bool =
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM org_place WHERE site_id = $1)")
-            .bind(&tegal)
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("org place: {error}"));
-    assert!(posted);
+    // A store unit for its books and its people, which the shop belongs to
+    // and prints as, and tills that take cash and nothing else yet.
+    let (kind, printed): (String, String) = sqlx::query_as(
+        "SELECT u.kind, s.code FROM site s JOIN unit u ON u.id = s.unit_id WHERE s.id = $1",
+    )
+    .bind(&tegal)
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("unit: {error}"));
+    assert_eq!(kind, "STORE");
+    assert_eq!(printed, format!("{}-TOKO", answer.created[0].unit_code));
     let non_cash: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM payment_method_site m
            JOIN payment_method p ON p.code = m.method_code
@@ -340,31 +366,29 @@ async fn the_books_start_once_and_open_their_first_month(pool: PgPool) {
     ));
 }
 
-/// The name goes into the template's JSON as text, so a name with a quote in
-/// it must come out as that name and not break the row it is written into.
+/// The name travels from the request into the unit and the return pool's
+/// label, so a name with a quote and a slash in it must come out as that name
+/// and not break the row it is written into.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_name_with_a_quote_is_carried_whole(pool: PgPool) {
     let answer = open(&pool, &[(r#"Toko "Baru" / Timur"#, "Tegal")], "quote").await;
     let site = site_id_of(&pool, &answer.created[0].unit_code).await;
-    let label: String =
-        sqlx::query_scalar("SELECT label FROM operational_pool WHERE store_origin_site_id = $1")
-            .bind(&site)
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("return pool: {error}"));
-    assert_eq!(label, r#"Toko "Baru" / Timur"#);
+    assert_eq!(
+        return_label_of(&pool, &site).await,
+        r#"Return Toko "Baru" / Timur"#
+    );
     assert_eq!(
         shape_of(&pool, &site).await,
         shape_of(&pool, "store-01").await
     );
 }
 
-/// The template holds the rows a store is made of; with it empty there is
-/// nothing to open a store from, and the refusal says so rather than opening
-/// a site with no stock places.
+/// The pool template holds the pools a shop is given; with a shop's rows gone
+/// there is nothing to open a store with, and the refusal says so rather than
+/// opening a site with no stock places.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn without_a_template_no_store_is_half_opened(pool: PgPool) {
-    sqlx::query("DELETE FROM site_template_row WHERE template = 'STORE'")
+    sqlx::query("DELETE FROM pool_template WHERE site_kind = 'STORE'")
         .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("clear: {error}"));

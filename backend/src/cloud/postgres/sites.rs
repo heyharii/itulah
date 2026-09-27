@@ -89,6 +89,24 @@ pub async fn unit_exists(
     )
 }
 
+/// The premises a unit owns (`site.unit_id`, 0600), by id: a store's shop, or
+/// head office's sites, which may be several. Empty for a unit with none yet,
+/// or for an id no unit has.
+///
+/// The way from a unit's reach to the figures that are a site's: what a unit
+/// may see is what happened at these.
+pub async fn sites_of_unit(
+    executor: impl sqlx::PgExecutor<'_>,
+    unit_id: &str,
+) -> Result<Vec<String>, AppError> {
+    Ok(
+        sqlx::query_scalar::<_, String>("SELECT id FROM site WHERE unit_id = $1 ORDER BY id")
+            .bind(unit_id)
+            .fetch_all(executor)
+            .await?,
+    )
+}
+
 /// Head office's premises: the one site of kind `HO`, the Gudang (0603).
 ///
 /// For goods — where head office's stock is, where a dispatch leaves from.

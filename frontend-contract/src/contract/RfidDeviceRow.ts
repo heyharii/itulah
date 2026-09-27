@@ -9,4 +9,9 @@ export type RfidDeviceRow = { device_id: string, origin_id: string, label: strin
  * date, and a screen that sorted them together would file the two most
  * different cases side by side.
  */
-last_seen_at: string | null, };
+last_seen_at: string | null, 
+/**
+ * `HANDHELD` (carried) or `RFID_READER` (fixed), as head office
+ * registered the key.
+ */
+kind: string, };

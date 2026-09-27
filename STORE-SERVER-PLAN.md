@@ -504,25 +504,68 @@ setup page, and uninstalls.
 
 ## 9d. Devices — status (2026-09-27)
 
-Written, **not compiled or tested** (see the step-5 hand-off):
+Written, **not compiled or tested** — no `cargo check`, no `tsc`; the
+migrations were dry-run (postgres 0623–0624 on `blank_tenant_scratch` after
+0502 and 0600–0620, sqlite 0056 on a copy of `till-dev.sqlite3` after
+0045–0055):
 
 - `sync/device.rs` — the shared vocabulary: kinds, ACTIVE/SUSPENDED/REVOKED
   (REVOKED terminal), the till-join wire, `DeviceReport`, the
-  `device.status.set.v1` command, `NodeIdentity`, `_itulah-store._tcp`.
+  `device.status.set.v1` command, `NodeIdentity`, `_itulah-store._tcp`, and a
+  table of how each kind reaches the register.
+- **A till finds its node on the LAN.** The node advertises
+  `_itulah-store._tcp` as `itulah {node id}` on `{node id}.local`
+  (`edge/discovery.rs`) with TXT `origin`, `site`, `code`, `name`, `role`,
+  `version` and the identity and join paths. `code` and `name` are the site's
+  display code and name from the site directory (sqlite `0049`, `edge::site_profile`),
+  so a till shows "C004-TOKO · Bumiayu"; the advertisement reads the directory
+  every minute and re-announces when head office changes either, and says
+  nothing of them until the node has heard. `GET /api/v1/node/identity` answers
+  the same (`site_code`, `site_name`). `pos-desktop` lists only machines that
+  confirm themselves there (`src-tauri/src/discovery.rs`); a typed address is
+  checked the same way. Loopback-only nodes and `ITULAH_MDNS=off` advertise
+  nothing.
 - **A till joins by a code and a supervisor's yes** (sqlite `0050`,
-  `edge/devices.rs`): the till mints its key and sends its SHA-256 to the open
-  `POST /api/v1/devices/join`; it shows the six-character code and the
-  six-digit number (the node enrolment's own function) and polls
-  `/devices/join/status` with an HMAC proof. A supervisor approves from
-  `GET /devices/joins` with a finger/PIN grant from a till already joined, or
-  with a supervisor session for the shop's first till, or as Admin. Label
-  "Kasir N" (lowest free); a replacement revokes the old till and takes its
-  label. The old `POST /auth/terminals` pairing stays.
+  `edge/devices.rs`; `pos-desktop` *Setelan → Gabungkan ke node*): the till
+  mints its key and sends its SHA-256 to the open `POST /api/v1/devices/join`;
+  it shows the six-character code and the six-digit number (the node
+  enrolment's own function) and polls `/devices/join/status` with an HMAC
+  proof. A supervisor approves from `GET /devices/joins` (*Setelan → Kasir
+  menunggu*) with a finger/PIN grant from a till already joined, or with a
+  supervisor session for the shop's first till, or as Admin. Label "Kasir N"
+  (lowest free); a replacement revokes the old till and takes its label — and
+  is **refused while the old till has a cash shift open**, because the shift is
+  kept by that label and the new till would take over the old drawer: close
+  it at the old till, or from the Shift screen of another, then approve. The
+  refusal is in Indonesian, as it is read at the counter. The old
+  `POST /auth/terminals` pairing stays.
+- **A joined till shows who is waiting**: it asks `GET /devices/joins` every
+  15 s while somebody is signed in, and the top bar says "N kasir menunggu
+  persetujuan" (opening the list); Setelan counts them too.
+- **A till follows its node to a new address.** A till that joined keeps the
+  node's instance and host names beside its address (`node_instance`,
+  `node_host`). When a call cannot even connect, the shell listens again, takes
+  an address only from a machine that answers the identity call as the origin
+  it joined, keeps it and sends the call once more — only a call that never
+  connected, since one that reached the node may have been carried out. One
+  look at a time, at most every 30 s. The window hears `moved_to` and keeps its
+  session. Calls to the node run off the window's thread; signed calls one at
+  a time so their sequence numbers arrive in order.
 - `edge_terminal` gains status, join, machine and peripherals (sqlite `0051`);
   `active` moves with the status, so a suspended or revoked till is refused at
   `verify_terminal`. History in the append-only `edge_device_event`.
 - **Printers are recorded** (sqlite `0052`) and chosen by `printer_id` on the
   label, koli, receipt, repoint and test routes; host and port still work.
+- **A USB receipt printer prints.** It is a peripheral of its till, and the
+  till prints to it: the node renders the receipt exactly as it prints one and
+  hands the bytes back (`POST /api/v1/store/sales/{sale_id}/receipt/escpos`,
+  hex), and the till sends them through the Windows spooler as a RAW job
+  (`winspool.drv`: `OpenPrinterW`, `StartDocPrinterW` with datatype `RAW`,
+  `WritePrinter`) or, on macOS and Linux, to a CUPS queue with `lp -o raw`
+  (`pos-desktop/src-tauri/src/printer.rs`). The drawer's pulse rides in the
+  bytes. *Perangkat kasir* takes the printer by the name the machine lists it
+  under, offers that list (`EnumPrintersW` / `lpstat -e`) and prints a test.
+  Network printers are unchanged.
 - **One user, one device at a node** (sqlite `0053`): a password or SSO
   sign-in revokes the person's other sessions there as `SIGNED_IN_ELSEWHERE`.
   A finger at a till does not.
@@ -530,13 +573,45 @@ Written, **not compiled or tested** (see the step-5 hand-off):
   `device` + append-only `device_status_event`, fed by the heartbeat's optional
   `device_list`; suspend/reactivate/revoke of a till or printer from the hub is
   a request plus a signed command, confirmed by the next heartbeat. Hub:
-  *System → Devices*.
-- `GET /api/v1/node/identity` — who a node is, open, nothing secret.
+  *System → Devices*. It is read through `device_register` (postgres `0624`),
+  which adds what head office registers at a site itself: **punch stations**
+  (`attendance_terminal`) and **EDCs** (`edc_terminal`), linked by id to their
+  site and to the node serving it (`site_node`: the inventory owner, else the
+  oldest node) when read. Linked, not reported: head office already holds every
+  fact about them, a node was never sent an EDC, and a site with no node must
+  still list its terminals. They are switched where they are kept (People,
+  Finance); a punch station's history comes from its own record.
+- **Handheld or fixed reader** (postgres `0623`, sqlite `0056`): head office
+  says which an RFID key belongs to when it registers it, or later
+  (`POST /api/v1/auth/rfid-devices/{id}/kind`, *System → Access*); the auth
+  policy carries it in `device_kinds`, outside the content hash so older nodes
+  still verify; the node reports HANDHELD or RFID_READER accordingly, and the
+  register prefers head office's word over an older node's.
 
-Not yet: the mDNS advertisement and the till's discovery of it (a till still
-takes a typed node URL); the join and approval screens in `pos-desktop` and the
-shop app (the API is there); attendance terminals and EDCs reported into the
-register; cross node↔cloud session revocation (an open owner decision).
+**What the machines must allow for discovery.**
+
+- *Windows node*: `store.exe install-service` opens TCP 8082 and UDP 5353
+  (mDNS) inbound on private and domain networks. A node on a network Windows
+  calls *Public* is neither reachable nor heard — set the shop LAN to Private.
+- *Windows till*: the first listen for a node raises Windows Defender
+  Firewall's prompt for `itulah kasir`; allow it on **private** networks, or
+  nothing is heard and the address must be typed. The MSI does not add that
+  rule yet.
+- *macOS till* (15 and later): the app asks for **Local Network** access
+  (`src-tauri/Info.plist`, `NSLocalNetworkUsageDescription`,
+  `NSBonjourServices`). Refused, it can neither hear a node nor reach one at a
+  LAN address, typed or found, until it is allowed in System Settings →
+  Privacy & Security → Local Network.
+- *Linux node*: `deploy/edge/nftables-store.conf` drops everything that is not
+  the tailnet; a node that must serve LAN tills needs TCP 8082 and UDP 5353 in
+  from the shop's subnet (and mDNS multicast out) added to it.
+- A router that drops multicast, a guest wifi that isolates clients, or a node
+  on another subnet leaves the typed address, checked the same way.
+
+Not yet: cross node↔cloud session revocation (an open owner decision); the
+approval screen in the shop app (`pos-desktop` has it); the MSI's firewall
+rule for the till; when an EDC was last used; anything tried on real Windows
+spoolers, CUPS queues or receipt printers.
 
 ## 10. Open questions
 
@@ -613,8 +688,9 @@ builds later):
   Windows; on battery the backlog goes up at once and backups wait; the
   console, the Fleet and the incident history say so (`ON_BATTERY`,
   `UPS_LOW`, `OnBattery`, `PowerRestored`).
-- **mDNS** (`edge/discovery.rs`): `_itulah-store._tcp` with site, origin and
-  version.
+- **mDNS** (`edge/discovery.rs`): `_itulah-store._tcp` with site, origin,
+  version and the site's display code and name — see §9d (Devices) for the
+  till's side and what the firewall must allow.
 - **Bootstrap complete**: open purchase orders and tagging jobs re-issued in
   their original order, and today's attendance book.
 - **DPAPI** (`edge/secret.rs`): the sync key in `node.env` is sealed to the

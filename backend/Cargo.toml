@@ -118,7 +118,12 @@ tracing-appender = "=0.2.3"
 # system only: the defaults also pull in network, user and component probes
 # a shop node never reports.
 sysinfo = { version = "=0.39.6", default-features = false, features = ["disk", "system"] }
-# The store server advertises itself to the shop's devices (`edge/discovery.rs`).
+# The node says where it is on the shop's LAN (`edge/discovery.rs`): DNS-SD
+# over multicast, `_itulah-store._tcp`, so a till, a tablet or a handheld finds
+# it without an address typed. Its own thread and sockets, no runtime of its
+# own. Default features kept (an async receiver and `log`, neither used): they
+# are what `Cargo.lock` was resolved with, and a feature change here is a lock
+# change nobody has built yet.
 mdns-sd = "=0.21.4"
 tracing-subscriber = { version = "=0.3.20", features = ["env-filter", "json"] }
 uuid = { version = "=1.16.0", features = ["serde", "v4"] }

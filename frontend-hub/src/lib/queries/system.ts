@@ -186,6 +186,10 @@ export interface EdgeAssignment {
   readonly updated_at: string
 }
 
+/// What an RFID key's machine is: carried round the floor, or fixed over a
+/// door or a bench. Head office says which; the node reports it back.
+export type RfidKind = "RFID_READER" | "HANDHELD"
+
 /// A reader on a node's floor. Its key is not here and never will be.
 export interface RfidDevice {
   readonly device_id: string
@@ -197,6 +201,7 @@ export interface RfidDevice {
   readonly created_at: string
   readonly updated_at: string
   readonly last_seen_at: string | null
+  readonly kind: RfidKind
 }
 
 /// What a policy publication produced. Every identity write publishes one, so
@@ -525,7 +530,8 @@ export function nodeIncidents(
 // ---- Devices ------------------------------------------------------------------
 //
 // Every machine enrolled to a node — tills, printers, readers — as the nodes
-// report them in their heartbeats. Transcribed by hand from
+// report them in their heartbeats, and the punch stations and EDCs head office
+// registers at a site itself. Transcribed by hand from
 // `cloud/postgres/devices.rs` (`RegistryDevice`, `DeviceStatusEvent`).
 
 export type DeviceKind =
@@ -538,10 +544,16 @@ export type DeviceKind =
 
 export type DeviceStatus = "ACTIVE" | "SUSPENDED" | "REVOKED"
 
+/// Where a register row comes from: a node's heartbeat, or a terminal head
+/// office registered at a site (People's punch stations, Finance's EDCs).
+export type DeviceSource = "NODE" | "ATTENDANCE_TERMINAL" | "EDC_TERMINAL"
+
 export interface RegistryDevice {
   readonly device_id: string
   readonly kind: DeviceKind
-  readonly origin_id: string
+  /// The node it is enrolled to — for a terminal head office registered, the
+  /// node serving its site. Null at a site with no node.
+  readonly origin_id: string | null
   readonly node_label: string | null
   readonly site_id: string
   readonly site_name: string | null
@@ -564,6 +576,7 @@ export interface RegistryDevice {
   readonly registered_by: string | null
   readonly first_reported_at: string
   readonly updated_at: string
+  readonly source: DeviceSource
   /// Whether head office can suspend, reactivate or revoke it from here.
   readonly switchable: boolean
 }
@@ -1068,6 +1081,8 @@ export interface RegisterRfidDeviceRequest {
   readonly label: string
   readonly pools: readonly string[]
   readonly offline_ttl_seconds?: number | null
+  /// A fixed reader when left out.
+  readonly kind?: RfidKind
 }
 
 /// Register a reader.
@@ -1106,6 +1121,25 @@ export function setRfidDeviceActive(
   }>(
     `/api/v1/auth/rfid-devices/${encodeURIComponent(deviceId)}/active`,
     { active },
+    { signal }
+  )
+}
+
+/// Say whether a key's reader is a handheld or a fixed one. The node hears
+/// it in the policy this publishes, and the Devices list shows it at once.
+export function setRfidDeviceKind(
+  deviceId: string,
+  kind: RfidKind,
+  signal?: AbortSignal
+) {
+  return node.post<{
+    device_id: string
+    origin_id: string
+    kind: RfidKind
+    policy: PolicyReceipt
+  }>(
+    `/api/v1/auth/rfid-devices/${encodeURIComponent(deviceId)}/kind`,
+    { kind },
     { signal }
   )
 }

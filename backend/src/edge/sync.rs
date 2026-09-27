@@ -1957,6 +1957,15 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
     .map_err(err)?;
 
     for device in &snapshot.devices {
+        // Carried or fixed, as head office registered the key (postgres 0623).
+        // A key it did not describe, or a word this build does not know, is a
+        // fixed reader: what every key was reported as before.
+        let kind = snapshot
+            .device_kinds
+            .get(&device.device_id)
+            .map(String::as_str)
+            .filter(|kind| crate::sync::device::is_rfid_kind(kind))
+            .unwrap_or(crate::sync::device::KIND_RFID_READER);
         let key_changed = tx
             .query_row(
                 "SELECT auth_key_sha256<>?2 FROM edge_rfid_device WHERE device_id=?1",
@@ -1968,12 +1977,14 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
             .unwrap_or(false);
         tx.execute(
             "INSERT INTO edge_rfid_device
-                 (device_id,label,auth_key_sha256,active,valid_until,updated_at,policy_version)
-             VALUES(?1,?2,?3,?4,?5,?6,?7)
+                 (device_id,label,auth_key_sha256,active,valid_until,updated_at,policy_version,
+                  kind)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
              ON CONFLICT(device_id) DO UPDATE SET
                  label=excluded.label,auth_key_sha256=excluded.auth_key_sha256,
                  active=excluded.active,valid_until=excluded.valid_until,
                  updated_at=excluded.updated_at,policy_version=excluded.policy_version,
+                 kind=excluded.kind,
                  last_sequence=CASE
                      WHEN edge_rfid_device.auth_key_sha256<>excluded.auth_key_sha256 THEN 0
                      ELSE edge_rfid_device.last_sequence END,
@@ -1988,6 +1999,7 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
                 time_text(device.valid_until),
                 now_text(),
                 snapshot.version,
+                kind,
             ],
         )
         .map_err(err)?;
@@ -4083,6 +4095,7 @@ mod tests {
             }],
             site: None,
             sites: Vec::new(),
+            device_kinds: Default::default(),
         };
         snapshot.content_hash = auth_policy_content_hash(&snapshot);
         let version_one = snapshot.clone();

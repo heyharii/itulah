@@ -9,7 +9,7 @@ use crate::{
     cloud::{
         application::{
             AppError, RegisterRfidDeviceRequest, SetEdgeAssignmentActiveRequest,
-            SetRfidDeviceActiveRequest, UpsertEdgeAssignmentRequest,
+            SetRfidDeviceActiveRequest, SetRfidDeviceKindRequest, UpsertEdgeAssignmentRequest,
         },
         domain::{
             auth_policy_content_hash, AuthPolicyDevice, AuthPolicySnapshot, AuthPolicyUser, Role,
@@ -600,11 +600,43 @@ pub async fn list_edge_assignments(
     })
 }
 
+/// What an RFID key's machine is, checked: `RFID_READER` when nobody said.
+fn rfid_kind(offered: Option<&str>) -> Result<&'static str, AppError> {
+    let offered = offered
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+        .map(str::to_ascii_uppercase);
+    match offered.as_deref() {
+        None | Some(crate::sync::device::KIND_RFID_READER) => {
+            Ok(crate::sync::device::KIND_RFID_READER)
+        }
+        Some(crate::sync::device::KIND_HANDHELD) => Ok(crate::sync::device::KIND_HANDHELD),
+        Some(other) => Err(AppError::Validation(format!(
+            "{other} is not a kind of RFID reader; say RFID_READER (fixed) or HANDHELD (carried)"
+        ))),
+    }
+}
+
+/// Register a key for a fixed reader. [`register_rfid_device_as`] names the
+/// kind; this is the registration every caller made before there was one.
 pub async fn register_rfid_device(
     pool: &PgPool,
     request: RegisterRfidDeviceRequest,
     actor: &str,
 ) -> Result<Value, AppError> {
+    register_rfid_device_as(pool, request, None, actor).await
+}
+
+/// Register a key, and say whether the machine that holds it is carried
+/// (`HANDHELD`) or fixed (`RFID_READER`, when `kind` is `None`). The node is
+/// told in the policy published here and reports the device under that kind.
+pub async fn register_rfid_device_as(
+    pool: &PgPool,
+    request: RegisterRfidDeviceRequest,
+    kind: Option<&str>,
+    actor: &str,
+) -> Result<Value, AppError> {
+    let kind = rfid_kind(kind)?;
     let device_id = request.device_id.trim().to_ascii_uppercase();
     if device_id.len() < 3
         || device_id.len() > 96
@@ -659,8 +691,8 @@ pub async fn register_rfid_device(
     let mut tx = pool.begin().await?;
     let result = sqlx::query(
         "INSERT INTO rfid_device
-             (device_id,origin_id,label,auth_key_sha256,offline_ttl_seconds,created_by)
-         VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(device_id) DO NOTHING",
+             (device_id,origin_id,label,auth_key_sha256,offline_ttl_seconds,created_by,kind)
+         VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(device_id) DO NOTHING",
     )
     .bind(&device_id)
     .bind(&origin_id)
@@ -668,6 +700,7 @@ pub async fn register_rfid_device(
     .bind(&digest)
     .bind(ttl)
     .bind(actor)
+    .bind(kind)
     .execute(&mut *tx)
     .await?;
     if result.rows_affected() == 0 {
@@ -688,6 +721,7 @@ pub async fn register_rfid_device(
         "device_id":device_id,
         "origin_id":origin_id,
         "label":label,
+        "kind":kind,
         "pools":pools,
         "active":true,
         "offline_ttl_seconds":ttl,
@@ -718,6 +752,47 @@ pub async fn set_rfid_device_active(
         "device_id":device_id,
         "origin_id":origin_id,
         "active":request.active,
+        "policy":policy,
+    }))
+}
+
+/// Say whether an RFID key's machine is carried or fixed.
+///
+/// A key registered before head office asked is a fixed reader until somebody
+/// says otherwise, and this is where they say it. The node learns it with the
+/// policy published here; the register row, if the node has reported the
+/// device already, is corrected in the same transaction rather than waiting a
+/// heartbeat to repeat what head office itself just decided.
+pub async fn set_rfid_device_kind(
+    pool: &PgPool,
+    device_id: &str,
+    request: SetRfidDeviceKindRequest,
+    actor: &str,
+) -> Result<Value, AppError> {
+    let kind = rfid_kind(Some(request.kind.as_str()))?;
+    let device_id = device_id.trim().to_ascii_uppercase();
+    let mut tx = pool.begin().await?;
+    let row = sqlx::query(
+        "UPDATE rfid_device SET kind=$2,updated_at=now() WHERE device_id=$1
+         RETURNING origin_id",
+    )
+    .bind(&device_id)
+    .bind(kind)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound("RFID device".into()))?;
+    let origin_id: String = row.get("origin_id");
+    sqlx::query("UPDATE device SET kind=$2,updated_at=now() WHERE rfid_device_id=$1")
+        .bind(&device_id)
+        .bind(kind)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    let policy = publish_auth_policy(pool, &origin_id, actor).await?;
+    Ok(json!({
+        "device_id":device_id,
+        "origin_id":origin_id,
+        "kind":kind,
         "policy":policy,
     }))
 }
@@ -767,6 +842,9 @@ pub struct RfidDeviceRow {
     /// date, and a screen that sorted them together would file the two most
     /// different cases side by side.
     pub last_seen_at: Option<DateTime<Utc>>,
+    /// `HANDHELD` (carried) or `RFID_READER` (fixed), as head office
+    /// registered the key.
+    pub kind: String,
 }
 
 /// The two things the device list can be narrowed by.
@@ -852,7 +930,7 @@ impl DeviceCursor {
 /// Binds: `$1` the search pattern or NULL.
 const DEVICE_ROWS: &str = "
     SELECT d.device_id, d.origin_id, d.label, d.active, d.offline_ttl_seconds,
-           d.created_at, d.updated_at, d.last_seen_at,
+           d.created_at, d.updated_at, d.last_seen_at, d.kind,
            COALESCE(array_agg(p.pool_id ORDER BY p.pool_id)
                     FILTER (WHERE p.pool_id IS NOT NULL), '{}') AS pools,
            CASE WHEN d.active THEN 'ACTIVE' ELSE 'SUSPENDED' END AS state,
@@ -971,6 +1049,7 @@ pub async fn list_rfid_devices(
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
                 last_seen_at: row.try_get("last_seen_at")?,
+                kind: row.try_get("kind")?,
             })
         })
         .collect::<Result<Vec<_>, AppError>>()?;
@@ -1146,7 +1225,7 @@ pub async fn publish_auth_policy(
         });
     }
     let device_rows = sqlx::query(
-        "SELECT device_id,label,auth_key_sha256,active,offline_ttl_seconds
+        "SELECT device_id,label,auth_key_sha256,active,offline_ttl_seconds,kind
          FROM rfid_device WHERE origin_id=$1 ORDER BY device_id",
     )
     .bind(origin_id)
@@ -1168,8 +1247,12 @@ pub async fn publish_auth_policy(
             .push(row.get("pool_id"));
     }
     let mut devices = Vec::with_capacity(device_rows.len());
+    // Handheld or fixed, beside the keys rather than inside them: an older node
+    // hashes `devices` field by field (see `device_kinds`).
+    let mut device_kinds = BTreeMap::new();
     for row in device_rows {
         let device_id: String = row.get("device_id");
+        device_kinds.insert(device_id.clone(), row.get::<String, _>("kind"));
         let expiry =
             issued_at + Duration::seconds(i64::from(row.get::<i32, _>("offline_ttl_seconds")));
         valid_until = valid_until.max(expiry);
@@ -1203,6 +1286,7 @@ pub async fn publish_auth_policy(
         devices,
         site,
         sites,
+        device_kinds,
     };
     snapshot.content_hash = auth_policy_content_hash(&snapshot);
     let payload = serde_json::to_value(&snapshot)?;

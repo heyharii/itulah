@@ -628,7 +628,9 @@ pub async fn run_morning_brief_agent(pool: PgPool) {
 /// Send yesterday's brief if its hour has come and it has not gone yet: the
 /// notification's id when it went, `None` when there was nothing to do.
 ///
-/// The day is head office's, on the business clock the reports default to.
+/// The day and the hour are head office's, on head office's own clock
+/// (`site.timezone`, read through `sites::business_utc_offset_minutes`) —
+/// the clock a company-wide report cuts its day with.
 pub async fn send_morning_brief_if_due(
     pool: &PgPool,
     now: chrono::DateTime<chrono::Utc>,
@@ -636,7 +638,7 @@ pub async fn send_morning_brief_if_due(
     let Some(hour) = brief_hour(pool).await? else {
         return Ok(None);
     };
-    let offset = crate::reporting::DEFAULT_UTC_OFFSET_MINUTES;
+    let offset = super::sites::business_utc_offset_minutes(pool, None, now).await?;
     let local = now + chrono::Duration::minutes(i64::from(offset));
     let local_hour = i32::try_from(local.hour()).unwrap_or_default();
     if local_hour < hour || local_hour >= hour + BRIEF_WINDOW_HOURS {
