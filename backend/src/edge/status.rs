@@ -84,8 +84,14 @@ impl StatusSource {
                 crate::sync::workflow::GOODS_ROUTES_CAPABILITY.to_owned(),
                 crate::sync::flow::FLOWS_CAPABILITY.to_owned(),
                 crate::sync::device::TEST_PRINT_CAPABILITY.to_owned(),
+                crate::sync::node_ops::NODE_ACTIONS_CAPABILITY.to_owned(),
             ]),
             link_outages: self.link_outages(),
+            action_results: self
+                .connection
+                .lock()
+                .ok()
+                .and_then(|guard| crate::edge::ops::recent_reports(&guard)),
         }
     }
 

@@ -693,7 +693,8 @@ async fn health(State(state): State<EdgeState>) -> Json<Value> {
             "inventory.movements.read",
             crate::sync::workflow::GOODS_ROUTES_CAPABILITY,
             crate::sync::flow::FLOWS_CAPABILITY,
-            crate::sync::device::TEST_PRINT_CAPABILITY
+            crate::sync::device::TEST_PRINT_CAPABILITY,
+            crate::sync::node_ops::NODE_ACTIONS_CAPABILITY
         ]),
         EdgeRole::Store => json!([
             "inventory.pools.owned",
@@ -701,7 +702,8 @@ async fn health(State(state): State<EdgeState>) -> Json<Value> {
             crate::sync::workflow::STORE_INBOUND_CAPABILITY,
             crate::sync::workflow::GOODS_ROUTES_CAPABILITY,
             crate::sync::flow::FLOWS_CAPABILITY,
-            crate::sync::device::TEST_PRINT_CAPABILITY
+            crate::sync::device::TEST_PRINT_CAPABILITY,
+            crate::sync::node_ops::NODE_ACTIONS_CAPABILITY
         ]),
     };
     let policy = state.auth.policy_version().ok().flatten();
