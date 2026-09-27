@@ -1028,8 +1028,11 @@ async fn site_profiles(
     at: DateTime<Utc>,
 ) -> Result<(Option<SiteProfile>, Vec<SiteProfile>), AppError> {
     let rows = sqlx::query(
-        "SELECT id, kind, code, name, timezone,
-                (EXTRACT(EPOCH FROM ($1::timestamptz AT TIME ZONE timezone)
+        // `site_business_timezone`, not the column: it is the one reader that
+        // turns a zone written as WIB/WITA/WIT (0520's spelling) into a name
+        // a node can use, and it is what the centre cuts the same day with.
+        "SELECT id, kind, code, name, site_business_timezone(id) AS timezone,
+                (EXTRACT(EPOCH FROM ($1::timestamptz AT TIME ZONE site_business_timezone(id))
                                   - ($1::timestamptz AT TIME ZONE 'UTC')) / 60)::int
                     AS utc_offset_minutes,
                 id IS NOT DISTINCT FROM head_office_site_id() AS is_head_office

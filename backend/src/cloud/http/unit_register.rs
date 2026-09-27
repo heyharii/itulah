@@ -37,7 +37,15 @@ pub async fn list_units(
     State(state): State<AppState>,
     Query(query): Query<RegisterQuery>,
 ) -> Result<Json<Vec<UnitView>>, AppError> {
-    let on = query.on.unwrap_or_else(|| Utc::now().date_naive());
+    // Today where head office is: the register is the company's, not one
+    // shop's (`sites::business_utc_offset_minutes`, 0603).
+    let on = match query.on {
+        Some(on) => on,
+        None => crate::reporting::local_today_at(
+            infrastructure::sites::business_utc_offset_minutes(&state.db, None, Utc::now())
+                .await?,
+        ),
+    };
     Ok(Json(
         infrastructure::list_unit_register(&state.db, on).await?,
     ))
@@ -88,7 +96,15 @@ pub async fn appoint_pic(
         )));
     }
     let unit = UnitId::try_new(&unit).map_err(|error| AppError::Validation(error.to_string()))?;
-    let valid_from = body.valid_from.unwrap_or_else(|| Utc::now().date_naive());
+    // Today at the unit, by its site's clock (0603): an appointment made at
+    // half past midnight in the shop starts that day, not the UTC one before.
+    let valid_from = match body.valid_from {
+        Some(day) => day,
+        None => crate::reporting::local_today_at(
+            infrastructure::sites::unit_utc_offset_minutes(&state.db, unit.as_str(), Utc::now())
+                .await?,
+        ),
+    };
     infrastructure::appoint_unit_pic(
         &state.db,
         &unit,

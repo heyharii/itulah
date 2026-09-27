@@ -18,9 +18,9 @@
 --   TILL                 the key digest stays in the shop's `edge_terminal`
 --   PRINTER              no secret; host and port are in `config`
 --   RFID_READER/HANDHELD `rfid_device` keeps its key and its lease; linked
---   ATTENDANCE_TERMINAL  `attendance_terminal` keeps its authority; linked by
---                        id only, with no foreign key, because that table's
---                        place column is being moved in parallel
+--   ATTENDANCE_TERMINAL  `attendance_terminal` keeps its authority; linked
+--                        by id. It stands at a site since 0601, as a device
+--                        does, so the link is an ordinary foreign key
 --   EDC                  `edc_terminal` (a finance table) keeps the bank;
 --                        the terminal id is carried in `config`
 --
@@ -62,7 +62,7 @@ CREATE TABLE device (
     -- a replacement before head office ever heard of the machine it replaced.
     replaces_device_id text,
     rfid_device_id     text REFERENCES rfid_device (device_id) ON DELETE SET NULL,
-    attendance_terminal_id text,
+    attendance_terminal_id text REFERENCES attendance_terminal (id) ON DELETE SET NULL,
     registered_at      timestamptz,
     registered_by      text,
     first_reported_at  timestamptz NOT NULL DEFAULT now(),

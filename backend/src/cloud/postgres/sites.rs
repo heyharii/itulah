@@ -21,6 +21,11 @@
 //! — uses head office's, from the same lookup. `Asia/Jakarta` is what every
 //! site held before the column existed, and is the answer only when there is
 //! no site to ask.
+//!
+//! A unit (0600) has no clock of its own: it keeps its site's —
+//! head office's site for the head-office unit, a store's shop for a store
+//! (`unit_business_timezone`). HR's days, which belong to units, are cut with
+//! [`unit_utc_offset_minutes`].
 
 use crate::cloud::application::AppError;
 use crate::ids::SiteKind;

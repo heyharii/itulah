@@ -37,9 +37,10 @@
 -- # 3. A site has a display code
 --
 -- `code` is what paper and screens show. `name` stays the display name. The
--- backfill uses the client's own branch codes (C001-C013, the same mapping
--- 0381 verified against the client's chart), written out rather than parsed
--- out of `store-NN`, and HO-GUDANG for the warehouse, found by its kind.
+-- backfill reads each shop's unit (0600 gave every store its client code,
+-- C001-C013, the mapping 0381 verified against the client's chart) rather
+-- than parsing `store-NN` or keeping a third copy of that list, and gives
+-- HO-GUDANG to the warehouse, found by its kind.
 -- Nullable, because a site created by a test or before anybody chose a code
 -- has none; the printers fall back to the id rather than refuse to print.
 --
@@ -47,6 +48,35 @@
 --
 -- 0376 let an external-party account sit only at `'dc'`. It now asks
 -- `head_office_site_id()`. Same rule, read from the row.
+--
+-- # 5. A unit keeps its site's clock
+--
+-- HR's day — a punch, a roster day, a payroll month — belongs to a unit
+-- (0600-0601), and a unit has no clock of its own: it keeps the one of the
+-- premises it works from. `unit_business_timezone(unit)` says which: head
+-- office's site for the head-office unit, found by its kind, and a store's
+-- shop for a store. `org_place` is gone by the time this runs (0601), so
+-- nothing here reads it.
+--
+-- # Written beside another lane's `site.timezone`
+--
+-- This file was written as 0474 and renumbered to 0603 when the unit/site
+-- lane moved to a distant block, so on a fresh database it runs AFTER 0520
+-- (the company set-up lane, written in parallel). 0520 also adds
+-- `site.timezone`, spelled as Indonesia's abbreviations (WIB, WITA, WIT)
+-- under a CHECK of its own, and `site.client_code` (HO, C001…). So:
+--
+--   * the column is added only when it is absent, and the IANA check only
+--     when no other CHECK already governs it — two checks with no value in
+--     common would refuse every row;
+--   * every reader goes through `site_business_timezone`, which reads an
+--     abbreviation as its IANA name (`iana_zone_of`), so a day is cut the same
+--     way whichever lane's spelling the column holds.
+--
+-- Which spelling the column keeps, and whether `site.client_code` (a copy of
+-- `unit.code` on each site, 0600) survives beside `site.code` (what paper
+-- prints, below), is for whichever lane lands second to reconcile. Until then
+-- neither lane's writes are refused by the other's rule.
 
 -- ---------------------------------------------------------------------------
 -- 1. Exactly one head office
@@ -83,12 +113,46 @@ $$;
 COMMENT ON FUNCTION is_iana_timezone(text) IS
     'Whether a text is a time zone name this server knows (0603). Abbreviations such as WIB and POSIX offsets such as UTC+7 are not names and are refused.';
 
+-- Absent unless 0520 (the set-up lane) already added it; see the header.
 ALTER TABLE site
-    ADD COLUMN timezone text NOT NULL DEFAULT 'Asia/Jakarta'
-        CONSTRAINT site_timezone_is_iana CHECK (is_iana_timezone(timezone));
+    ADD COLUMN IF NOT EXISTS timezone text NOT NULL DEFAULT 'Asia/Jakarta';
+
+-- The IANA check, only when nothing else already rules the column: this
+-- file's own check from an earlier run, or 0520's WIB/WITA/WIT one. Adding a
+-- second rule with no value in common with the first would refuse every row.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conrelid = 'site'::regclass
+                  AND contype = 'c'
+                  AND pg_get_constraintdef(oid) LIKE '%timezone%') THEN
+        RAISE NOTICE
+            '0603: site.timezone already has a CHECK (0520''s abbreviations?); '
+            'the IANA check is not added and the zone is read through iana_zone_of';
+    ELSE
+        ALTER TABLE site
+            ADD CONSTRAINT site_timezone_is_iana CHECK (is_iana_timezone(timezone));
+    END IF;
+END
+$$;
 
 COMMENT ON COLUMN site.timezone IS
-    'IANA time zone the site keeps its business day in (0603). Every "which day was this" at the site reads it; cloud-wide reads use head office''s.';
+    'The time zone the site keeps its business day in (0603): an IANA name, or one of WIB/WITA/WIT where 0520''s rule holds the column. Read it through site_business_timezone, never raw. Cloud-wide reads use head office''s.';
+
+-- Indonesia's three zone abbreviations, as the IANA names Postgres resolves;
+-- anything else is returned as it is. IMMUTABLE: a fixed table, no lookup.
+CREATE FUNCTION iana_zone_of(zone text) RETURNS text
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT CASE zone
+               WHEN 'WIB'  THEN 'Asia/Jakarta'
+               WHEN 'WITA' THEN 'Asia/Makassar'
+               WHEN 'WIT'  THEN 'Asia/Jayapura'
+               ELSE zone
+           END
+$$;
+
+COMMENT ON FUNCTION iana_zone_of(text) IS
+    'WIB, WITA and WIT as Asia/Jakarta, Asia/Makassar and Asia/Jayapura; any other text unchanged (0603). Lets site.timezone hold either lane''s spelling.';
 
 -- The one definition of "whose clock", for SQL: the named site's zone, else
 -- head office's (a site id the centre holds no row for, or none at all),
@@ -97,13 +161,30 @@ COMMENT ON COLUMN site.timezone IS
 CREATE FUNCTION site_business_timezone(text) RETURNS text
 LANGUAGE sql STABLE AS $$
     SELECT COALESCE(
-        (SELECT timezone FROM site WHERE id = $1),
-        (SELECT timezone FROM site WHERE id = head_office_site_id()),
+        (SELECT iana_zone_of(timezone) FROM site WHERE id = $1),
+        (SELECT iana_zone_of(timezone) FROM site WHERE id = head_office_site_id()),
         'Asia/Jakarta')
 $$;
 
 COMMENT ON FUNCTION site_business_timezone(text) IS
     'The IANA zone a site cuts its day in: its own, else head office''s, else Asia/Jakarta (0603). NULL asks for head office''s.';
+
+-- The one definition of "whose clock" for a unit: head office's site for the
+-- head-office unit (by its kind, never an id), else the unit's own site — a
+-- store's shop. A unit with no site, or an id no unit has, keeps head
+-- office's. A store with several sites keeps the first by id; they are one
+-- town's premises. Rust reads it through `sites::unit_utc_offset_minutes`.
+CREATE FUNCTION unit_business_timezone(text) RETURNS text
+LANGUAGE sql STABLE AS $$
+    SELECT site_business_timezone(
+        CASE WHEN (SELECT kind FROM unit WHERE id = $1) = 'HO'
+             THEN head_office_site_id()
+             ELSE (SELECT s.id FROM site s WHERE s.unit_id = $1 ORDER BY s.id LIMIT 1)
+        END)
+$$;
+
+COMMENT ON FUNCTION unit_business_timezone(text) IS
+    'The IANA zone a unit cuts its day in: its site''s — head office''s site for the HO unit, a store''s shop for a store — else head office''s (0603).';
 
 -- The day an instant falls on where a site is. Replaces every
 -- `(x AT TIME ZONE 'UTC') + make_interval(mins => 420)` the code carried.
@@ -131,24 +212,13 @@ COMMENT ON COLUMN site.code IS
 
 UPDATE site SET code = 'HO-GUDANG' WHERE kind = 'HO' AND code IS NULL;
 
+-- A shop prints as its store's code (C004-TOKO): the unit is where the code
+-- lives (0600), so the site's is derived from it once, here, and not again.
 UPDATE site AS s
-   SET code = v.code
-  FROM (VALUES
-    ('store-01', 'C001-TOKO'),
-    ('store-02', 'C002-TOKO'),
-    ('store-03', 'C003-TOKO'),
-    ('store-04', 'C004-TOKO'),
-    ('store-05', 'C005-TOKO'),
-    ('store-06', 'C006-TOKO'),
-    ('store-07', 'C007-TOKO'),
-    ('store-08', 'C008-TOKO'),
-    ('store-09', 'C009-TOKO'),
-    ('store-10', 'C010-TOKO'),
-    ('store-11', 'C011-TOKO'),
-    ('store-12', 'C012-TOKO'),
-    ('store-13', 'C013-TOKO')
-  ) AS v (site_id, code)
- WHERE s.id = v.site_id
+   SET code = u.code || '-TOKO'
+  FROM unit u
+ WHERE u.id = s.unit_id
+   AND u.kind = 'STORE'
    AND s.kind = 'STORE'
    AND s.code IS NULL;
 
@@ -194,7 +264,7 @@ $$ LANGUAGE plpgsql;
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM site WHERE NOT is_iana_timezone(timezone)) THEN
+    IF EXISTS (SELECT 1 FROM site WHERE NOT is_iana_timezone(iana_zone_of(timezone))) THEN
         RAISE EXCEPTION '0603: a site keeps a time zone this server does not know';
     END IF;
     IF (SELECT count(*) FROM site WHERE kind = 'HO') > 1 THEN
