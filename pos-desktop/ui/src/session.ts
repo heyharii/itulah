@@ -30,6 +30,7 @@ import { useEffect, useSyncExternalStore } from "react"
 
 import { claimFinger, claimPin, login, logout, me, roster, type Me } from "@/api"
 import { identifyFinger } from "@/edge"
+import type { Peripherals } from "@/peripherals"
 
 /// The shell's copy of what this terminal is. Field names are the Rust
 /// struct's — `NodeConfig` in `src-tauri/src/edge.rs` — because they cross the
@@ -56,6 +57,23 @@ export type NodeConfig = {
   /// press. Only a development build of the shell reads it; a release compiles
   /// that code out entirely.
   readonly simulate_fingerprint: string | null
+  /// Which node this till joined, and what it is called there — as the node
+  /// said when it let the till in (`src-tauri/src/join.rs`). Null for a till
+  /// paired the old way, or not at all. Only the shell writes it.
+  readonly joined?: JoinedNode | null
+  /// What is plugged into this till. Only `set_peripherals` changes it; see
+  /// `peripherals.ts`.
+  readonly peripherals?: Peripherals
+}
+
+/// `JoinedNode` in `src-tauri/src/edge.rs`.
+export type JoinedNode = {
+  readonly origin_id: string
+  readonly site_id: string
+  /// "Kasir 3" — also this terminal's `terminal_id`.
+  readonly label: string
+  /// Unix seconds.
+  readonly joined_at: number
 }
 
 /// What a person may change. The token is deliberately not in it: the node
@@ -515,6 +533,10 @@ async function pointAt(next: NodeEdit): Promise<string | null> {
 
   const moved = base !== config.base_url.trim().replace(/\/+$/, "")
   const saved = await hand({
+    // Everything the shell holds that this screen does not edit — which node
+    // the till joined, its peripherals — rides through unchanged. The shell
+    // keeps its own copy of those regardless; this keeps the two in step.
+    ...config,
     base_url: base,
     terminal_id: terminal,
     token: moved ? null : config.token,
@@ -542,6 +564,37 @@ async function pointAt(next: NodeEdit): Promise<string | null> {
   if (!saved.ok) return saved.problem
   put({ config: saved.value, me: moved ? null : held.me, problem: null })
   return null
+}
+
+/// Take the shell's config as it now is, after the shell changed it on its
+/// own: a till that was let into a node, peripherals saved.
+///
+/// A till that joined a *different* node has had its token dropped by the
+/// shell — a session one shop's node issued means nothing at another's — and
+/// whoever was signed in here is signed out with it. The session is then read
+/// afresh, exactly as at start-up, so a node that checks nobody is still
+/// recognised as one.
+export function adoptConfig(config: NodeConfig): void {
+  const before = held.config
+  const moved =
+    before !== null &&
+    before.base_url.replace(/\/+$/, "") !== config.base_url.replace(/\/+$/, "")
+  const lostToken =
+    (before?.token ?? null) !== null && (config.token ?? null) === null
+  if (moved || lostToken) {
+    put({ config, me: null, ready: false, problem: null })
+    opening = null
+    void open()
+    return
+  }
+  put({ config })
+}
+
+/// Read the shell's config again and adopt it. For screens that asked the
+/// shell to change something and were not handed the result.
+export async function refreshFromShell(): Promise<void> {
+  const got = await shellCall<NodeConfig>("node_config")
+  if (got.ok) adoptConfig(got.value)
 }
 
 // ── what screens see ────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import { useCallback, useState } from "react"
 import { useIdleLock, LockScreen } from "@/lock"
 import { CustomerScreen } from "@/screens/customer"
 import { LoginScreen, SetupScreen } from "@/screens/login"
+import { PeripheralsScreen } from "@/screens/peripherals"
 import { RedeemScreen } from "@/screens/redeem"
 import { ReturnScreen, VoidScreen } from "@/screens/returns"
 import { ShiftGate, ShiftScreen } from "@/screens/shift"
@@ -62,9 +63,21 @@ function Counter() {
 
   // Pointing this terminal at a node is allowed before signing in: a till that
   // could not be repointed until it had signed in would be unrecoverable the
-  // moment it was pointed at the wrong shop.
-  if (where === "setup" && session.me === null) {
-    return <SetupScreen onDone={() => setWhere("sale")} />
+  // moment it was pointed at the wrong shop. The same goes for what is plugged
+  // into it — the person installing a counter is rarely a person with an
+  // account at that shop yet.
+  if (session.me === null) {
+    if (where === "setup") {
+      return (
+        <SetupScreen
+          onDone={() => setWhere("sale")}
+          onPeripherals={() => setWhere("peripherals")}
+        />
+      )
+    }
+    if (where === "peripherals") {
+      return <PeripheralsScreen onBack={() => setWhere("setup")} />
+    }
   }
 
   if (session.me === null) {
@@ -94,7 +107,12 @@ function Counter() {
 
   const screen =
     where === "setup" ? (
-      <SetupScreen onDone={() => setWhere("sale")} />
+      <SetupScreen
+        onDone={() => setWhere("sale")}
+        onPeripherals={() => setWhere("peripherals")}
+      />
+    ) : where === "peripherals" ? (
+      <PeripheralsScreen onBack={() => setWhere("setup")} />
     ) : where === "sale" || where === "payment" ? null : where === "shift" ? (
       <ShiftScreen
         actorId={actorId}

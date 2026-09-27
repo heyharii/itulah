@@ -344,11 +344,17 @@ export const receipt = (saleId: string) =>
 /// `drawer` is `PRINTER_PULSE` to kick the cash drawer open through the
 /// printer, or `NONE`. `copy` stamps every print after the first, so a
 /// duplicate can never be mistaken for a second sale.
+///
+/// A printer the node has recorded is named by `printer_id` instead of an
+/// address, and the node writes its host and port in itself
+/// (`with_recorded_printer` in `backend/src/edge/http.rs`) — so the address
+/// lives in one place, and a printer that moved on the router is fixed once.
 export const printReceipt = (
   saleId: string,
-  body: {
-    printer_host: string
-    printer_port: number
+  body: (
+    | { printer_host: string; printer_port: number }
+    | { printer_id: string }
+  ) & {
     paper: string
     drawer: string
     copy: boolean
@@ -536,5 +542,30 @@ export const recordApproval = (body: {
   actor_id: string
   idempotency_key: string
 }) => edge<TillApproval>("POST", "/api/v1/store/approvals", body)
+
+// ── the machines enrolled to this node ──────────────────────────────────
+
+/// One device as the node reports it — `DeviceReport` in
+/// `backend/src/sync/device.rs`. `config` is kind-specific and never secret:
+/// a printer's host, port, language and purpose; a till's peripherals.
+export type DeviceRow = {
+  readonly device_id: string
+  /// `TILL`, `PRINTER`, `RFID_READER`, …
+  readonly kind: string
+  readonly label: string
+  /// `ACTIVE`, `SUSPENDED` or `REVOKED`.
+  readonly status: string
+  readonly last_seen_at?: string | null
+  readonly config?: {
+    readonly host?: string
+    readonly port?: number
+    readonly language?: string | null
+    readonly purpose?: string
+  } | null
+}
+
+/// `GET /api/v1/devices` — every till, printer and reader at this node.
+export const devices = () =>
+  edge<{ items?: DeviceRow[] }>("GET", "/api/v1/devices")
 
 export type { EdgeReply }

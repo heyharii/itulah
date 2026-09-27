@@ -267,7 +267,13 @@ export function LoginScreen({
 /// Two fields, and both of them decide something a cashier cannot see from the
 /// sale screen: the address decides whose stock and whose prices this till is
 /// selling, and the number is what a receipt is traced back by.
-export function SetupScreen({ onDone }: { onDone: () => void }) {
+export function SetupScreen({
+  onDone,
+  onPeripherals,
+}: {
+  onDone: () => void
+  onPeripherals?: () => void
+}) {
   const { ready, problem: shellProblem } = useSession()
   const { config, save } = useNodeConfig()
   const [baseUrl, setBaseUrl] = useState("")
@@ -390,6 +396,19 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
               </select>
             </label>
           </div>
+
+          {/* The rest of what hangs off this counter — the shopper's screen,
+              the desk reader, the drawer, a printer the node has recorded —
+              is set on its own screen and reported to the node. */}
+          {onPeripherals !== undefined && (
+            <div className="kv">
+              <span className="muted">Perangkat di kasir ini</span>
+              <button className="btn" type="button" onClick={onPeripherals}>
+                <Icon name="plug" />
+                Atur perangkat
+              </button>
+            </div>
+          )}
 
           {/* Pairing is what lets this machine speak in its own name — ask the
               node for the fingerprint roster, and say whose finger matched. It
