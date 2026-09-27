@@ -515,6 +515,12 @@ pub fn store_router_with_sync(
             "/api/v1/store/sales/{sale_id}/receipt",
             get(store_receipt).post(store_print_receipt),
         )
+        // The same receipt as bytes, for a USB printer on the till: the node
+        // cannot reach that cable, so the till sends them itself.
+        .route(
+            "/api/v1/store/sales/{sale_id}/receipt/escpos",
+            post(store_render_receipt),
+        )
         .route(
             "/api/v1/store/reports/sales/series",
             get(store_sales_series),
@@ -2706,6 +2712,36 @@ async fn store_receipt(
     Ok(Json(serde_json::to_value(document)?))
 }
 
+/// A receipt for the USB printer on a till: rendered here, where every receipt
+/// is rendered, and sent by the till, the one party on that printer's cable.
+/// The node prints nothing. The bytes come back as hex, which a till decodes
+/// without a library.
+async fn store_render_receipt(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(sale_id): Path<String>,
+    Json(request): Json<crate::edge::till::RenderReceiptRequest>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::StoreSale)?;
+    let rendered = run_blocking(move || {
+        let document = state.inventory.sale_receipt(&sale_id)?;
+        let bytes = crate::edge::till::render_receipt(
+            &document,
+            request.paper.as_deref(),
+            request.drawer.as_deref(),
+            request.copy,
+        );
+        Ok(json!({
+            "sale_id": sale_id,
+            "receipt_no": document.receipt_no,
+            "bytes": bytes.len(),
+            "escpos_hex": hex::encode(&bytes),
+        }))
+    })
+    .await?;
+    Ok(Json(rendered))
+}
+
 async fn store_print_receipt(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
@@ -3678,11 +3714,17 @@ fn lock_devices(
 }
 
 /// Who this node is, for a till looking for its shop's server. Open, and
-/// carries nothing that is not printed on the shop's receipts.
-async fn node_identity(State(state): State<EdgeState>) -> Json<Value> {
-    Json(json!(crate::edge::devices::node_identity(
-        state.inventory.node()
-    )))
+/// carries nothing that is not printed on the shop's receipts — the site's
+/// display code and name included, from the site directory.
+async fn node_identity(State(state): State<EdgeState>) -> Result<Json<Value>, ApiError> {
+    let connection = state.auth.connection();
+    let node = state.inventory.node().clone();
+    let identity = run_blocking(move || {
+        let guard = lock_devices(&connection)?;
+        Ok(crate::edge::devices::node_identity(&guard, &node))
+    })
+    .await?;
+    Ok(Json(json!(identity)))
 }
 
 /// Every device this node holds, as head office will see it.

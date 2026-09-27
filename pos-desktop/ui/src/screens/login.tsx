@@ -32,6 +32,7 @@ import { useEffect, useState, type FormEvent } from "react"
 
 import { authMethods, pairTerminal, type StepUp } from "@/api"
 import { Icon } from "@/icons"
+import { siteTitle, useWaitingTills } from "@/joining"
 import { PinPad } from "@/pinpad"
 import { useNodeConfig, useSession } from "@/session"
 import { Brand, Topbar } from "@/till"
@@ -44,9 +45,14 @@ import { Brand, Topbar } from "@/till"
 export function LoginScreen({
   onSignedIn,
   onSetup,
+  onJoin,
 }: {
   onSignedIn: () => void
   onSetup: () => void
+  /// Offered while this till holds no credential at its node: a new till's
+  /// first screen should say how it becomes a till, not only ask for a
+  /// password it cannot yet use for a finger or a PIN.
+  onJoin?: () => void
 }) {
   const { ready, problem, signIn, signInWithFinger, signInWithPin } =
     useSession()
@@ -245,6 +251,21 @@ export function LoginScreen({
             </>
           )}
 
+          {onJoin !== undefined && config !== null && config.pairing_id === null && (
+            <div className="notice" style={{ width: "100%", textAlign: "left" }}>
+              Kasir ini belum tergabung ke node toko.{" "}
+              <button
+                className="btn ghost"
+                type="button"
+                style={{ minHeight: 26, padding: "0 6px" }}
+                onClick={onJoin}
+              >
+                <Icon name="plug" />
+                Gabungkan
+              </button>
+            </div>
+          )}
+
           <div className="login-foot">
             <span className="num" title={config?.base_url}>
               {config === null
@@ -267,7 +288,19 @@ export function LoginScreen({
 /// Two fields, and both of them decide something a cashier cannot see from the
 /// sale screen: the address decides whose stock and whose prices this till is
 /// selling, and the number is what a receipt is traced back by.
-export function SetupScreen({ onDone }: { onDone: () => void }) {
+export function SetupScreen({
+  onDone,
+  onPeripherals,
+  onJoin,
+  onJoins,
+}: {
+  onDone: () => void
+  onPeripherals?: () => void
+  onJoin?: () => void
+  /// The tills waiting to join this shop. Only offered to somebody signed in:
+  /// the list is the node's, and approving needs a supervisor at this till.
+  onJoins?: () => void
+}) {
   const { ready, problem: shellProblem } = useSession()
   const { config, save } = useNodeConfig()
   const [baseUrl, setBaseUrl] = useState("")
@@ -279,6 +312,13 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
   const [pretend, setPretend] = useState("")
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Tills asking to join, counted beside the button that lets them in. Asked
+  // only when that button is here — signed in, on a till the node knows.
+  const waiting = useWaitingTills(
+    onJoins !== undefined &&
+      config?.pairing_id !== null &&
+      config?.pairing_id !== undefined,
+  )
 
   // Seeded from the shell rather than left blank, so "change one thing" does
   // not mean "retype both" — and so what is on screen is what is in force.
@@ -391,6 +431,62 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
             </label>
           </div>
 
+          {/* The rest of what hangs off this counter — the shopper's screen,
+              the desk reader, the drawer, a printer the node has recorded —
+              is set on its own screen and reported to the node. */}
+          {onPeripherals !== undefined && (
+            <div className="kv">
+              <span className="muted">Perangkat di kasir ini</span>
+              <button className="btn" type="button" onClick={onPeripherals}>
+                <Icon name="plug" />
+                Atur perangkat
+              </button>
+            </div>
+          )}
+
+          {/* Joining is how a till gets its standing now: it finds the node,
+              asks, and a supervisor says yes after comparing the code and the
+              number on both screens. The key is minted in the shell and never
+              reaches this page. */}
+          {onJoin !== undefined && (
+            <div className="kv">
+              <span className="muted">Kasir di node toko</span>
+              <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {config?.joined != null ? (
+                  <span className="badge ok">
+                    {config.joined.label} · {siteTitle(config.joined)}
+                  </span>
+                ) : config?.pairing_id != null ? (
+                  <span className="badge ok">Terpasang</span>
+                ) : (
+                  <span className="badge plain">Belum tergabung</span>
+                )}
+                <button className="btn" type="button" onClick={onJoin}>
+                  <Icon name="plug" />
+                  {config?.pairing_id != null ? "Gabung ulang" : "Gabungkan ke node"}
+                </button>
+              </span>
+            </div>
+          )}
+
+          {/* A new till is let in from a till that already belongs: the
+              supervisor's finger or PIN is pressed here, on a machine the node
+              trusts to say whose it was. */}
+          {onJoins !== undefined && (
+            <div className="kv">
+              <span className="muted">Kasir baru yang meminta bergabung</span>
+              <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {waiting !== null && waiting > 0 && (
+                  <span className="badge warn">{waiting} menunggu</span>
+                )}
+                <button className="btn" type="button" onClick={onJoins}>
+                  <Icon name="list" />
+                  Kasir menunggu
+                </button>
+              </span>
+            </div>
+          )}
+
           {/* Pairing is what lets this machine speak in its own name — ask the
               node for the fingerprint roster, and say whose finger matched. It
               is deliberately a separate act from signing in: pairing grants a
@@ -398,9 +494,10 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
               and writes down who did.
 
               The secret is handed over once and never again. It goes to the
-              shell, not to this page. */}
+              shell, not to this page. Kept beside joining for a node that
+              predates it, and for an admin who is already signed in here. */}
           <div className="kv">
-            <span className="muted">Pasangan dengan node</span>
+            <span className="muted">Pasangan lama (akun admin)</span>
             {config?.pairing_id != null ? (
               <span className="badge ok">
                 Terpasang · <span className="num">{config.pairing_id}</span>

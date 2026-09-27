@@ -1272,6 +1272,29 @@ fn receipt_number(site_id: &str, sale_id: &str, completed_at: &str) -> String {
     )
 }
 
+/// The receipt exactly as a printer receives it: ESC/POS for this paper, the
+/// drawer's pulse when asked for, and a copy stamped as one.
+///
+/// One rendering for every printer. [`print_receipt`] sends these bytes to a
+/// network printer; a till with a USB printer fetches them
+/// (`POST /api/v1/store/sales/{id}/receipt/escpos`) and sends them down its
+/// own cable — so the paper a customer takes home is the same paper whichever
+/// way it came out.
+pub fn render_receipt(
+    document: &ReceiptDocument,
+    paper: Option<&str>,
+    drawer: Option<&str>,
+    copy: bool,
+) -> Vec<u8> {
+    let paper = paper.map(PaperWidth::parse).unwrap_or(PaperWidth::Narrow);
+    let drawer = drawer.map(DrawerMode::parse).unwrap_or(DrawerMode::None);
+    let mut document = document.clone();
+    if copy && document.stamp.is_none() {
+        document.stamp = Some("** SALINAN **".to_string());
+    }
+    escpos::render(&document, paper, drawer)
+}
+
 /// Render and send. Best-effort on the drawer, never on the receipt: a printer
 /// that refused is reported, because a customer standing there without a
 /// receipt is not a success.
@@ -1279,23 +1302,29 @@ pub fn print_receipt(
     document: &ReceiptDocument,
     request: &PrintReceiptRequest,
 ) -> Result<usize, EdgeError> {
-    let paper = request
-        .paper
-        .as_deref()
-        .map(PaperWidth::parse)
-        .unwrap_or(PaperWidth::Narrow);
-    let drawer = request
-        .drawer
-        .as_deref()
-        .map(DrawerMode::parse)
-        .unwrap_or(DrawerMode::None);
-    let mut document = document.clone();
-    if request.copy && document.stamp.is_none() {
-        document.stamp = Some("** SALINAN **".to_string());
-    }
-    let bytes = escpos::render(&document, paper, drawer);
+    let bytes = render_receipt(
+        document,
+        request.paper.as_deref(),
+        request.drawer.as_deref(),
+        request.copy,
+    );
     super::printing::send_bytes(&request.printer_host, request.printer_port, &bytes)?;
     Ok(bytes.len())
+}
+
+/// `POST /api/v1/store/sales/{id}/receipt/escpos`: a receipt rendered for a
+/// printer the node cannot reach — the USB printer on a till — and handed to
+/// that till to send. The same three choices a print takes, and no address.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct RenderReceiptRequest {
+    /// `NARROW` (58mm, 32 columns) or `WIDE` (80mm, 48).
+    #[serde(default)]
+    pub paper: Option<String>,
+    /// `PRINTER_PULSE`, `MANUAL` or `NONE`.
+    #[serde(default)]
+    pub drawer: Option<String>,
+    #[serde(default)]
+    pub copy: bool,
 }
 
 // ════════════════════════════════════════════════════════════════════════════

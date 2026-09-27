@@ -450,6 +450,14 @@ pub(crate) const SESSION_REASON_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0053_a_person_is_signed_in_on_one_device_at_a_node.sql"
 ));
 
+/// Which of this node's RFID keys are handhelds and which fixed readers, as
+/// head office registered them (`0056`). An ALTER, probed by
+/// `edge_rfid_device.kind`.
+pub(crate) const RFID_DEVICE_KIND_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0056_a_node_knows_which_readers_are_carried.sql"
+));
+
 /// Darkness and speed on the print session. See the migration.
 pub(crate) const PRINT_MACHINE_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -1253,6 +1261,19 @@ impl SqliteEdge {
         }
         connection.execute_batch(PRINTER_SCHEMA).map_err(db)?;
         crate::edge::auth::ensure_session_reason(&connection)?;
+        // A reader carried or fixed (`0056`): an ALTER, so probed first.
+        let a_reader_has_a_kind: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('edge_rfid_device') WHERE name='kind'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_reader_has_a_kind == 0 {
+            connection
+                .execute_batch(RFID_DEVICE_KIND_SCHEMA)
+                .map_err(db)?;
+        }
         if a_stream_says_whose_seqs_it_writes == 0 {
             connection
                 .execute_batch(SYNC_HANDSHAKE_SCHEMA)

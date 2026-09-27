@@ -18,10 +18,26 @@
 //! touched — and everything the shop is the authority on (stock, price, the
 //! sale, its sequence number, the cash session) stays at the node and is asked
 //! for by name.
+//!
+//! # When the node's address changes
+//!
+//! A shop's router hands its server a new address after a power cut, and a
+//! till that only knew the old one would be a till that stopped selling. So a
+//! till that joined keeps its node's mDNS names beside the address
+//! (`node_instance`, `node_host`, which do not move when the address does —
+//! `backend/src/edge/discovery.rs`), and when a call cannot even connect it
+//! looks for the node on the LAN again (`discovery::refind`), takes the new
+//! address only from a machine that answers as the same origin, keeps it, and
+//! tries the call once more. Only when the connection never opened: a call
+//! that reached the node and lost its answer might have been carried out, and
+//! is not sent twice. The window hears `moved_to` and follows.
+//!
+//! Every call runs off the window's thread (`in_the_background`), so the few
+//! seconds a look takes never freeze the counter.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
@@ -80,6 +96,50 @@ pub struct NodeConfig {
     /// and testing it was worth more than waiting for hardware.
     #[serde(default)]
     pub simulate_fingerprint: Option<String>,
+    /// Which node this till joined, and what it is called there. Written when
+    /// a supervisor let this till in (`join.rs`); absent for a till paired the
+    /// old way, or not at all. Shown, never trusted: what the node believes
+    /// about this till is at the node.
+    #[serde(default)]
+    pub joined: Option<JoinedNode>,
+    /// What is plugged into this till — the customer display, a desk reader,
+    /// the drawer, a scanner, the receipt printer. Configuration of this till,
+    /// not devices of their own; see `peripherals.rs`.
+    #[serde(default)]
+    pub peripherals: crate::peripherals::Peripherals,
+    /// The node's DNS-SD instance (`itulah store-07-edge._itulah-store._tcp.local.`)
+    /// and host (`store-07-edge.local`), kept beside `base_url` when the node
+    /// was found on the LAN. They do not change when its address does, and are
+    /// what [`refind_node`] looks for first. Hints only: whatever answers to
+    /// them is taken only if it says it is the node this till joined.
+    #[serde(default)]
+    pub node_instance: Option<String>,
+    #[serde(default)]
+    pub node_host: Option<String>,
+    /// The address this till followed its node away from, so a copy of these
+    /// settings the window read before the move is not taken for somebody
+    /// pointing the till back at a dead address.
+    #[serde(default)]
+    pub moved_from: Option<String>,
+}
+
+/// The node a till joined, as the node said when it let the till in.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct JoinedNode {
+    pub origin_id: String,
+    pub site_id: String,
+    /// The shop in head office's words when the till joined — `C004-TOKO`,
+    /// `Bumiayu` — so Setelan can say which shop this counter belongs to. Only
+    /// shown; absent when the node had not heard from head office yet.
+    #[serde(default)]
+    pub site_code: Option<String>,
+    #[serde(default)]
+    pub site_name: Option<String>,
+    /// "Kasir 3": the label the node gave this till, or the one it inherited
+    /// from the till it replaced. Also this terminal's `terminal_id`.
+    pub label: String,
+    /// Unix seconds.
+    pub joined_at: i64,
 }
 
 fn default_printer_port() -> u16 {
@@ -103,6 +163,11 @@ impl Default for NodeConfig {
             pairing_secret: None,
             pairing_sequence: 0,
             simulate_fingerprint: None,
+            joined: None,
+            peripherals: crate::peripherals::Peripherals::default(),
+            node_instance: None,
+            node_host: None,
+            moved_from: None,
         }
     }
 }
@@ -133,9 +198,15 @@ pub struct Node(pub Mutex<NodeConfig>);
 /// customer every morning — is the kind of friction that gets solved at the
 /// counter by writing the password on the monitor.
 fn config_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    settings_file(app, "node.json")
+}
+
+/// A file in this terminal's own settings directory. `join.rs` keeps a
+/// request it is waiting on beside `node.json`, for the reasons given above.
+pub(crate) fn settings_file(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> {
     let dir = app.path().app_config_dir().ok()?;
     std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join("node.json"))
+    Some(dir.join(name))
 }
 
 /// Read what was saved, if anything. A missing or unreadable file is not an
@@ -148,7 +219,7 @@ pub fn load(app: &tauri::AppHandle) -> NodeConfig {
         .unwrap_or_default()
 }
 
-fn save(app: &tauri::AppHandle, config: &NodeConfig) {
+pub(crate) fn save(app: &tauri::AppHandle, config: &NodeConfig) {
     // A failure to write is reported and not fought over: the terminal keeps
     // working with what is in memory, and the next start asks again. Refusing
     // to sign somebody in because a config directory is read-only would stop a
@@ -177,27 +248,176 @@ pub struct EdgeReply {
     pub body: serde_json::Value,
     /// Plain text for the cashier when `ok` is false.
     pub problem: Option<String>,
+    /// The node's new address, when this call found it there after the old
+    /// one stopped answering. The window re-reads the settings; nobody is
+    /// signed out, because it is the same node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moved_to: Option<String>,
 }
 
 impl EdgeReply {
-    fn unreachable(detail: String) -> Self {
+    pub(crate) fn unreachable(detail: String) -> Self {
         Self {
             ok: false,
             status: 0,
             body: serde_json::Value::Null,
             problem: Some(detail),
+            moved_to: None,
         }
     }
+}
+
+/// The node's settings, whoever last panicked holding them: they are a plain
+/// struct, and a till that stopped over a poisoned lock would stop selling.
+pub(crate) fn lock(node: &Node) -> MutexGuard<'_, NodeConfig> {
+    node.0.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Two spellings of one base URL.
+pub(crate) fn same_base(one: &str, other: &str) -> bool {
+    one.trim_end_matches('/')
+        .eq_ignore_ascii_case(other.trim_end_matches('/'))
+}
+
+/// One signed call at a time. Each takes the next sequence number, and the
+/// node refuses a number lower than one it has already seen: two calls on two
+/// threads could arrive the other way round, and the second would be refused
+/// as a replay.
+static SIGNING: Mutex<()> = Mutex::new(());
+
+/// When the node was last looked for, and the lock that makes one look at a
+/// time: a till whose node vanished fires several calls at once, and one look
+/// answers them all.
+static REFINDING: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// How soon after one look for the node another may be made. A node that is
+/// switched off is not found by looking harder, and every call that fails in
+/// the meantime would otherwise wait out a listen of its own.
+const REFIND_EVERY: Duration = Duration::from_secs(30);
+
+/// Whether a failed call never reached the node at all — refused, timed out
+/// while connecting, or a name that did not resolve. Only then is it safe to
+/// look for the node elsewhere and send the call again.
+fn never_connected(transport: &ureq::Transport) -> bool {
+    matches!(
+        transport.kind(),
+        ureq::ErrorKind::ConnectionFailed | ureq::ErrorKind::Dns
+    )
+}
+
+/// Look for this till's node on the LAN again, because the address it was at
+/// has stopped answering, and keep the new one if it is the same node.
+///
+/// Only a till that joined knows which node it is looking for (`joined`); a
+/// till paired the old way keeps the address it was given. The look takes a
+/// few seconds and is made at most once every [`REFIND_EVERY`]; a call that
+/// failed while another was looking uses what that look found. Returns the
+/// base URL to try once more, or `None`.
+fn refind_node(app: &tauri::AppHandle, failed_base: &str) -> Option<String> {
+    let mut last = REFINDING.lock().unwrap_or_else(PoisonError::into_inner);
+    let node = app.state::<Node>();
+    let (current, origin, instance, host) = {
+        let held = lock(node.inner());
+        (
+            held.base_url.clone(),
+            held.joined.as_ref().map(|joined| joined.origin_id.clone()),
+            held.node_instance.clone(),
+            held.node_host.clone(),
+        )
+    };
+    if !same_base(&current, failed_base) {
+        // Followed while this call waited for the look.
+        return Some(current);
+    }
+    let origin = origin?;
+    if last.is_some_and(|at| at.elapsed() < REFIND_EVERY) {
+        return None;
+    }
+    *last = Some(Instant::now());
+    let found = crate::discovery::refind(&origin, instance.as_deref(), host.as_deref())?;
+    let mut held = lock(node.inner());
+    if !same_base(&held.base_url, failed_base) {
+        return Some(held.base_url.clone());
+    }
+    if !same_base(&found.base_url, failed_base) {
+        eprintln!(
+            "the shop node moved from {failed_base} to {}; following it",
+            found.base_url
+        );
+        held.moved_from = Some(held.base_url.clone());
+        held.base_url = found.base_url.clone();
+    }
+    held.node_instance = Some(found.instance);
+    held.node_host = Some(found.host);
+    save(app, &held);
+    Some(found.base_url)
+}
+
+/// What one attempt at a call came to.
+enum Attempt {
+    /// The node answered, or refused in a way looking elsewhere cannot fix.
+    Answered(EdgeReply),
+    /// The connection never opened: `base` did not answer at all.
+    Unreached { base: String, why: String },
+}
+
+fn unreached_reply(base: &str, why: &str) -> EdgeReply {
+    EdgeReply::unreachable(format!(
+        "This till cannot reach its shop node at {base}. {why}"
+    ))
+}
+
+/// Make a call, and when its node did not answer at all, look for the node
+/// and make it once more wherever it is now.
+fn with_refind(app: &tauri::AppHandle, mut attempt: impl FnMut() -> Attempt) -> EdgeReply {
+    let (base, why) = match attempt() {
+        Attempt::Answered(reply) => return reply,
+        Attempt::Unreached { base, why } => (base, why),
+    };
+    let Some(found) = refind_node(app, &base) else {
+        return unreached_reply(&base, &why);
+    };
+    let mut reply = match attempt() {
+        Attempt::Answered(reply) => reply,
+        Attempt::Unreached { base, why } => unreached_reply(&base, &why),
+    };
+    if !same_base(&found, &base) {
+        reply.moved_to = Some(found);
+    }
+    reply
+}
+
+/// Run a call to the node off the window's thread. A call that could not even
+/// be run comes back as a refusal, like every other failure at the counter.
+async fn in_the_background(work: impl FnOnce() -> EdgeReply + Send + 'static) -> EdgeReply {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .unwrap_or_else(|error| EdgeReply::unreachable(format!("The call did not run: {error}")))
 }
 
 /// A till waits in front of a person. Ten seconds is already long enough that
 /// a cashier has started apologising; beyond it the honest answer is that the
 /// node is not there.
-const PATIENCE: Duration = Duration::from_secs(10);
+pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
+
+/// Run a blocking piece of work — an HTTP call, a few seconds of listening on
+/// the LAN — off the window's thread, and hand back its answer.
+///
+/// For the commands `join.rs`, `discovery.rs` and `peripherals.rs` add. A
+/// command without `async` runs on the main thread, and a till whose window
+/// froze for the three seconds it spent listening for its node would look
+/// like a till that had crashed.
+pub(crate) async fn off_the_window<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| error.to_string())?
+}
 
 #[tauri::command]
 pub fn node_config(node: tauri::State<'_, Node>) -> NodeConfig {
-    node.0.lock().expect("node config").clone()
+    lock(node.inner()).clone()
 }
 
 #[tauri::command]
@@ -206,7 +426,47 @@ pub fn set_node_config(
     node: tauri::State<'_, Node>,
     next: NodeConfig,
 ) -> NodeConfig {
-    let mut held = node.0.lock().expect("node config");
+    let mut held = lock(node.inner());
+    let mut next = next;
+    // A copy read before the shell followed its node to a new address still
+    // names the old one. That is the stale copy, not a person pointing this
+    // till back at an address nothing answers at any more.
+    if held
+        .moved_from
+        .as_deref()
+        .is_some_and(|old| same_base(old, &next.base_url))
+    {
+        next.base_url = held.base_url.clone();
+    }
+    // The window hands back a copy it read earlier, and three things in it
+    // are the shell's to keep, not the window's to set:
+    //
+    // - the sequence, which every signed call moves on *here*. A copy read
+    //   before the roster call and saved after the claim would wind it back,
+    //   and the node refuses a sequence it has seen as a replay — so it only
+    //   ever goes forward;
+    // - the peripherals, which only `set_peripherals` changes;
+    // - which node this till joined, true until the till is pointed at
+    //   another node or given another credential.
+    next.pairing_sequence = next.pairing_sequence.max(held.pairing_sequence);
+    next.peripherals = held.peripherals.clone();
+    let same_node = next.base_url.trim_end_matches('/') == held.base_url.trim_end_matches('/');
+    next.joined = if same_node && next.pairing_id == held.pairing_id {
+        held.joined.clone()
+    } else {
+        None
+    };
+    // The node's names and where it moved from are the shell's too, and
+    // belong to the node they were learned from.
+    if same_node {
+        next.node_instance = held.node_instance.clone();
+        next.node_host = held.node_host.clone();
+        next.moved_from = held.moved_from.clone();
+    } else {
+        next.node_instance = None;
+        next.node_host = None;
+        next.moved_from = None;
+    }
     *held = next;
     save(&app, &held);
     held.clone()
@@ -227,27 +487,38 @@ fn sign(
     sequence: i64,
     body_sha256: &str,
 ) -> String {
-    use hmac::{Hmac, Mac};
-    use sha2::Sha256;
     // The node keeps the SHA-256 of the secret and signs with that, not with
     // the secret itself — so this end has to hash first or nothing will verify.
-    let key = hex(&{
-        use sha2::Digest;
-        sha2::Sha256::digest(secret.as_bytes())
-    });
+    let key = digest_of(secret.as_bytes());
     let canonical = format!("{method}\n{path}\n{terminal}\n{timestamp}\n{sequence}\n{body_sha256}");
-    let mut mac = <Hmac<Sha256>>::new_from_slice(key.as_bytes()).expect("hmac takes any key");
-    mac.update(canonical.as_bytes());
+    hmac_hex(key.as_bytes(), canonical.as_bytes())
+}
+
+/// HMAC-SHA256, lowercase hex: `security::hmac_sha256_hex` on the node.
+pub(crate) fn hmac_hex(key: &[u8], message: &[u8]) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let mut mac = <Hmac<Sha256>>::new_from_slice(key).expect("hmac takes any key");
+    mac.update(message);
     hex(&mac.finalize().into_bytes())
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn digest_of(body: &[u8]) -> String {
+/// SHA-256, lowercase hex: `security::sha256_hex` on the node.
+pub(crate) fn digest_of(body: &[u8]) -> String {
     use sha2::Digest;
     hex(&sha2::Sha256::digest(body))
+}
+
+/// Unix seconds by this machine's clock.
+pub(crate) fn now_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs() as i64)
+        .unwrap_or_default()
 }
 
 /// Call the node as this terminal, rather than as the person signed into it.
@@ -256,58 +527,88 @@ fn digest_of(body: &[u8]) -> String {
 /// saying whose finger matched. Both happen when nobody is signed in yet, which
 /// is exactly why a bearer token cannot be what carries them.
 #[tauri::command]
-pub fn edge_signed_call(
+pub async fn edge_signed_call(
     app: tauri::AppHandle,
-    node: tauri::State<'_, Node>,
     method: String,
     path: String,
     body: Option<serde_json::Value>,
 ) -> EdgeReply {
+    in_the_background(move || {
+        let node = app.state::<Node>();
+        signed_call(&app, node.inner(), &method, &path, body.as_ref())
+    })
+    .await
+}
+
+/// The signed call itself, for the shell's own callers as well as the
+/// window's: `peripherals.rs` reports what is plugged into this till the same
+/// way the window asks for the fingerprint roster.
+///
+/// Takes the lock on `node` itself; a caller must not be holding it. One at a
+/// time ([`SIGNING`]), and sent once more, with the next sequence, wherever
+/// the node is now if it never connected.
+pub(crate) fn signed_call(
+    app: &tauri::AppHandle,
+    node: &Node,
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
+) -> EdgeReply {
+    let _one_at_a_time = SIGNING.lock().unwrap_or_else(PoisonError::into_inner);
+    with_refind(app, || signed_attempt(app, node, method, path, body))
+}
+
+fn signed_attempt(
+    app: &tauri::AppHandle,
+    node: &Node,
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
+) -> Attempt {
     let (config, sequence) = {
-        let mut held = node.0.lock().expect("node config");
+        let mut held = lock(node);
         held.pairing_sequence += 1;
         (held.clone(), held.pairing_sequence)
     };
     // Persisted immediately, and before the call. A sequence spent on a request
     // that never arrived is a gap, which the node accepts; a sequence reused
     // because the terminal restarted is a replay, which it must not.
-    save(&app, &config);
+    save(app, &config);
 
     let (Some(terminal), Some(secret)) = (
         config.pairing_id.as_deref(),
         config.pairing_secret.as_deref(),
     ) else {
-        return EdgeReply::unreachable(
-            "Terminal ini belum dipasangkan dengan node toko, jadi belum boleh              bicara atas namanya sendiri. Pasangkan dulu di Setelan terminal."
+        return Attempt::Answered(EdgeReply::unreachable(
+            "Terminal ini belum tergabung ke node toko, jadi belum boleh bicara \
+             atas namanya sendiri. Gabungkan dulu di Setelan terminal."
                 .into(),
-        );
+        ));
     };
 
     if !path.starts_with('/') {
-        return EdgeReply::unreachable(format!("“{path}” is not a path on the shop node."));
+        return Attempt::Answered(EdgeReply::unreachable(format!(
+            "“{path}” is not a path on the shop node."
+        )));
     }
 
     let payload = body
-        .as_ref()
         .map(|value| serde_json::to_vec(value).unwrap_or_default())
         .unwrap_or_default();
     let body_sha256 = digest_of(&payload);
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_secs() as i64)
-        .unwrap_or_default();
+    let timestamp = now_seconds();
     let signature = sign(
         secret,
         terminal,
-        &method,
-        &path,
+        method,
+        path,
         timestamp,
         sequence,
         &body_sha256,
     );
 
     let url = format!("{}{}", config.base_url.trim_end_matches('/'), path);
-    let request = ureq::request(&method, &url)
+    let request = ureq::request(method, &url)
         .timeout(PATIENCE)
         .set("Accept", "application/json")
         .set("X-Terminal-Id", terminal)
@@ -323,18 +624,28 @@ pub fn edge_signed_call(
             .send_bytes(&payload)
     };
 
+    outcome_of(outcome, &config.base_url)
+}
+
+/// What a request came to, as an [`Attempt`]: an answer, or — when the
+/// connection never opened — the address that did not answer.
+fn outcome_of(outcome: Result<ureq::Response, ureq::Error>, base: &str) -> Attempt {
     match outcome {
-        Ok(response) => reply_from(
+        Ok(response) => Attempt::Answered(reply_from(
             response.status(),
             response.into_string().unwrap_or_default(),
-        ),
-        Err(ureq::Error::Status(status, response)) => {
-            reply_from(status, response.into_string().unwrap_or_default())
-        }
-        Err(transport) => EdgeReply::unreachable(format!(
-            "This till cannot reach its shop node at {}. {transport}",
-            config.base_url
         )),
+        Err(ureq::Error::Status(status, response)) => Attempt::Answered(reply_from(
+            status,
+            response.into_string().unwrap_or_default(),
+        )),
+        Err(ureq::Error::Transport(transport)) if never_connected(&transport) => {
+            Attempt::Unreached {
+                base: base.to_string(),
+                why: transport.to_string(),
+            }
+        }
+        Err(transport) => Attempt::Answered(unreached_reply(base, &transport.to_string())),
     }
 }
 
@@ -344,23 +655,42 @@ pub fn edge_signed_call(
 /// the shell decides which machine that is. A window that could pass an
 /// absolute URL here is a window that could post the day's takings anywhere.
 #[tauri::command]
-pub fn edge_call(
-    node: tauri::State<'_, Node>,
+pub async fn edge_call(
+    app: tauri::AppHandle,
     method: String,
     path: String,
     body: Option<serde_json::Value>,
 ) -> EdgeReply {
-    let config = node.0.lock().expect("node config").clone();
+    in_the_background(move || session_call(&app, &method, &path, body.as_ref())).await
+}
 
+/// The call as the person signed in here, for the shell's own callers too:
+/// `printer.rs` asks the node for a receipt's bytes this way.
+pub(crate) fn session_call(
+    app: &tauri::AppHandle,
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
+) -> EdgeReply {
     if !path.starts_with('/') {
         return EdgeReply::unreachable(format!(
             "“{path}” is not a path on the shop node. The window names an endpoint; \
              the shell decides which machine that is."
         ));
     }
+    let node = app.state::<Node>();
+    with_refind(app, || session_attempt(node.inner(), method, path, body))
+}
 
+fn session_attempt(
+    node: &Node,
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
+) -> Attempt {
+    let config = lock(node).clone();
     let url = format!("{}{}", config.base_url.trim_end_matches('/'), path);
-    let mut request = ureq::request(&method, &url)
+    let mut request = ureq::request(method, &url)
         .timeout(PATIENCE)
         .set("Accept", "application/json")
         .set("X-Terminal-Id", &config.terminal_id);
@@ -373,24 +703,12 @@ pub fn edge_call(
         None => request.call(),
     };
 
-    match outcome {
-        Ok(response) => reply_from(
-            response.status(),
-            response.into_string().unwrap_or_default(),
-        ),
-        // A 4xx or 5xx is an answer, not a failure to reach: the node said no,
-        // and what it said is the thing the cashier needs to read.
-        Err(ureq::Error::Status(status, response)) => {
-            reply_from(status, response.into_string().unwrap_or_default())
-        }
-        Err(transport) => EdgeReply::unreachable(format!(
-            "This till cannot reach its shop node at {}. {transport}",
-            config.base_url
-        )),
-    }
+    // A 4xx or 5xx is an answer, not a failure to reach: the node said no, and
+    // what it said is the thing the cashier needs to read.
+    outcome_of(outcome, &config.base_url)
 }
 
-fn reply_from(status: u16, text: String) -> EdgeReply {
+pub(crate) fn reply_from(status: u16, text: String) -> EdgeReply {
     let body = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
     let ok = (200..300).contains(&status);
     let problem = if ok {
@@ -417,5 +735,6 @@ fn reply_from(status: u16, text: String) -> EdgeReply {
         status,
         body,
         problem,
+        moved_to: None,
     }
 }

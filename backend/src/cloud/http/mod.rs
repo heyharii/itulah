@@ -621,6 +621,10 @@ pub fn router(state: AppState) -> Router {
         post(auth::set_rfid_device_active),
     )
     .route(
+        "/api/v1/auth/rfid-devices/{device_id}/kind",
+        post(auth::set_rfid_device_kind),
+    )
+    .route(
         "/api/v1/auth/rfid-devices/{device_id}/rotate",
         post(auth::rotate_rfid_device_key),
     )
