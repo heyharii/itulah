@@ -3,7 +3,7 @@
 /**
  * What was published, and to whom.
  */
-export type BookPublished = { place_id: string, 
+export type BookPublished = { unit_id: string, 
 /**
  * The nodes it was delivered to. Usually one.
  */

@@ -2,7 +2,7 @@
 import type { CloseReadinessView } from "./CloseReadinessView";
 import type { PeriodEventView } from "./PeriodEventView";
 
-export type PeriodView = { place_id: string, 
+export type PeriodView = { unit_id: string, 
 /**
  * `YYYY-MM`.
  */

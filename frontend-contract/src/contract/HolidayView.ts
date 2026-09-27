@@ -15,4 +15,4 @@ consumes_annual_leave: boolean,
  * `null` for a nationwide day. A list rather than an absence, because
  * "everywhere" is a decision the operator stated.
  */
-places: Array<string> | null, };
+units: Array<string> | null, };

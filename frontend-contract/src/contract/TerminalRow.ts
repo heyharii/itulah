@@ -7,9 +7,17 @@
  * owner's own observation about thirteen shops, and it is answerable here
  * before payroll rather than after.
  */
-export type TerminalRow = { id: string, place_id: string, place_name: string | null, name: string, status: string, method: string, registered_by: string, registered_at: string, synced_at: string | null, punched_at: string | null, 
+export type TerminalRow = { id: string, 
 /**
- * How many people posted to this terminal's place have at least one
+ * Where the station is installed: a premises, not an organisation.
+ */
+site_id: string, site_name: string | null, 
+/**
+ * The unit it attests for — the one that owns its site.
+ */
+unit_id: string, unit_name: string | null, name: string, status: string, method: string, registered_by: string, registered_at: string, synced_at: string | null, punched_at: string | null, 
+/**
+ * How many people posted to this terminal's unit have at least one
  * enrolled finger. Sent because a station with no templates admits nobody
  * — fingerprint is the only way in — and that is worth seeing on the
  * screen rather than discovering at opening time.

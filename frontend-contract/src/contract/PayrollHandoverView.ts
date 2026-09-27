@@ -9,7 +9,7 @@ import type { PayrollHandoverLineView } from "./PayrollHandoverLineView";
  * serves an empty `lines` beside a real figure, which would read as "nobody
  * is in it".
  */
-export type PayrollHandoverView = { run_id: string, place_id: string, 
+export type PayrollHandoverView = { run_id: string, unit_id: string, 
 /**
  * `YYYY-MM`.
  */

@@ -6,7 +6,7 @@
  * The employee's code and name are joined because a list of employee ids is
  * not a list a person can check, and checking is what the place is for.
  */
-export type PayrollAdjustmentRow = { id: string, place_id: string, 
+export type PayrollAdjustmentRow = { id: string, unit_id: string, 
 /**
  * `YYYY-MM`.
  */

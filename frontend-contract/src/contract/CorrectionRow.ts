@@ -3,7 +3,7 @@
 /**
  * A correction as the Requests queue reads it.
  */
-export type CorrectionRow = { id: string, employee_id: string, employee_code: string, display_name: string, place_id: string, business_date: string, 
+export type CorrectionRow = { id: string, employee_id: string, employee_code: string, display_name: string, unit_id: string, business_date: string, 
 /**
  * `ARRIVAL`, `DEPARTURE`, `ARRIVAL_AND_DEPARTURE` or `APPROVED_LEAVE`.
  */

@@ -27,7 +27,7 @@ job_title: string | null, grade: string | null,
 /**
  * The open posting, if there is one.
  */
-place_id: string | null, place_name: string | null, 
+unit_id: string | null, unit_name: string | null, 
 /**
  * The day the first HIRE took effect. Absent for somebody still a
  * candidate, which is the honest answer: they have not joined.

@@ -7,7 +7,7 @@ import type { UnderivableDay } from "./UnderivableDay";
  * The **Today** screen: who is scheduled, who is in, who is late, who has not
  * arrived.
  */
-export type TodayView = { place_id: string, date: string, 
+export type TodayView = { unit_id: string, date: string, 
 /**
  * Everybody with a plan for the day, derived.
  */

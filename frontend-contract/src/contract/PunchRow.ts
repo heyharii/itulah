@@ -7,7 +7,7 @@
  * between "the device thought it was 08:03" and "it reached us at 17:40" is
  * exactly what an auditor asks about a day a unit was offline.
  */
-export type PunchRow = { id: string, employee_id: string, place_id: string, 
+export type PunchRow = { id: string, employee_id: string, unit_id: string, 
 /**
  * `TERMINAL` or `EMPLOYEE_APP`. **Sent explicitly rather than inferred
  * from `terminal_id` being absent**, because a screen that inferred it

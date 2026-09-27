@@ -2,12 +2,12 @@
 import type { HireProposalStepView } from "./HireProposalStepView";
 import type { HireProposalVersionView } from "./HireProposalVersionView";
 
-export type HireProposalView = { id: string, place_id: string, 
+export type HireProposalView = { id: string, unit_id: string, 
 /**
  * The unit's own name. Sent because a screen showing `ho` where it means
  * "Head Office" is an identifier that has escaped into the interface.
  */
-place_name: string | null, 
+unit_name: string | null, 
 /**
  * `PROPOSED`, `RETURNED`, `APPROVED`, `REJECTED` or `FILLED`.
  *

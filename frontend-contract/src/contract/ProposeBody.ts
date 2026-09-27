@@ -16,7 +16,7 @@ export type ProposeBody = {
  * it cannot name another shop. It is in the body at all because head
  * office's HR reaches every unit and has to say which one they mean.
  */
-place_id: string, position: string, 
+unit_id: string, position: string, 
 /**
  * One is the normal case. A proposal for two is filled by the second
  * employment record, not the first.

@@ -16,7 +16,7 @@ export type EmployeeList = {
  * silently shows eight people where the company has ninety reads as a
  * company of eight.
  */
-place_id: string | null, rows: Array<EmployeeSummary>, 
+unit_id: string | null, rows: Array<EmployeeSummary>, 
 /**
  * Opaque. Pass it back as `cursor` for the next page; absent means this
  * was the last one.

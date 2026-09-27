@@ -2,7 +2,7 @@
 import type { HandoverStanding } from "./HandoverStanding";
 import type { RunEventView } from "./RunEventView";
 
-export type PayrollRunView = { id: string, place_id: string, 
+export type PayrollRunView = { id: string, unit_id: string, 
 /**
  * `YYYY-MM`.
  */

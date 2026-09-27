@@ -11,7 +11,7 @@ export type EmployeeView = { employee_id: string, employee_code: string, status:
  * for the browser to derive, so nothing downstream invents its own idea of
  * "still here" and disagrees with the domain.
  */
-selectable: boolean, current_place_id: string | null, current_place_name: string | null, assignments: Array<AssignmentView>, 
+selectable: boolean, current_unit_id: string | null, current_unit_name: string | null, assignments: Array<AssignmentView>, 
 /**
  * The login bound to this record, when there is one.
  *
