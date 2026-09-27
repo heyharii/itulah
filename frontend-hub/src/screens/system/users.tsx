@@ -2,7 +2,6 @@ import { useForm } from "@tanstack/react-form"
 import {
   useInfiniteQuery,
   useMutation,
-  useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
@@ -26,24 +25,24 @@ import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, day, moment } from "@/lib/format"
 import {
+  deleteRole,
   SECTION_LABEL,
   SECTIONS,
   roleHint,
   roleKeys,
+  sectionsOf,
   updateRole,
   useRoles,
-  type RoleItem,
+  type JobRole,
   type SectionCode,
 } from "@/lib/queries/invitations"
 import {
   createUser,
-  edgeAssignmentsPage,
   resetUserPassword,
   setUserActive,
   setUserRole,
   systemKeys,
   usersPage,
-  type EdgeAssignment,
   type UserRow,
   type UserScope,
 } from "@/lib/queries/system"
@@ -152,17 +151,6 @@ function scopeFromFilters(filters: readonly Filter[]): {
   return scope
 }
 
-/// `UserRow` widened with the job role fields a backend change alongside this
-/// one is adding to `GET /api/v1/auth/users` — optional, so a node that has
-/// not shipped that change yet still renders, with the bare rung it always
-/// had. See the same pattern on `/auth/me` in `lib/session.tsx`.
-type UserWithJobRole = UserRow & { role_code?: string; role_name?: string }
-
-function jobRoleLabel(row: UserRow): string | null {
-  const wide = row as UserWithJobRole
-  return wide.role_name ?? null
-}
-
 const columns: ColumnDef<TableSetup, UserRow>[] = [
   {
     accessorKey: "username",
@@ -204,16 +192,23 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
   {
     id: "job_role",
     // The job role — OWNER, FINANCE, STORE_MANAGER and the rest — in place of
-    // the bare rung this column used to show. Falls back to the rung while a
-    // node has not answered with one yet, rather than a blank cell.
-    accessorFn: (row) => jobRoleLabel(row) ?? row.role,
+    // the bare rung this column used to show. A row with a grant somebody
+    // made by hand before access followed role and unit (`derived: false`)
+    // carries a second, quieter tag — the exception this list is for
+    // somebody to notice, without opening the sheet to find it.
+    accessorFn: (row) => row.role_name,
     header: "Job role",
-    size: 150,
+    size: 190,
     enableSorting: false,
     cell: ({ row }) => (
-      <Tag tone={row.original.role === "ADMIN" ? "accent" : "neutral"}>
-        {jobRoleLabel(row.original) ?? row.original.role}
-      </Tag>
+      <span className="flex flex-wrap items-center gap-1">
+        <Tag tone={row.original.role === "ADMIN" ? "accent" : "neutral"}>
+          {row.original.role_name}
+        </Tag>
+        {row.original.nodes.some((node) => !node.derived) && (
+          <Tag tone="warn">Legacy access</Tag>
+        )}
+      </span>
     ),
   },
   {
@@ -422,44 +417,56 @@ function UsersTab() {
 /// it as a fact — never a form. A row that agrees with what the role and unit
 /// would derive is exactly as unremarkable as no row at all; what is worth a
 /// glance is a row that does NOT.
+///
+/// `node_reach` (NONE/UNIT/EVERY) says the SHAPE of it in one line — "No
+/// server", "Every server" or the one unit's own server, named — and the
+/// person's job role says why. `user.nodes` is read only for the exceptions:
+/// a grant somebody made by hand before this was derived (`derived: false`),
+/// which survives the derivation and is flagged as legacy rather than folded
+/// into the summary line silently.
 function NodeAccess({ user }: { user: UserRow }) {
-  const assignments = useQuery({
-    queryKey: systemKeys.edgeAssignments({ q: user.username }),
-    queryFn: ({ signal }) =>
-      edgeAssignmentsPage({ q: user.username }, signal),
-  })
-  const mine = (assignments.data?.rows ?? []).filter(
-    (row) => row.user_id === user.id
-  )
+  const legacy = user.nodes.filter((row) => !row.derived)
 
-  if (assignments.isPending) {
-    return <p className="text-[0.875rem] text-mute">Checking…</p>
-  }
-  if (mine.length === 0) {
-    return (
-      <p className="text-[0.875rem] text-mute">
-        Nothing on record beyond what their role and unit already grant.
-      </p>
-    )
-  }
+  const summary =
+    user.node_reach === "NONE"
+      ? `No server — ${user.role_name}`
+      : user.node_reach === "EVERY"
+        ? `Every server — ${user.role_name}`
+        : user.nodes
+              .filter((row) => row.derived)
+              .map((row) => row.label ?? row.site_name ?? row.origin_id)
+              .join(", ") || "This unit's server";
+
   return (
     <div className="flex flex-col gap-1.5">
-      {mine.map((row: EdgeAssignment) => (
-        <div
-          key={row.origin_id}
-          className="flex items-center gap-2 rounded-inner bg-soft-2 px-2.5 py-1.5 text-[0.875rem]"
-        >
-          <span className="min-w-0 flex-1 truncate font-mono text-id text-body">
-            {row.origin_id}
-          </span>
-          <Tag tone={row.role === "ADMIN" ? "accent" : "neutral"}>
-            {row.role}
-          </Tag>
-          <Pill tone={row.active ? "ok" : "bad"}>
-            {row.active ? "Active" : "Suspended"}
-          </Pill>
+      <p className="text-[0.875rem] text-ink">
+        {user.node_reach === "UNIT" ? `${summary} — ${user.role_name}` : summary}
+      </p>
+      {legacy.length > 0 && (
+        <div className="mt-1 flex flex-col gap-1.5">
+          <p className="text-meta text-mute">
+            Granted by hand, before access followed role and unit — kept as a
+            legacy exception:
+          </p>
+          {legacy.map((row) => (
+            <div
+              key={row.origin_id}
+              className="flex items-center gap-2 rounded-inner bg-soft-2 px-2.5 py-1.5 text-[0.875rem]"
+            >
+              <span className="min-w-0 flex-1 truncate font-mono text-id text-body">
+                {row.label ?? row.site_name ?? row.origin_id}
+              </span>
+              <Tag tone={row.edge_role === "ADMIN" ? "accent" : "neutral"}>
+                {row.edge_role}
+              </Tag>
+              <Pill tone={row.active ? "ok" : "bad"}>
+                {row.active ? "Active" : "Suspended"}
+              </Pill>
+              <Tag>Legacy</Tag>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   )
 }
@@ -476,16 +483,17 @@ function UserSheet({
   canWrite: boolean
 }) {
   const client = useQueryClient()
-  const [role, setRole] = useState<Role | null>(null)
+  const roleList = useRoles()
+  const [roleCode, setRoleCode] = useState<string | null>(null)
   const [password, setPassword] = useState("")
 
-  const chosen = role ?? user?.role ?? "CASHIER"
+  const chosen = roleCode ?? user?.role_code ?? ""
 
   const invalidate = () =>
     client.invalidateQueries({ queryKey: systemKeys.users() })
 
   const changeRole = useMutation({
-    mutationFn: () => setUserRole(user!.id, { role: chosen }),
+    mutationFn: () => setUserRole(user!.id, { role_code: chosen }),
     onSuccess: () => void invalidate(),
   })
 
@@ -525,7 +533,7 @@ function UserSheet({
               {user.active ? "Active" : "Suspended"}
             </Pill>
             <Tag tone={user.role === "ADMIN" ? "accent" : "neutral"}>
-              {jobRoleLabel(user) ?? user.role}
+              {user.role_name}
             </Tag>
           </div>
 
@@ -570,18 +578,18 @@ function UserSheet({
 
           <div>
             <h4 className="mb-2 text-card-title font-semibold text-ink">
-              Role at the centre
+              Job role
             </h4>
             <div className="flex items-end gap-2.5">
               <Field label="Role" className="flex-1">
                 <Select
                   value={chosen}
                   disabled={!canWrite}
-                  onChange={(next) => setRole(next as Role)}
+                  onChange={(next) => setRoleCode(next)}
                 >
-                  {roles.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
+                  {(roleList.data ?? []).map((option) => (
+                    <option key={option.code} value={option.code}>
+                      {option.name}
                     </option>
                   ))}
                 </Select>
@@ -590,7 +598,7 @@ function UserSheet({
                 <Button
                   className="mb-[0.1875rem]"
                   pending={changeRole.isPending}
-                  disabled={chosen === user.role}
+                  disabled={chosen === user.role_code || chosen === ""}
                   onClick={() => changeRole.mutate()}
                 >
                   {changeRole.isPending ? "Saving…" : "Save role"}
@@ -874,13 +882,14 @@ function RolesTab() {
                       )}
                     </div>
                     <span className="shrink-0 text-meta text-mute">
-                      Rung {item.rung}
+                      {item.rung} · {item.holders}{" "}
+                      {item.holders === 1 ? "holder" : "holders"}
                     </span>
                     <div className="flex max-w-64 shrink-0 flex-wrap justify-end gap-1">
-                      {item.sections.length === 0 ? (
+                      {sectionsOf(item.sections).length === 0 ? (
                         <span className="text-meta text-mute">No sections</span>
                       ) : (
-                        item.sections.map((section) => (
+                        sectionsOf(item.sections).map((section) => (
                           <Tag key={section}>{SECTION_LABEL[section]}</Tag>
                         ))
                       )}
@@ -905,33 +914,66 @@ function RolesTab() {
   )
 }
 
+const RUNGS: readonly Role[] = ["CASHIER", "SUPERVISOR", "ADMIN"]
+
+const NODE_REACH: readonly { value: string; label: string; hint: string }[] = [
+  { value: "NONE", label: "No server", hint: "Signs in at the centre only." },
+  {
+    value: "UNIT",
+    label: "This unit's server",
+    hint: "The store or gudang server the person is posted to.",
+  },
+  { value: "EVERY", label: "Every server", hint: "Head office roles only." },
+]
+
 function RoleSheet({
   role,
   open,
   onClose,
 }: {
-  role: RoleItem | null
+  role: JobRole | null
   open: boolean
   onClose: () => void
 }) {
   const client = useQueryClient()
   const [name, setName] = useState(role?.name ?? "")
-  const [rung, setRung] = useState(String(role?.rung ?? 0))
+  const [rung, setRung] = useState<Role>(role?.rung ?? "CASHIER")
   const [description, setDescription] = useState(role?.description ?? "")
-  const [sections, setSections] = useState<readonly SectionCode[]>(
-    role?.sections ?? []
+  const [readOnly, setReadOnly] = useState(role?.read_only ?? false)
+  const [nodeReach, setNodeReach] = useState(role?.node_reach ?? "NONE")
+  const [flowRoles, setFlowRoles] = useState(
+    (role?.flow_roles ?? []).join(", ")
   )
+  const [sections, setSections] = useState<readonly SectionCode[]>(
+    sectionsOf(role?.sections)
+  )
+
+  const invalidate = () => client.invalidateQueries({ queryKey: roleKeys.all })
 
   const save = useMutation({
     mutationFn: () =>
       updateRole(role!.code, {
         name: name.trim(),
-        rung: Number(rung) || 0,
-        sections,
+        rung,
+        sections: [...sections],
         description: description.trim(),
+        read_only: readOnly,
+        node_reach: nodeReach,
+        flow_roles: flowRoles
+          .split(",")
+          .map((one) => one.trim())
+          .filter((one) => one !== ""),
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: roleKeys.all })
+      void invalidate()
+      onClose()
+    },
+  })
+
+  const remove = useMutation({
+    mutationFn: () => deleteRole(role!.code),
+    onSuccess: () => {
+      void invalidate()
       onClose()
     },
   })
@@ -951,7 +993,18 @@ function RoleSheet({
       id={role?.code}
       title={role ? `${role.name} — ${role.code}` : "Role"}
       footer={
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center gap-2">
+          {role && !role.builtin && (
+            <Button
+              variant="danger"
+              pending={remove.isPending}
+              disabled={role.holders > 0}
+              onClick={() => remove.mutate()}
+            >
+              {remove.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          )}
+          <span className="flex-1" />
           <Button variant="quiet" onClick={onClose}>
             Cancel
           </Button>
@@ -978,15 +1031,37 @@ function RoleSheet({
               onChange={(event) => setDescription(event.target.value)}
             />
           </Field>
-          <Field label="Rung" hint="Where this role stands on the ladder.">
-            <Input
-              value={rung}
-              inputMode="numeric"
-              onChange={(event) => setRung(event.target.value)}
-              className="w-24"
-            />
+          <Field label="Rung" hint="Where this role stands on the CASHIER / SUPERVISOR / ADMIN ladder.">
+            <Select value={rung} onChange={(next) => setRung(next as Role)}>
+              {RUNGS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </Select>
           </Field>
-          <Field label="Sections" hint="Which parts of the sidebar this role sees.">
+          <Field
+            label="Store servers"
+            hint="Which servers a holder signs in at, derived from their unit."
+          >
+            <Select value={nodeReach} onChange={setNodeReach}>
+              {NODE_REACH.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Checkbox
+            label="Read only"
+            hint="Every write button is hidden for this role, everywhere."
+            checked={readOnly}
+            onChange={setReadOnly}
+          />
+          <Field
+            label="Sections"
+            hint="Which parts of the sidebar this role sees. OWNER and ADMIN see every one regardless."
+          >
             <div className="grid grid-cols-2 gap-2">
               {SECTIONS.map((section) => (
                 <Checkbox
@@ -998,12 +1073,28 @@ function RoleSheet({
               ))}
             </div>
           </Field>
-          {!role.builtin ? null : (
+          <Field
+            label="Flow roles"
+            hint="Comma separated. The stages of a workflow this role may perform."
+          >
+            <Input
+              value={flowRoles}
+              onChange={(event) => setFlowRoles(event.target.value)}
+            />
+          </Field>
+          {role.builtin ? (
             <p className="text-meta text-mute">
-              Built in — it can be edited but not removed.
+              Built in — it can be edited but not deleted.
             </p>
+          ) : role.holders > 0 ? (
+            <p className="text-meta text-mute">
+              {role.holders} {role.holders === 1 ? "person" : "people"} hold
+              this role — give them another one before deleting it.
+            </p>
+          ) : null}
+          {(save.isError || remove.isError) && (
+            <Banner tone="bad">{saying(save.error ?? remove.error)}</Banner>
           )}
-          {save.isError && <Banner tone="bad">{saying(save.error)}</Banner>}
         </div>
       )}
     </Sheet>
