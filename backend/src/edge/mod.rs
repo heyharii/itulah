@@ -10,6 +10,9 @@ pub mod contracts;
 /// supervisor's yes, printers recorded once, and all of it reported upward.
 pub mod devices;
 pub mod diagnose;
+/// The node's advertisement on the shop's LAN (`_itulah-store._tcp`), so a
+/// till finds it without an address typed.
+pub mod discovery;
 pub mod domain;
 pub mod enrolment;
 pub mod escpos;

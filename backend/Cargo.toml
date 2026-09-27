@@ -118,6 +118,12 @@ tracing-appender = "=0.2.3"
 # system only: the defaults also pull in network, user and component probes
 # a shop node never reports.
 sysinfo = { version = "=0.39.6", default-features = false, features = ["disk", "system"] }
+# The node says where it is on the shop's LAN (`edge/discovery.rs`): DNS-SD
+# over multicast, `_itulah-store._tcp`, so a till finds it without an address
+# typed. Its own thread and sockets, no runtime of its own; default features
+# off because they are an async receiver and `log`, and this tree needs
+# neither.
+mdns-sd = { version = "=0.21.4", default-features = false }
 tracing-subscriber = { version = "=0.3.20", features = ["env-filter", "json"] }
 uuid = { version = "=1.16.0", features = ["serde", "v4"] }
 
