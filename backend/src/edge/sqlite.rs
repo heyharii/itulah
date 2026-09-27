@@ -1541,6 +1541,15 @@ impl SqliteEdge {
         }
     }
 
+    /// The shop's name at the head of a receipt: its display name as head
+    /// office gave it, or — until this node has heard — its id in capitals, as
+    /// it always printed.
+    fn receipt_shop_name(&self, connection: &Connection) -> String {
+        crate::edge::site_profile::own(connection)
+            .map(|site| site.name)
+            .unwrap_or_else(|| self.node.site_id.as_str().to_ascii_uppercase())
+    }
+
     fn lock(&self) -> Result<MutexGuard<'_, Connection>, EdgeError> {
         self.connection
             .lock()
@@ -7135,7 +7144,7 @@ impl EdgeInventory for SqliteEdge {
         crate::edge::till::receipt_document(
             &connection,
             sale_id,
-            &self.node.site_id.as_str().to_ascii_uppercase(),
+            &self.receipt_shop_name(&connection),
             self.node.site_id.as_str(),
             Some(RECEIPT_FOOTER),
         )
@@ -7151,7 +7160,7 @@ impl EdgeInventory for SqliteEdge {
             crate::edge::till::receipt_document(
                 &connection,
                 sale_id,
-                &self.node.site_id.as_str().to_ascii_uppercase(),
+                &self.receipt_shop_name(&connection),
                 self.node.site_id.as_str(),
                 Some(RECEIPT_FOOTER),
             )?
@@ -9520,7 +9529,14 @@ impl SqliteEdge {
         let receipt_id = Uuid::new_v4();
         let arrived_at = request.arrived_at.unwrap_or_else(|| self.clock.now());
         let opened_at = self.clock.now();
-        let receipt_number = format!("GRN-{}-{next:06}", self.node.site_id);
+        // The delivery number the supplier quotes back: the site's display code
+        // as head office gave it (0474), or its id until this node has heard.
+        // The counter is the node's own and does not follow the code, so a
+        // number is never issued twice.
+        let receipt_number = format!(
+            "GRN-{}-{next:06}",
+            crate::edge::site_profile::own_display_code(&tx, self.node.site_id.as_str())
+        );
         tx.execute(
             "INSERT INTO goods_receipt
                  (receipt_id, receipt_number, supplier_id, arrived_at, status, opened_by,

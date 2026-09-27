@@ -1020,7 +1020,8 @@ pub async fn list_rfid_devices(
 /// under a site id the centre does not hold as a row (`dc-01` beside the
 /// centre's `dc`); its site is then head office's, because the Gudang is head
 /// office's — decided by the ROLE it was enrolled with, never by the spelling
-/// of its id. A shop node with no row is told nothing, and keeps its defaults.
+/// of its id, and only while it is the one warehouse node. A shop node with no
+/// row is told nothing, and keeps its defaults.
 async fn site_profiles(
     tx: &mut Transaction<'_, Postgres>,
     node: &NodeContext,
@@ -1060,7 +1061,24 @@ async fn site_profiles(
     }
     let own = match (own, node.role) {
         (Some(own), _) => Some(own),
-        (None, EdgeRole::Dc) => head_office,
+        (None, EdgeRole::Dc) => {
+            // Only the sole warehouse node stands in for head office's site.
+            // Two nodes told one code would print the same koli number twice;
+            // with several, each keeps printing under its own id until it is
+            // enrolled at a site of its own — the same refusal to guess
+            // `sole_dc_origin_tx` makes.
+            let warehouses: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sync_origin_credential
+                  WHERE inventory_enabled AND node_role = 'DC'",
+            )
+            .fetch_one(&mut **tx)
+            .await?;
+            if warehouses == 1 {
+                head_office
+            } else {
+                None
+            }
+        }
         (None, EdgeRole::Store) => None,
     };
     Ok((own, sites))

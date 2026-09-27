@@ -682,10 +682,14 @@ pub async fn pay_claim(
 
     let mut tx = pool.begin().await?;
     let site = posting_site(&mut tx, claim.place()).await?;
+    // Counted under the internal id, printed under the display code (0474).
+    let printed = super::sites::display_code(&mut *tx, &site)
+        .await?
+        .to_uppercase();
     let document_number = next_document_number(
         &mut tx,
         &format!("KKC:{site}"),
-        &format!("KKC-{}", site.to_uppercase()),
+        &format!("KKC-{printed}"),
         paid_on,
     )
     .await?;

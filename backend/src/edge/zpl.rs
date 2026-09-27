@@ -918,6 +918,10 @@ fn brand_font_dots(chars: usize) -> i64 {
 /// What goes on the sticker stuck to the outside of a box.
 pub struct KoliLabelData<'a> {
     pub koli_number: &'a str,
+    /// What is printed for the destination. Callers pass the shop's display
+    /// code as head office gave it (`C007-TOKO`, `edge::site_profile`), not
+    /// its internal id; the field keeps its old name so the layout code and
+    /// its tests are untouched.
     pub destination_store_id: &'a str,
     pub unit_count: i64,
     pub sealed_at: Option<&'a str>,
