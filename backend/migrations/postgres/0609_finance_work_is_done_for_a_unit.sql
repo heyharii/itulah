@@ -14,8 +14,9 @@
 --   * `correction_document` — a reclass, adjustment or write-off a second
 --     person signs (0129). `site_id` is the book it corrects and
 --     `target_site_id` the book a reclass moves to; both are units.
---   * `defer_schedule` — a prepayment spread over months (0306): the prepaid
---     sits in one book and is released there.
+--   * Not `defer_schedule`: 0306 made it and 0309 dropped it again. A
+--     prepayment's spread is `prepaid_schedule`, which keeps its site and
+--     posts to that site's unit.
 --   * `bank_rule` and `bank_rule_proposal` — how a line on a statement is
 --     read (0116). A statement is of a unit's bank account since 0605, so the
 --     meaning a rule proposes resolves in that unit. The rule's default book
@@ -94,7 +95,6 @@ $$;
 SELECT pg_temp.move_column_to_unit('tender_reconciliation', 'site_id', 'unit_id');
 SELECT pg_temp.move_column_to_unit('correction_document', 'site_id', 'unit_id');
 SELECT pg_temp.move_column_to_unit('correction_document', 'target_site_id', 'target_unit_id');
-SELECT pg_temp.move_column_to_unit('defer_schedule', 'site_id', 'unit_id');
 SELECT pg_temp.move_column_to_unit('bank_rule', 'site_id', 'unit_id');
 SELECT pg_temp.move_column_to_unit('bank_rule_proposal', 'site_id', 'unit_id');
 SELECT pg_temp.move_column_to_unit('payment_batch', 'site_id', 'unit_id');
@@ -151,8 +151,6 @@ COMMENT ON COLUMN correction_document.unit_id IS
     'The book the correction is in (0609).';
 COMMENT ON COLUMN correction_document.target_unit_id IS
     'On a reclass, the book the balance moves to (0609). The poster adds the affiliate legs.';
-COMMENT ON COLUMN defer_schedule.unit_id IS
-    'The book the prepayment sits in and is released from (0609).';
 COMMENT ON COLUMN bank_rule.unit_id IS
     'The book whose statements the rule reads (0609). Head office''s by default, found by its kind.';
 COMMENT ON COLUMN payment_batch.unit_id IS
