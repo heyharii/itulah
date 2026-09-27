@@ -4967,6 +4967,13 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
             // who pressed publish is the one who can fix it.
             crate::cloud::domain::parse_attendance_book(payload).map_err(AppError::Validation)?;
         }
+        crate::sync::device::COMMAND_DEVICE_STATUS_SET => {
+            // Same reason again, and one more: only a till or a printer is
+            // switched at its node, so a decision about anything else is
+            // refused here rather than parked in a shop's command stream.
+            crate::sync::device::parse_device_status_command(payload)
+                .map_err(AppError::Validation)?;
+        }
         _ => {}
     }
     Ok(())
