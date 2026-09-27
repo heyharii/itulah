@@ -29,10 +29,15 @@ export type LetterStatus = "DRAFT" | "ISSUED" | "VOID"
 /// The names are Indonesian because the documents are: a warehouse clerk looks
 /// for "Surat Jalan" in the folder, not for "delivery note", and the number
 /// printed on it starts with the same letters as the name they filed it under.
+/// `appLabel` is the separate English name the screen CHROME uses instead —
+/// the register row, the kind filter — because the owner asked GA's screens to
+/// read in English (2026-09-27) while what prints stays Indonesian for the
+/// supplier, driver or store holding the paper.
 export const LETTER_KINDS: readonly {
   readonly value: LetterKind
   readonly label: string
   readonly english: string
+  readonly appLabel: string
   readonly prefix: string
   /// What it is drawn from, said the way somebody picking one would say it.
   readonly source: string
@@ -41,6 +46,7 @@ export const LETTER_KINDS: readonly {
     value: "GOODS_RECEIPT",
     label: "Surat Terima Barang",
     english: "Goods receipt note",
+    appLabel: "Goods receipt note",
     prefix: "STB",
     source: "a delivery a DC has counted against a purchase order",
   },
@@ -48,6 +54,7 @@ export const LETTER_KINDS: readonly {
     value: "DELIVERY_NOTE",
     label: "Surat Jalan",
     english: "Delivery note",
+    appLabel: "Delivery note",
     prefix: "SJ",
     source: "an allotment going out to a shop",
   },
@@ -55,6 +62,7 @@ export const LETTER_KINDS: readonly {
     value: "GENERAL",
     label: "Surat",
     english: "Blank letter",
+    appLabel: "Letter",
     prefix: "SRT",
     // The only one written from nothing. Most of a company's letters are this
     // kind — a covering note, a letter appointing somebody to collect goods —
@@ -70,6 +78,14 @@ export function drawnFromRecord(kind: LetterKind): boolean {
 
 export function letterKind(kind: string): string {
   return LETTER_KINDS.find((one) => one.value === kind)?.label ?? kind
+}
+
+/// The kind, in the app's own English — for the register row, the kind
+/// filter, and anywhere else the SCREEN names a letter rather than the paper.
+/// `letterKind` above is what the paper prints, in Indonesian, and the two
+/// stay separate on purpose: see the note on `LETTER_KINDS`.
+export function letterKindLabel(kind: string): string {
+  return LETTER_KINDS.find((one) => one.value === kind)?.appLabel ?? kind
 }
 
 export const LETTER_STATUS_LABEL: Readonly<Record<string, string>> = {
@@ -123,12 +139,25 @@ function search(query: LetterQuery): string {
   return encoded === "" ? "" : `?${encoded}`
 }
 
+/// One page of the register. `cursor` is the previous page's `next_cursor`;
+/// absent asks for the first page. Neither is part of `LetterQuery` because
+/// neither changes the question — they walk the answer.
 export function listLetters(
   query: LetterQuery,
+  page: { readonly cursor?: string; readonly limit?: number } = {},
   signal?: AbortSignal
 ): Promise<LetterList> {
-  return node.get<LetterList>(`/api/v1/letters${search(query)}`, { signal })
+  const params = new URLSearchParams(search(query).slice(1))
+  params.set("limit", String(page.limit ?? LETTERS_PAGE))
+  if (page.cursor !== undefined) params.set("cursor", page.cursor)
+  return node.get<LetterList>(`/api/v1/letters?${params.toString()}`, {
+    signal,
+  })
 }
+
+/// How many letters one page of the register asks for. A step, not a
+/// ceiling: the server clamps anything above 500.
+export const LETTERS_PAGE = 100
 
 export function readLetter(
   id: string,

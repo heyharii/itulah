@@ -361,11 +361,8 @@ function ChaseSheet({
                               <Button
                                 variant="soft"
                                 size="sm"
-                                disabled={
-                                  reason.trim() === "" ||
-                                  actor === "" ||
-                                  close.isPending
-                                }
+                                pending={close.isPending}
+                                disabled={reason.trim() === "" || actor === ""}
                                 onClick={() => close.mutate(line)}
                               >
                                 {close.isPending ? "Closing…" : "Confirm"}

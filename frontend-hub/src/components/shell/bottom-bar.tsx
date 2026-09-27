@@ -10,6 +10,7 @@ import {
 import { listNotifications, systemKeys } from "@/lib/queries/system"
 import { usePushReconcile } from "@/lib/use-push-reconcile"
 import { cn } from "@/lib/utils"
+import { useChatUnread } from "@/screens/workplace/chat-unread"
 
 /// The phone's navigation: four tabs at the thumb's edge.
 ///
@@ -78,6 +79,9 @@ export function BottomBar() {
     refetchInterval: fallbackInterval(stream.state),
   })
   const unread = feed.data?.unread ?? 0
+  // Messages waiting in Chat, on the Messages tab — the same count the Chat
+  // icon carries on a desk.
+  const chatUnread = useChatUnread()
 
   return (
     <nav
@@ -120,6 +124,13 @@ export function BottomBar() {
                       {unread > 99 ? "99+" : unread}
                     </span>
                   )}
+                  {tab.to === "/chat" &&
+                    chatUnread !== null &&
+                    chatUnread > 0 && (
+                      <span className="absolute -top-1 -right-2 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.875rem] font-semibold text-white tabular-nums ring-2 ring-canvas">
+                        {chatUnread > 99 ? "99+" : chatUnread}
+                      </span>
+                    )}
                 </span>
                 {tab.label}
               </Link>

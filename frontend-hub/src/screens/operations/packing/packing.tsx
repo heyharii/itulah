@@ -408,7 +408,7 @@ function Manifest({ manifest }: { manifest: KoliManifest }) {
         <Button
           variant="soft"
           onClick={() => print.mutate()}
-          disabled={print.isPending}
+          pending={print.isPending}
         >
           <Printer />
           {print.isPending ? "Sending…" : "Print the sticker"}

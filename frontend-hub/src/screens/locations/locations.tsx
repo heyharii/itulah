@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query"
-import { ListFilter } from "lucide-react"
+import { ListFilter, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/field"
 import { ChoiceMenu } from "@/components/ui/list-chrome"
@@ -15,6 +16,7 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { FinanceMark } from "@/screens/contracts/parts"
 import { LocationHubSheet } from "@/screens/locations/hub"
+import { OpenStoresSheet } from "@/screens/setup/open-stores-sheet"
 import type { GaLocationRow } from "@itulah/contract"
 
 /// Locations — the places the company operates from, as facilities rather than
@@ -25,18 +27,19 @@ import type { GaLocationRow } from "@itulah/contract"
 /// `site` is the company's own list; GA adds a second, one-to-one side to it
 /// (`ga_location_detail`). The server LEFT JOINs the two, so a site nobody has
 /// written an address for still appears, with "—" in the address column and
-/// one action — Lengkapi — in its sheet. Hiding it would make this a list of
+/// one action — Complete — in its sheet. Hiding it would make this a list of
 /// the details that exist, which is exactly the list that cannot answer "what
 /// have we not filled in yet".
 ///
-/// # There is no "Tambah site"
+/// # Open store, and no "Tambah site"
 ///
-/// A place is made by the shop or the warehouse being opened, not by GA
+/// A place is made by a store or the warehouse being opened, not by GA
 /// writing a row here, and adding a second head office is the owner's decision
-/// (brief §2.5). So the only write on this screen is the facilities detail
-/// BESIDE a place that already exists — the address, the kind, the floor area,
-/// who to ring. That is why the empty state says so instead of offering a
-/// button that should not exist.
+/// (brief §2.5). So the one way to add a place is Open store — the same list
+/// and the same write as the setup wizard's second step, which makes the unit,
+/// its shop site and its pools together (`screens/setup/open-stores-sheet.tsx`).
+/// Everything else written here is the facilities detail BESIDE a place that
+/// already exists — the address, the kind, the floor area, who to ring.
 ///
 /// # The counts are read back, not copied
 ///
@@ -46,6 +49,7 @@ import type { GaLocationRow } from "@itulah/contract"
 /// bills behind it are the other desk's ledger (brief §2.1, §10.2).
 export function Locations() {
   const open = useSheet("location")
+  const opening = useSheet("new-stores")
   const [search, setSearch] = useState("")
   const [kind, setKind] = useState<string | null>(null)
 
@@ -82,26 +86,32 @@ export function Locations() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Lokasi"
-        title="Lokasi"
-        sub="Lihat aset, kontrak, jadwal servis, permintaan barang, dan tagihan untuk setiap tempat."
+        crumb="GA"
+        title="Locations"
+        sub="View assets, contracts, service schedules, supply requests and bills for each place."
         actions={
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Nama atau kode lokasi"
-            className="h-8 w-56"
-          />
+          <>
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Name or location code"
+              className="h-8 w-56"
+            />
+            <Button variant="primary" onClick={() => opening.open(true)}>
+              <Plus />
+              Open store
+            </Button>
+          </>
         }
       />
 
       <Toolbar>
         <ChoiceMenu
-          heading="Jenis"
+          heading="Type"
           icon={ListFilter}
           value={kind}
           options={[
-            { value: null, label: "Semua jenis" },
+            { value: null, label: "All types" },
             ...kinds.map((one) => ({ value: one, label: one })),
           ]}
           onChange={setKind}
@@ -109,20 +119,21 @@ export function Locations() {
         <Toolbar.Spacer />
         {places.data !== undefined && (
           <span className="text-meta text-body">
-            <b className="font-medium text-ink">{count(shown.length)}</b> tempat
+            <b className="font-medium text-ink">{count(shown.length)}</b>{" "}
+            {shown.length === 1 ? "place" : "places"}
           </span>
         )}
       </Toolbar>
 
       {queryState(places, {
-        loading: "Membuka daftar tempat…",
+        loading: "Opening the list of places…",
         render: () =>
           shown.length === 0 ? (
             <Card>
               <EmptyState>
                 {kind === null
-                  ? "Belum ada lokasi terdaftar. Lokasi toko, gudang, dan kantor akan muncul di sini setelah didaftarkan."
-                  : "Tidak ada tempat dengan jenis itu."}
+                  ? "No locations yet. Offices and warehouses are created during setup; stores are opened with Open store."
+                  : "No places of that type."}
               </EmptyState>
             </Card>
           ) : (
@@ -134,15 +145,15 @@ export function Locations() {
               <div className="overflow-x-auto">
                 <div className="md:min-w-[74rem]">
                   <div className="grid h-10 items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body max-md:hidden md:grid-cols-[minmax(14rem,1.4fr)_8.5rem_minmax(13rem,1fr)_11rem_5.5rem_5.5rem_7.5rem_9rem]">
-                    <span>Lokasi</span>
-                    <span>Jenis</span>
-                    <span>Alamat</span>
-                    <span>Kontak</span>
-                    <span className="text-right">Aset</span>
-                    <span className="text-right">Kontrak</span>
-                    <span className="text-right">Perbaikan terbuka</span>
+                    <span>Location</span>
+                    <span>Type</span>
+                    <span>Address</span>
+                    <span>Contact</span>
+                    <span className="text-right">Assets</span>
+                    <span className="text-right">Contracts</span>
+                    <span className="text-right">Open repairs</span>
                     <span className="text-right">
-                      Tagihan bulan ini{" "}
+                      Billed this month{" "}
                       <FinanceMark className="ml-1 align-[0.0625rem]" />
                     </span>
                   </div>
@@ -158,6 +169,8 @@ export function Locations() {
             </Card>
           ),
       })}
+
+      <OpenStoresSheet open={opening.isOpen} onClose={opening.close} />
 
       <LocationHubSheet
         key={open.value ?? "none"}
@@ -211,15 +224,15 @@ function LocationLine({
         )}
       </span>
       <span className="mt-1 text-meta text-body tabular-nums md:mt-0 md:text-right">
-        <Figure>Aset</Figure>
+        <Figure>Assets</Figure>
         {count(row.asset_count)}
       </span>
       <span className="mt-1 text-meta text-body tabular-nums md:mt-0 md:text-right">
-        <Figure>Kontrak</Figure>
+        <Figure>Contracts</Figure>
         {count(row.contract_count)}
       </span>
       <span className="mt-1 text-meta tabular-nums md:mt-0 md:text-right">
-        <Figure>Perbaikan</Figure>
+        <Figure>Repairs</Figure>
         <span
           className={row.open_repair_count > 0 ? "text-warn-fg" : "text-body"}
         >
@@ -227,7 +240,7 @@ function LocationLine({
         </span>
       </span>
       <span className="mt-1 min-w-0 truncate text-meta text-body tabular-nums md:mt-0 md:text-right">
-        <Figure>Tagihan</Figure>
+        <Figure>Billed</Figure>
         {money(row.billed_this_month_minor)}
       </span>
     </div>

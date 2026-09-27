@@ -1,19 +1,34 @@
 import { node } from "@/lib/api"
 import type {
+  AcceptSolutionRequest,
   ChatConversation,
   ChatMessage,
+  ChatSearchHit,
   CollaborationEvent,
+  ConversationPreferencesRequest,
+  DiscussionPerson,
   DiscussionPost,
   DiscussionThread,
+  DismissedUnread,
   Document,
   DocumentLink,
   DocumentUpload,
+  EditPostRequest,
+  EditThreadRequest,
   FileInContext,
   OpenThreadRequest,
+  PostReaction,
+  PostRevision,
+  ReactToPostRequest,
+  ReplyRequest,
   SendMessageRequest,
+  SetPinRequest,
+  SetSubscriptionRequest,
   StartConversationRequest,
   StoredFile,
   SubjectCount,
+  SubjectKindOption,
+  TagCount,
 } from "@itulah/contract"
 
 /// Workplace reads and writes — discussions, chat, files, documents.
@@ -45,6 +60,22 @@ export const workplaceKeys = {
   posts: (threadId: string) =>
     ["workplace", "discussions", "thread", threadId, "posts"] as const,
   subjects: () => ["workplace", "discussions", "subjects"] as const,
+  /// The board, one page at a time. Under `list` so every write that moves a
+  /// row invalidates it with the rest of the board.
+  threadPages: (filter: ThreadFilter) =>
+    ["workplace", "discussions", "list", "pages", filter] as const,
+  revisions: (threadId: string, postId: string) =>
+    [
+      "workplace",
+      "discussions",
+      "thread",
+      threadId,
+      "revisions",
+      postId,
+    ] as const,
+  tags: () => ["workplace", "discussions", "tags"] as const,
+  kinds: () => ["workplace", "discussions", "kinds"] as const,
+  people: () => ["workplace", "discussions", "people"] as const,
 
   conversations: () => ["workplace", "chat", "conversations"] as const,
   conversation: (conversationId: string) =>
@@ -53,6 +84,14 @@ export const workplaceKeys = {
     ["workplace", "chat", "conversations", conversationId, "messages"] as const,
   conversationFiles: (conversationId: string) =>
     ["workplace", "chat", "conversations", conversationId, "files"] as const,
+  pins: (conversationId: string) =>
+    ["workplace", "chat", "conversations", conversationId, "pins"] as const,
+  typing: (conversationId: string) =>
+    ["workplace", "chat", "conversations", conversationId, "typing"] as const,
+  /// Beside `conversations` rather than under it: a search result is not a
+  /// room, and invalidating the rooms must not throw away what was found.
+  chatSearch: (q: string, conversationId: string | null) =>
+    ["workplace", "chat", "search", q, conversationId] as const,
   /// One follower per signed-in person. The username is in the key because the
   /// log is audience-filtered server-side: two people at the same desk must not
   /// share a cursor, and the second must not inherit the first's answers.
@@ -68,37 +107,6 @@ export const workplaceKeys = {
 }
 
 // ─── Discussions ─────────────────────────────────────────────────────────────
-
-/// The nine kinds of record a discussion can hang on, and what to call each on
-/// screen.
-///
-/// Not categories somebody invented: a thread hangs on a RECORD, because a
-/// conversation that is not about one is a conversation and there is a table
-/// for those. So this is the left-hand axis of the screen — counts of work,
-/// not of topics.
-///
-/// The nine below are the ones this screen draws a dot and a word for. The
-/// server's list is longer since `0190` — it is `record_kind`, shared with the
-/// activity log and the filing cabinet — and `subjectLabel` falls through to
-/// the raw kind for anything not named here, so a thread opened against a
-/// supplier bill reads `bill` rather than disappearing.
-export const SUBJECT_LABEL: Readonly<Record<string, string>> = {
-  purchase_order: "Purchase order",
-  purchase_order_line: "PO line",
-  supplier: "Supplier",
-  receipt: "Receipt",
-  purchase_exception: "Exception",
-  commercial_verification: "Verification",
-  packaging_item: "Packaging item",
-  supply_item: "Supply item",
-  article: "Article",
-}
-
-export const SUBJECT_KINDS: readonly string[] = Object.keys(SUBJECT_LABEL)
-
-export function subjectLabel(kind: string): string {
-  return SUBJECT_LABEL[kind] ?? kind
-}
 
 /// What a DOCUMENT may be filed against.
 ///
@@ -138,19 +146,66 @@ export const THREAD_STATUS_LABEL: Readonly<Record<string, string>> = {
   locked: "Locked",
 }
 
+/// The reactions a post can carry — the server's closed set of six, in the
+/// order it sends them, and what each looks like.
+export const REACTIONS = [
+  { value: "thumbs_up", emoji: "👍", label: "Agree" },
+  { value: "heart", emoji: "❤️", label: "Thanks" },
+  { value: "tada", emoji: "🎉", label: "Done" },
+  { value: "laugh", emoji: "😄", label: "Ha" },
+  { value: "eyes", emoji: "👀", label: "Looking at it" },
+  { value: "check", emoji: "✅", label: "Confirmed" },
+] as const
+
+export function reactionEmoji(value: string): string {
+  return REACTIONS.find((reaction) => reaction.value === value)?.emoji ?? value
+}
+
+/// How closely somebody follows a thread. `normal` is the resting level and
+/// is never stored: the opener and everyone who has written in it hear about
+/// replies, and anybody named with `@` hears about that.
+export const SUBSCRIPTION_LEVELS = [
+  {
+    value: "watching",
+    label: "Watching",
+    hint: "Told about every reply, even without writing in it.",
+  },
+  {
+    value: "normal",
+    label: "Normal",
+    hint: "Told about replies once you have written in it, and when named.",
+  },
+  {
+    value: "muted",
+    label: "Muted",
+    hint: "Never told anything about this thread.",
+  },
+] as const
+
+/// The feeds the server understands — see `ThreadQuery` in
+/// `cloud/postgres/discussion.rs` — and nothing else. A tab with nothing
+/// behind it would be a filter that quietly does nothing.
+export type ThreadFeed = "unread" | "new" | "mine" | "bookmarked" | "watching"
+
+/// The orders the server sorts by. Sorting there rather than here, because
+/// the board is paged: re-ordering fifty rows in the browser would put the
+/// busiest of the first page on top, not the busiest thread.
+export type ThreadOrder = "activity" | "replies" | "views" | "created"
+
+/// A page of the board holds this many threads.
+export const THREAD_PAGE = 50
+
 /// What the list is filtered to.
-///
-/// `bookmarked` and `mine` are the only two feeds the server understands — see
-/// `ThreadQuery` in `cloud/postgres/discussion.rs` — and the screen offers
-/// exactly those. A "following" tab with nothing behind it would be a filter
-/// that quietly does nothing.
 export interface ThreadFilter {
-  readonly feed?: "bookmarked" | "mine"
+  readonly feed?: ThreadFeed
   readonly subjectKind?: string
   readonly subjectId?: string
   readonly tag?: string
   readonly status?: string
   readonly q?: string
+  readonly order?: ThreadOrder
+  readonly limit?: number
+  readonly offset?: number
 }
 
 function threadQuery(filter: ThreadFilter): string {
@@ -163,10 +218,16 @@ function threadQuery(filter: ThreadFilter): string {
   if (filter.status !== undefined) params.set("status", filter.status)
   if (filter.q !== undefined && filter.q.trim() !== "")
     params.set("q", filter.q.trim())
+  if (filter.order !== undefined && filter.order !== "activity")
+    params.set("order", filter.order)
+  if (filter.limit !== undefined) params.set("limit", String(filter.limit))
+  if (filter.offset !== undefined && filter.offset > 0)
+    params.set("offset", String(filter.offset))
   const query = params.toString()
   return query === "" ? "" : `?${query}`
 }
 
+/// One page of the board. Pinned threads come first on the plain board.
 export function listThreads(filter: ThreadFilter, signal?: AbortSignal) {
   return node.get<DiscussionThread[]>(
     `/api/v1/discussions${threadQuery(filter)}`,
@@ -178,9 +239,36 @@ export function subjectCounts(signal?: AbortSignal) {
   return node.get<SubjectCount[]>("/api/v1/discussions/subjects", { signal })
 }
 
+/// Every tag in use, busiest first — read from the tags, not from whichever
+/// page of threads happens to be showing.
+export function tagCounts(signal?: AbortSignal) {
+  return node.get<TagCount[]>("/api/v1/discussions/tags", { signal })
+}
+
+/// The kinds of record a thread may be opened on, named — exactly what the
+/// server accepts, so the composer cannot offer a word it would refuse.
+export function subjectKinds(signal?: AbortSignal) {
+  return node.get<SubjectKindOption[]>("/api/v1/discussions/kinds", {
+    signal,
+  })
+}
+
+/// Everything already opened, marked read to its end — "Dismiss" on Unread.
+/// New threads stay new: only opening one counts somebody as having read it.
+export function dismissUnread() {
+  return node.post<DismissedUnread>("/api/v1/discussions/read", {})
+}
+
+/// Everybody who can be named with `@` — the active accounts and their names,
+/// readable by anybody signed in, unlike the account administration list.
+export function discussionPeople(signal?: AbortSignal) {
+  return node.get<DiscussionPerson[]>("/api/v1/discussions/people", { signal })
+}
+
 /// Reading a thread records that this person has seen it — one row per person,
-/// which is why the number beside it is people and not page loads, and why it
-/// moves the first time somebody looks and never again.
+/// which is why the number beside it is people and not page loads — and moves
+/// their reading position to the end. What comes back is where they stood
+/// BEFORE this visit, which is where "new since your last visit" goes.
 export function readThread(threadId: string, signal?: AbortSignal) {
   return node.get<DiscussionThread>(
     `/api/v1/discussions/${encodeURIComponent(threadId)}`,
@@ -199,25 +287,83 @@ export function openThread(request: OpenThreadRequest) {
   return node.post<DiscussionThread>("/api/v1/discussions", request)
 }
 
-/// A reply. No `Idempotency-Key`: `POST /discussions/{id}/posts` does not read
-/// one — unlike a chat message, whose key travels in the body because the
-/// server's own `SendMessageRequest` carries it. The double-post guard here is
-/// the disabled composer, and it is named as such at the call site.
-export function replyToThread(
-  threadId: string,
-  body: string,
-  attachments: readonly string[]
-) {
-  return node.post<DiscussionPost>(
-    `/api/v1/discussions/${encodeURIComponent(threadId)}/posts`,
-    { body, attachments }
+/// Retitle a thread, reword its note, refile its tags — all three stated.
+export function editThread(threadId: string, request: EditThreadRequest) {
+  return node.patch<DiscussionThread>(
+    `/api/v1/discussions/${encodeURIComponent(threadId)}`,
+    request
   )
 }
 
-export function acceptSolution(threadId: string, postId: string) {
+/// A reply, optionally to one earlier post.
+///
+/// The idempotency key is minted by the caller before the first attempt and
+/// kept across retries, so a resend after a dropped connection lands once.
+export function replyToThread(
+  threadId: string,
+  body: string,
+  attachments: readonly string[],
+  options: { replyTo?: number | null; idempotencyKey?: string } = {}
+) {
+  const request: ReplyRequest = {
+    body,
+    attachments: [...attachments],
+    reply_to_seq: options.replyTo ?? null,
+    idempotency_key: options.idempotencyKey ?? null,
+  }
+  return node.post<DiscussionPost>(
+    `/api/v1/discussions/${encodeURIComponent(threadId)}/posts`,
+    request
+  )
+}
+
+function postPath(threadId: string, postId: string) {
+  return `/api/v1/discussions/${encodeURIComponent(threadId)}/posts/${encodeURIComponent(postId)}`
+}
+
+/// Correct a post. Its author only; the words it replaces are kept.
+export function editPost(threadId: string, postId: string, body: string) {
+  const request: EditPostRequest = { body }
+  return node.patch<DiscussionPost>(postPath(threadId, postId), request)
+}
+
+/// Withdraw a post. It keeps its place in the thread and loses its words.
+export function withdrawPost(threadId: string, postId: string) {
+  return node.delete<DiscussionPost>(postPath(threadId, postId))
+}
+
+/// Every earlier wording of a post, oldest first.
+export function postRevisions(
+  threadId: string,
+  postId: string,
+  signal?: AbortSignal
+) {
+  return node.get<PostRevision[]>(`${postPath(threadId, postId)}/revisions`, {
+    signal,
+  })
+}
+
+/// Put a reaction on or take it off — stated, not toggled, so a double click
+/// lands where it was meant.
+export function reactToPost(
+  threadId: string,
+  postId: string,
+  reaction: string,
+  on: boolean
+) {
+  const request: ReactToPostRequest = { reaction, on }
+  return node.post<PostReaction[]>(
+    `${postPath(threadId, postId)}/reactions`,
+    request
+  )
+}
+
+/// Mark the reply that answered it, or `null` to say nothing has after all.
+export function acceptSolution(threadId: string, postId: string | null) {
+  const request: AcceptSolutionRequest = { post_id: postId }
   return node.post<DiscussionThread>(
     `/api/v1/discussions/${encodeURIComponent(threadId)}/solution`,
-    { post_id: postId }
+    request
   )
 }
 
@@ -235,6 +381,24 @@ export function setBookmark(threadId: string, marked: boolean) {
   return node.post<{ marked: boolean }>(
     `/api/v1/discussions/${encodeURIComponent(threadId)}/bookmark`,
     { marked }
+  )
+}
+
+/// How closely the caller follows it. Private, like a bookmark.
+export function setSubscription(threadId: string, level: string) {
+  const request: SetSubscriptionRequest = { level }
+  return node.post<SetSubscriptionRequest>(
+    `/api/v1/discussions/${encodeURIComponent(threadId)}/subscription`,
+    request
+  )
+}
+
+/// Pin it above the board. Head office only; the server says so if not.
+export function setPin(threadId: string, pinned: boolean) {
+  const request: SetPinRequest = { pinned }
+  return node.post<DiscussionThread>(
+    `/api/v1/discussions/${encodeURIComponent(threadId)}/pin`,
+    request
   )
 }
 
@@ -266,11 +430,144 @@ export function readConversation(conversationId: string, signal?: AbortSignal) {
   )
 }
 
-export function readMessages(conversationId: string, signal?: AbortSignal) {
+/// A window of a thread, oldest first.
+///
+/// Whatever the window, the server answers with the NEWEST `limit` messages
+/// inside it: no cursor is the latest page, `before` scrolls back, `after` is
+/// everything since a message the browser already holds (up to 500).
+export function readMessages(
+  conversationId: string,
+  window: { after?: number; before?: number; limit?: number } = {},
+  signal?: AbortSignal
+) {
+  const params = new URLSearchParams()
+  if (window.after !== undefined) params.set("after", String(window.after))
+  if (window.before !== undefined) params.set("before", String(window.before))
+  if (window.limit !== undefined) params.set("limit", String(window.limit))
+  const query = params.toString()
   return node.get<ChatMessage[]>(
-    `/api/v1/chat/conversations/${encodeURIComponent(conversationId)}/messages`,
+    `${conversationPath(conversationId)}/messages${query === "" ? "" : `?${query}`}`,
     { signal }
   )
+}
+
+function conversationPath(conversationId: string) {
+  return `/api/v1/chat/conversations/${encodeURIComponent(conversationId)}`
+}
+
+function messagePath(conversationId: string, seq: number) {
+  return `${conversationPath(conversationId)}/messages/${encodeURIComponent(String(seq))}`
+}
+
+/// Change the words. Only the author may; the server says so if not.
+export function editMessage(conversationId: string, seq: number, body: string) {
+  return node.patch<ChatMessage>(messagePath(conversationId, seq), { body })
+}
+
+/// Take it back. Answers with what is left — the message's place in the
+/// thread, emptied.
+export function deleteMessage(conversationId: string, seq: number) {
+  return node.delete<ChatMessage>(messagePath(conversationId, seq))
+}
+
+/// Put a reaction on (`on: true`) or take it off. Stated, not toggled, so a
+/// double click lands where the person meant.
+export function reactToMessage(
+  conversationId: string,
+  seq: number,
+  emoji: string,
+  on: boolean
+) {
+  return node.post<ChatMessage>(`${messagePath(conversationId, seq)}/reactions`, {
+    emoji,
+    on,
+  })
+}
+
+export function pinMessage(conversationId: string, seq: number, pinned: boolean) {
+  return node.post<ChatMessage>(`${messagePath(conversationId, seq)}/pin`, {
+    pinned,
+  })
+}
+
+export function pinnedMessages(conversationId: string, signal?: AbortSignal) {
+  return node.get<ChatMessage[]>(`${conversationPath(conversationId)}/pins`, {
+    signal,
+  })
+}
+
+/// Words in any room the reader is in, or in one of them. Fewer than two
+/// characters answers nothing, on the server as well as here.
+export function searchChat(
+  q: string,
+  conversationId: string | null,
+  signal?: AbortSignal
+) {
+  const params = new URLSearchParams({ q })
+  if (conversationId !== null) params.set("conversation_id", conversationId)
+  return node.get<ChatSearchHit[]>(`/api/v1/chat/search?${params.toString()}`, {
+    signal,
+  })
+}
+
+export function renameConversation(conversationId: string, title: string) {
+  return node.patch<ChatConversation>(conversationPath(conversationId), {
+    title,
+  })
+}
+
+/// The reader's own settings for a room. A field left out is left alone.
+export function setConversationPreferences(
+  conversationId: string,
+  preferences: Partial<ConversationPreferencesRequest>
+) {
+  const request: ConversationPreferencesRequest = {
+    muted: preferences.muted ?? null,
+    pinned: preferences.pinned ?? null,
+    archived: preferences.archived ?? null,
+  }
+  return node.put<ChatConversation>(
+    `${conversationPath(conversationId)}/preferences`,
+    request
+  )
+}
+
+export function addParticipants(conversationId: string, participants: string[]) {
+  return node.post<ChatConversation>(
+    `${conversationPath(conversationId)}/participants`,
+    { participants }
+  )
+}
+
+/// Remove somebody from a group, or — naming yourself — leave it. `undefined`
+/// when the reader is no longer in the room afterwards (the server answers
+/// `204`: there is no conversation left to show them).
+export function removeParticipant(conversationId: string, username: string) {
+  return node.delete<ChatConversation | undefined>(
+    `${conversationPath(conversationId)}/participants/${encodeURIComponent(username)}`
+  )
+}
+
+export function setParticipantAdmin(
+  conversationId: string,
+  username: string,
+  isAdmin: boolean
+) {
+  return node.patch<ChatConversation>(
+    `${conversationPath(conversationId)}/participants/${encodeURIComponent(username)}`,
+    { is_admin: isAdmin }
+  )
+}
+
+/// "I am typing", said at most every few seconds while somebody types.
+export function reportTyping(conversationId: string) {
+  return node.post<undefined>(`${conversationPath(conversationId)}/typing`, {})
+}
+
+export function whoIsTyping(conversationId: string, signal?: AbortSignal) {
+  return node.get<string[]>(`${conversationPath(conversationId)}/typing`, {
+    signal,
+  })
 }
 
 /// Say something. The key is minted where the message is composed, not here:

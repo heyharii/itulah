@@ -9,6 +9,7 @@ import {
   moduleForPath,
   modulesOfDomain,
   topBarAsides,
+  type AppModule,
 } from "@/lib/navigation"
 import { AppSheet } from "@/components/shell/app-sheet"
 import type { AppTile } from "@/lib/apps"
@@ -89,21 +90,7 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void }) {
       <div className="flex shrink-0 items-center gap-2">
         <ClockChip />
         {topBarAsides.map((aside) => (
-          <Link
-            key={aside.id}
-            to={aside.home}
-            title={aside.label}
-            aria-label={aside.label}
-            aria-current={module.id === aside.id ? "page" : undefined}
-            className={cn(
-              "grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-text pointer-coarse:size-tap",
-              // On a phone these are the bottom bar's Messages tab.
-              "max-md:hidden",
-              module.id === aside.id && "bg-soft-2 text-ink"
-            )}
-          >
-            <aside.icon className="size-[1.0625rem] stroke-[1.55]" />
-          </Link>
+          <AsideLink key={aside.id} aside={aside} here={module.id === aside.id} />
         ))}
         {/* On a phone the bell is the bottom bar's Notifications tab. */}
         <span className="contents max-md:hidden">
@@ -255,4 +242,43 @@ function screenForPath(pathname: string) {
     if (matches && item.path.length > (best?.path.length ?? -1)) best = item
   }
   return best
+}
+
+/// One aside in the top bar, with the count it carries.
+///
+/// Its own component so the aside's `useCount` is one hook call at the top of
+/// a component — `aside.useCount?.()` inside the `.map()` above would be a
+/// hook in a loop body.
+function AsideLink({ aside, here }: { aside: AppModule; here: boolean }) {
+  const useCount = aside.useCount ?? noAsideCount
+  const waiting = useCount()
+  const label =
+    typeof waiting === "number" && waiting > 0
+      ? `${aside.label}, ${waiting} unread`
+      : aside.label
+  return (
+    <Link
+      to={aside.home}
+      title={label}
+      aria-label={label}
+      aria-current={here ? "page" : undefined}
+      className={cn(
+        "relative grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-text pointer-coarse:size-tap",
+        // On a phone these are the bottom bar's Messages tab.
+        "max-md:hidden",
+        here && "bg-soft-2 text-ink"
+      )}
+    >
+      <aside.icon className="size-[1.0625rem] stroke-[1.55]" />
+      {typeof waiting === "number" && waiting > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.6875rem] leading-none font-semibold text-white tabular-nums ring-2 ring-canvas">
+          {waiting > 99 ? "99+" : waiting}
+        </span>
+      )}
+    </Link>
+  )
+}
+
+function noAsideCount(): null {
+  return null
 }

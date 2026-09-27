@@ -164,7 +164,10 @@ function mondayStart(): number {
 /// templates and therefore admits nobody; a station that syncs and never
 /// reports a punch is a station standing in a shop with its cable out. Neither
 /// is a zero somebody may add up at the end of the month.
-function silence(row: TerminalRow, monday: number): "unsynced" | "never" | "stale" | null {
+function silence(
+  row: TerminalRow,
+  monday: number
+): "unsynced" | "never" | "stale" | null {
   if (row.synced_at === null) return "unsynced"
   if (row.punched_at === null) return "never"
   return Date.parse(row.punched_at) < monday ? "stale" : null
@@ -439,7 +442,9 @@ export function Terminals() {
       retry: false,
       staleTime: 60_000,
     })),
-    combine: (results): { readonly rows: Standing[]; readonly pending: boolean } => ({
+    combine: (
+      results
+    ): { readonly rows: Standing[]; readonly pending: boolean } => ({
       rows: results.map((result, index) => ({
         person: people[index],
         enrolment: result.data,
@@ -508,7 +513,8 @@ export function Terminals() {
     // person who cannot record attendance on any day until somebody enrols
     // them at a station.
     const stuck = standing.filter(
-      (one) => !one.pending && !one.failed && one.enrolment?.can_clock_in !== true
+      (one) =>
+        !one.pending && !one.failed && one.enrolment?.can_clock_in !== true
     )
     stuck.slice(0, 6).forEach((one) => {
       out.push({
@@ -600,7 +606,7 @@ export function Terminals() {
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
+        crumb="People · Settings"
         title="Punch stations"
         sub="The fingerprint stations, and whose fingers each unit's station knows. Templates are kept centrally and captured at the store, so nobody re-enrols when they move and no station takes a unit's enrolments with it when it dies."
         actions={
@@ -665,7 +671,8 @@ export function Terminals() {
                 list action and not a row one. */}
             <Button
               variant="ghost"
-              disabled={place === null || publish.isPending}
+              pending={publish.isPending}
+              disabled={place === null}
               onClick={() => publish.mutate()}
             >
               {publish.isPending
@@ -1144,13 +1151,17 @@ function StationSheet({
           <Facts>
             <Fact term="Unit">{station.place_name ?? station.place_id}</Fact>
             <Fact term="How it identifies">
-              {station.method === "FINGERPRINT" ? "Fingerprint" : station.method}
+              {station.method === "FINGERPRINT"
+                ? "Fingerprint"
+                : station.method}
             </Fact>
             <Fact term="Templates last taken">
               {station.synced_at === null ? "Never" : moment(station.synced_at)}
             </Fact>
             <Fact term="Last punch">
-              {station.punched_at === null ? "Never" : moment(station.punched_at)}
+              {station.punched_at === null
+                ? "Never"
+                : moment(station.punched_at)}
             </Fact>
             <Fact term="Fingers on file in this unit">
               {station.enrolled_people === 0
@@ -1200,6 +1211,7 @@ function StationSheet({
               </SubHead>
               <Field
                 label="Why"
+                required
                 hint="The server refuses a blank reason. Trust in a device that can create attendance is a decision, and a decision with no sentence behind it is not auditable."
               >
                 <Input
@@ -1341,6 +1353,7 @@ function RegisterSheet({
 
         <Field
           label="Station id"
+          required
           hint="Chosen when the device is installed and never changed — it is what every punch this station takes names as its provenance."
         >
           <Input
@@ -1356,6 +1369,7 @@ function RegisterSheet({
 
         <Field
           label="Unit"
+          required
           hint="One unit, never a blank one: a station whose place can be left empty is a station that can punch anywhere."
         >
           <Select
@@ -1371,10 +1385,16 @@ function RegisterSheet({
           </Select>
         </Field>
 
-        <Field label="Where it stands" hint="What somebody would call it out loud.">
+        <Field
+          label="Where it stands"
+          required
+          hint="What somebody would call it out loud."
+        >
           <Input
             value={draft.name}
-            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+            onChange={(event) =>
+              setDraft({ ...draft, name: event.target.value })
+            }
             placeholder="Staff entrance, by the lockers"
           />
         </Field>
@@ -1382,6 +1402,7 @@ function RegisterSheet({
         <Field
           label="Why"
           hint="Recorded against the registration. The server refuses a blank reason."
+          required
         >
           <Input
             value={draft.reason}
@@ -1435,7 +1456,10 @@ function WithdrawSheet({
       // The response IS this key's answer, so it is written straight in rather
       // than refetched.
       if (target !== null) {
-        client.setQueryData(punchKeys.enrolment(target.person.employee_id), view)
+        client.setQueryData(
+          punchKeys.enrolment(target.person.employee_id),
+          view
+        )
       }
       setReason("")
       onClose()
@@ -1461,7 +1485,8 @@ function WithdrawSheet({
           </Button>
           <Button
             variant="danger"
-            disabled={reason.trim() === "" || withdraw.isPending}
+            pending={withdraw.isPending}
+            disabled={reason.trim() === ""}
             onClick={() => withdraw.mutate()}
           >
             {withdraw.isPending ? "Withdrawing…" : "Withdraw and delete"}
@@ -1500,6 +1525,7 @@ function WithdrawSheet({
         <Field
           label="Why"
           hint="Recorded against the withdrawal, and refused if blank."
+          required
         >
           <Input
             value={reason}

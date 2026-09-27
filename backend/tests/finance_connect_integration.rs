@@ -601,6 +601,51 @@ async fn slip_line(pool: &PgPool, run: &str, employee_id: &str, n: i32, kind: &s
     .unwrap_or_else(|error| panic!("slip line: {error}"));
 }
 
+/// How Finance sets a component up on its screen (0466): the flags, then one
+/// link per role and kind of site. `links` is (role, `STORE`/`HO`, account).
+async fn define_component(
+    pool: &PgPool,
+    code: &str,
+    kind: &str,
+    employer_borne: bool,
+    links: &[(&str, &str, &str)],
+) {
+    sqlx::query(
+        "INSERT INTO pay_component (code, label, kind, basis, defined)
+         VALUES ($1, $1, $2, 'FIXED_AMOUNT', '{}'::jsonb) ON CONFLICT DO NOTHING",
+    )
+    .bind(code)
+    .bind(kind)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("component: {error}"));
+    cloud::set_pay_component_posting(
+        pool,
+        code,
+        &cloud::SetPayComponentPostingRequest { employer_borne, paid_from_accrual: false },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("{code} flags: {error}"));
+    for (role, site_kind, account) in links {
+        cloud::set_account_link(
+            pool,
+            &cloud::SetAccountLinkRequest {
+                role: (*role).into(),
+                source_type: "PAY_COMPONENT".into(),
+                source_id: code.into(),
+                scope_type: "SITE_KIND".into(),
+                scope_key: (*site_kind).into(),
+                account_code: (*account).into(),
+                category_code: None,
+                note: None,
+            },
+            ACTOR,
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{code} {role} {site_kind}: {error}"));
+    }
+}
+
 /// Three people, two at a store and one at head office. Month end charges
 /// each component to the store or head-office leaf against 2017; paying
 /// (store from petty cash, head office from the bank) leaves 2017 at zero.
@@ -621,6 +666,16 @@ async fn an_employer_bpjs_component_lands_on_the_insurance_expense(pool: PgPool)
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("run: {error}"));
+    for code in ["BPJS_KESEHATAN_PERUSAHAAN", "BPJS_TK_PERUSAHAAN"] {
+        define_component(
+            &pool,
+            code,
+            "EARNING",
+            false,
+            &[("payroll_expense", "STORE", "6017"), ("payroll_expense", "HO", "6031")],
+        )
+        .await;
+    }
     slip(&pool, "run-bpjs", "emp-a", 4_000_000, 4_280_000, 0).await;
     slip_line(&pool, "run-bpjs", "emp-a", 1, "EARNING", "BPJS_KESEHATAN_PERUSAHAAN", 160_000).await;
     slip_line(&pool, "run-bpjs", "emp-a", 2, "EARNING", "BPJS_TK_PERUSAHAAN", 120_000).await;
@@ -661,6 +716,32 @@ async fn payroll_accrues_by_component_and_payment_clears_the_payable(pool: PgPoo
         .await
         .unwrap_or_else(|error| panic!("run: {error}"));
     }
+    define_component(&pool, "LEMBUR", "EARNING", false, &[("payroll_expense", "STORE", "6013")]).await;
+    define_component(&pool, "UANG_MAKAN", "EARNING", false, &[("payroll_expense", "HO", "6028")])
+        .await;
+    // PPh 21 is the company's (owner, 25 Sep): its expense beside salary, and
+    // the tax owed on 2011.
+    define_component(
+        &pool,
+        "PPH21",
+        "DEDUCTION",
+        true,
+        &[
+            ("payroll_expense", "STORE", "6012"),
+            ("payroll_expense", "HO", "6026"),
+            ("payroll_deduction", "STORE", "2011"),
+            ("payroll_deduction", "HO", "2011"),
+        ],
+    )
+    .await;
+    define_component(
+        &pool,
+        "BPJS_KARYAWAN",
+        "DEDUCTION",
+        false,
+        &[("payroll_deduction", "STORE", "2021"), ("payroll_deduction", "HO", "2021")],
+    )
+    .await;
     // Store: two people, one with overtime and a PPh 21 withholding.
     slip(&pool, "run-store", "emp-a", 4_000_000, 4_500_000, 100_000).await;
     slip_line(&pool, "run-store", "emp-a", 1, "EARNING", "LEMBUR", 500_000).await;

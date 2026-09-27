@@ -284,7 +284,7 @@ pub struct CloseTenderReconRequest {
     pub counted_cash_minor: Option<i64>,
 }
 
-const TENDER_KINDS: [&str; 4] = ["CASH", "CARD", "QRIS", "VOUCHER"];
+const TENDER_KINDS: [&str; 5] = ["CASH", "CARD", "QRIS", "EWALLET", "VOUCHER"];
 const TENDER_DECISIONS: [&str; 5] = [
     "MATCHED",
     "NO_SETTLEMENT",
@@ -318,13 +318,16 @@ pub async fn tender_recon_open(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let carries_terminal = matches!(kind.as_str(), "CARD" | "QRIS");
+    // An e-wallet may be paid on a merchant device or on a printed QR with no
+    // device at all: a terminal is allowed, never required.
+    let may_carry_terminal = carries_terminal || kind == "EWALLET";
     if carries_terminal && terminal.is_none() {
         return Err(AppError::Validation(format!(
             "a {kind} reconciliation is per EDC terminal; name the one whose batch slip is in \
              your hand, or the wrong-machine mistake this exists to find is invisible"
         )));
     }
-    if !carries_terminal && terminal.is_some() {
+    if !may_carry_terminal && terminal.is_some() {
         return Err(AppError::Validation(format!(
             "{kind} passes through no terminal"
         )));
@@ -1213,7 +1216,7 @@ pub struct ExplainSettlementRequest {
 }
 
 const BANK_KEYS: [&str; 2] = ["bank_giro", "bank_savings"];
-const SETTLEMENT_TENDERS: [&str; 3] = ["CARD_DEBIT", "CARD_CREDIT", "QRIS"];
+const SETTLEMENT_TENDERS: [&str; 4] = ["CARD_DEBIT", "CARD_CREDIT", "QRIS", "EWALLET"];
 const EXCEPTION_KINDS: [&str; 4] = ["FEE", "CHARGEBACK", "OTHER_DAY", "OPEN"];
 
 /// Which receivable a settlement line discharges.
@@ -1221,6 +1224,8 @@ const fn receivable_key(tender_kind: &str) -> &'static str {
     match tender_kind.as_bytes() {
         b"CARD_DEBIT" => "card_receivable_debit",
         b"QRIS" => "card_receivable_debit",
+        // Owed by the wallet provider on the same receivable (`meanings_for`).
+        b"EWALLET" => "card_receivable_debit",
         _ => "card_receivable_credit",
     }
 }

@@ -24,6 +24,8 @@ export function AssistantPanel() {
   const capabilities = useAssistantCapabilities()
 
   const off = capabilities.data?.enabled === false
+  const barred = capabilities.data?.allowed === false
+  const spent = capabilities.data?.budget?.exhausted === true
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen} modal={false}>
@@ -88,6 +90,8 @@ export function AssistantPanel() {
                 <code className="font-mono text-id">OPENROUTER_API_KEY</code> on
                 the server and restart it.
               </p>
+            ) : barred ? (
+              <Barred />
             ) : exchanges.length === 0 && !loading ? (
               <Opening />
             ) : (
@@ -95,17 +99,46 @@ export function AssistantPanel() {
             )}
           </div>
 
-          <div className="shrink-0 border-t border-hairline px-4 py-3">
-            <Composer autoFocus />
-            <p className="mt-2 px-1 text-[0.875rem] text-mute">
-              {busy
-                ? "Working…"
-                : "⌘J opens this anywhere · Enter sends · ⇧Enter for a new line"}
-            </p>
-          </div>
+          {!barred && (
+            <div className="shrink-0 border-t border-hairline px-4 py-3">
+              <Composer autoFocus />
+              <p className="mt-2 px-1 text-[0.875rem] text-mute">
+                {spent ? (
+                  <BudgetSpent />
+                ) : busy ? (
+                  "Working…"
+                ) : (
+                  "⌘J opens this anywhere · Enter sends · ⇧Enter for a new line"
+                )}
+              </p>
+            </div>
+          )}
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
+  )
+}
+
+/// What the panel says to somebody the question box is not open to. What it
+/// will be when it opens, rather than a bare "not allowed": the rule is about
+/// the rollout, not about the person.
+export function Barred() {
+  return (
+    <p className="text-meta leading-relaxed text-body">
+      The assistant is open to Admins for now. When head office opens it to
+      supervisors, it will answer from the shop you work in and nothing else.
+    </p>
+  )
+}
+
+/// The month's ceiling, reached. Said where the hint under the box usually
+/// is, before somebody types a question the node will refuse.
+export function BudgetSpent() {
+  return (
+    <>
+      This month's assistant budget is spent. Finance can raise it in Accounts
+      settings.
+    </>
   )
 }
 

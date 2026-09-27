@@ -522,7 +522,7 @@ export function NewEmployees() {
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
+        crumb="People · Employees"
         title="New employees"
         sub={
           unit.employer
@@ -644,6 +644,7 @@ function TermsFields({
     <>
       <Field
         label="Candidate"
+        required
         hint="A name, and nothing else about them. No NIK, no address, no contact detail — and no document to upload."
       >
         <Input
@@ -653,7 +654,7 @@ function TermsFields({
         />
       </Field>
 
-      <Field label="Position">
+      <Field label="Position" required>
         <Input
           value={terms.position}
           onChange={(event) => set({ position: event.target.value })}
@@ -694,7 +695,7 @@ function TermsFields({
         />
       </Group>
 
-      <Field label="Starts on">
+      <Field label="Starts on" required>
         <Day
           value={terms.startOn}
           onChange={(startOn) => set({ startOn })}
@@ -737,6 +738,7 @@ function TermsFields({
           goes looking for it. A dead box beside the sentence says why. */}
       <Field
         label="Fixed term ends on"
+        required={fixed}
         hint={
           fixed
             ? "UU 13/2003 art. 59: a fixed term that does not say when it ends is not a fixed term."
@@ -753,7 +755,11 @@ function TermsFields({
         />
       </Field>
 
-      <Field label="Base pay" hint="Gaji pokok, whole rupiah, per month.">
+      <Field
+        label="Base pay"
+        hint="Gaji pokok, whole rupiah, per month."
+        required
+      >
         <Money
           value={terms.basePay}
           onChange={(basePay) => set({ basePay })}
@@ -763,7 +769,11 @@ function TermsFields({
         />
       </Field>
 
-      <Field label="Why" hint="Recorded against the request, and required.">
+      <Field
+        label="Why"
+        hint="Recorded against the request, and required."
+        required
+      >
         <Input
           value={terms.reason}
           onChange={(event) => set({ reason: event.target.value })}
@@ -829,7 +839,7 @@ function Ask({
             caller may name their own unit and nothing else — the server refuses
             another — so the honest control for them is the sentence below. */}
         {choosing ? (
-          <Field label="Unit">
+          <Field label="Unit" required>
             <PickOne
               label="Unit"
               placeholder="Choose a unit…"
@@ -1093,6 +1103,7 @@ function Decide({
 
       <Field
         label="Why"
+        required
         hint="Recorded against the decision, and required — on a return and a rejection as much as on an approval."
       >
         <Input
@@ -1258,6 +1269,7 @@ function OpenRecord({
 
       <Field
         label="Badge number"
+        required
         hint="HR's own numbering. A code somebody already has is refused."
       >
         <Input
@@ -1267,7 +1279,11 @@ function OpenRecord({
         />
       </Field>
 
-      <Field label="Why" hint="Recorded against the record, and required.">
+      <Field
+        label="Why"
+        hint="Recorded against the record, and required."
+        required
+      >
         <Input
           value={reason}
           onChange={(event) => setReason(event.target.value)}

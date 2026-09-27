@@ -34,7 +34,7 @@ export function Voice() {
   return (
     <Panel title="Raise a concern">
       <div className="flex flex-col gap-3">
-        <Field label="What is it about">
+        <Field label="What is it about" required>
           <Select
             value={typeCode}
             onChange={setTypeCode}
@@ -51,10 +51,10 @@ export function Voice() {
               ))}
           </Select>
         </Field>
-        <Field label="In one line">
+        <Field label="In one line" required>
           <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
         </Field>
-        <Field label="What happened, when, where">
+        <Field label="What happened, when, where" required>
           <Textarea
             rows={5}
             value={description}

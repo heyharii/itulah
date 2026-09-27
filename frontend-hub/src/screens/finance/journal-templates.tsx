@@ -281,14 +281,14 @@ function TemplateForm({
           </Receipt>
         )}
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Name">
+          <Field label="Name" required>
             <Input
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="Sewa gedung bulanan"
             />
           </Field>
-          <Field label="Memo" aside="Optional">
+          <Field label="Memo">
             <Input
               value={memo}
               onChange={(event) => setMemo(event.target.value)}
@@ -307,7 +307,8 @@ function TemplateForm({
           </span>
           <Button
             variant="primary"
-            disabled={name.trim() === "" || kept.length === 0 || save.isPending}
+            pending={save.isPending}
+            disabled={name.trim() === "" || kept.length === 0}
             onClick={() => save.mutate()}
           >
             {save.isPending ? "Saving…" : "Save template"}
@@ -352,7 +353,7 @@ function Repeats({ templates }: { templates: readonly JournalTemplate[] }) {
           <span className="flex items-center gap-2">
             <Button
               size="sm"
-              disabled={run.isPending}
+              pending={run.isPending}
               onClick={() => run.mutate()}
             >
               {run.isPending
@@ -513,7 +514,7 @@ function RepeatForm({
         </Button>
       </div>
       <Problem error={save.error} />
-      <Field label="Template">
+      <Field label="Template" required>
         <Select value={template} onChange={setTemplate}>
           <option value="">Choose a template</option>
           {choices.map((one) => (
@@ -533,10 +534,10 @@ function RepeatForm({
         </Select>
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Next date">
+        <Field label="Next date" required>
           <Day value={next} onChange={setNext} label="Next date" />
         </Field>
-        <Field label="Until" aside="Optional">
+        <Field label="Until">
           <Day
             value={end}
             onChange={setEnd}
@@ -556,7 +557,8 @@ function RepeatForm({
       <div className="flex justify-end">
         <Button
           variant="primary"
-          disabled={template === "" || next === "" || save.isPending}
+          pending={save.isPending}
+          disabled={template === "" || next === ""}
           onClick={() => save.mutate()}
         >
           {save.isPending ? "Saving…" : "Save repeat"}

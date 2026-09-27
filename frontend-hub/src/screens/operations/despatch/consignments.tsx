@@ -138,7 +138,9 @@ export function Consignments() {
           onDismiss={() => setProgress(null)}
         >
           {progress.message}
-          {" Try those cartons again from the list — the safe retry is the step they failed at."}
+          {
+            " Try those cartons again from the list — the safe retry is the step they failed at."
+          }
         </Banner>
       )}
 
@@ -228,7 +230,8 @@ export function Consignments() {
             <div className="flex-1" />
             <Button
               variant="primary"
-              disabled={chosen.size === 0 || build.isPending}
+              pending={build.isPending}
+              disabled={chosen.size === 0}
               onClick={() => build.mutate()}
             >
               {build.isPending ? "Building…" : "Create shipment"}

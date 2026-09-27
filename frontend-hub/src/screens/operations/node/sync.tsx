@@ -82,7 +82,7 @@ export function Sync() {
         actions={
           <Button
             variant="primary"
-            disabled={send.isPending}
+            pending={send.isPending}
             onClick={() => send.mutate()}
           >
             <RefreshCw />

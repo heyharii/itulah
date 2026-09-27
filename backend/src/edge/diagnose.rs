@@ -114,7 +114,7 @@ fn database_checks(path: &Path, checks: &mut Vec<Check>, detail: &mut Value) {
         checks.push(check(
             "database",
             Verdict::Warn,
-            "Belum ada database — node belum pernah berjalan sebagai toko.",
+            "No database yet — this node has never run as a store.",
         ));
         return;
     }
@@ -130,7 +130,7 @@ fn database_checks(path: &Path, checks: &mut Vec<Check>, detail: &mut Value) {
             checks.push(check(
                 "database",
                 Verdict::Fail,
-                format!("Database tidak bisa dibuka: {error}"),
+                format!("Cannot open the database: {error}"),
             ));
             return;
         }
@@ -143,13 +143,13 @@ fn database_checks(path: &Path, checks: &mut Vec<Check>, detail: &mut Value) {
         check(
             "database",
             Verdict::Ok,
-            format!("Database utuh ({}).", megabytes(size + wal)),
+            format!("Database intact ({}).", megabytes(size + wal)),
         )
     } else {
         check(
             "database",
             Verdict::Fail,
-            format!("Database rusak: {integrity}"),
+            format!("Database damaged: {integrity}"),
         )
     });
 
@@ -176,20 +176,16 @@ fn database_checks(path: &Path, checks: &mut Vec<Check>, detail: &mut Value) {
             .and_then(|at| DateTime::parse_from_rfc3339(at).ok())
             .map(|at| (Utc::now() - at.with_timezone(&Utc)).num_minutes());
         checks.push(match (count, age_minutes) {
-            (0, _) => check(
-                "outbox",
-                Verdict::Ok,
-                "Semua transaksi sudah terkirim ke kantor pusat.",
-            ),
+            (0, _) => check("outbox", Verdict::Ok, "All sales have reached head office."),
             (count, Some(minutes)) if minutes >= 30 => check(
                 "outbox",
                 Verdict::Warn,
-                format!("{count} catatan menunggu dikirim; yang tertua {minutes} menit."),
+                format!("{count} records waiting to send; the oldest {minutes} min."),
             ),
             (count, _) => check(
                 "outbox",
                 Verdict::Ok,
-                format!("{count} catatan sedang dalam antrean kirim."),
+                format!("{count} records in the send queue."),
             ),
         });
     }
@@ -197,7 +193,7 @@ fn database_checks(path: &Path, checks: &mut Vec<Check>, detail: &mut Value) {
         checks.push(check(
             "dead_letters",
             Verdict::Fail,
-            format!("{dead} catatan ditolak dan tertahan — perlu developer."),
+            format!("{dead} records refused and held — needs a developer."),
         ));
     }
 }
@@ -212,7 +208,7 @@ async fn cloud_checks(checks: &mut Vec<Check>, detail: &mut Value) {
         checks.push(check(
             "cloud",
             Verdict::Warn,
-            "Belum ada alamat kantor pusat — node belum didaftarkan.",
+            "No head office address yet — this node is not enrolled.",
         ));
         return;
     };
@@ -239,7 +235,7 @@ async fn cloud_checks(checks: &mut Vec<Check>, detail: &mut Value) {
             checks.push(check(
                 "cloud",
                 Verdict::Fail,
-                format!("Kantor pusat tidak bisa dihubungi — cek internet toko. ({error})"),
+                format!("Cannot reach head office — check the store's internet. ({error})"),
             ));
             return;
         }
@@ -263,7 +259,7 @@ async fn cloud_checks(checks: &mut Vec<Check>, detail: &mut Value) {
             Verdict::Fail
         },
         format!(
-            "Kantor pusat menjawab {} dalam {elapsed} ms.",
+            "Head office answered {} in {elapsed} ms.",
             response.status()
         ),
     ));
@@ -272,10 +268,10 @@ async fn cloud_checks(checks: &mut Vec<Check>, detail: &mut Value) {
             check(
                 "clock",
                 Verdict::Fail,
-                format!("Jam komputer ini selisih {skew} detik dari kantor pusat — kasir bisa ditolak. Setel jam otomatis."),
+                format!("This computer's clock is {skew} s off from head office — tills may be refused. Turn on automatic time."),
             )
         } else {
-            check("clock", Verdict::Ok, format!("Jam sesuai (selisih {skew} detik)."))
+            check("clock", Verdict::Ok, format!("Clock matches ({skew} s off)."))
         });
     }
 
@@ -297,15 +293,15 @@ async fn cloud_checks(checks: &mut Vec<Check>, detail: &mut Value) {
             .await;
         checks.push(match answer.map(|response| response.status()) {
             Ok(status) if status.is_success() => {
-                check("key", Verdict::Ok, "Kantor pusat menerima kunci mesin ini.")
+                check("key", Verdict::Ok, "Head office accepts this machine's key.")
             }
             Ok(status) if status == reqwest::StatusCode::FORBIDDEN => check(
                 "key",
                 Verdict::Fail,
-                "Kantor pusat MENOLAK kunci mesin ini — mesin ini sudah diganti atau dicabut. Daftarkan ulang dari hub.",
+                "Head office REFUSES this machine's key — it was replaced or revoked. Enrol it again from the hub.",
             ),
-            Ok(status) => check("key", Verdict::Warn, format!("Pemeriksaan kunci dijawab {status}.")),
-            Err(error) => check("key", Verdict::Warn, format!("Kunci tidak bisa diperiksa: {error}")),
+            Ok(status) => check("key", Verdict::Warn, format!("Key check answered {status}.")),
+            Err(error) => check("key", Verdict::Warn, format!("Cannot check the key: {error}")),
         });
     }
 }
@@ -330,12 +326,12 @@ async fn local_checks(checks: &mut Vec<Check>) {
         None => false,
     };
     checks.push(if answered {
-        check("service", Verdict::Ok, format!("Server toko berjalan di port {port}."))
+        check("service", Verdict::Ok, format!("Store server running on port {port}."))
     } else {
         check(
             "service",
             Verdict::Fail,
-            format!("Server toko tidak menjawab di port {port} — service mati, sedang restart, atau masih menunggu pendaftaran."),
+            format!("Store server not answering on port {port} — the service is off, restarting, or still waiting for enrolment."),
         )
     });
 }
@@ -365,16 +361,16 @@ fn incident_checks(dir: &Path, checks: &mut Vec<Check>, detail: &mut Value) {
         check(
             "stability",
             Verdict::Fail,
-            format!("{loops} kali crash berulang dalam 24 jam — perlu developer."),
+            format!("{loops} crash loops in 24 hours — needs a developer."),
         )
     } else if hangs + unclean > 0 {
         check(
             "stability",
             Verdict::Warn,
-            format!("24 jam terakhir: {hangs} kali macet, {unclean} kali mati mendadak (crash atau listrik). Semua sudah pulih sendiri."),
+            format!("Last 24 hours: {hangs} hangs, {unclean} sudden stops (crash or power). All recovered on their own."),
         )
     } else {
-        check("stability", Verdict::Ok, "Tidak ada crash atau macet dalam 24 jam.")
+        check("stability", Verdict::Ok, "No crashes or hangs in 24 hours.")
     });
 }
 
@@ -390,7 +386,7 @@ pub async fn diagnose(data_dir: Option<&Path>) -> Report {
                     "enrolment",
                     Verdict::Ok,
                     format!(
-                        "Terdaftar sebagai {} (generasi {}).",
+                        "Enrolled as {} (generation {}).",
                         std::env::var("INVENTORY_SITE_ID").unwrap_or_default(),
                         std::env::var("INVENTORY_ORIGIN_GENERATION").unwrap_or_else(|_| "1".into())
                     ),
@@ -399,7 +395,7 @@ pub async fn diagnose(data_dir: Option<&Path>) -> Report {
                 check(
                     "enrolment",
                     Verdict::Warn,
-                    "Belum terdaftar — buka http://localhost:8082/setup di mesin ini.",
+                    "Not enrolled — open http://localhost:8082/setup on this machine.",
                 )
             });
             let database = std::env::var("INVENTORY_DATABASE_PATH")
@@ -412,7 +408,7 @@ pub async fn diagnose(data_dir: Option<&Path>) -> Report {
         None => checks.push(check(
             "installation",
             Verdict::Warn,
-            "Bukan instalasi (ITULAH_DATA_DIR tidak diset) — hanya memeriksa koneksi.",
+            "Not an installation (ITULAH_DATA_DIR not set) — checking connections only.",
         )),
     }
     local_checks(&mut checks).await;
@@ -437,11 +433,11 @@ pub async fn diagnose(data_dir: Option<&Path>) -> Report {
 pub fn print_and_save(report: &Report) -> Option<PathBuf> {
     let mark = |verdict: Verdict| match verdict {
         Verdict::Ok => "OK   ",
-        Verdict::Warn => "PERLU",
-        Verdict::Fail => "GAGAL",
+        Verdict::Warn => "WARN ",
+        Verdict::Fail => "FAIL ",
     };
     println!(
-        "itulah Store Server {} — diagnosa {}",
+        "itulah Store Server {} — diagnosis {}",
         report.version,
         report.taken_at.format("%Y-%m-%d %H:%M UTC")
     );
@@ -456,15 +452,15 @@ pub fn print_and_save(report: &Report) -> Option<PathBuf> {
     }
     println!();
     println!(
-        "Kesimpulan: {}",
+        "Verdict: {}",
         match report.verdict {
-            Verdict::Ok => "semua baik.",
-            Verdict::Warn => "berjalan, ada yang perlu diperhatikan.",
-            Verdict::Fail => "ada masalah — kirim file laporan di bawah ke kantor pusat.",
+            Verdict::Ok => "all good.",
+            Verdict::Warn => "running, with something to keep an eye on.",
+            Verdict::Fail => "there is a problem — send the report file below to head office.",
         }
     );
     let path = save(report)?;
-    println!("Laporan lengkap: {}", path.display());
+    println!("Full report: {}", path.display());
     Some(path)
 }
 

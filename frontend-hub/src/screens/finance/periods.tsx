@@ -193,7 +193,8 @@ export function Periods() {
         actions={
           <Button
             variant="primary"
-            disabled={already || open.isPending}
+            pending={open.isPending}
+            disabled={already}
             onClick={() => open.mutate()}
           >
             {already
@@ -369,7 +370,8 @@ function PeriodSheet({
                 </Button>
                 <Button
                   variant="danger"
-                  disabled={close.isPending || !mayClose}
+                  pending={close.isPending}
+                  disabled={!mayClose}
                   onClick={() => close.mutate()}
                 >
                   {close.isPending ? "Sealing…" : "Seal"}
@@ -651,11 +653,8 @@ function Checklist({ period }: { period: FiscalPeriod }) {
               <Button
                 variant="quiet"
                 size="sm"
-                disabled={
-                  rehearsal.isPending ||
-                  depreciate.isPending ||
-                  period.status.toUpperCase() !== "OPEN"
-                }
+                pending={rehearsal.isPending || depreciate.isPending}
+                disabled={period.status.toUpperCase() !== "OPEN"}
                 onClick={() => rehearsal.mutate()}
               >
                 {rehearsal.isPending ? "Previewing…" : "Preview"}
@@ -669,7 +668,7 @@ function Checklist({ period }: { period: FiscalPeriod }) {
                   <Button
                     variant="quiet"
                     size="sm"
-                    disabled={depreciate.isPending}
+                    pending={depreciate.isPending}
                     onClick={() => depreciate.mutate()}
                   >
                     {depreciate.isPending ? "Posting…" : "Post preview"}

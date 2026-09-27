@@ -3,6 +3,7 @@ import { RouterProvider } from "@tanstack/react-router"
 import { useEffect } from "react"
 
 import { LoginForm } from "@/components/login-form"
+import { ServerStatus } from "@/components/server-status"
 import { cacheKey } from "@/lib/api"
 import { startBasket } from "@/lib/basket"
 import { startSaleQueue } from "@/lib/sale-queue"
@@ -45,6 +46,7 @@ export function App() {
   if (session.isPending) {
     return (
       <main className="grid h-svh place-items-center">
+        <ServerStatus />
         <p className="text-meta text-body">Checking your session…</p>
       </main>
     )
@@ -53,6 +55,7 @@ export function App() {
   if ((session.data ?? null) === null) {
     return (
       <main className="h-svh">
+        <ServerStatus />
         <LoginForm
           problem={problem}
           node={where.data ?? null}
@@ -70,5 +73,10 @@ export function App() {
     )
   }
 
-  return <RouterProvider router={router} />
+  return (
+    <>
+      <ServerStatus />
+      <RouterProvider router={router} />
+    </>
+  )
 }

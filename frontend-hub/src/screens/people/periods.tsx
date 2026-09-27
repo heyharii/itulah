@@ -59,7 +59,7 @@ export function Periods() {
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
+        crumb="People · Attendance"
         title="Period close"
         sub={
           employer
@@ -198,6 +198,7 @@ function Month({
           <Field
             label="Why"
             hint="Recorded against the reopening, and required."
+            required
           >
             <Input
               value={reason}
@@ -208,7 +209,8 @@ function Month({
           <div>
             <Button
               variant="danger"
-              disabled={reason.trim() === "" || reopen.isPending}
+              pending={reopen.isPending}
+              disabled={reason.trim() === ""}
               onClick={() => reopen.mutate()}
             >
               Reopen {period.period}
@@ -249,14 +251,18 @@ function CloseMonth({ place }: { place: string }) {
           Closing freezes the roster as well as the facts. A scheduled day added
           afterwards would turn a day nobody worked into an absence.
         </Banner>
-        <Field label="Month" hint="YYYY-MM.">
+        <Field label="Month" hint="YYYY-MM." required>
           <Input
             type="month"
             value={period}
             onChange={(event) => setPeriod(event.target.value)}
           />
         </Field>
-        <Field label="Why" hint="Recorded against the close, and required.">
+        <Field
+          label="Why"
+          hint="Recorded against the close, and required."
+          required
+        >
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -266,7 +272,8 @@ function CloseMonth({ place }: { place: string }) {
         <div>
           <Button
             variant="primary"
-            disabled={period === "" || reason.trim() === "" || close.isPending}
+            pending={close.isPending}
+            disabled={period === "" || reason.trim() === ""}
             onClick={() => close.mutate()}
           >
             Close {period}

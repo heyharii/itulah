@@ -3482,3 +3482,69 @@ mod price_amendment_tests {
         assert!(parse_price_amendment_decision(&decision("Rejected", json!(310_000))).is_err());
     }
 }
+
+/// A shop's payment methods, whole (0474; ERPNext Mode of Payment, per shop).
+///
+/// Replaced wholesale for the reason `auth.policy.replace` is: a delta would
+/// need a way to say "and stop taking this one", and a forgotten removal is a
+/// till still offering a wallet Finance switched off. The tills show exactly
+/// this list, and the node refuses a tender outside it.
+pub const COMMAND_PAYMENT_METHODS_REPLACE: &str = "payment.methods.replace";
+
+/// One payment method, as a till needs it.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TillPaymentMethod {
+    pub code: String,
+    pub name: String,
+    /// `CASH`, `DEBIT_CARD`, `CREDIT_CARD`, `QRIS`, `EWALLET`, `VOUCHER` or
+    /// `POINTS`.
+    pub tender_type: String,
+    /// The bank, scheme or wallet provider; empty for cash and vouchers.
+    pub bank_code: String,
+    pub settlement_mode: String,
+}
+
+impl TillPaymentMethod {
+    /// The tender the wire carries for this method: (method, card kind).
+    /// `None` for a kind the tills cannot take yet (points).
+    pub fn wire(&self) -> Option<(&'static str, Option<&'static str>)> {
+        match self.tender_type.as_str() {
+            "CASH" => Some(("CASH", None)),
+            "DEBIT_CARD" => Some(("CARD", Some("DEBIT"))),
+            "CREDIT_CARD" => Some(("CARD", Some("CREDIT"))),
+            "QRIS" => Some(("QRIS", None)),
+            "EWALLET" => Some(("EWALLET", None)),
+            "VOUCHER" => Some(("VOUCHER", None)),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PaymentMethodBook {
+    pub site_id: String,
+    pub methods: Vec<TillPaymentMethod>,
+}
+
+pub fn parse_payment_method_book(payload: &Value) -> Result<PaymentMethodBook, String> {
+    let book: PaymentMethodBook = serde_json::from_value(payload.clone())
+        .map_err(|error| format!("payment.methods.replace payload is not a method book: {error}"))?;
+    let mut seen = std::collections::BTreeSet::new();
+    for method in &book.methods {
+        if method.code.trim().is_empty() || !seen.insert(method.code.clone()) {
+            return Err(format!("payment method code {:?} is empty or repeated", method.code));
+        }
+        if !matches!(
+            method.tender_type.as_str(),
+            "CASH" | "DEBIT_CARD" | "CREDIT_CARD" | "QRIS" | "EWALLET" | "VOUCHER" | "POINTS"
+        ) {
+            return Err(format!(
+                "payment method {} has tender type {}, which no till knows",
+                method.code, method.tender_type
+            ));
+        }
+    }
+    Ok(book)
+}

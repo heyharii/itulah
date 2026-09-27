@@ -1,3 +1,4 @@
+import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { Button } from "@/components/ui/button"
@@ -280,5 +281,111 @@ export function Receipt({
     <Banner tone="ok" className={className}>
       {children}
     </Banner>
+  )
+}
+
+/// The part of an infinite query a "more" control reads. TanStack's infinite
+/// query result is one of these as it stands.
+export interface Pageable {
+  readonly hasNextPage: boolean
+  readonly isFetchingNextPage: boolean
+  /// The last page asked for did not come. Optional so a hand-built stand-in
+  /// need not say; without it a failed page simply offers itself again.
+  readonly isFetchNextPageError?: boolean
+  readonly error: unknown
+  fetchNextPage: () => unknown
+}
+
+/// The nearest ancestor that scrolls, or `null` for the page itself.
+function scroller(node: HTMLElement): HTMLElement | null {
+  for (let at = node.parentElement; at !== null; at = at.parentElement) {
+    const { overflowY } = getComputedStyle(at)
+    if (overflowY === "auto" || overflowY === "scroll") return at
+  }
+  return null
+}
+
+/// The foot of a list that has more than it has shown — infinite scroll.
+///
+/// The next page is asked for as this comes into view, a screen before the
+/// reader reaches it, so a list reads as one list. Eight screens drew this as
+/// a button by hand — "Show more", "Fetching…", "Reading…" — and not one of
+/// them said anything when the next page failed: the button went back to
+/// "Show more" and pressing it was the only way to learn it would fail again.
+///
+/// Four states, each said: more to come (nothing drawn but the marker being
+/// watched), on its way ("Loading more…"), refused (the server's sentence and
+/// a Try again — and it stops asking on its own, or a dead endpoint would be
+/// asked forever), and none left, which draws nothing: the list stopping is
+/// the answer.
+///
+/// **Put it inside the box that scrolls.** Watched against the viewport, it
+/// is "in view" whenever its box is — so under a table that scrolls itself it
+/// would stay in view and pull every page in one after another. A
+/// `<DataTable>` places it for you with `more`.
+export function LoadMore({
+  query,
+  className,
+}: {
+  query: Pageable
+  className?: string
+}) {
+  const marker = React.useRef<HTMLDivElement>(null)
+  const failed = query.isFetchNextPageError === true
+  // The latest `fetchNextPage` without re-arming the observer when the query
+  // object is rebuilt, which it is every render.
+  const ask = React.useEffectEvent(() => void query.fetchNextPage())
+  const watching = query.hasNextPage && !query.isFetchingNextPage && !failed
+
+  // Re-armed each time a page lands (`watching` goes false and back): a page
+  // that arrived and still left the marker in view asks for the next at once,
+  // which an observer that stayed armed would never report — it only speaks
+  // when the answer changes.
+  React.useEffect(() => {
+    const node = marker.current
+    if (!watching || node === null) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) ask()
+      },
+      // Watched against the box that actually scrolls, so the margin is a
+      // screen of rows before the end of THAT box — against the viewport the
+      // margin would only ever apply to the page.
+      { root: scroller(node), rootMargin: "0px 0px 400px 0px" }
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [watching])
+
+  if (!failed && !query.hasNextPage) return null
+
+  return (
+    <div
+      ref={marker}
+      className={cn(
+        "flex min-h-px flex-col items-center gap-1.5 text-center",
+        (failed || query.isFetchingNextPage) && "py-2.5",
+        className
+      )}
+    >
+      {failed ? (
+        <>
+          <p role="alert" className="text-[0.875rem] text-bad">
+            {problemOf(query.error) ?? "The next page could not be read."}
+          </p>
+          <Button
+            variant="ghost"
+            pending={query.isFetchingNextPage}
+            onClick={() => void query.fetchNextPage()}
+          >
+            {query.isFetchingNextPage ? "Trying again…" : "Try again"}
+          </Button>
+        </>
+      ) : query.isFetchingNextPage ? (
+        <p aria-live="polite" className="text-[0.875rem] text-body">
+          Loading more…
+        </p>
+      ) : null}
+    </div>
   )
 }

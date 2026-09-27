@@ -540,6 +540,13 @@ pub struct BillScope {
     /// filed (brief §8.3). `None` means every origin. It narrows the
     /// population, so it is applied in SQL and not by the browser.
     pub draft_from: Option<String>,
+    /// `MERCHANDISE` or `EXPENSE` (0094's CHECK). Empty means both.
+    ///
+    /// The bills screen draws the two as separate tabs, and each tab pages on
+    /// its own: splitting one page by kind in the browser would leave the
+    /// expense tab holding whatever expense bills happened to fall in the
+    /// newest two hundred of both.
+    pub kinds: Vec<String>,
 }
 
 /// Where the previous page stopped — as a ROW, not as a position.
@@ -767,6 +774,7 @@ const BILL_FILTERS: &str = "
     AND ($3::text[] IS NULL OR supplier_id = ANY($3))
     AND ($4::text[] IS NULL OR site_id = ANY($4))
     AND ($5::text IS NULL OR submitted_by_domain = $5)
+    AND ($6::text[] IS NULL OR kind = ANY($6))
 ";
 
 /// Supplier bills: a page of them, how many there are, and what they come to.
@@ -793,6 +801,7 @@ pub async fn bill_page(pool: &PgPool, scope: BillScope) -> Result<BillPage, AppE
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(str::to_string);
+    let kinds = (!scope.kinds.is_empty()).then(|| scope.kinds.clone());
 
     // The sort, and the tie-break that makes it total. Every order ends in
     // `invoice_id`, so no two rows can ever compare equal — which is what stops
@@ -842,10 +851,10 @@ pub async fn bill_page(pool: &PgPool, scope: BillScope) -> Result<BillPage, AppE
              SELECT * FROM searched WHERE {BILL_FILTERS}
          )
          SELECT * FROM kept
-          WHERE $6::uuid IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE invoice_id = $6)
+          WHERE $7::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE invoice_id = $7)
           ORDER BY {order}
-          LIMIT $7"
+          LIMIT $8"
     );
     let rows = sqlx::query(&sql)
         .bind(&needle)
@@ -853,6 +862,7 @@ pub async fn bill_page(pool: &PgPool, scope: BillScope) -> Result<BillPage, AppE
         .bind(&suppliers)
         .bind(&sites)
         .bind(&draft_from)
+        .bind(&kinds)
         .bind(cursor.as_ref().map(|c| c.invoice_id))
         // No limit means no limit. `NULL` is how Postgres spells that in
         // `LIMIT`, which is why this is an Option rather than a large number
@@ -875,8 +885,16 @@ pub async fn bill_page(pool: &PgPool, scope: BillScope) -> Result<BillPage, AppE
     };
 
     let out = rows.iter().map(to_bill).collect::<Result<Vec<_>, _>>()?;
-    let (total, total_minor, outstanding_minor, statuses) =
-        bill_facets(pool, needle.as_deref(), &statuses, &suppliers, &sites, &draft_from).await?;
+    let (total, total_minor, outstanding_minor, statuses) = bill_facets(
+        pool,
+        needle.as_deref(),
+        &statuses,
+        &suppliers,
+        &sites,
+        &draft_from,
+        &kinds,
+    )
+    .await?;
     Ok(BillPage {
         rows: out,
         next_cursor,
@@ -906,6 +924,7 @@ async fn bill_facets(
     suppliers: &Option<Vec<String>>,
     sites: &Option<Vec<String>>,
     draft_from: &Option<String>,
+    kinds: &Option<Vec<String>>,
 ) -> Result<(i64, i64, i64, Vec<PayableFacet>), AppError> {
     let rows_sql = bill_rows();
     let sql = format!(
@@ -927,6 +946,7 @@ async fn bill_facets(
         .bind(suppliers)
         .bind(sites)
         .bind(draft_from)
+        .bind(kinds)
         .fetch_all(pool)
         .await?;
 
@@ -1955,8 +1975,19 @@ pub async fn unbilled_receipts(
     pool: &PgPool,
     limit: i64,
 ) -> Result<Vec<UnbilledReceipt>, AppError> {
-    let rows = sqlx::query(
-        "SELECT r.receipt_id, r.receipt_number, r.supplier_id, r.arrived_at,
+    let sql = format!("{UNBILLED_ROWS} ORDER BY r.arrived_at LIMIT $1");
+    let rows = sqlx::query(&sql)
+        .bind(limit.clamp(1, 500))
+        .fetch_all(pool)
+        .await?;
+    rows.iter().map(to_unbilled).collect()
+}
+
+/// One unbilled delivery, defined once — for the capped list above, for the
+/// page below and for that page's totals, so the three cannot disagree about
+/// what "unbilled" means. No `ORDER BY` and no `LIMIT`: each caller adds its
+/// own.
+const UNBILLED_ROWS: &str = "SELECT r.receipt_id, r.receipt_number, r.supplier_id, r.arrived_at,
                 r.site_id AS origin_site_id,
                 COALESCE(
                     -- Already the centre's name for it: every store spells
@@ -1988,30 +2019,99 @@ pub async fn unbilled_receipts(
           WHERE NOT EXISTS (
                     SELECT 1 FROM supplier_invoice_receipt sir
                      WHERE sir.receipt_id = r.receipt_id)
-          GROUP BY r.receipt_id, o.node_role
-          ORDER BY r.arrived_at
-          LIMIT $1",
-    )
-    .bind(limit.clamp(1, 500))
-    .fetch_all(pool)
-    .await?;
-    rows.iter()
-        .map(|row| {
-            Ok(UnbilledReceipt {
-                receipt_id: row.try_get("receipt_id")?,
-                receipt_number: row.try_get("receipt_number")?,
-                supplier_id: row.try_get("supplier_id")?,
-                site_id: row.try_get("site_id")?,
-                origin_site_id: row.try_get("origin_site_id")?,
-                arrived_at: row.try_get("arrived_at")?,
-                invoice_number: row.try_get("invoice_number")?,
-                invoice_total_minor: row.try_get("invoice_total_minor")?,
-                value_at_order_price_minor: row.try_get("value_at_order_price")?,
-                line_count: row.try_get("line_count")?,
-                days_waiting: row.try_get("days_waiting")?,
-            })
-        })
-        .collect()
+          GROUP BY r.receipt_id, o.node_role";
+
+fn to_unbilled(row: &sqlx::postgres::PgRow) -> Result<UnbilledReceipt, AppError> {
+    Ok(UnbilledReceipt {
+        receipt_id: row.try_get("receipt_id")?,
+        receipt_number: row.try_get("receipt_number")?,
+        supplier_id: row.try_get("supplier_id")?,
+        site_id: row.try_get("site_id")?,
+        origin_site_id: row.try_get("origin_site_id")?,
+        arrived_at: row.try_get("arrived_at")?,
+        invoice_number: row.try_get("invoice_number")?,
+        invoice_total_minor: row.try_get("invoice_total_minor")?,
+        value_at_order_price_minor: row.try_get("value_at_order_price")?,
+        line_count: row.try_get("line_count")?,
+        days_waiting: row.try_get("days_waiting")?,
+    })
+}
+
+/// A page of the deliveries nobody has billed for, beside how many there are
+/// and what they are worth altogether.
+///
+/// The bare list above stops at 200 and says nothing — a screen totalling it
+/// reports the exposure of the oldest 200 deliveries as the whole of it. This
+/// pages instead, and the two totals are over every unbilled delivery, so a
+/// screen can put them under a list that has only loaded its first page.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UnbilledPage {
+    pub rows: Vec<UnbilledReceipt>,
+    pub next_cursor: Option<String>,
+    /// Every unbilled delivery, not the page.
+    pub total: i64,
+    /// What every unbilled delivery is worth at the ordered price.
+    pub total_minor: i64,
+}
+
+/// Where the previous page stopped: the last delivery's arrival and its id,
+/// which is the order the list is read in — oldest first, the one that has
+/// waited longest at the top.
+#[derive(Serialize, Deserialize)]
+struct UnbilledCursor {
+    arrived_at: DateTime<Utc>,
+    receipt_id: Uuid,
+}
+
+/// The unbilled deliveries, one keyset page at a time, oldest first.
+pub async fn unbilled_page(
+    pool: &PgPool,
+    cursor: Option<&str>,
+    limit: Option<i64>,
+) -> Result<UnbilledPage, AppError> {
+    let cursor: Option<UnbilledCursor> = cursor.map(decode_cursor).transpose()?;
+    let limit = limit.unwrap_or(100).clamp(1, 200);
+    // `NOT MATERIALIZED` so the seek and the `LIMIT` reach into the grouped
+    // read rather than waiting for all of it — see `bill_page`.
+    let sql = format!(
+        "WITH unbilled AS NOT MATERIALIZED ({UNBILLED_ROWS})
+         SELECT * FROM unbilled
+          WHERE $1::timestamptz IS NULL OR (arrived_at, receipt_id) > ($1::timestamptz, $2::uuid)
+          ORDER BY arrived_at, receipt_id
+          LIMIT $3"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(cursor.as_ref().map(|c| c.arrived_at))
+        .bind(cursor.as_ref().map(|c| c.receipt_id))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(encode_cursor(&UnbilledCursor {
+            arrived_at: row.try_get("arrived_at")?,
+            receipt_id: row.try_get("receipt_id")?,
+        })?),
+        _ => None,
+    };
+    let out = rows
+        .iter()
+        .map(to_unbilled)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let totals_sql = format!(
+        "WITH unbilled AS ({UNBILLED_ROWS})
+         SELECT COUNT(*)::bigint AS total,
+                COALESCE(SUM(value_at_order_price), 0)::bigint AS total_minor
+           FROM unbilled"
+    );
+    let totals = sqlx::query(&totals_sql).fetch_one(pool).await?;
+    Ok(UnbilledPage {
+        rows: out,
+        next_cursor,
+        total: totals.try_get("total")?,
+        total_minor: totals.try_get("total_minor")?,
+    })
 }
 
 // ---------------------------------------------------------------------------

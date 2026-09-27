@@ -346,7 +346,7 @@ fn parse_card_kind(raw: Option<String>) -> Option<CardKind> {
 /// receivable is qualified by.
 fn acquirer_of(method: &str, acquirer: Option<&str>, reference: Option<&str>) -> String {
     match method {
-        "CARD" | "QRIS" | "OTHER" => acquirer
+        "CARD" | "QRIS" | "EWALLET" | "OTHER" => acquirer
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .or_else(|| reference.map(str::trim).filter(|value| !value.is_empty()))
@@ -860,6 +860,7 @@ async fn read_day(
             ("CARD", Some(CardKind::Credit)) => "CREDIT_CARD",
             ("CARD", _) => "DEBIT_CARD",
             ("QRIS", _) => "QRIS",
+            ("EWALLET", _) => "EWALLET",
             _ => "",
         };
         if let Some((_, _, bps)) = direct
@@ -1240,7 +1241,9 @@ pub async fn sales_posting_exception_resolve(
 ) -> Result<SalesPostingDocument, AppError> {
     let bank = request.bank_code.trim().to_ascii_uppercase();
     if bank.is_empty() {
-        return Err(AppError::Validation("name the bank of the EDC this QRIS was paid on".into()));
+        return Err(AppError::Validation(
+            "name the bank of the EDC this QRIS was paid on, or the e-wallet's provider".into(),
+        ));
     }
     let row = sqlx::query(
         "SELECT x.posting_id, x.method, x.status, x.receipts_minor, x.refunds_minor,
@@ -1260,7 +1263,9 @@ pub async fn sales_posting_exception_resolve(
     if status != "OPEN" {
         return Err(AppError::Conflict("this exception is already resolved".into()));
     }
-    if method != "QRIS" {
+    // QRIS names the bank of its EDC; an e-wallet names its provider. Both
+    // then post like the day would have (`meanings_for`).
+    if !matches!(method.as_str(), "QRIS" | "EWALLET") {
         return Err(AppError::Validation(format!(
             "a {method} line is not resolved by naming a bank: the company does not sell \
              online, so retender it at the source and generate the day again"
@@ -1283,7 +1288,8 @@ pub async fn sales_posting_exception_resolve(
     // `vat_out` map: the whole net is revenue and no VAT line is built.
     let vat = 0i64;
     let _ = vat_rate_bps;
-    let memo = format!("QRIS {bank} takings (exception resolved)");
+    let label = if method == "EWALLET" { "E-wallet" } else { "QRIS" };
+    let memo = format!("{label} {bank} takings (exception resolved)");
     let lines = vec![
         {
             let mut line = PostingLine::debit("card_receivable_debit", &site_id, net).with_qualifier(&bank);
@@ -1292,7 +1298,7 @@ pub async fn sales_posting_exception_resolve(
         },
         {
             let mut line = PostingLine::credit("revenue_debit", &site_id, net - vat).with_qualifier(&bank);
-            line.memo = Some(format!("QRIS {bank} sales"));
+            line.memo = Some(format!("{label} {bank} sales"));
             line
         },
     ];
@@ -2105,7 +2111,7 @@ pub async fn retender_tender(
     let to_method = request.to_method.trim().to_ascii_uppercase();
     if !matches!(
         to_method.as_str(),
-        "CASH" | "CARD" | "QRIS" | "VOUCHER" | "OTHER"
+        "CASH" | "CARD" | "QRIS" | "EWALLET" | "VOUCHER" | "OTHER"
     ) {
         return Err(AppError::Validation(format!(
             "{to_method:?} is not a tender method; use CASH, CARD, QRIS, VOUCHER or OTHER"
@@ -2342,7 +2348,7 @@ fn receivable_of(
         ("CASH", _) => Ok(("cash", String::new())),
         ("CARD", Some(CardKind::Debit)) => Ok(("card_receivable_debit", acquirer.to_string())),
         ("CARD", Some(CardKind::Credit)) => Ok(("card_receivable_credit", acquirer.to_string())),
-        ("QRIS", _) => Ok(("card_receivable_debit", acquirer.to_string())),
+        ("QRIS" | "EWALLET", _) => Ok(("card_receivable_debit", acquirer.to_string())),
         // Free vouchers are a sales discount on the day (owner decision 13).
         ("VOUCHER", _) => Ok(("sales_discount", String::new())),
         (other, _) => Err(AppError::Validation(format!(

@@ -187,7 +187,8 @@ export function JournalEntrySheet({
             </Button>
             <Button
               variant="primary"
-              disabled={!ready || post.isPending}
+              pending={post.isPending}
+              disabled={!ready}
               onClick={() => post.mutate()}
             >
               {post.isPending ? "Posting…" : "Post the entry"}

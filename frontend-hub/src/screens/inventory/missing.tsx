@@ -1,5 +1,10 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
@@ -16,19 +21,21 @@ import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { useFilters } from "@/lib/filters"
+import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, label as humanise, moment } from "@/lib/format"
 import {
   fleetPools,
   idempotencyKey,
   inventoryKeys,
-  listMissing,
+  missingPage,
   resolveMissing,
   type MissingItem,
+  type MissingScope,
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import { Choice } from "@/screens/inventory/parts"
 import { age, useActor, writablePools } from "@/screens/inventory/shared"
 
@@ -53,7 +60,6 @@ const columns: ColumnDef<TableSetup, MissingItem>[] = [
       `${row.epc ?? ""} ${row.sku_code ?? ""} ${row.barcode ?? ""}`,
     header: "Subject",
     size: 240,
-    meta: { filter: { kind: "text" } },
     cell: ({ row }) => (
       <div className="min-w-0">
         <span className="block truncate font-mono text-id text-ink">
@@ -69,7 +75,6 @@ const columns: ColumnDef<TableSetup, MissingItem>[] = [
     accessorKey: "pool_label",
     header: "Missing from",
     size: 210,
-    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <AppLink
         to="/inventory/pools"
@@ -84,14 +89,14 @@ const columns: ColumnDef<TableSetup, MissingItem>[] = [
     accessorKey: "quantity",
     header: "Quantity",
     size: 100,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+    meta: { align: "right" },
     cell: ({ row }) => count(row.original.quantity),
   },
   {
     accessorKey: "age_hours",
     header: "Missing for",
     size: 120,
-    meta: { align: "right", filter: { kind: "number", unit: "hours" } },
+    meta: { align: "right" },
     // The decision metric, and the default sort.
     cell: ({ row }) => {
       const hours = row.original.age_hours
@@ -116,14 +121,13 @@ const columns: ColumnDef<TableSetup, MissingItem>[] = [
     accessorKey: "last_observation",
     header: "Last seen",
     size: 160,
-    meta: { filter: { kind: "date" } },
     cell: ({ row }) => moment(row.original.last_observation),
   },
   {
     accessorKey: "latest_count_status",
     header: "Last counted",
     size: 150,
-    meta: { filter: { kind: "option", format: humanise } },
+    enableSorting: false,
     cell: ({ row }) =>
       row.original.latest_count_id ? (
         <AppLink
@@ -139,6 +143,58 @@ const columns: ColumnDef<TableSetup, MissingItem>[] = [
   },
 ]
 
+/// Which column means which order the endpoint names. A column not in here
+/// cannot be sorted — sorting it would sort the loaded pages and call that the
+/// list.
+const SORTS: Record<string, string> = {
+  subject: "epc",
+  pool_label: "pool",
+  quantity: "quantity",
+  age_hours: "missing_since",
+  last_observation: "last_observation",
+}
+
+/// A fortnight, in the hours `age_hours` is counted in.
+const OVERDUE_HOURS = 24 * 14
+
+/// Every narrowing here is a parameter the endpoint answers; the counts beside
+/// each option are the server's, over everything the search matches.
+const FIELDS: FilterField[] = [
+  {
+    column: "pool_id",
+    label: "Missing from",
+    spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+  },
+  {
+    column: "counted",
+    label: "Counted",
+    spec: {
+      kind: "option",
+      single: true,
+      operators: ["isAnyOf"],
+      format: (value) =>
+        value === "NEVER"
+          ? "Never counted"
+          : value === "COUNTED"
+            ? "Counted"
+            : humanise(value),
+    },
+  },
+]
+
+function scopeFromFilters(filters: readonly Filter[]): {
+  pool_id?: string
+  counted?: string
+} {
+  const scope: { pool_id?: string; counted?: string } = {}
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0 || operator !== "isAnyOf") continue
+    if (column === "pool_id") scope.pool_id = values[0]
+    else if (column === "counted") scope.counted = values[0]
+  }
+  return scope
+}
+
 export function Missing() {
   const [query, setQuery] = useState("")
   const item = useSheet("movement")
@@ -146,35 +202,96 @@ export function Missing() {
     { id: "age_hours", desc: true },
   ])
 
-  const missing = useQuery({
-    queryKey: inventoryKeys.missing(),
-    queryFn: ({ signal }) => listMissing(signal),
+  const filters = useFilterState(FIELDS)
+
+  // Debounced: every keystroke is a query over every missing place.
+  const needle = useDebounced(query.trim(), 400)
+  const scope = useMemo<MissingScope>(() => {
+    const by = sorting[0]
+    const sort = by === undefined ? undefined : SORTS[by.id]
+    return {
+      ...scopeFromFilters(filters.filters),
+      ...(needle === "" ? {} : { q: needle }),
+      sort,
+      // "Missing for" runs the other way from "missing since": the longest
+      // missing is the one that went missing first.
+      desc: sort === "missing_since" ? by?.desc !== true : by?.desc === true,
+    }
+  }, [filters.filters, needle, sorting])
+
+  const missing = useInfiniteQuery({
+    queryKey: inventoryKeys.missing(scope),
+    queryFn: ({ pageParam, signal }) =>
+      missingPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => missing.data ?? [], [missing.data])
+  const rows = useMemo(
+    () => missing.data?.pages.flatMap((page) => page.rows) ?? [],
+    [missing.data]
+  )
+  const head = missing.data?.pages[0]
 
-  const filters = useFilters(columns)
+  const model = useMemo(
+    () => ({
+      ...filters,
+      fields: head
+        ? FIELDS.map((field) => ({
+            ...field,
+            spec: {
+              ...field.spec,
+              counted:
+                field.column === "pool_id"
+                  ? head.facets.pools
+                  : head.facets.counted,
+              ...(field.column === "pool_id"
+                ? {
+                    format: (value: string) =>
+                      head.facets.pools.find((one) => one.value === value)
+                        ?.label ?? value,
+                  }
+                : {}),
+            },
+          }))
+        : FIELDS,
+    }),
+    [filters, head]
+  )
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: filters.columns,
+        columns,
         getRowId: (row: MissingItem) => row.id,
-        state: {
-          columnFilters: filters.columnFilters,
-          globalFilter: query,
-          sorting,
-        },
+        state: { sorting },
+        // The rows arrive in the order the request asked for.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, sorting]
     )
   )
 
-  const overdue = rows.filter((row) => (row.age_hours ?? 0) > 24 * 14).length
+  /// How many of the LOADED rows are over a fortnight — and whether that is
+  /// all of them. It is exact when nothing is left to fetch, or when the list
+  /// is in its house order (oldest first) and the last loaded row is already
+  /// younger than a fortnight: every older row then sorts above it. Otherwise
+  /// it is a floor, and the banner says "at least".
+  const isOver = (row: MissingItem) =>
+    row.age_hours !== null && row.age_hours > OVERDUE_HOURS
+  const overdue = rows.filter(isOver).length
+  const last = rows[rows.length - 1] as MissingItem | undefined
+  const houseOrder = scope.sort === "missing_since" && scope.desc === false
+  const overdueExact =
+    !missing.hasNextPage ||
+    (houseOrder &&
+      last !== undefined &&
+      last.age_hours !== null &&
+      !isOver(last))
 
   return (
     <PageContent>
@@ -186,6 +303,7 @@ export function Missing() {
 
       {overdue > 0 && (
         <Banner tone="warn" className="mb-3.5">
+          {overdueExact ? "" : "At least "}
           {count(overdue)} of these have been missing more than a fortnight.
           Until each is called found, lost or disposed of, it stays on the books
           as stock the business owns and cannot sell.
@@ -199,11 +317,13 @@ export function Missing() {
           placeholder="Search by tag, SKU or pool"
           className="h-8 w-72"
         />
-        <FilterPanel model={filters} table={table} />
+        <FilterPanel model={model} />
         <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute tabular-nums">
-          {count(rows.length)} open
-        </span>
+        {head && (
+          <span className="text-[0.875rem] text-mute tabular-nums">
+            {count(head.total)} open
+          </span>
+        )}
       </Toolbar>
 
       <Card className="overflow-hidden">
@@ -212,13 +332,14 @@ export function Missing() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                {query === ""
+                {needle === "" && filters.filters.length === 0
                   ? "Nothing is missing. Every subject the ledger holds is in a pool somebody can walk to."
-                  : `Nothing missing matches “${query}”.`}
+                  : "Nothing missing matches what you asked for."}
               </EmptyState>
             ) : (
               <DataTable<MissingItem>
                 table={table}
+                more={missing}
                 onRowClick={(row) => item.open(row.id)}
                 isSelected={(row) => row.id === item.value}
                 className="max-h-[calc(100vh-19rem)]"
@@ -227,6 +348,8 @@ export function Missing() {
         })}
       </Card>
 
+      {/* Handed its row from the loaded pages: there is no single-row read.
+          A pasted link opens once the page holding that row has loaded. */}
       <ResolveSheet
         item={rows.find((row) => row.id === item.value) ?? null}
         onClose={item.close}
@@ -423,7 +546,7 @@ function ResolveSheet({
 
             <form.Field name="reason">
               {(field) => (
-                <Field label="Reason">
+                <Field label="Reason" required>
                   <Input
                     value={field.state.value}
                     onBlur={field.handleBlur}
@@ -459,7 +582,8 @@ function ResolveSheet({
                 <Button
                   type="submit"
                   variant="primary"
-                  disabled={!state.ready || actor === "" || resolve.isPending}
+                  pending={resolve.isPending}
+                  disabled={!state.ready || actor === ""}
                 >
                   {resolve.isPending
                     ? "Posting…"

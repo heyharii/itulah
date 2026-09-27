@@ -86,6 +86,11 @@ pub fn required_role(method: &str, path: &str) -> Role {
         // open exposures: the operator's view, not a till's. Its siblings
         // `/sync/fleet` and `/sync/status` stay Cashier.
         "/api/v1/sync/health",
+        // Setting the company up: describing it, opening stores, starting
+        // the books. The read as well — it is what decides whether the
+        // wizard stands in front of the app, and it is only the owner's
+        // question (`http/setup.rs`).
+        "/api/v1/setup",
     ];
     if admin_prefixes.iter().any(|p| path.starts_with(p)) {
         return Role::Admin;

@@ -7,6 +7,7 @@ import { AppLink } from "@/components/ui/app-link"
 import { count, money } from "@/lib/format"
 import { useBrief, type Brief } from "@/lib/queries/assistant"
 import { queryState } from "@/lib/query-state"
+import { SetupCard } from "@/screens/setup/setup-card"
 
 /// The morning brief: the four figures worth knowing before anybody opens a
 /// module, and a box to ask about them.
@@ -48,6 +49,9 @@ function Brief({ data }: { data: Brief }) {
       <p className="mt-2 text-[0.875rem] text-body">
         Here is how things are going.
       </p>
+
+      {/* A company still opening its stores sees what is left first. */}
+      <SetupCard className="mt-6" />
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <BriefCard

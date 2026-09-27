@@ -13,6 +13,7 @@ import { JournalTemplates } from "@/screens/finance/journal-templates"
 import { FinanceOverview } from "@/screens/finance/overview"
 import { PayComponents } from "@/screens/finance/pay-components"
 import { PaymentMethods } from "@/screens/finance/payment-methods"
+import { ShopPaymentMethods } from "@/screens/finance/shop-payment-methods"
 import { PeriodClosing } from "@/screens/finance/period-closing"
 import { Periods } from "@/screens/finance/periods"
 import { Permissions } from "@/screens/finance/permissions"
@@ -163,6 +164,7 @@ export const screens: ScreenMap = {
   "/finance/setup/periods": Periods,
   "/finance/setup/dimensions": Dimensions,
   "/finance/setup/payment-methods": PaymentMethods,
+  "/finance/setup/shop-payment-methods": ShopPaymentMethods,
   "/finance/setup/journal-templates": JournalTemplates,
   "/finance/setup/expense-categories": ExpenseCategories,
   "/finance/setup/pay-components": PayComponents,

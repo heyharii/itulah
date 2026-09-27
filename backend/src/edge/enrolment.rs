@@ -102,6 +102,7 @@ pub fn load_node_env(dir: &Path) -> Result<bool, EdgeError> {
     dotenvy::from_path(&path).map_err(|error| {
         EdgeError::Configuration(format!("cannot read {}: {error}", path.display()))
     })?;
+    crate::edge::secret::unseal_environment().map_err(EdgeError::Configuration)?;
     Ok(true)
 }
 
@@ -154,7 +155,7 @@ struct Setup {
 fn cloud_base(url: &str) -> Result<String, String> {
     let base = url.trim().trim_end_matches('/');
     if !(base.starts_with("https://") || base.starts_with("http://")) {
-        return Err("alamat cloud harus diawali https://".into());
+        return Err("the cloud address must start with https://".into());
     }
     Ok(base.to_owned())
 }
@@ -209,7 +210,7 @@ fn node_env(pending: &Pending, generation: i64) -> String {
         site = pending.site_id,
         origin = pending.origin_id,
         cloud = pending.cloud_url,
-        key = pending.key,
+        key = crate::edge::secret::seal(&pending.key),
     )
 }
 
@@ -228,15 +229,14 @@ impl Setup {
             .json(&request)
             .send()
             .await
-            .map_err(|error| format!("cloud tidak bisa dihubungi: {error}"))?;
+            .map_err(|error| format!("cannot reach the cloud: {error}"))?;
         if !response.status().is_success() {
             return Err(match response.status() {
                 StatusCode::FORBIDDEN => {
-                    "kode tidak berlaku — mungkin salah ketik, sudah dipakai, kedaluwarsa, atau dibatalkan"
-                        .to_owned()
+                    "code not valid — mistyped, already used, expired, or cancelled".to_owned()
                 }
                 status => format!(
-                    "cloud menolak ({status}): {}",
+                    "the cloud refused ({status}): {}",
                     response.text().await.unwrap_or_default()
                 ),
             });
@@ -244,7 +244,7 @@ impl Setup {
         let answer: ClaimAnswer = response
             .json()
             .await
-            .map_err(|error| format!("jawaban cloud tidak terbaca: {error}"))?;
+            .map_err(|error| format!("cannot read the cloud's answer: {error}"))?;
         let pending = Pending {
             cloud_url,
             enrolment_id: answer.enrolment_id,
@@ -269,14 +269,14 @@ impl Setup {
             })
             .send()
             .await
-            .map_err(|error| format!("cloud tidak bisa dihubungi: {error}"))?;
+            .map_err(|error| format!("cannot reach the cloud: {error}"))?;
         if !response.status().is_success() {
-            return Err(format!("cloud menjawab {}", response.status()));
+            return Err(format!("the cloud answered {}", response.status()));
         }
         response
             .json()
             .await
-            .map_err(|error| format!("jawaban cloud tidak terbaca: {error}"))
+            .map_err(|error| format!("cannot read the cloud's answer: {error}"))
     }
 
     /// Claim a code an installer left behind, once. The file is removed
@@ -298,7 +298,7 @@ impl Setup {
         let Some(cloud) = lines.next().or(default_cloud) else {
             *self.state.lock().await = SetupState::Idle {
                 cloud_url: None,
-                error: Some("kode dari installer ada, tetapi alamat cloud tidak".into()),
+                error: Some("the installer left a code but no cloud address".into()),
             };
             return;
         };
@@ -316,7 +316,7 @@ impl Setup {
                 tracing::warn!(%error, "the code the installer left was not accepted");
                 SetupState::Idle {
                     cloud_url: Some(cloud.to_owned()),
-                    error: Some(format!("kode dari installer: {error}")),
+                    error: Some(format!("code from the installer: {error}")),
                 }
             }
         };
@@ -357,7 +357,7 @@ impl Setup {
                         *self.state.lock().await = SetupState::Idle {
                             cloud_url: Some(pending.cloud_url.clone()),
                             error: Some(format!(
-                                "pendaftaran tidak diteruskan ({reason}). Minta kode baru ke kantor pusat."
+                                "enrolment not approved ({reason}). Ask head office for a new code."
                             )),
                         };
                     }
@@ -404,7 +404,7 @@ async fn setup_claim(State(setup): State<Arc<Setup>>, Json(body): Json<ClaimBody
     if read_pending(&setup.dir).is_some() {
         return (
             StatusCode::CONFLICT,
-            Json(json!({ "error": "mesin ini sudah menunggu persetujuan" })),
+            Json(json!({ "error": "this machine is already waiting for approval" })),
         )
             .into_response();
     }

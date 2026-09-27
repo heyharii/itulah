@@ -1,27 +1,24 @@
 import {
   BadgeDollarSign,
   CalendarCheck,
-  CalendarClock,
   CalendarRange,
   ChartColumn,
   Clock4,
   Fingerprint,
   HeartHandshake,
-  Inbox,
-  Layers,
   LayoutGrid,
   MessageSquareWarning,
   Receipt,
   ReceiptText,
   ScanFace,
-  SlidersHorizontal,
-  Sun,
+  Settings,
   Timer,
   UserPlus,
   Users,
 } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
+import { usePeopleWaitingCount } from "@/screens/people/badges"
 import { usePeopleAudience } from "@/screens/people/scope"
 
 /// This module's row in the sidebar and the sub-items under it.
@@ -41,25 +38,45 @@ import { usePeopleAudience } from "@/screens/people/scope"
 /// rule the places are measured against. So one module, and `audience` decides
 /// which rows a caller is offered. See `PEOPLE-BRIEF.md`.
 ///
-/// Employees themselves are not here at all. They are on `frontend-employee`,
-/// where they ask for their own leave and read their own payslip; a second
-/// place to do that is a second place to get a different answer.
+/// # Nine rows, not twenty
 ///
-/// # Why Directory sits above the groups
+/// The menu had grown to twenty rows by 2026-09-27 and no longer fitted an
+/// 800px screen: the whole Setup group sat below the fold, and the sidebar
+/// hides its scrollbar. The owner asked for it simplified that day, by one
+/// rule — a row is a place somebody opens at least weekly. So:
 ///
-/// It is the module's front door and both faces open it daily, which is what
-/// Finance's Overview is and where Finance puts it. It is also neither "what is
-/// on my desk this week" nor a filing cabinet, so putting it inside Work or
-/// Records would file the one screen everybody uses under a heading half of
-/// them do not read.
+///  - the Overview is the one queue: what was the Requests screen is drawn on
+///    it, and the claims, hire requests and payroll runs waiting on the caller
+///    are rows in its attention list;
+///  - what belongs to one person is reached from where people are: a hire
+///    request from Employees;
+///  - a plan act is a button on the plan: Overtime from the Roster;
+///  - monthly work is a button on the screen it closes: Period close from
+///    Attendance, pay agreements and benefits from Payroll;
+///  - setup opened a few times a year is one Settings row, with Punch
+///    stations and the Scheduler opened from its header;
+///  - and Leave, Rule numbers and Salary structures were removed as
+///    duplicates — Leave's balances are on the employee's sheet and its kinds
+///    and holidays in Settings; Rule numbers repeated numbers the policies
+///    hold, and nothing but the dropped bonus tiers read it; Salary structures
+///    was a read-only seed the owner dropped with the grade masters.
+///
+/// Every screen that stopped being a row is `hidden`, not gone: routed, in ⌘K,
+/// and lighting the row it now lives under through `alsoLights`. The four
+/// groups are hairlines rather than words — the front doors, time, money, then
+/// reading and rules — because every word tried for them named a category of
+/// table.
+///
+/// Employees themselves use `/me` (and `frontend-employee`) to ask for their
+/// own leave and read their own payslip; a second place to do that here would
+/// be a second place to get a different answer.
 ///
 /// # Groups appear as their screens do
 ///
-/// The approved shape is Work · Records · Pay · Setup. A group is declared here
-/// when it has a screen with an endpoint behind it and not before — `IA-GAP.md`
-/// is the standing argument for that: a nav entry whose endpoint does not exist
-/// is worse than a missing entry, because it is a screen somebody opens once,
-/// finds empty, and stops trusting the app over.
+/// A row is declared here when it has a screen with an endpoint behind it and
+/// not before — `IA-GAP.md` is the standing argument for that: a nav entry
+/// whose endpoint does not exist is worse than a missing entry, because it is
+/// a screen somebody opens once, finds empty, and stops trusting the app over.
 export const peopleNav: AppModule = {
   id: "people",
   base: "/people",
@@ -69,237 +86,177 @@ export const peopleNav: AppModule = {
   useAudience: usePeopleAudience,
   sections: [
     {
+      /// The front doors: what is waiting, and who works here.
       items: [
         {
-          /// The front door, above the groups, because it is what somebody
-          /// opens when they do not yet know what they are looking for. Both
-          /// HR prototypes lead with it and Finance puts its own Overview in
-          /// exactly this position.
-          ///
-          /// It does not displace the Directory's claim to being opened daily
-          /// — it answers a different question. The Directory is "tell me
-          /// about this person"; this is "tell me what is waiting".
+          /// What is waiting on the caller, and what is about to go wrong:
+          /// the attention list, then the leave, corrections and swaps they
+          /// decide, on one screen. The count is how many of those decisions
+          /// are theirs — the badge is the reason to open it.
           path: "/people/overview",
           label: "Overview",
           icon: LayoutGrid,
+          badge: "warn",
+          useCount: usePeopleWaitingCount,
         },
-        { path: "/people", label: "Employees", icon: Users },
         {
-          /// Ungrouped, beside the other front doors. It sat under **Setup**
-          /// and was the only row there without an `audience`, which dragged
-          /// that whole heading into a place manager's sidebar for the sake of
-          /// one report — a group label promising rules they may not set.
-          /// Reading is not setup.
+          path: "/people",
+          label: "Employees",
+          icon: Users,
+          alsoLights: ["/people/hire"],
+        },
+        {
+          /// Asking for somebody, and head office answering. The front of the
+          /// lifecycle Employees holds the rest of, so it is opened from there
+          /// — `APPROVED` here is not a person yet: the employment record is
+          /// opened afterwards and starts as a candidate. A shop asks and head
+          /// office decides, so both faces reach it.
+          path: "/people/hire",
+          label: "New employees",
+          icon: UserPlus,
+          hidden: true,
+        },
+      ],
+    },
+    {
+      /// Time: the plan and what the days amounted to. A place manager
+      /// decides here and head office reads, which is why nothing in this
+      /// group carries an `audience`.
+      items: [
+        {
+          /// The week, per person: a place builds its roster and head office
+          /// reads it, one screen serving two readings. Overtime is ordered
+          /// from here, because extra hours are part of the plan.
+          path: "/people/roster",
+          label: "Roster",
+          icon: CalendarRange,
+          alsoLights: ["/people/overtime"],
+        },
+        {
+          /// What the days amounted to. The path is `/people/attendance-days`
+          /// because the rules a month is judged against were once at
+          /// `/people/attendance`, and a link to the old address should not
+          /// quietly land on a different question.
+          path: "/people/attendance-days",
+          label: "Attendance",
+          icon: Fingerprint,
+          alsoLights: ["/people/periods"],
+        },
+        {
+          /// Ordering extra hours, and the orders' answers. Opened from the
+          /// Roster; the ones nobody has answered are on the Overview.
+          path: "/people/overtime",
+          label: "Overtime",
+          icon: Clock4,
+          hidden: true,
+        },
+        {
+          /// Signing the month off: the place closes, head office reopens.
+          /// Once a month, so it is a button on Attendance — the days it signs
+          /// off — rather than a row read every morning.
+          path: "/people/periods",
+          label: "Period close",
+          icon: CalendarCheck,
+          hidden: true,
+        },
+      ],
+    },
+    {
+      /// Money.
+      items: [
+        {
+          /// Money waiting on a decision — petty-cash claims are filed by a
+          /// place and decided by the manager who did not file them. Both
+          /// faces use it; head office also names the kinds of expense a claim
+          /// may be filed against, on the screen's own Types tab.
+          path: "/people/claims",
+          label: "Claims",
+          icon: ReceiptText,
+        },
+        {
+          /// **No `audience`.** Hari's decision of 2026-09-13: a place opens
+          /// its own payroll, reads the figures, and submits the batch;
+          /// approving, reopening and handing to Finance stay head office's,
+          /// enforced on the server and reflected by the screen.
+          path: "/people/payroll",
+          label: "Payroll",
+          icon: Receipt,
+          alsoLights: ["/people/pay", "/people/benefits"],
+        },
+        {
+          /// One employee's pay, as a history. Opened from Payroll, where the
+          /// agreements it holds are spent.
+          path: "/people/pay",
+          label: "Pay agreements",
+          icon: BadgeDollarSign,
+          audience: "employer",
+          hidden: true,
+        },
+        {
+          /// What the company hands over — the uniform ledger a store records —
+          /// and the rules it hands it out by. Opened from Payroll.
+          path: "/people/benefits",
+          label: "Benefits",
+          icon: HeartHandshake,
+          hidden: true,
+        },
+      ],
+    },
+    {
+      /// Reading, and the rules every place is measured against.
+      items: [
+        {
+          /// Reading is not setup: a place manager reads their own figures
+          /// here, so it carries no `audience`.
           path: "/people/reports",
           label: "Reports",
           icon: ChartColumn,
         },
         {
-          /// The confidential channel, beside Reports — the third of the
-          /// front doors that is nobody's posting. Head office's queue alone:
-          /// a grievance against a store manager cannot be investigated by
-          /// that store manager, and in a thirteen-store estate the only place
-          /// that is nobody's posting is head office. Reading it is its own
-          /// key, finer than the ladder, so `audience` keeps the row off a
-          /// place manager's sidebar entirely — the accused supervisor holds
-          /// `people.employee.read` and must not therefore read the queue.
-          /// It deliberately does not join the Requests queue, whose rows a
-          /// place manager reads.
+          /// The confidential channel. Head office's queue alone: a grievance
+          /// against a store manager cannot be investigated by that store
+          /// manager, and in a thirteen-store estate the only place that is
+          /// nobody's posting is head office. Reading it is its own key, finer
+          /// than the ladder, so `audience` keeps the row off a place
+          /// manager's sidebar entirely.
           ///
           /// A bounded caller who pastes the URL anyway gets the screen's own
-          /// face: the same route answers them with their own filings, and
-          /// the raise form files for themselves or their staff.
+          /// face: the same route answers them with their own filings.
           path: "/people/grievances",
           label: "Grievances",
           icon: MessageSquareWarning,
           audience: "employer",
         },
         {
-          /// Asking for somebody, and head office answering. Beside the
-          /// Directory rather than in Work, because it is the front of the
-          /// same lifecycle the Directory holds the rest of — and because
-          /// `APPROVED` here is not a person yet: the employment record is
-          /// opened afterwards and starts as a candidate.
-          ///
-          /// No `audience`: a shop asks and head office decides, so both
-          /// faces open it and each is offered only the acts it may take.
-          path: "/people/hire",
-          label: "New employees",
-          icon: UserPlus,
-        },
-      ],
-    },
-    {
-      /// What is on somebody's desk this week. A place manager decides here
-      /// and head office reads, which is why nothing in this group carries an
-      /// `audience`: the work is the shop's, and the employer watches it.
-      label: "Work",
-      items: [
-        {
-          /// One queue, not three. A manager has five minutes and a list of
-          /// things waiting on them, not a leave task and a correction task
-          /// and an overtime task — three screens each holding two rows is how
-          /// all three stop being opened.
-          path: "/people/requests",
-          label: "Requests",
-          icon: Inbox,
-        },
-        {
-          /// Money waiting on a decision, beside the time already in the
-          /// queue above — petty-cash claims are the same shape of work: filed
-          /// by a place, waiting on the manager who did not file them.
-          ///
-          /// No `audience`: both faces use it. A place manager files for
-          /// their staff and decides what waits on them; head office reads
-          /// every place's queue and names the kinds of expense a claim may
-          /// be filed against, on that screen's own Types tab.
-          path: "/people/claims",
-          label: "Claims",
-          icon: ReceiptText,
-        },
-        {
-          /// Its own screen as well as a section of the queue, because
-          /// *ordering* overtime is a thing a manager sets out to do — the
-          /// queue is what is waiting on them, and this is what they start.
-          path: "/people/overtime",
-          label: "Overtime",
-          icon: Clock4,
-        },
-        {
-          /// Balances and the calendar — the half of leave that is read
-          /// rather than decided. The deciding is Requests'; a second screen
-          /// that offered an approve button would be a second place to get a
-          /// different answer.
-          path: "/people/leave",
-          label: "Leave",
-          icon: Sun,
-        },
-        {
-          /// The week, per person. No `audience`: a place builds its roster
-          /// and head office reads it, which is one screen serving two
-          /// readings rather than two screens.
-          path: "/people/roster",
-          label: "Roster",
-          icon: CalendarRange,
-        },
-        {
-          /// What the days amounted to. Between the roster and the close, in
-          /// the order the work happens: the plan is written, the days are
-          /// worked, the month is signed off.
-          ///
-          /// The path is `/people/attendance-days` and not `/people/attendance`
-          /// because the second now names the *policy* panel inside Time
-          /// policy. Two screens cannot share an address, and the rules a
-          /// month is judged against are a different question from what a
-          /// month contained.
-          path: "/people/attendance-days",
-          label: "Attendance",
-          icon: Fingerprint,
-        },
-        {
-          /// Signing the month off. The place closes; head office reopens —
-          /// the screen offers whichever the caller may actually do.
-          path: "/people/periods",
-          label: "Period close",
-          icon: CalendarCheck,
-        },
-      ],
-    },
-    {
-      /// Money. Head office's entirely, by Hari's decision: a place manager's
-      /// whole contribution to payroll is closing their attendance period, and
-      /// they never see a run.
-      label: "Pay",
-      items: [
-        {
-          path: "/people/pay",
-          label: "Pay agreements",
-          icon: BadgeDollarSign,
+          /// Attendance tolerances, shifts, leave kinds and holidays — the
+          /// time rules, as tabs — with Punch stations and the Scheduler
+          /// opened from its header. See `policy.tsx`.
+          path: "/people/settings",
+          label: "Settings",
+          icon: Settings,
           audience: "employer",
-        },
-        {
-          /// **No `audience`.** Hari's decision of 2026-09-13 reversed the one
-          /// this module was built to: a place no longer merely closes its
-          /// attendance period — it opens its own payroll, reads the figures,
-          /// and submits the batch. `domain::employment::audit` says so in as
-          /// many words and puts `people.payroll.{open,submit}` and
-          /// `people.pay.read` at the Supervisor rung, bounded by `Reach`.
-          ///
-          /// So hiding this row from a place manager was not a cautious
-          /// default — it was the app withholding the one screen that decision
-          /// gave them. Approving, reopening and handing to Finance stay head
-          /// office's, enforced on the server and reflected by the screen,
-          /// which offers a place only the step it may take.
-          path: "/people/payroll",
-          label: "Payroll runs",
-          icon: Receipt,
-        },
-        {
-          /// What the company hands over, and the rules it hands it out by:
-          /// the uniform ledger the store records, the rates and ceilings
-          /// head office sets. Both halves, one screen, because the count is
-          /// meaningless without the entitlement beside it.
-          path: "/people/benefits",
-          label: "Benefits",
-          icon: HeartHandshake,
-        },
-      ],
-    },
-    {
-      /// The rules every place is measured against. Head office's, all of
-      /// them — a shop that could set its own idea of "late", or of what a
-      /// day off costs, is a shop whose attendance and leave mean nothing next
-      /// to the shop beside it.
-      label: "Setup",
-      items: [
-        {
-          /// Four rows became one, 2026-09-13, on the owner's decision and
-          /// with both HR prototypes arguing for it independently. The
-          /// reasoning — and the fact that the four old addresses no longer
-          /// resolve — is in `policy.tsx`.
-          path: "/people/policy",
-          label: "Time policy",
-          icon: CalendarClock,
-          audience: "employer",
-        },
-        {
-          /// The rule numbers in one place: tolerance, entitlements, overtime
-          /// multipliers, claim ceilings, the statutory percentages. Reading
-          /// is everybody's; setting is head office's, with a reason.
-          path: "/people/policies",
-          label: "Rule numbers",
-          icon: SlidersHorizontal,
-          audience: "employer",
-        },
-        {
-          /// Structures, positions and grade bands. Head office's vocabulary,
-          /// shipped seeded and read-only in this generation.
-          path: "/people/structures",
-          label: "Salary structures",
-          icon: Layers,
-          audience: "employer",
+          alsoLights: ["/people/terminals", "/people/scheduler"],
         },
         {
           /// The fingerprint stations, and whose fingers each unit's station
           /// knows. Head office's, because binding a biometric to an
           /// employment record is the employer's act even though the finger
-          /// is on a reader in the shop — and because a template held
-          /// centrally is what lets somebody transfer without enrolling
-          /// again.
+          /// is on a reader in the shop. Opened from Settings.
           path: "/people/terminals",
           label: "Punch stations",
           icon: ScanFace,
           audience: "employer",
+          hidden: true,
         },
         {
-          /// What the clock does when nobody is looking: the accrual a policy
-          /// earned, the carry-forward a cap put a deadline on, next week's
-          /// roster, and the nudges. Read-only evidence plus a deliberate
-          /// "run now" — the worker itself is `bin/cloud.rs`.
+          /// What the clock does when nobody is looking: accruals, the
+          /// carry-forward a cap put a deadline on, next week's roster, the
+          /// nudges. Opened from Settings.
           path: "/people/scheduler",
           label: "Scheduler",
           icon: Timer,
           audience: "employer",
+          hidden: true,
         },
       ],
     },

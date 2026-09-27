@@ -153,7 +153,7 @@ export function Permissions() {
                           <Button
                             size="sm"
                             variant="quiet"
-                            disabled={remove.isPending}
+                            pending={remove.isPending}
                             onClick={() => remove.mutate(row)}
                           >
                             Remove
@@ -184,6 +184,7 @@ export function Permissions() {
           </Field>
           <Field
             label="Path prefix"
+            required
             hint="Every path that starts with this, e.g. /api/v1/finance/journal"
           >
             <Input
@@ -201,7 +202,7 @@ export function Permissions() {
               ))}
             </Select>
           </Field>
-          <Field label="Note" aside="Optional">
+          <Field label="Note">
             <Input
               value={note}
               onChange={(event) => setNote(event.target.value)}
@@ -210,7 +211,8 @@ export function Permissions() {
           <div className="flex justify-end">
             <Button
               variant="primary"
-              disabled={!prefix.trim().startsWith("/api/") || add.isPending}
+              pending={add.isPending}
+              disabled={!prefix.trim().startsWith("/api/")}
               onClick={() => add.mutate()}
             >
               {add.isPending ? "Saving…" : "Save override"}

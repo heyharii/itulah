@@ -8,26 +8,21 @@ import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
-import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
-import { day, moment, money } from "@/lib/format"
+import { day, moment } from "@/lib/format"
 import {
-  awaitingOvertime,
   boundedTo,
-  claimsKeys,
   decideCorrection,
   decideSwap,
-  listClaims,
   listCorrections,
   listEmployees,
   nextKeys,
@@ -36,9 +31,7 @@ import {
   punchKeys,
   decideLeave,
   leaveKeys,
-  overtimeKeys,
   pendingLeave,
-  readMinutesSpan,
   rosterKeys,
   useReach,
   type RosterSwapView,
@@ -47,13 +40,9 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { AppLink } from "@/components/ui/app-link"
-import type {
-  CorrectionRow,
-  LeaveRequestView,
-  OvertimeOrderView,
-} from "@itulah/contract"
+import type { CorrectionRow, LeaveRequestView } from "@itulah/contract"
 
-/// One queue, not three.
+/// One queue, not three — drawn on the People overview.
 ///
 /// A manager does not have a "leave task" and a "correction task" and an
 /// "overtime task" — they have five minutes and a list of things waiting on
@@ -61,7 +50,12 @@ import type {
 /// opened. So everything a manager decides is decided here: leave, attendance
 /// corrections and roster swaps, each its own table because each is judged on
 /// different facts, all opening into the same sheet with the same two verbs.
-/// Overtime consent and expense claims are the banners above them.
+///
+/// This was its own screen, Requests, beside an Overview that listed the same
+/// leave again. The owner asked for a shorter menu on 2026-09-27, and two
+/// front doors onto one queue were one too many: the tables are drawn under
+/// the Overview's attention list now, and the overtime orders and expense
+/// claims that were banners here are rows in that list.
 ///
 /// Corrections were a banner too, pointing at the attendance screen. That
 /// stopped being enough the day head office's own staff came into the
@@ -89,8 +83,9 @@ import type {
 /// unanswered — an order nobody answers authorizes nothing, so it is overtime
 /// that will be worked unpaid or not worked at all. But the decision is not
 /// theirs: PP 35/2021 art. 26(2) wants the worker's own agreement, and it
-/// arrives from their phone under a key nobody here holds. So those rows link
-/// to the Overtime screen rather than opening a sheet with buttons in it.
+/// arrives from their phone under a key nobody here holds. So the Overview's
+/// rows for them link to the Overtime screen rather than opening a sheet with
+/// buttons in it.
 
 /// A leave request, with the name of the person it is for.
 type LeaveRow = LeaveRequestView & { readonly name: string }
@@ -233,7 +228,7 @@ const swapColumns: ColumnDef<TableSetup, SwapRow>[] = [
   { accessorKey: "place_id", header: "Place", size: 130 },
 ]
 
-export function Requests() {
+export function RequestQueues() {
   const request = useSheet("request")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "when", desc: false },
@@ -300,20 +295,7 @@ export function Requests() {
   const openSwap = swapRows.find((row) => row.id === request.value) ?? null
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="People"
-        title="Requests"
-        sub={
-          bounded === null
-            ? "Everything waiting on a decision, across every place."
-            : `Everything waiting on a decision at ${bounded}.`
-        }
-      />
-
-      <AwaitingConsent />
-      <PendingClaims />
-
+    <>
       <Toolbar>
         <FilterPanel model={filters} table={table} />
       </Toolbar>
@@ -369,7 +351,7 @@ export function Requests() {
         onClose={request.close}
       />
       <SwapSheet key={openSwap?.id} swap={openSwap} onClose={request.close} />
-    </PageContent>
+    </>
   )
 }
 
@@ -565,7 +547,11 @@ function Verdict({
       )}
 
       <div className="mt-4 flex flex-col gap-3">
-        <Field label="Why" hint="Recorded against the decision, and required.">
+        <Field
+          label="Why"
+          hint="Recorded against the decision, and required."
+          required
+        >
           <Input
             value={reason}
             onChange={(event) => onReason(event.target.value)}
@@ -832,63 +818,5 @@ function SwapSheet({
         onDecide={(approve) => decide.mutate(approve)}
       />
     </Sheet>
-  )
-}
-
-/// Overtime orders nobody has answered yet.
-///
-/// A count and a link, not a table: the manager cannot act on these from here,
-/// and a list of rows with no row action is a list people learn to scroll past.
-/// What they can do is notice, and go and chase somebody.
-function AwaitingConsent() {
-  const orders = useQuery({
-    queryKey: overtimeKeys.awaiting(),
-    queryFn: ({ signal }) => awaitingOvertime(signal),
-  })
-  const rows: OvertimeOrderView[] = orders.data ?? []
-  if (rows.length === 0) return null
-
-  const minutes = rows.reduce((total, row) => total + row.planned_minutes, 0)
-
-  return (
-    <Banner tone="warn" className="mb-4">
-      {rows.length === 1
-        ? "One overtime order is"
-        : `${rows.length} overtime orders are`}{" "}
-      waiting on the people they were given to — {readMinutesSpan(minutes)} in
-      all, authorizing nothing until they answer.{" "}
-      <AppLink to="/people/overtime">See them</AppLink>.
-    </Banner>
-  )
-}
-
-/// Expense claims waiting on a decision.
-///
-/// A banner rather than a table: what a decider needs in order to judge a
-/// claim — the receipt, the per-line sanction they are about to write — lives
-/// on the claim's own screen, not in a column here. So this says how many are
-/// waiting, what they come to, and sends the reader to the screen that can
-/// decide one.
-///
-/// Unlike the overtime orders it sits beside, these the manager *can* decide —
-/// the banner is a count of work, not a reminder about somebody else's answer.
-function PendingClaims() {
-  const queue = useQuery({
-    queryKey: claimsKeys.queue(),
-    queryFn: ({ signal }) => listClaims({ state: "SUBMITTED" }, signal),
-  })
-  const rows = queue.data ?? []
-  if (rows.length === 0) return null
-
-  const total = rows.reduce((sum, row) => sum + row.claimed_minor, 0)
-
-  return (
-    <Banner tone="warn" className="mb-4">
-      {rows.length === 1
-        ? "One expense claim is"
-        : `${rows.length} expense claims are`}{" "}
-      waiting on a decision, {money(total)} asked for in all.{" "}
-      <AppLink to="/people/claims">Open the claims queue</AppLink>.
-    </Banner>
   )
 }

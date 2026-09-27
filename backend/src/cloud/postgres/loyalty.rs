@@ -912,7 +912,25 @@ pub async fn points_account(pool: &PgPool, customer_id: &str) -> Result<Value, A
 /// A member with no entries is a real row: somebody enrolled, holding nothing.
 /// It is a LEFT JOIN for that reason — an inner one would report the estate as
 /// having no members the day loyalty launched.
-pub async fn points_accounts(pool: &PgPool, limit: i64) -> Result<Value, AppError> {
+///
+/// Paged by keyset, largest balance first: `cursor` is a `next_cursor` from the
+/// previous page, and `next_cursor` is present only when the page came back
+/// full. The book-wide figures — how much is owed, over how many accounts, and
+/// how many do not reconcile — are counted over every account on every page,
+/// so the screen never has to add up the rows it happens to have loaded.
+pub async fn points_accounts(
+    pool: &PgPool,
+    cursor: Option<&str>,
+    limit: i64,
+) -> Result<Value, AppError> {
+    let limit = limit.clamp(1, 1000);
+    let after = cursor
+        .map(super::decode_cursor::<PointsAccountCursor>)
+        .transpose()?;
+    // The seek reads the previous row's balance from the account table rather
+    // than from the cursor, as every keyset here does: a cursor carries an
+    // identity, never a value somebody could edit. Both keys descend together,
+    // because a row comparison has one direction.
     let rows = sqlx::query(
         "SELECT a.customer_id,
                 a.balance_points,
@@ -924,11 +942,16 @@ pub async fn points_accounts(pool: &PgPool, limit: i64) -> Result<Value, AppErro
            FROM points_account a
            LEFT JOIN points_ledger l ON l.customer_id = a.customer_id
            LEFT JOIN member m        ON m.member_id   = a.customer_id
+          WHERE $1::text IS NULL
+             OR (a.balance_points, a.customer_id)
+                < (SELECT p.balance_points, p.customer_id
+                     FROM points_account p WHERE p.customer_id = $1)
           GROUP BY a.customer_id, a.balance_points, a.updated_at, m.display_name
-          ORDER BY a.balance_points DESC, a.customer_id
-          LIMIT $1",
+          ORDER BY a.balance_points DESC, a.customer_id DESC
+          LIMIT $2",
     )
-    .bind(limit.clamp(1, 1000))
+    .bind(after.as_ref().map(|one| one.customer_id.clone()))
+    .bind(limit)
     .fetch_all(pool)
     .await?;
 
@@ -953,24 +976,50 @@ pub async fn points_accounts(pool: &PgPool, limit: i64) -> Result<Value, AppErro
         })
         .collect();
 
-    // The liability, over the rows returned. Named `on_this_page` rather than
-    // `total` because it is one: a page of the account book is not the book,
-    // and a figure called "total" over a capped read is the kind of number that
-    // ends up in a meeting.
-    let on_this_page: i64 = items
-        .iter()
-        .filter_map(|item| item["balance_points"].as_i64())
-        .sum();
-    let drifted = items
-        .iter()
-        .filter(|item| item["reconciles"] == json!(false))
-        .count() as i64;
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => {
+            Some(super::encode_cursor(&PointsAccountCursor {
+                customer_id: row.get("customer_id"),
+            })?)
+        }
+        _ => None,
+    };
+
+    // The whole book, not the page. The liability is the cached balances —
+    // the figure a till quotes — and the drift count compares each cache with
+    // its own entries, exactly as the rows above do.
+    let book = sqlx::query(
+        "SELECT count(*)::bigint                                       AS accounts,
+                COALESCE(sum(a.balance_points), 0)::bigint             AS outstanding,
+                count(*) FILTER (WHERE a.balance_points
+                                 <> COALESCE(l.summed, 0))::bigint     AS drifted
+           FROM points_account a
+           LEFT JOIN (SELECT customer_id, sum(points) AS summed
+                        FROM points_ledger GROUP BY customer_id) l
+                  ON l.customer_id = a.customer_id",
+    )
+    .fetch_one(pool)
+    .await?;
 
     Ok(json!({
         "items": items,
-        "outstanding_points_on_this_page": on_this_page,
-        "accounts_not_reconciling": drifted,
+        "next_cursor": next_cursor,
+        "account_count": book.get::<i64, _>("accounts"),
+        "outstanding_points": book.get::<i64, _>("outstanding"),
+        "accounts_not_reconciling": book.get::<i64, _>("drifted"),
     }))
+}
+
+/// Where a page of the account book stopped — the account, not its balance.
+#[derive(Serialize, Deserialize)]
+struct PointsAccountCursor {
+    customer_id: String,
+}
+
+/// Where a page of the points ledger stopped — the entry, not its time.
+#[derive(Serialize, Deserialize)]
+struct PointsEntryCursor {
+    entry_id: Uuid,
 }
 
 /// Points movements across the estate, newest first.
@@ -984,24 +1033,47 @@ pub async fn points_accounts(pool: &PgPool, limit: i64) -> Result<Value, AppErro
 /// `customer_id` narrows to one member. Absent, this is the estate's ledger,
 /// which is the question "what has loyalty been doing this week" — and the one
 /// [`points_account`] cannot answer, because it is asked of one member.
+///
+/// Paged by keyset on `(created_at, entry_id)`, both descending: `cursor` is a
+/// `next_cursor` from the previous page, and one is returned only when the
+/// page came back full.
 pub async fn points_ledger(
     pool: &PgPool,
     customer_id: Option<&str>,
+    cursor: Option<&str>,
     limit: i64,
 ) -> Result<Value, AppError> {
+    let limit = limit.clamp(1, 1000);
+    let after = cursor
+        .map(super::decode_cursor::<PointsEntryCursor>)
+        .transpose()?;
     let rows = sqlx::query(
         "SELECT l.entry_id, l.customer_id, m.display_name, l.entry_type, l.points,
                 l.sale_id, l.return_id, l.redemption_id, l.reason, l.actor, l.created_at
            FROM points_ledger l
            LEFT JOIN member m ON m.member_id = l.customer_id
-          WHERE $1::text IS NULL OR l.customer_id = $1
-          ORDER BY l.created_at DESC, l.entry_id
-          LIMIT $2",
+          WHERE ($1::text IS NULL OR l.customer_id = $1)
+            AND ($2::uuid IS NULL
+                 OR (l.created_at, l.entry_id)
+                    < (SELECT p.created_at, p.entry_id
+                         FROM points_ledger p WHERE p.entry_id = $2))
+          ORDER BY l.created_at DESC, l.entry_id DESC
+          LIMIT $3",
     )
     .bind(customer_id.map(str::trim))
-    .bind(limit.clamp(1, 1000))
+    .bind(after.as_ref().map(|one| one.entry_id))
+    .bind(limit)
     .fetch_all(pool)
     .await?;
+
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => {
+            Some(super::encode_cursor(&PointsEntryCursor {
+                entry_id: row.get("entry_id"),
+            })?)
+        }
+        _ => None,
+    };
 
     let items: Vec<Value> = rows
         .iter()
@@ -1022,7 +1094,7 @@ pub async fn points_ledger(
         })
         .collect();
 
-    Ok(json!({ "items": items }))
+    Ok(json!({ "items": items, "next_cursor": next_cursor }))
 }
 
 #[cfg(test)]

@@ -1164,11 +1164,15 @@ def seed_chat(db: str) -> None:
             "ON CONFLICT (conversation_id) DO NOTHING;"
         )
         for username in participants:
+            # Whoever opened the room manages it — the rule the server applies
+            # to a room started over HTTP (migration 0476). A seeded group with
+            # no admin could never be renamed or given another member.
             statements.append(
                 "INSERT INTO chat_participant (conversation_id, username, "
-                f"last_read_seq, joined_at) VALUES ('{conversation_id}', "
+                f"last_read_seq, joined_at, is_admin) VALUES ('{conversation_id}', "
                 f"{q(username)}, {read_to.get(username, 0)}, "
-                f"now() - interval '{opened_ago} hours') ON CONFLICT DO NOTHING;"
+                f"now() - interval '{opened_ago} hours', "
+                f"{'true' if username == opener else 'false'}) ON CONFLICT DO NOTHING;"
             )
         audience = array(list(participants))
         for seq, (author, hours, body, attachment_slug) in enumerate(messages, start=1):

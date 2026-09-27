@@ -198,7 +198,9 @@ export function Trucks() {
           onDismiss={() => setProgress(null)}
         >
           {progress.message}
-          {" Those cartons are still where they were. The safe retry is the step they failed at."}
+          {
+            " Those cartons are still where they were. The safe retry is the step they failed at."
+          }
         </Banner>
       )}
 
@@ -264,7 +266,8 @@ export function Trucks() {
             <div className="flex-1" />
             <Button
               variant="primary"
-              disabled={chosen.size === 0 || load.isPending}
+              pending={load.isPending}
+              disabled={chosen.size === 0}
               onClick={() => form.handleSubmit()}
             >
               {load.isPending ? "Loading…" : "Create dispatch"}

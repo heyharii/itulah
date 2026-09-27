@@ -3,7 +3,7 @@ import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
-import { Input, Select } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
@@ -459,10 +459,10 @@ function NewAsset({ onDone }: { onDone: () => void }) {
   const classes = [...new Set(b.assets.map((a) => a.asset_class))].sort()
   return (
     <div className="flex flex-col gap-3">
-      <L t="Name">
+      <Field label="Name" required problem={said}>
         <Input value={name} onChange={(e) => setName(e.target.value)} />
-      </L>
-      <L t="Class">
+      </Field>
+      <Field label="Class">
         <Select value={cls} onChange={setCls} className={FILTER_W}>
           {classes.map((c) => (
             <option key={c} value={c}>
@@ -470,23 +470,22 @@ function NewAsset({ onDone }: { onDone: () => void }) {
             </option>
           ))}
         </Select>
-      </L>
-      <L t="Unit">
+      </Field>
+      <Field label="Unit">
         <Select value={unit} onChange={setUnit} className={FILTER_W}>
           <option value="C006">C006</option>
           <option value="C004">C004</option>
         </Select>
-      </L>
-      <L t="Document date">
+      </Field>
+      <Field label="Document date">
         <Input value={on} onChange={(e) => setOn(e.target.value)} />
-      </L>
-      <L t="Location">
+      </Field>
+      <Field label="Location">
         <Input value={where} onChange={(e) => setWhere(e.target.value)} />
-      </L>
-      <L t="Custodian">
+      </Field>
+      <Field label="Custodian">
         <Input value={who} onChange={(e) => setWho(e.target.value)} />
-      </L>
-      {said && <p className="text-meta text-bad-fg">{said}</p>}
+      </Field>
       <div className="flex gap-2">
         <Button
           variant="primary"
@@ -513,17 +512,6 @@ function NewAsset({ onDone }: { onDone: () => void }) {
         payment document.
       </p>
     </div>
-  )
-}
-
-function L({ t, children }: { t: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
-        {t}
-      </span>
-      {children}
-    </label>
   )
 }
 

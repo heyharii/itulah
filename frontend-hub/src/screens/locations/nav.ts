@@ -25,7 +25,7 @@ import type { AppModule } from "@/lib/navigation"
 /// twice. A building, a floor or an area is a sub-location.
 export const gaLocationsNav: AppModule = {
   id: "ga-locations",
-  label: "Lokasi",
+  label: "Locations",
   icon: Pin,
   home: "/locations",
   // Live: the list and its hub are written, so the row navigates rather than
@@ -33,5 +33,5 @@ export const gaLocationsNav: AppModule = {
   // has one door and does not unfold — the hub is a sheet raised over this
   // list, not a second screen beside it. Paths and labels unchanged: the
   // screen arrives at the path the menu already claimed.
-  sections: [{ items: [{ path: "/locations", label: "Lokasi", icon: Pin }] }],
+  sections: [{ items: [{ path: "/locations", label: "Locations", icon: Pin }] }],
 }

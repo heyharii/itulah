@@ -1057,7 +1057,8 @@ function SessionRecord({
                 <Button
                   variant="primary"
                   className="w-full shrink-0 @xl:w-auto @xl:min-w-[13rem]"
-                  disabled={actor === "" || (mine && issue.isPending)}
+                  pending={mine && issue.isPending}
+                  disabled={actor === ""}
                   onClick={() => issue.mutate(id)}
                 >
                   {mine && issue.isPending ? "Adding…" : "Add to inventory"}
@@ -1505,14 +1506,14 @@ function SessionComposer({
           stretched row makes the boxes of the short pair as tall as the text
           under the long one. */}
       <div className="grid items-start gap-5 @xl:grid-cols-2 @xl:gap-x-6">
-        <Field label="Name">
+        <Field label="Name" required>
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
         </Field>
 
-        <Field label="Division">
+        <Field label="Division" required>
           <PickOne
             choices={divisionChoices}
             value={division === "" ? null : division}
@@ -1532,7 +1533,7 @@ function SessionComposer({
           />
         </Field>
 
-        <Field label="Base price">
+        <Field label="Base price" required>
           <Money value={price} onChange={setPrice} placeholder="31.000" />
         </Field>
       </div>
@@ -1552,7 +1553,7 @@ function SessionComposer({
               is still enforced — `onChange` refuses the eleventh — and a line
               of small print under every box was three sentences of chrome on a
               form of six fields. */}
-          <Field label="Colours">
+          <Field label="Colours" required>
             <PickMany
               choices={colourChoices}
               values={chosenColours}
@@ -1583,7 +1584,7 @@ function SessionComposer({
               the same person, and one shape for both is what says so. The
               master's order still decides the grid's columns, so XS still
               comes before XXL whatever order they were picked in. */}
-          <Field label="Sizes">
+          <Field label="Sizes" required>
             <PickMany
               choices={sizeChoices}
               values={chosenSizes}

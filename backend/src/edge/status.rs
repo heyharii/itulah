@@ -119,6 +119,13 @@ impl StatusSource {
             ),
             machine_uptime_seconds: Some(sysinfo::System::uptime()),
             clock_skew_seconds: self.clock_skew.lock().ok().and_then(|skew| *skew),
+            last_backup_at: self
+                .data_dir
+                .as_deref()
+                .and_then(crate::edge::backup::latest)
+                .map(|(_, at)| at),
+            sync_pace: Some(crate::edge::pace::factor()),
+            power: crate::edge::power::latest(),
             ..MachineFacts::default()
         };
         if let Ok(mut system) = self.system.lock() {

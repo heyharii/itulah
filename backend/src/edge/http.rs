@@ -358,6 +358,7 @@ pub fn store_router_with_sync(
         // not because anything is written: no sale, no movement, no usage.
         .route("/api/v1/store/quote", post(store_quote))
         .route("/api/v1/store/catalog", get(store_catalog))
+        .route("/api/v1/store/payment-methods", get(store_payment_methods))
         // What is on, and what is about to be. Read-only, resident, and it
         // stays answerable with the line to the centre down — the shopper
         // asking whether the promo is still on is standing in the shop.
@@ -593,6 +594,9 @@ async fn health(State(state): State<EdgeState>) -> Json<Value> {
         "ledger_authority":"local movement ledger",
         "auth":if state.auth.enabled() { "enabled" } else { "DISABLED" },
         "auth_policy":policy.map(|(version,valid_until)| json!({"version":version,"valid_until":valid_until})),
+        // The UPS, when one is watched (`edge/power.rs`): the tills read this
+        // to warn a cashier before the server goes down on a flat battery.
+        "power":crate::edge::power::latest(),
         "capabilities":capabilities,
         "local_operations":local_operations,
         "inventory_endpoints":{
@@ -2197,6 +2201,24 @@ async fn store_catalog(
         "next_cursor": page.next_cursor,
         "items": items,
     })))
+}
+
+/// The payment methods head office set this shop up to take, in its order
+/// (cloud 0474). Empty until the first list arrives; a till then keeps its own.
+async fn store_payment_methods(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Vec<crate::cloud::domain::TillPaymentMethod>>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let connection = state.auth.connection();
+    let methods = run_blocking(move || {
+        let connection = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("store database lock poisoned".into()))?;
+        crate::edge::payment_methods::list(&connection)
+    })
+    .await?;
+    Ok(Json(methods))
 }
 
 /// Which till is asking. Absent means "whatever shift this node has open",

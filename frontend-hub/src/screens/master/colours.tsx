@@ -628,7 +628,7 @@ function ColourForm({
           <>
             <form.Field name="label">
               {(field) => (
-                <Field label="Label" problem={problems.label}>
+                <Field label="Label" required problem={problems.label}>
                   <Input
                     value={field.state.value}
                     onBlur={field.handleBlur}
@@ -646,7 +646,11 @@ function ColourForm({
 
             <form.Field name="code">
               {(field) => (
-                <Field label="Code" problem={problems.code}>
+                <Field
+                  label="Code"
+                  required={colour === null}
+                  problem={problems.code}
+                >
                   <Input
                     value={field.state.value}
                     disabled={colour !== null}
@@ -757,10 +761,10 @@ function ColourForm({
             <Button
               type="submit"
               variant="primary"
-              disabled={
-                save.isPending ||
-                Object.values(problems).some((one) => one !== undefined)
-              }
+              pending={save.isPending}
+              disabled={Object.values(problems).some(
+                (one) => one !== undefined
+              )}
             >
               {save.isPending
                 ? "Saving…"

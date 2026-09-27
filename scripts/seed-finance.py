@@ -454,11 +454,6 @@ DEPRECIATION_KIND: dict[str, str] = {
 # The fifty-two per-pair rows this file used to verify against the client's own
 # CSV export are gone with the leaves they verified. There is nothing left to
 # check a code against: the account no longer depends on the pair.
-INTERUNIT_REASON: dict[str, str] = {
-    "BARANG": "GOODS",          # 1021402* / 2012302*
-    "PEMBIAYAAN": "FINANCING",  # 1021401* / 2012301*
-}
-
 # `site.id`, and these are joined to `site` by every endpoint below — the
 # account map, the bills and the bank imports all carry a foreign key.
 #
@@ -592,6 +587,13 @@ def month_days(year: int, month: int) -> tuple[date, date]:
 # --------------------------------------------------------------------------
 
 
+# (component, store leaf, head-office leaf): the allowances seed-hr.py agrees.
+PAY_COMPONENT_LINKS = [
+    ("TRANSPORT", "6015", "6029"),
+    ("MAKAN", "6014", "6028"),
+]
+
+
 def seed_account_map(api: Api, chart: Chart, report: dict) -> None:
     written = 0
     refused: list[str] = []
@@ -654,32 +656,26 @@ def seed_account_map(api: Api, chart: Chart, report: dict) -> None:
         write(expense_key, class_code, expense,
               DEPRECIATION_KIND.get(charge_kind) if expense == "7101" else None)
 
-    # Interunit: both directions, both reasons, every counterparty. Head office
-    # books against each shop and each shop books against head office — the
-    # same balance written from both sides, on the same account, netting to
-    # zero for the company.
-    for kind, reason in INTERUNIT_REASON.items():
-        for site in SITES:
-            if site == HEAD_OFFICE:
-                continue
-            for owner, counterparty in ((HEAD_OFFICE, site), (site, HEAD_OFFICE)):
-                for key in ("affiliate_receivable", "affiliate_payable"):
-                    wrong = chart.check("1501", reason)
-                    if wrong is not None:
-                        refused.append(f"{key}/{kind}:{counterparty}: {wrong}")
-                        continue
-                    ok = api.post(
-                        "/api/v1/finance/account-map",
-                        {
-                            "semantic_key": key,
-                            "site_id": owner,
-                            "qualifier": f"{kind}:{counterparty}",
-                            "account_code": "1501",
-                            "category_code": reason,
-                            "note": "seed",
-                        },
-                    )
-                    written += ok is not None
+    # Interunit needs nothing here: 0460 links the affiliate pair once per
+    # family and kind of site, and a new shop reaches it with no row of its own.
+
+    # Pay components (0466): the standing allowances seed-hr agrees, each on
+    # its own store and head-office leaf, as Finance would link them.
+    for component, store_account, head_office_account in PAY_COMPONENT_LINKS:
+        for site_kind, account in (("STORE", store_account), ("HO", head_office_account)):
+            ok = api.post(
+                "/api/v1/finance/account-links",
+                {
+                    "role": "payroll_expense",
+                    "source_type": "PAY_COMPONENT",
+                    "source_id": component,
+                    "scope_type": "SITE_KIND",
+                    "scope_key": site_kind,
+                    "account_code": account,
+                    "note": "seed",
+                },
+            )
+            written += ok is not None
 
     report["mappings"] = written
     report["mapping_gaps"] = refused

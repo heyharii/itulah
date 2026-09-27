@@ -277,7 +277,7 @@ export function ArticleForm({
 
       <form.Field name="name">
         {(field) => (
-          <Field label="Name">
+          <Field label="Name" required>
             <Input
               value={field.state.value}
               onBlur={field.handleBlur}
@@ -334,9 +334,7 @@ export function ArticleForm({
       <form.Field name="tags">
         {(field) => (
           <div className="flex flex-col gap-1.5">
-            <span className="text-[0.875rem] font-medium text-text">
-              Tags
-            </span>
+            <span className="text-[0.875rem] font-medium text-text">Tags</span>
             {(vocabulary?.tags ?? []).length === 0 && !needsTags ? (
               <span className="text-[0.875rem] text-mute">
                 The vocabulary has no tags in it yet.
@@ -418,9 +416,7 @@ export function ArticleForm({
       <form.Field name="active">
         {(field) => (
           <div className="flex flex-col gap-1.5">
-            <span className="text-[0.875rem] font-medium text-text">
-              Sold
-            </span>
+            <span className="text-[0.875rem] font-medium text-text">Sold</span>
             <Segmented
               options={[
                 { value: "active", label: "Active" },
@@ -497,7 +493,8 @@ export function ArticleForm({
                 type={guarded ? "button" : "submit"}
                 variant="primary"
                 className="flex-1"
-                disabled={save.isPending || stale || !ready}
+                pending={save.isPending}
+                disabled={stale || !ready}
                 onClick={guarded ? () => setAccepted(true) : undefined}
               >
                 {save.isPending
@@ -509,7 +506,7 @@ export function ArticleForm({
             )
           }}
         </form.Subscribe>
-        <Button variant="quiet" onClick={onCancel} disabled={save.isPending}>
+        <Button variant="quiet" onClick={onCancel} pending={save.isPending}>
           Cancel
         </Button>
       </div>

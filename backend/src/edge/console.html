@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="id">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Server Toko</title>
+<title>Store Server</title>
 <style>
   /* frontend-hub's design system (frontend-hub/src/styles/index.css), copied
      as values because this page is served by the node with no bundler. */
@@ -88,45 +88,46 @@
 </head>
 <body>
 <header>
-  <div class="who"><strong>itulah</strong><span style="color:var(--mute)">/</span><span>Server Toko</span><strong id="site">—</strong><span class="mono" id="ident" style="font-size:12.5px;color:var(--mute)"></span></div>
-  <div style="display:flex;gap:12px;align-items:center"><span class="pill" id="pill">Memuat…</span><span class="mono" id="ver" style="font-size:13px;color:var(--mute)"></span></div>
+  <div class="who"><strong>itulah</strong><span style="color:var(--mute)">/</span><span>Store server</span><strong id="site">—</strong><span class="mono" id="ident" style="font-size:12.5px;color:var(--mute)"></span></div>
+  <div style="display:flex;gap:12px;align-items:center"><span class="pill" id="pill">Loading…</span><span class="mono" id="ver" style="font-size:13px;color:var(--mute)"></span></div>
 </header>
-<nav id="demo" hidden aria-label="Contoh kondisi"></nav>
+<nav id="demo" hidden aria-label="Example states"></nav>
 <main>
   <section class="card hero" id="hero">
     <div class="mark" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5v.01"/></svg></div>
-    <div><h1 id="headline">Memuat status…</h1><p id="sentence"></p><p class="meta mono" id="meta"></p></div>
+    <div><h1 id="headline">Loading status…</h1><p id="sentence"></p><p class="meta mono" id="meta"></p></div>
   </section>
 
   <div class="grid4">
-    <section class="card"><h2>Sinkron ke kantor pusat</h2><div id="sync"></div></section>
-    <section class="card"><h2>Mesin</h2><div id="machine" style="display:flex;flex-direction:column;gap:10px"></div></section>
-    <section class="card"><h2>Perangkat di toko</h2><div id="devices"></div></section>
-    <section class="card"><h2>Aman di-restart?</h2><div id="safe"></div></section>
+    <section class="card"><h2>Sync to head office</h2><div id="sync"></div></section>
+    <section class="card"><h2>Machine</h2><div id="machine" style="display:flex;flex-direction:column;gap:10px"></div></section>
+    <section class="card"><h2>Devices in the store</h2><div id="devices"></div></section>
+    <section class="card"><h2>Safe to restart?</h2><div id="safe"></div></section>
   </div>
 
   <div class="grid2">
-    <section class="card"><h2>Riwayat</h2><ul class="history" id="history"></ul><p class="note" id="history-empty" hidden>Belum ada kejadian tercatat.</p></section>
+    <section class="card"><h2>History</h2><ul class="history" id="history"></ul><p class="note" id="history-empty" hidden>Nothing recorded yet.</p></section>
     <section class="card">
-      <h2>Tindakan</h2>
+      <h2>Actions</h2>
       <div class="actions">
-        <button type="button" class="primary" id="btn-sync">Sinkron sekarang</button>
-        <button type="button" id="btn-diag">Jalankan diagnosa</button>
+        <button type="button" class="primary" id="btn-sync">Sync now</button>
+        <button type="button" id="btn-diag">Run diagnosis</button>
+        <button type="button" id="btn-backup">Back up now</button>
         <button type="button" id="btn-restart">Restart server</button>
       </div>
       <div class="msg" id="action-msg" hidden role="status"></div>
-      <p class="note">Restart menunggu kalau masih ada laci kasir terbuka, kecuali dipaksa. Semua tindakan juga tercatat di kantor pusat.</p>
+      <p class="note">A restart waits while a cash drawer is still open, unless forced. Every action is also recorded at head office.</p>
     </section>
   </div>
 
   <section class="card" id="diag" hidden>
-    <h2>Hasil diagnosa</h2>
+    <h2>Diagnosis</h2>
     <p id="diag-verdict" style="margin:0;font-weight:600"></p>
     <ul class="checks" id="diag-checks"></ul>
     <p class="note mono" id="diag-saved"></p>
   </section>
 </main>
-<div id="lost" role="alert"><div><h2 style="margin:0 0 8px;font-size:18px;font-weight:600;color:var(--ink)">Server tidak menjawab</h2><p style="margin:0">Mungkin sedang dimulai ulang. Halaman ini mencoba lagi setiap 3 detik.</p></div></div>
+<div id="lost" role="alert"><div><h2 style="margin:0 0 8px;font-size:18px;font-weight:600;color:var(--ink)">Server not answering</h2><p style="margin:0">It may be restarting. This page tries again every 3 seconds.</p></div></div>
 
 <script>
 "use strict";
@@ -145,17 +146,17 @@ const day = (iso) => {
   const d = new Date(iso), today = new Date();
   const same = d.toDateString() === today.toDateString();
   const yesterday = new Date(today - 86400000).toDateString() === d.toDateString();
-  return (same ? "" : yesterday ? "kemarin " : d.toLocaleDateString("id-ID", { day: "2-digit", month: "short" }) + " ") + clock(iso);
+  return (same ? "" : yesterday ? "yesterday " : d.toLocaleDateString("id-ID", { day: "2-digit", month: "short" }) + " ") + clock(iso);
 };
 const span = (seconds) => {
   seconds = Math.max(0, Math.round(seconds));
   const d = Math.floor(seconds / 86400), h = Math.floor(seconds % 86400 / 3600), m = Math.floor(seconds % 3600 / 60);
-  if (d) return d + " hari" + (h ? " " + h + " jam" : "");
-  if (h) return h + " jam" + (m ? " " + m + " menit" : "");
-  if (m) return m + " menit";
-  return seconds + " detik";
+  if (d) return d + (d === 1 ? " day" : " days") + (h ? " " + h + " h" : "");
+  if (h) return h + " h" + (m ? " " + m + " min" : "");
+  if (m) return m + " min";
+  return seconds + " s";
 };
-const ago = (iso) => iso ? span((Date.now() - Date.parse(iso)) / 1000) + " lalu" : "belum pernah";
+const ago = (iso) => iso ? span((Date.now() - Date.parse(iso)) / 1000) + " ago" : "never";
 const gb = (bytes) => bytes == null ? "—" : (bytes / 1073741824).toFixed(1).replace(".", ",") + " GB";
 const mb = (bytes) => bytes == null ? "—" : (bytes / 1048576).toFixed(1).replace(".", ",") + " MB";
 const row = (label, value, tone) => el("div", { class: "row" }, el("span", {}, label), el("span", { class: tone ? "fg-" + tone : "" }, value));
@@ -166,20 +167,22 @@ const fill = (id, ...nodes) => { const target = $(id); target.replaceChildren(..
 /// One incident, the way a person says it: what, from–to, how long.
 function describe(incident, next) {
   const k = incident.kind;
-  if (k === "HUNG") return { tone: "WARN", when: clock(new Date(Date.parse(incident.at) - incident.stalled_seconds * 1000).toISOString()) + "–" + clock(incident.at), what: "Macet " + span(incident.stalled_seconds) + ", dimulai ulang otomatis", detail: "Server tidak memberi tanda hidup, jadi ia menghentikan dirinya sendiri dan menyala lagi." };
-  if (k === "CRASH_LOOP") return { tone: "BAD", when: day(incident.at), what: "Berhenti sementara: gagal " + incident.starts_in_window + " kali dalam 10 menit", detail: "Menahan diri " + span(incident.hold_seconds) + " lalu mencoba lagi · perlu developer" };
-  if (k === "STOPPED") return { tone: "INFO", when: day(incident.at), what: "Dihentikan dengan rapi", detail: incident.reason === "asked to stop" ? "Diminta berhenti (restart, update, atau dimatikan)." : incident.reason };
-  if (k === "ENROLLED") return { tone: "OK", when: day(incident.at), what: "Terdaftar sebagai " + incident.site_id, detail: "Disetujui kantor pusat; data awal dikirim." };
+  if (k === "HUNG") return { tone: "WARN", when: clock(new Date(Date.parse(incident.at) - incident.stalled_seconds * 1000).toISOString()) + "–" + clock(incident.at), what: "Hung for " + span(incident.stalled_seconds) + ", restarted itself", detail: "The server stopped showing signs of life, so it stopped itself and started again." };
+  if (k === "CRASH_LOOP") return { tone: "BAD", when: day(incident.at), what: "Paused: failed " + incident.starts_in_window + " times in 10 min", detail: "Holding back " + span(incident.hold_seconds) + ", then tries again · needs a developer" };
+  if (k === "STOPPED") return { tone: "INFO", when: day(incident.at), what: "Stopped cleanly", detail: incident.reason === "asked to stop" ? "Asked to stop (restart, update or shutdown)." : incident.reason };
+  if (k === "ENROLLED") return { tone: "OK", when: day(incident.at), what: "Registered as " + incident.site_id, detail: "Approved by head office; initial data sent." };
   if (k === "AWAITING_ENROLMENT") return null;
+  if (k === "ON_BATTERY") return { tone: "WARN", when: day(incident.at), what: "Power cut, running on the UPS", detail: incident.charge_percent != null ? "Battery at " + incident.charge_percent + " % when it started." : "The queue was sent to head office straight away." };
+  if (k === "POWER_RESTORED") return { tone: "OK", when: day(incident.at), what: "Power back after " + span(incident.on_battery_seconds), detail: "The server never went down." };
   if (k === "STARTED") {
     const p = incident.previous;
     if (p.how === "UNCLEAN") {
       const down = (Date.parse(incident.at) - Date.parse(p.last_seen)) / 1000;
       const range = clock(p.last_seen) + "–" + clock(incident.at);
-      if (p.machine_restarted === true) return { tone: "INFO", when: range, what: "Listrik padam atau mesin dinyalakan ulang (" + span(down) + ")", detail: "Mesin menyala lagi sendiri dan server melanjutkan." };
-      return { tone: "WARN", when: range, what: "Mati mendadak " + span(down) + ", pulih sendiri", detail: "Proses berhenti tanpa pesan (crash) · dilaporkan ke kantor pusat." };
+      if (p.machine_restarted === true) return { tone: "INFO", when: range, what: "Power cut or machine restarted (" + span(down) + ")", detail: "The machine came back on its own and the server carried on." };
+      return { tone: "WARN", when: range, what: "Stopped suddenly for " + span(down) + ", recovered on its own", detail: "The process stopped without a word (crash) · reported to head office." };
     }
-    if (p.how === "FIRST_START") return { tone: "INFO", when: day(incident.at), what: "Pertama kali dijalankan", detail: "Versi " + incident.version };
+    if (p.how === "FIRST_START") return { tone: "INFO", when: day(incident.at), what: "First start", detail: "Version " + incident.version };
     return null;
   }
   return null;
@@ -187,8 +190,8 @@ function describe(incident, next) {
 
 function render(data) {
   const s = data.status, a = data.assessment;
-  $("site").textContent = s.site_id || "Belum terdaftar";
-  $("ident").textContent = (s.origin_id || "—") + " · generasi " + s.generation + " · " + s.hostname;
+  $("site").textContent = s.site_id || "Not registered";
+  $("ident").textContent = (s.origin_id || "—") + " · generation " + s.generation + " · " + s.hostname;
   $("ver").textContent = "v" + s.version + " · " + clock(new Date().toISOString());
   const pill = $("pill"); pill.className = "pill t-" + a.tone; pill.textContent = a.label;
   $("hero").className = "card hero t-" + a.tone;
@@ -196,41 +199,44 @@ function render(data) {
   $("sentence").textContent = a.sentence;
   const up = span((Date.now() - Date.parse(s.started_at)) / 1000);
   $("meta").textContent = a.since
-    ? "Sejak " + day(a.since) + " (" + span((Date.now() - Date.parse(a.since)) / 1000) + ")"
-    : "Tersinkron " + ago(s.sync.last_success_at) + " · " + s.sync.pending_facts + " antrean · server berjalan " + up;
+    ? "Since " + day(a.since) + " (" + span((Date.now() - Date.parse(a.since)) / 1000) + ")"
+    : "Synced " + ago(s.sync.last_success_at) + " · " + s.sync.pending_facts + " waiting · server up " + up;
 
   const y = s.sync;
   fill("sync",
-    row("Terakhir berhasil", y.enabled ? ago(y.last_success_at) : "belum terhubung", y.enabled && y.consecutive_failures >= 3 ? "WARN" : null),
-    row("Menunggu dikirim", y.pending_facts + " catatan" + (y.oldest_pending_at ? " · tertua " + span((Date.now() - Date.parse(y.oldest_pending_at)) / 1000) : ""), y.pending_facts > 0 && y.oldest_pending_at && (Date.now() - Date.parse(y.oldest_pending_at)) > 1800000 ? "WARN" : null),
-    row("Gagal beruntun", String(y.consecutive_failures), y.consecutive_failures >= 3 ? "WARN" : null),
-    row("Ditolak pusat", String(y.dead_lettered), y.dead_lettered > 0 ? "BAD" : null),
+    row("Last success", y.enabled ? ago(y.last_success_at) : "not connected", y.enabled && y.consecutive_failures >= 3 ? "WARN" : null),
+    row("Waiting to send", y.pending_facts + " records" + (y.oldest_pending_at ? " · oldest " + span((Date.now() - Date.parse(y.oldest_pending_at)) / 1000) : ""), y.pending_facts > 0 && y.oldest_pending_at && (Date.now() - Date.parse(y.oldest_pending_at)) > 1800000 ? "WARN" : null),
+    row("Failures in a row", String(y.consecutive_failures), y.consecutive_failures >= 3 ? "WARN" : null),
+    row("Refused by head office", String(y.dead_lettered), y.dead_lettered > 0 ? "BAD" : null),
   );
-  if (y.last_error) $("sync").append(el("p", { class: "note mono", style: "margin-top:4px;overflow-wrap:anywhere" }, "Terakhir: " + y.last_error));
+  if (y.last_error) $("sync").append(el("p", { class: "note mono", style: "margin-top:4px;overflow-wrap:anywhere" }, "Last: " + y.last_error));
 
   const m = s.machine;
   const diskPct = m.disk_total_bytes ? 100 * (1 - m.disk_free_bytes / m.disk_total_bytes) : 0;
   const freePct = m.disk_total_bytes ? 100 * m.disk_free_bytes / m.disk_total_bytes : 100;
   const memPct = m.memory_total_bytes ? 100 * m.memory_used_bytes / m.memory_total_bytes : 0;
   fill("machine",
-    meter("Disk data", gb(m.disk_free_bytes) + " bebas", diskPct, freePct < 5 ? "BAD" : freePct < 10 ? "WARN" : null),
-    meter("Memori", gb(m.memory_used_bytes) + " / " + gb(m.memory_total_bytes), memPct, memPct > 90 ? "WARN" : null),
+    meter("Data disk", gb(m.disk_free_bytes) + " free", diskPct, freePct < 5 ? "BAD" : freePct < 10 ? "WARN" : null),
+    meter("Memory", gb(m.memory_used_bytes) + " / " + gb(m.memory_total_bytes), memPct, memPct > 90 ? "WARN" : null),
     row("Database", mb(m.database_bytes)),
-    row("Jam", m.clock_skew_seconds == null ? "belum dicek" : "selisih " + span(Math.abs(m.clock_skew_seconds)), m.clock_skew_seconds != null && Math.abs(m.clock_skew_seconds) > 30 ? "BAD" : null),
-    row("Mesin nyala sejak", m.machine_uptime_seconds == null ? "—" : span(m.machine_uptime_seconds)),
+    row("Clock", m.clock_skew_seconds == null ? "not checked yet" : "off by " + span(Math.abs(m.clock_skew_seconds)), m.clock_skew_seconds != null && Math.abs(m.clock_skew_seconds) > 30 ? "BAD" : null),
+    row("Machine up for", m.machine_uptime_seconds == null ? "—" : span(m.machine_uptime_seconds)),
+    row("Last backup", m.last_backup_at ? ago(m.last_backup_at) : "none yet", m.last_backup_at && (Date.now() - Date.parse(m.last_backup_at)) > 26 * 3600000 ? "WARN" : null),
+    row("Power", !m.power ? "no UPS detected" : m.power.source === "BATTERY" ? "UPS" + (m.power.charge_percent != null ? " · battery " + m.power.charge_percent + " %" : "") + (m.power.runtime_seconds != null ? " · about " + span(m.power.runtime_seconds) + " left" : "") : "Mains" + (m.power.charge_percent != null ? " · UPS " + m.power.charge_percent + " %" : ""), m.power && m.power.source === "BATTERY" ? (m.power.low ? "BAD" : "WARN") : null),
+    row("Sync speed", !m.sync_pace || m.sync_pace === 1 ? "full" : "slowed ×" + m.sync_pace + " (machine busy)", m.sync_pace > 1 ? "WARN" : null),
   );
 
   const d = s.devices;
   fill("devices",
-    row("Kasir", d.terminals_seen_recently + " dari " + d.terminals_active + " aktif", d.terminals_active && d.terminals_seen_recently < d.terminals_active ? "WARN" : null),
-    row("Reader RFID", d.rfid_seen_recently + " dari " + d.rfid_active + " aktif"),
+    row("Tills", d.terminals_seen_recently + " of " + d.terminals_active + " active", d.terminals_active && d.terminals_seen_recently < d.terminals_active ? "WARN" : null),
+    row("RFID readers", d.rfid_seen_recently + " of " + d.rfid_active + " active"),
   );
-  $("devices").append(el("p", { class: "note" }, "“Aktif” = terlihat dalam 10 menit terakhir."));
+  $("devices").append(el("p", { class: "note" }, "“Active” = seen in the last 10 minutes."));
 
   const t = s.till;
   fill("safe",
-    row("Laci kasir terbuka", t.open_shifts ? t.open_shifts + " (" + t.open_shift_terminals.join(", ") + ")" : "tidak ada", t.open_shifts ? "WARN" : "OK"),
-    el("p", { class: "note" }, t.open_shifts ? "Restart akan memutus kasir beberapa detik. Tunggu laci ditutup, atau paksa." : "Aman: tidak ada kasir yang sedang bertransaksi."),
+    row("Open cash drawers", t.open_shifts ? t.open_shifts + " (" + t.open_shift_terminals.join(", ") + ")" : "none", t.open_shifts ? "WARN" : "OK"),
+    el("p", { class: "note" }, t.open_shifts ? "A restart cuts the tills off for a few seconds. Wait for the drawers to close, or force it." : "Safe: no till is in the middle of a sale."),
   );
 
   const items = [];
@@ -247,7 +253,7 @@ function render(data) {
 // `?demo=offline` etc. Nothing is fetched and no action is sent.
 // Opened straight from disk (file://) it is the prototype, so it starts in
 // demo mode rather than failing to reach a node.
-const DEMO = new URLSearchParams(location.search).get("demo") || (location.protocol === "file:" ? "sehat" : null);
+const DEMO = new URLSearchParams(location.search).get("demo") || (location.protocol === "file:" ? "healthy" : null);
 function fixture(name) {
   const now = Date.now(), iso = (minutesAgo) => new Date(now - minutesAgo * 60000).toISOString();
   const s = {
@@ -256,7 +262,7 @@ function fixture(name) {
     sync: { enabled: true, last_success_at: iso(0.1), last_error: null, last_error_at: null, consecutive_failures: 0, breaker_open_until: null, pending_facts: 0, oldest_pending_at: null, dead_lettered: 0 },
     machine: { disk_free_bytes: 61e9, disk_total_bytes: 98e9, memory_used_bytes: 1.3e9, memory_total_bytes: 8.2e9, database_bytes: 1.4e6, machine_uptime_seconds: 3 * 86400 + 4 * 3600, clock_skew_seconds: 0 },
     devices: { terminals_active: 3, terminals_seen_recently: 3, rfid_active: 1, rfid_seen_recently: 1 },
-    till: { open_shifts: 2, open_shift_terminals: ["Kasir 1", "Kasir 2"] },
+    till: { open_shifts: 2, open_shift_terminals: ["Till 1", "Till 2"] },
     incidents: [
       { kind: "STARTED", at: iso(60 * 76), version: "1.3.0", previous: { how: "CLEAN", at: iso(60 * 76 + 1) } },
       { kind: "STOPPED", at: iso(60 * 76 + 1), reason: "asked to stop" },
@@ -266,7 +272,7 @@ function fixture(name) {
   switch (name) {
     case "offline":
       Object.assign(s.sync, { last_success_at: iso(110), consecutive_failures: 41, pending_facts: 37, oldest_pending_at: iso(109), last_error: "error sending request: dns error", last_error_at: iso(0.2) });
-      return { status: s, assessment: a("WARN", "OFFLINE", "Internet putus", "Kantor pusat tidak terjangkau sejak " + clock(iso(110)), "Kasir tetap bisa berjualan. 37 catatan disimpan di sini dan terkirim sendiri begitu internet kembali. Cek router kalau ini lebih dari 30 menit.", iso(110)) };
+      return { status: s, assessment: a("WARN", "OFFLINE", "Internet down", "Head office unreachable since " + clock(iso(110)), "Tills can keep selling. 37 records are kept here and go out by themselves once the internet is back. Check the router if this lasts over 30 minutes.", iso(110)) };
     case "recovered":
       s.incidents.push(
         { kind: "STARTED", at: iso(280), version: "1.3.0", previous: { how: "UNCLEAN", last_seen: iso(280.1), machine_restarted: false } },
@@ -274,34 +280,34 @@ function fixture(name) {
         { kind: "HUNG", at: iso(78), stalled_seconds: 125 },
         { kind: "STARTED", at: iso(78), version: "1.3.0", previous: { how: "HUNG", at: iso(80) } });
       s.incidents.sort((x, y) => Date.parse(x.at) - Date.parse(y.at));
-      return { status: s, assessment: a("OK", "RECOVERED", "Sehat · pulih sendiri", "Server berjalan — sempat 3 kali terganggu dalam 24 jam", "Semuanya sudah pulih otomatis. Kantor pusat melihat catatan yang sama. Kalau terjadi lebih dari 3 kali sehari, developer akan menghubungi toko.") };
+      return { status: s, assessment: a("OK", "RECOVERED", "Healthy · recovered", "Server running — disrupted 3 times in 24 hours", "Everything recovered automatically. Head office sees the same record. If it happens more than 3 times a day, a developer is brought in.") };
     case "disk":
       Object.assign(s.machine, { disk_free_bytes: 4.1e9 });
-      return { status: s, assessment: a("BAD", "DISK_CRITICAL", "Disk hampir penuh", "Disk tinggal 3,8 GB (4 %)", "Log dan backup lama sudah dibersihkan otomatis. Kalau disk penuh, server berhenti menyimpan transaksi. Kosongkan atau ganti disk sekarang.") };
+      return { status: s, assessment: a("BAD", "DISK_CRITICAL", "Disk almost full", "Only 3.8 GB free on disk (4 %)", "Old logs and backups were already cleared automatically. If the disk fills up, the server stops saving sales. Free up or replace the disk now.") };
     case "clock":
       s.machine.clock_skew_seconds = 184;
-      return { status: s, assessment: a("BAD", "CLOCK_SKEW", "Jam bergeser", "Jam komputer selisih 3 menit dari kantor pusat", "Kasir bisa ditolak karena jamnya tidak cocok. Nyalakan sinkron jam otomatis di komputer ini.") };
+      return { status: s, assessment: a("BAD", "CLOCK_SKEW", "Clock off", "This computer's clock is 3 min off from head office", "Tills may be refused because the clocks do not match. Turn on automatic time sync on this computer.") };
     case "key":
       Object.assign(s.sync, { last_success_at: iso(15), consecutive_failures: 12, last_error: "sync handshake returned 403 Forbidden: invalid or missing x-sync-key", last_error_at: iso(0.3), pending_facts: 9, oldest_pending_at: iso(14) });
-      return { status: s, assessment: a("BAD", "KEY_REFUSED", "Kunci ditolak", "Kantor pusat menolak mesin ini", "Mesin ini sudah diganti atau dicabut dari kantor pusat, jadi datanya tidak lagi diterima. Kalau ini keliru, daftarkan ulang dari hub.", iso(15)) };
+      return { status: s, assessment: a("BAD", "KEY_REFUSED", "Key refused", "Head office refuses this machine", "This machine was replaced or revoked at head office, so its records are no longer accepted. If that is a mistake, enrol it again from the hub.", iso(15)) };
     case "rejected":
       s.sync.dead_lettered = 2;
-      return { status: s, assessment: a("BAD", "REJECTED_FACTS", "Ada data ditolak", "2 catatan ditolak kantor pusat", "Catatan itu tertahan di server ini dan tidak akan hilang. Penjualan tetap jalan. Developer perlu memeriksanya.") };
+      return { status: s, assessment: a("BAD", "REJECTED_FACTS", "Records refused", "Head office refused 2 records", "They are held on this server and will not be lost. Sales carry on. A developer needs to look at them.") };
     case "unenrolled":
       Object.assign(s, { site_id: "", origin_id: "", generation: 1 });
       Object.assign(s.sync, { enabled: false, last_success_at: null });
       s.till = { open_shifts: 0, open_shift_terminals: [] };
-      return { status: s, assessment: a("INFO", "NOT_CONNECTED", "Belum terhubung", "Server belum terhubung ke kantor pusat", "Penjualan tersimpan di server ini. Daftarkan mesin ini dari hub supaya datanya terkirim.") };
+      return { status: s, assessment: a("INFO", "NOT_CONNECTED", "Not connected", "Server not connected to head office yet", "Sales are kept on this server. Enrol this machine from the hub so its records are sent.") };
     default:
-      return { status: s, assessment: a("OK", "OK", "Sehat", "Server berjalan normal", "Semua transaksi sudah sampai ke kantor pusat. Tidak ada yang perlu dilakukan.") };
+      return { status: s, assessment: a("OK", "OK", "Healthy", "Server running normally", "All sales have reached head office. Nothing to do.") };
   }
 }
 if (DEMO) {
-  const states = [["sehat", "Sehat"], ["offline", "Internet putus"], ["recovered", "Pulih sendiri"], ["disk", "Disk penuh"], ["clock", "Jam bergeser"], ["key", "Kunci ditolak"], ["rejected", "Data ditolak"], ["unenrolled", "Belum terhubung"]];
+  const states = [["healthy", "Healthy"], ["offline", "Internet down"], ["recovered", "Recovered"], ["disk", "Disk full"], ["clock", "Clock off"], ["key", "Key refused"], ["rejected", "Records refused"], ["unenrolled", "Not connected"]];
   const nav = $("demo"); nav.hidden = false;
-  nav.append(el("span", { style: "color:#7d8491;font-size:13px;padding:4px 6px" }, "Contoh kondisi:"));
+  nav.append(el("span", { style: "color:#7d8491;font-size:13px;padding:4px 6px" }, "Example states:"));
   for (const [key, label] of states) nav.append(el("a", { href: "?demo=" + key, class: key === DEMO ? "on" : "" }, label));
-  window.fetch = async () => ({ ok: false, status: 0, json: async () => ({ error: "Mode contoh: tindakan tidak dikirim." }) });
+  window.fetch = async () => ({ ok: false, status: 0, json: async () => ({ error: "Example mode: actions are not sent." }) });
 }
 
 let failures = 0;
@@ -334,22 +340,29 @@ $("btn-sync").addEventListener("click", async () => {
   setTimeout(refresh, 1500);
 });
 
+$("btn-backup").addEventListener("click", async (event) => {
+  event.currentTarget.disabled = true; say("Making a backup…");
+  const r = await act("/console/backup");
+  say(r.ok ? r.data.message : (r.data.error || "Backup failed."), r.ok ? "OK" : "BAD");
+  event.currentTarget.disabled = false; refresh();
+});
+
 $("btn-diag").addEventListener("click", async (event) => {
-  event.currentTarget.disabled = true; say("Menjalankan diagnosa…");
+  event.currentTarget.disabled = true; say("Running diagnosis…");
   try {
     const r = await act("/console/diagnose");
     const report = r.data.report;
-    const words = { OK: "semua baik.", WARN: "berjalan, ada yang perlu diperhatikan.", FAIL: "ada masalah — kirim laporan ke kantor pusat." };
+    const words = { OK: "all good.", WARN: "running, with something to keep an eye on.", FAIL: "there is a problem — send the report to head office." };
     $("diag").hidden = false;
-    $("diag-verdict").textContent = "Kesimpulan: " + words[report.verdict];
+    $("diag-verdict").textContent = "Verdict: " + words[report.verdict];
     const tone = { OK: "OK", WARN: "WARN", FAIL: "BAD" };
-    const label = { OK: "OK", WARN: "Perlu dilihat", FAIL: "Gagal" };
+    const label = { OK: "OK", WARN: "Take a look", FAIL: "Failed" };
     fill("diag-checks", ...report.checks.map((c) => el("li", {}, el("span", { class: "pill t-" + tone[c.verdict] }, label[c.verdict]), el("strong", {}, c.name), el("span", {}, c.saying))));
-    $("diag-saved").textContent = r.data.saved_to ? "Laporan lengkap: " + r.data.saved_to : "";
+    $("diag-saved").textContent = r.data.saved_to ? "Full report: " + r.data.saved_to : "";
     $("action-msg").hidden = true;
     $("diag").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
-    say("Diagnosa gagal: " + error, "BAD");
+    say("Diagnosis failed: " + error, "BAD");
   } finally {
     event.currentTarget.disabled = false;
   }
@@ -361,15 +374,15 @@ async function restart(force) {
   if (r.status === 409 && !force) {
     say(r.data.error, "WARN");
     const box = $("action-msg");
-    const again = el("button", { type: "button", class: "danger", style: "margin-top:8px;display:block" }, "Paksa restart sekarang");
+    const again = el("button", { type: "button", class: "danger", style: "margin-top:8px;display:block" }, "Force restart now");
     again.addEventListener("click", () => restart(true));
     box.append(again);
     return;
   }
-  say(r.data.error || "Restart gagal.", "BAD");
+  say(r.data.error || "Restart failed.", "BAD");
 }
 $("btn-restart").addEventListener("click", () => {
-  if (confirm("Restart server toko? Kasir terputus beberapa detik.")) restart(false);
+  if (confirm("Restart the store server? Tills are cut off for a few seconds.")) restart(false);
 });
 
 refresh();

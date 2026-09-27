@@ -731,6 +731,7 @@ const TENDERS: readonly {
   { method: "CASH", label: "Cash" },
   { method: "CARD", label: "Card" },
   { method: "QRIS", label: "QRIS" },
+  { method: "EWALLET", label: "E-wallet" },
   { method: "VOUCHER", label: "Voucher" },
   { method: "OTHER", label: "Other" },
 ]
@@ -793,12 +794,21 @@ function addUp(days: readonly DailyReport[]) {
 type Takings = ReturnType<typeof addUp>
 
 function cardAndQris(takings: Takings): number {
-  return (takings.byTender.CARD ?? 0) + (takings.byTender.QRIS ?? 0)
+  return (
+    (takings.byTender.CARD ?? 0) +
+    (takings.byTender.QRIS ?? 0) +
+    (takings.byTender.EWALLET ?? 0)
+  )
 }
 
 function cardAndQrisOn(report: DailyReport): number {
   return report.tenders
-    .filter((tender) => tender.method === "CARD" || tender.method === "QRIS")
+    .filter(
+      (tender) =>
+        tender.method === "CARD" ||
+        tender.method === "QRIS" ||
+        tender.method === "EWALLET"
+    )
     .reduce((sum, tender) => sum + tender.amount_minor, 0)
 }
 
@@ -936,6 +946,7 @@ function tenderRows(input: {
                 },
         }
       case "QRIS":
+      case "EWALLET":
         return {
           ...tender,
           // QRIS shares the debit-card clearing account. Showing the shared
@@ -948,7 +959,7 @@ function tenderRows(input: {
           standing: {
             tone: taken === 0 ? "neutral" : "warn",
             label: "Debit-card account",
-            why: "QRIS is posted to the shared Piutang Debit Card account; acquirer detail stays in the settlement ledger",
+            why: `${tender.label} is posted to the shared Piutang Debit Card account; acquirer detail stays in the settlement ledger`,
           },
         }
       case "VOUCHER":

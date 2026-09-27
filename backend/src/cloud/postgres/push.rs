@@ -119,6 +119,9 @@ pub struct DuePushDelivery {
     pub endpoint: String,
     pub p256dh: String,
     pub auth: String,
+    /// The notification — or, for a chat message (0476), the conversation:
+    /// it becomes the push's tag and topic, so a second message from one
+    /// room replaces the first on the lock screen instead of stacking.
     pub notification_id: Uuid,
     pub kind: String,
     pub title: String,
@@ -156,19 +159,57 @@ pub async fn claim_push_deliveries(
                      ORDER BY next_attempt_at
                      LIMIT $1
                      FOR UPDATE SKIP LOCKED)
-             RETURNING d.delivery_id, d.attempts, d.subscription_id, d.notification_id, d.username
+             RETURNING d.delivery_id, d.attempts, d.subscription_id, d.notification_id,
+                       d.conversation_id, d.message_seq, d.username
          )
-         SELECT c.delivery_id, c.attempts, c.subscription_id, c.notification_id,
+         -- Two kinds of delivery share the queue (0476): a notification, or a
+         -- chat message. Each branch of every CASE below reads its own kind;
+         -- the other kind's columns are NULL from their LEFT JOINs.
+         --
+         -- A chat message goes out as a notification-shaped push whose
+         -- subject is the conversation, so the service worker lands it in
+         -- the room with the table it already has, and whose id is the
+         -- conversation's, so a second message replaces the first on the lock
+         -- screen instead of stacking under it.
+         SELECT c.delivery_id, c.attempts, c.subscription_id,
+                COALESCE(c.notification_id, c.conversation_id) AS notification_id,
                 s.endpoint, s.p256dh, s.auth, s.failure_count,
-                n.kind, n.title, n.body, n.subject_kind, n.subject_id,
-                (r.read_at IS NOT NULL) AS read,
-                (r.username IS NOT NULL) AS still_a_recipient,
+                CASE WHEN c.notification_id IS NOT NULL THEN n.kind
+                     ELSE 'chat.message' END AS kind,
+                CASE WHEN c.notification_id IS NOT NULL THEN n.title
+                     WHEN room.kind = 'GROUP' THEN COALESCE(room.title, 'Chat')
+                     ELSE COALESCE(NULLIF(btrim(author.display_name), ''), m.author_username, 'Chat')
+                END AS title,
+                CASE WHEN c.notification_id IS NOT NULL THEN n.body
+                     ELSE (CASE WHEN room.kind = 'GROUP'
+                                THEN COALESCE(NULLIF(btrim(author.display_name), ''), m.author_username, '') || ': '
+                                ELSE '' END)
+                          || (CASE WHEN btrim(COALESCE(m.body, '')) = '' THEN '📎 Attachment'
+                                   ELSE m.body END)
+                END AS body,
+                CASE WHEN c.notification_id IS NOT NULL THEN n.subject_kind
+                     ELSE 'conversation' END AS subject_kind,
+                CASE WHEN c.notification_id IS NOT NULL THEN n.subject_id
+                     ELSE c.conversation_id::text END AS subject_id,
+                -- Read somewhere else already — or, for a message, taken back.
+                CASE WHEN c.notification_id IS NOT NULL THEN (r.read_at IS NOT NULL)
+                     ELSE (COALESCE(me.last_read_seq, 0) >= c.message_seq
+                           OR m.deleted_at IS NOT NULL
+                           OR m.seq IS NULL) END AS read,
+                CASE WHEN c.notification_id IS NOT NULL THEN (r.username IS NOT NULL)
+                     ELSE (me.username IS NOT NULL) END AS still_a_recipient,
                 COALESCE(u.active, TRUE) AS recipient_active
            FROM claimed c
            JOIN push_subscription s ON s.subscription_id = c.subscription_id
-           JOIN notification n ON n.notification_id = c.notification_id
+           LEFT JOIN notification n ON n.notification_id = c.notification_id
            LEFT JOIN notification_recipient r
                   ON r.notification_id = c.notification_id AND r.username = c.username
+           LEFT JOIN chat_message m
+                  ON m.conversation_id = c.conversation_id AND m.seq = c.message_seq
+           LEFT JOIN chat_conversation room ON room.conversation_id = c.conversation_id
+           LEFT JOIN chat_participant me
+                  ON me.conversation_id = c.conversation_id AND me.username = c.username
+           LEFT JOIN app_user author ON author.username = m.author_username
            LEFT JOIN app_user u ON u.username = c.username",
     )
     .bind(limit)

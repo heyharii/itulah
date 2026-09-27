@@ -174,6 +174,21 @@ export function drawMetric(
   return count(value)
 }
 
+/// A rate as a person types it — whole percent — into the basis points the
+/// server stores (1% = 100 bps). `null` for empty; `NaN` stays `NaN` so the
+/// caller's "is a number" check still fires.
+export function bpsOfPercent(text: string): number | null {
+  if (text.trim() === "") return null
+  return Math.round(Number(text) * 100)
+}
+
+/// Stored basis points back into the percent box. Rounded to a whole percent,
+/// which is what the box takes.
+export function percentOfBps(bps: number | null | undefined): string {
+  if (bps === null || bps === undefined) return ""
+  return String(Math.round(bps / 100))
+}
+
 /// What the line is measured AGAINST — the five shapes a target can take.
 ///
 /// Two of these were all there was: a floor and a ceiling on a total. The other
@@ -239,7 +254,7 @@ export const TARGET_MODELS: readonly TargetModelKind[] = [
   {
     value: "BEAT_BASELINE",
     label: "Beat the precedent",
-    hint: "Better than the campaign this one is read against, by this many basis points a day. 2000 is twenty per cent better than last Lebaran.",
+    hint: "Better than the campaign this one is read against, per day, by this much. 20% means a fifth better than last Lebaran.",
     needsBaseline: true,
     needsUpper: false,
     needsAdditive: false,

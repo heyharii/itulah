@@ -276,7 +276,7 @@ export function PeriodClose() {
               </p>
               <Button
                 variant="primary"
-                disabled={open.isPending}
+                pending={open.isPending}
                 onClick={() => open.mutate()}
               >
                 {open.isPending
@@ -332,7 +332,7 @@ export function PeriodClose() {
                       </Button>
                       <Button
                         variant="danger"
-                        disabled={seal.isPending}
+                        pending={seal.isPending}
                         onClick={() => seal.mutate()}
                       >
                         {seal.isPending ? "Sealing…" : "Seal this month"}

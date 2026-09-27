@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { activeShift, cashMovement, closeShift, openShift } from "@/api"
 import { Icon } from "@/icons"
+import { refreshPaymentMethods } from "@/payment-methods"
 import { Topbar } from "@/till"
 import type { ShiftReport } from "@itulah/contract"
 import { money } from "@itulah/contract/money"
@@ -370,6 +371,8 @@ export function Opening({
     setBusy(false)
     if (reply.ok) {
       attempt.spent()
+      // A new shift is when Finance's latest payment methods are picked up.
+      void refreshPaymentMethods()
       onDone(asReport(reply.body))
       return
     }

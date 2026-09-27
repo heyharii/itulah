@@ -1212,14 +1212,16 @@ pub async fn reconciliations_page(
     }
 
     let matches = |row: &ReconciliationRow| {
-        scope
-            .status
+        scope.status.as_deref().is_none_or(|want| match want {
+            // Not a status a row holds: the three that stop the server
+            // certifying a fleet total — what the screen's "Needs answering"
+            // view asks for, and which it used to sift out of one page.
+            "ATTENTION" => !matches!(row.status.as_str(), "MATCHED" | "DC_ONLY"),
+            _ => row.status == want,
+        }) && scope
+            .destination_store_id
             .as_deref()
-            .is_none_or(|want| row.status == want)
-            && scope
-                .destination_store_id
-                .as_deref()
-                .is_none_or(|want| row.destination_store_id == want)
+            .is_none_or(|want| row.destination_store_id == want)
             && scope
                 .source_dc_id
                 .as_deref()
@@ -1247,7 +1249,19 @@ pub async fn reconciliations_page(
                 // than into a None the comparison cannot order — the same
                 // reason the SQL lists carry a `-infinity` sentinel.
                 .unwrap_or_default(),
-            _ => row.status.clone(),
+            // By attention rather than alphabet: the rows that stop
+            // certification first, goods merely in the air and matched last.
+            _ => format!(
+                "{}{}",
+                match row.status.as_str() {
+                    "STORE_ONLY" => 0,
+                    "CONFLICT" => 1,
+                    "UNRESOLVED" => 2,
+                    "DC_ONLY" => 3,
+                    _ => 4,
+                },
+                row.status
+            ),
         };
         (lead, row.id.clone())
     };

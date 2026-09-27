@@ -1,5 +1,6 @@
 import { node } from "@/lib/api"
 import type {
+  CustomerSummary,
   CustomerTransactionDetail,
   CustomerTransactionPage,
   PaymentMethod,
@@ -221,12 +222,20 @@ export const storeopsKeys = {
   sale: (id: string) => ["storeops", "sale", id] as const,
   receipt: (id: string) => ["storeops", "sale", id, "receipt"] as const,
   returns: () => ["storeops", "returns"] as const,
+  /// The refund desk's walked list, one entry per question. Under `returns()`
+  /// so a write that drops that prefix drops every page of this too.
+  returnsPage: (scope: object) =>
+    ["storeops", "returns", "page", scope] as const,
   /// The pricing view of one sale. A separate key from `sale`: same record,
   /// different question, and the screens ask them at different moments.
   shopSale: (id: string) => ["storeops", "shop-sales", id] as const,
   saleReturn: (id: string) => ["storeops", "return", id] as const,
-  customerHistory: (customerId: string) =>
-    ["storeops", "customer", customerId, "transactions"] as const,
+  /// With the scope last, so dropping `["storeops", "customer", id,
+  /// "transactions"]` still drops every narrowed walk of it.
+  customerHistory: (customerId: string, scope: object = {}) =>
+    ["storeops", "customer", customerId, "transactions", scope] as const,
+  customerSummary: (customerId: string) =>
+    ["storeops", "customer", customerId, "summary"] as const,
   customerTransaction: (customerId: string, saleId: string) =>
     ["storeops", "customer", customerId, "transactions", saleId] as const,
 }
@@ -283,6 +292,8 @@ export interface ReturnFacet {
 export interface ReturnFacets {
   readonly sites: readonly ReturnFacet[]
   readonly reasons: readonly ReturnFacet[]
+  /// Who took them — the logins at the counters.
+  readonly actors: readonly ReturnFacet[]
 }
 
 /// A page of refunds, and the shape of everything it was drawn from.
@@ -299,23 +310,37 @@ export interface ReturnList {
   readonly facets: ReturnFacets
 }
 
-export function listReturns(
-  filter: {
-    readonly siteId?: string
-    readonly q?: string
-    readonly reason?: string
-    readonly sort?: "at" | "number" | "refund" | "site"
-    readonly dir?: "asc" | "desc"
-    readonly cursor?: string
-    readonly limit?: number
-  },
-  signal?: AbortSignal
-) {
+/// What the refund list is asked for. Everything but the cursor is the
+/// question, and belongs in a query key; the cursor is where the walk is.
+export interface ReturnScope {
+  readonly siteId?: string
+  /// Over the return's number, the sale's number and the reason typed.
+  readonly q?: string
+  readonly reason?: string
+  readonly actorId?: string
+  /// Local business days (WIB), both inclusive — `YYYY-MM-DD`.
+  readonly from?: string
+  readonly to?: string
+  /// Whole rupiah, like the row's `refund_total_minor`.
+  readonly minRefund?: number
+  readonly maxRefund?: number
+  readonly sort?: "at" | "number" | "refund" | "site"
+  readonly dir?: "asc" | "desc"
+  readonly cursor?: string
+  readonly limit?: number
+}
+
+export function listReturns(filter: ReturnScope, signal?: AbortSignal) {
   return node.get<ReturnList>(
     `/api/v1/returns${search({
       site_id: filter.siteId,
       q: filter.q,
       reason: filter.reason,
+      actor_id: filter.actorId,
+      from: filter.from,
+      to: filter.to,
+      min_refund: filter.minRefund,
+      max_refund: filter.maxRefund,
       sort: filter.sort,
       dir: filter.dir,
       cursor: filter.cursor,
@@ -335,9 +360,23 @@ export function returnDetail(id: string, signal?: AbortSignal) {
 /// a sale landing between two requests would shift every offset by one and the
 /// reader would see a purchase twice, or not at all. Pass the previous page's
 /// `next_before_*` back to get the one behind it.
+/// What narrows a member's history. Never the order — that is newest first
+/// whatever is asked, which is what keeps the cursor pair meaning one thing.
+export interface CustomerHistoryScope {
+  /// Local business days (WIB), both inclusive — `YYYY-MM-DD`.
+  readonly from?: string
+  readonly to?: string
+  /// Whole rupiah, like the row's `total_minor`.
+  readonly minTotal?: number
+  readonly maxTotal?: number
+  /// Whole rupiah, like the row's `discount_total_minor`.
+  readonly minSaved?: number
+  readonly maxSaved?: number
+}
+
 export function customerTransactions(
   customerId: string,
-  cursor: {
+  cursor: CustomerHistoryScope & {
     readonly beforeOccurredAt?: string | null
     readonly beforeSaleId?: string | null
     readonly limit?: number
@@ -349,7 +388,23 @@ export function customerTransactions(
       limit: cursor.limit,
       before_occurred_at: cursor.beforeOccurredAt ?? undefined,
       before_sale_id: cursor.beforeSaleId ?? undefined,
+      from: cursor.from,
+      to: cursor.to,
+      min_total: cursor.minTotal,
+      max_total: cursor.maxTotal,
+      min_saved: cursor.minSaved,
+      max_saved: cursor.maxSaved,
     })}`,
+    { signal }
+  )
+}
+
+/// What this member has spent and earned, over all of it — voided sales left
+/// out. The figures the history screen quotes as totals, because a sum of the
+/// pages scrolled so far is not one.
+export function customerSummary(customerId: string, signal?: AbortSignal) {
+  return node.get<CustomerSummary>(
+    `/api/v1/customer/${encodeURIComponent(customerId)}/summary`,
     { signal }
   )
 }

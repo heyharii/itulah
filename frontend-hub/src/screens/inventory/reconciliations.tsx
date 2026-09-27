@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
@@ -14,15 +14,17 @@ import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { useFilters } from "@/lib/filters"
+import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
 import {
   inventoryKeys,
-  listReconciliations,
+  reconciliationsPage,
   type Reconciliation,
+  type ReconciliationScope,
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 
 /// One tag, two claims: the DC says it sent it, the store says it received it.
 ///
@@ -37,15 +39,43 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 /// promised it. **Unattributed** means the goods arrived and nothing knows what
 /// they were sent against — matched, and still not explained.
 
-/// Attention first, alphabetical never. The rank is what the column sorts on
-/// while the pill is what it draws, so opening the screen puts the rows that
-/// stop certification at the top without anybody choosing a sort.
-const RANK: Readonly<Record<Reconciliation["status"], number>> = {
-  STORE_ONLY: 0,
-  CONFLICT: 1,
-  UNRESOLVED: 2,
-  DC_ONLY: 3,
-  MATCHED: 4,
+/// Which column means which order the endpoint names. The server's `status`
+/// order is attention first, alphabetical never — the rows that stop
+/// certification at the top without anybody choosing a sort. A column not in
+/// here cannot be sorted: sorting it would sort the loaded pages.
+const SORTS: Record<string, string> = {
+  status: "status",
+  epc: "epc",
+  route: "destination",
+}
+
+/// The route's two ends, as the chips the endpoint answers. `single`, because
+/// it compares one column to one value.
+const FIELDS: FilterField[] = [
+  {
+    column: "destination_store_id",
+    label: "Store",
+    spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+  },
+  {
+    column: "source_dc_id",
+    label: "Sent from",
+    spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+  },
+]
+
+function scopeFromFilters(filters: readonly Filter[]): {
+  destination_store_id?: string
+  source_dc_id?: string
+} {
+  const scope: { destination_store_id?: string; source_dc_id?: string } = {}
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0 || operator !== "isAnyOf") continue
+    if (column === "destination_store_id")
+      scope.destination_store_id = values[0]
+    else if (column === "source_dc_id") scope.source_dc_id = values[0]
+  }
+  return scope
 }
 
 const TONE: Readonly<
@@ -68,11 +98,9 @@ const WORD: Readonly<Record<Reconciliation["status"], string>> = {
 
 const columns: ColumnDef<TableSetup, Reconciliation>[] = [
   {
-    id: "status",
-    accessorFn: (row) => RANK[row.status],
+    accessorKey: "status",
     header: "Status",
     size: 130,
-    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <Pill tone={TONE[row.original.status]}>{WORD[row.original.status]}</Pill>
     ),
@@ -81,7 +109,6 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
     accessorKey: "epc",
     header: "Tag",
     size: 220,
-    meta: { filter: { kind: "text" } },
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">{row.original.epc}</span>
     ),
@@ -92,7 +119,6 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
       `${row.source_dc_id ?? ""} ${row.destination_store_id}`,
     header: "Route",
     size: 200,
-    meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="text-body">
         {row.original.source_dc_id ?? "—"} → {row.original.destination_store_id}
@@ -103,7 +129,7 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
     accessorKey: "sku_code",
     header: "SKU",
     size: 140,
-    meta: { filter: { kind: "text" } },
+    enableSorting: false,
     cell: ({ row }) =>
       row.original.sku_code ? (
         <span className="font-mono text-id text-body">
@@ -117,7 +143,7 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
     accessorKey: "shipment_reference",
     header: "Shipment",
     size: 150,
-    meta: { filter: { kind: "text" } },
+    enableSorting: false,
     cell: ({ row }) => (
       <span className="font-mono text-id text-mute">
         {row.original.shipment_reference ?? "—"}
@@ -129,6 +155,7 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
     accessorFn: (row) => (row.attributed ? 1 : 0),
     header: "Attributed",
     size: 120,
+    enableSorting: false,
     cell: ({ row }) =>
       row.original.status !== "MATCHED" ? (
         <span className="text-mute">—</span>
@@ -143,6 +170,7 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
     accessorFn: (row) => row.received?.occurred_at ?? "",
     header: "Received",
     size: 160,
+    enableSorting: false,
     cell: ({ row }) => moment(row.original.received?.occurred_at),
   },
 ]
@@ -154,39 +182,71 @@ export function Reconciliations() {
     { id: "status", desc: false },
   ])
 
-  const report = useQuery({
-    queryKey: inventoryKeys.reconciliations(),
-    queryFn: ({ signal }) => listReconciliations(signal),
+  const filters = useFilterState(FIELDS)
+
+  // Debounced: every keystroke re-folds the fleet's transfer claims.
+  const needle = useDebounced(query.trim(), 400)
+  const scope = useMemo<ReconciliationScope>(() => {
+    const by = sorting[0]
+    return {
+      ...scopeFromFilters(filters.filters),
+      ...(needle === "" ? {} : { q: needle }),
+      // The three that stop certification, asked of the server rather than
+      // sifted out of the page in hand.
+      ...(slice === "attention" ? { status: "ATTENTION" } : {}),
+      sort: by === undefined ? undefined : SORTS[by.id],
+      desc: by?.desc === true,
+    }
+  }, [filters.filters, needle, slice, sorting])
+
+  const report = useInfiniteQuery({
+    queryKey: inventoryKeys.reconciliations(scope),
+    queryFn: ({ pageParam, signal }) =>
+      reconciliationsPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => {
-    const items = report.data?.items ?? []
-    return slice === "attention"
-      ? items.filter(
-          (item) => item.status !== "MATCHED" && item.status !== "DC_ONLY"
-        )
-      : items
-  }, [report.data, slice])
+  const rows = useMemo(
+    () => report.data?.pages.flatMap((page) => page.rows) ?? [],
+    [report.data]
+  )
+  const head = report.data?.pages[0]
 
-  const filters = useFilters(columns)
+  const model = useMemo(
+    () => ({
+      ...filters,
+      fields: head
+        ? FIELDS.map((field) => ({
+            ...field,
+            spec: {
+              ...field.spec,
+              counted:
+                field.column === "destination_store_id"
+                  ? head.facets.destinations
+                  : head.facets.sources,
+            },
+          }))
+        : FIELDS,
+    }),
+    [filters, head]
+  )
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: filters.columns,
+        columns,
         getRowId: (row: Reconciliation) =>
           `${row.destination_store_id}/${row.epc}/${row.shipment_reference ?? ""}`,
-        state: {
-          columnFilters: filters.columnFilters,
-          globalFilter: query,
-          sorting,
-        },
+        state: { sorting },
+        // The rows arrive in the order the request asked for.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, sorting]
     )
   )
 
@@ -200,76 +260,86 @@ export function Reconciliations() {
 
       {queryState(report, {
         loading: "Matching the claims…",
-        render: (data) => (
-          <>
-            <KpiStrip>
-              <Kpi
-                label="Matched"
-                value={count(data.summary.matched)}
-                delta={`${count(data.summary.matched_unattributed)} unexplained`}
-                tone={data.summary.matched_unattributed > 0 ? "down" : "up"}
-              />
-              <Kpi label="In the air" value={count(data.summary.dc_only)} />
-              <Kpi
-                label="Store only"
-                value={count(data.summary.store_only)}
-                tone={data.summary.store_only > 0 ? "down" : "flat"}
-              />
-              <Kpi label="Unresolved" value={count(data.summary.unresolved)} />
-              <Kpi label="Conflicts" value={count(data.summary.conflicts)} />
-              <Kpi label="Read at" value={moment(data.as_of)} />
-            </KpiStrip>
-
-            {data.summary.store_only +
-              data.summary.unresolved +
-              data.summary.conflicts >
-              0 && (
-              <Banner tone="warn" className="mb-[1.125rem]">
-                While any of these stands, the server will not certify a fleet
-                total: a tag claimed by a store and by nobody else is either
-                stock that arrived from nowhere or a despatch that was never
-                recorded, and it cannot tell which.
-              </Banner>
-            )}
-
-            <Toolbar>
-              <Segmented
-                value={slice}
-                onChange={setSlice}
-                options={[
-                  { value: "attention", label: "Needs answering" },
-                  { value: "all", label: "Every claim" },
-                ]}
-              />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Tag, store or shipment"
-                className="h-8 w-64"
-              />
-              <FilterPanel model={filters} table={table} />
-              <Toolbar.Spacer />
-              <span className="text-[0.875rem] text-mute tabular-nums">
-                {count(rows.length)} of {count(data.items.length)}
-              </span>
-            </Toolbar>
-
-            <Card className="overflow-hidden">
-              {rows.length === 0 ? (
-                <EmptyState>
-                  {slice === "attention"
-                    ? "Every transfer claim matches. Nothing here is holding the fleet total back."
-                    : "No DC has claimed a despatch and no store has claimed a receipt."}
-                </EmptyState>
-              ) : (
-                <DataTable<Reconciliation>
-                  table={table}
-                  className="max-h-[calc(100vh-26rem)]"
+        render: (answer) => {
+          // The summary is the whole fleet's and arrives on every page.
+          const data = answer.pages[0]
+          return (
+            <>
+              <KpiStrip>
+                <Kpi
+                  label="Matched"
+                  value={count(data.summary.matched)}
+                  delta={`${count(data.summary.matched_unattributed)} unexplained`}
+                  tone={data.summary.matched_unattributed > 0 ? "down" : "up"}
                 />
+                <Kpi label="In the air" value={count(data.summary.dc_only)} />
+                <Kpi
+                  label="Store only"
+                  value={count(data.summary.store_only)}
+                  tone={data.summary.store_only > 0 ? "down" : "flat"}
+                />
+                <Kpi
+                  label="Unresolved"
+                  value={count(data.summary.unresolved)}
+                />
+                <Kpi label="Conflicts" value={count(data.summary.conflicts)} />
+                <Kpi label="Read at" value={moment(data.as_of)} />
+              </KpiStrip>
+
+              {data.summary.store_only +
+                data.summary.unresolved +
+                data.summary.conflicts >
+                0 && (
+                <Banner tone="warn" className="mb-[1.125rem]">
+                  While any of these stands, the server will not certify a fleet
+                  total: a tag claimed by a store and by nobody else is either
+                  stock that arrived from nowhere or a despatch that was never
+                  recorded, and it cannot tell which.
+                </Banner>
               )}
-            </Card>
-          </>
-        ),
+
+              <Toolbar>
+                <Segmented
+                  value={slice}
+                  onChange={setSlice}
+                  options={[
+                    { value: "attention", label: "Needs answering" },
+                    { value: "all", label: "Every claim" },
+                  ]}
+                />
+                <Input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Tag, store or shipment"
+                  className="h-8 w-64"
+                />
+                <FilterPanel model={model} />
+                <Toolbar.Spacer />
+                <span className="text-[0.875rem] text-mute tabular-nums">
+                  {count(data.total)} claims
+                </span>
+              </Toolbar>
+
+              <Card className="overflow-hidden">
+                {rows.length === 0 ? (
+                  <EmptyState>
+                    {needle !== "" || filters.filters.length > 0
+                      ? "No transfer claim matches what you asked for."
+                      : slice === "attention"
+                        ? "Every transfer claim matches. Nothing here is holding the fleet total back."
+                        : "No DC has claimed a despatch and no store has claimed a receipt."}
+                  </EmptyState>
+                ) : (
+                  <DataTable<Reconciliation>
+                    table={table}
+                    more={report}
+                    className="max-h-[calc(100vh-26rem)]"
+                  />
+                )}
+              </Card>
+            </>
+          )
+        },
       })}
     </PageContent>
   )

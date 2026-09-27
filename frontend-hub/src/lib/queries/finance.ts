@@ -62,6 +62,7 @@ import type {
   SupplierPayment,
   TransferAssetRequest,
   TrialBalance,
+  UnbilledPage,
   UnbilledReceipt,
   AccountingDimension,
   AccountSourceRule,
@@ -81,6 +82,8 @@ import type {
   SaveDimensionRequest,
   SaveExpenseCategoryRequest,
   SavePaymentMethodRequest,
+  SetSitePaymentMethodsRequest,
+  SitePaymentMethod,
   SetAutomaticPostingRequest,
   SetFinanceSettingRequest,
   SetPayComponentPostingRequest,
@@ -332,6 +335,8 @@ export const financeKeys = {
   expenseCategories: () => ["finance", "expense-categories"] as const,
   payComponents: () => ["finance", "pay-components"] as const,
   paymentMethods: () => ["finance", "payment-methods"] as const,
+  sitePaymentMethods: (site: string) =>
+    ["finance", "payment-methods", "site", site] as const,
   taxTemplates: () => ["finance", "tax-templates"] as const,
   taxTypes: () => ["finance", "tax", "types"] as const,
   dimensions: () => ["finance", "dimensions"] as const,
@@ -774,6 +779,29 @@ export function savePaymentMethod(
 ): Promise<PaymentMethodSetting> {
   return node.post<PaymentMethodSetting>(
     "/api/v1/finance/payment-methods",
+    request
+  )
+}
+
+/// One shop's payment-method setup: every method, and whether the shop
+/// takes it (ERPNext POS Profile → Payments, per shop).
+export function sitePaymentMethods(
+  site: string,
+  signal?: AbortSignal
+): Promise<SitePaymentMethod[]> {
+  return node.get<SitePaymentMethod[]>(
+    `/api/v1/finance/sites/${encodeURIComponent(site)}/payment-methods`,
+    { signal }
+  )
+}
+
+/// Say which methods a shop takes; anything not named is switched off there.
+export function setSitePaymentMethods(
+  site: string,
+  request: SetSitePaymentMethodsRequest
+): Promise<SitePaymentMethod[]> {
+  return node.put<SitePaymentMethod[]>(
+    `/api/v1/finance/sites/${encodeURIComponent(site)}/payment-methods`,
     request
   )
 }
@@ -1406,6 +1434,18 @@ export function listBills(
     site?: string
     draftFrom?: string
     limit?: number
+    /// Free text over the invoice number and the supplier's name. The SERVER
+    /// searches.
+    q?: string
+    /// `date`, `due`, `supplier`, `total` or `outstanding`, with
+    /// `dir: "desc"`.
+    sort?: string
+    dir?: string
+    /// The previous page's `next_cursor`.
+    cursor?: string
+    /// `MERCHANDISE` or `EXPENSE`, narrowed on the server — the bills screen
+    /// pages each of its two tabs on its own.
+    kind?: string
   } = {},
   signal?: AbortSignal
 ): Promise<BillPage> {
@@ -1542,6 +1582,22 @@ export function unbilledReceipts(
   return node.get<UnbilledReceipt[]>("/api/v1/finance/unbilled", { signal })
 }
 
+/// The same deliveries, a keyset page at a time and oldest first, with the
+/// count and the value of EVERY unbilled delivery beside the page.
+///
+/// A sibling rather than a change to `unbilledReceipts`: the route answers the
+/// bare array to a plain ask, which other screens read, and the envelope only
+/// to `paged=true` — so neither caller's shape moves under the other.
+export function unbilledPage(
+  options: { cursor?: string; limit?: number } = {},
+  signal?: AbortSignal
+): Promise<UnbilledPage> {
+  return node.get<UnbilledPage>(
+    `/api/v1/finance/unbilled${search({ paged: true, ...options })}`,
+    { signal }
+  )
+}
+
 /// What is owed, to whom, and how late.
 ///
 /// The server's ageing and not the browser's. Bucketing the bill list here
@@ -1577,6 +1633,17 @@ export function listPayments(
     site?: string
     supplier?: string
     limit?: number
+    /// Free text over the payment number, the bank reference and the names
+    /// of the suppliers it settled. The SERVER searches.
+    q?: string
+    /// `date`, `total` or `number`, with `dir: "desc"`.
+    sort?: string
+    dir?: string
+    /// The previous page's `next_cursor`.
+    cursor?: string
+    /// The payment-date window, `YYYY-MM-DD`, both ends inclusive.
+    from?: string
+    to?: string
   } = {},
   signal?: AbortSignal
 ): Promise<PaymentPage> {

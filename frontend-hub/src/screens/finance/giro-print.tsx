@@ -80,7 +80,11 @@ const FIELDS: readonly {
   label: string
   sample: string
 }[] = [
-  { code: "PLACE_DATE", label: "Tempat & tanggal", sample: "Jambi, 13 September 2026" },
+  {
+    code: "PLACE_DATE",
+    label: "Tempat & tanggal",
+    sample: "Jambi, 13 September 2026",
+  },
   { code: "ISSUED_ON", label: "Tanggal penarikan", sample: "13-09-2026" },
   { code: "EFFECTIVE_ON", label: "Tanggal efektif", sample: "13-11-2026" },
   {
@@ -88,9 +92,17 @@ const FIELDS: readonly {
     label: "Nama penerima",
     sample: "PT SUMBER KAIN SEJAHTERA MANDIRI",
   },
-  { code: "PAYEE_BANK", label: "Bank penerima", sample: "Bank Mandiri KC Jambi" },
+  {
+    code: "PAYEE_BANK",
+    label: "Bank penerima",
+    sample: "Bank Mandiri KC Jambi",
+  },
   { code: "PAYEE_ACCOUNT", label: "Rekening penerima", sample: "123-456-7890" },
-  { code: "AMOUNT_FIGURES", label: "Jumlah angka", sample: money(2_500_000_000) },
+  {
+    code: "AMOUNT_FIGURES",
+    label: "Jumlah angka",
+    sample: money(2_500_000_000),
+  },
   {
     code: "AMOUNT_WORDS",
     label: "Terbilang",
@@ -131,7 +143,8 @@ export function GiroPrinting() {
   // Land on the first bank once the list arrives, and let go of a draft that
   // belongs to a template nobody is looking at any more.
   useEffect(() => {
-    if (current && selectedBank === null) setSelectedBank(current.bank_qualifier)
+    if (current && selectedBank === null)
+      setSelectedBank(current.bank_qualifier)
   }, [current, selectedBank])
 
   const placements: readonly GiroPrintPlacement[] =
@@ -173,7 +186,10 @@ export function GiroPrinting() {
   const add = useMutation({
     mutationFn: () =>
       createGiroPrintTemplate(
-        { bank_qualifier: newBank.trim(), label: `Bilyet giro ${newBank.trim()}` },
+        {
+          bank_qualifier: newBank.trim(),
+          label: `Bilyet giro ${newBank.trim()}`,
+        },
         key
       ),
     onSuccess: (made) => {
@@ -185,7 +201,8 @@ export function GiroPrinting() {
   })
 
   const selected = placements.find((one) => one.field_code === selectedField)
-  const dirty = draft !== null && current && draft.templateId === current.template_id
+  const dirty =
+    draft !== null && current && draft.templateId === current.template_id
 
   return (
     <PageContent>
@@ -210,7 +227,8 @@ export function GiroPrinting() {
               </Button>
               <Button
                 variant="primary"
-                disabled={!dirty || save.isPending}
+                pending={save.isPending}
+                disabled={!dirty}
                 onClick={() => save.mutate()}
               >
                 {save.isPending ? "Saving…" : "Save layout"}
@@ -223,7 +241,9 @@ export function GiroPrinting() {
       {save.isError && (
         <Banner tone="bad">{(save.error as Error).message}</Banner>
       )}
-      {add.isError && <Banner tone="bad">{(add.error as Error).message}</Banner>}
+      {add.isError && (
+        <Banner tone="bad">{(add.error as Error).message}</Banner>
+      )}
 
       {queryState(templates, {
         loading: "Reading the templates…",
@@ -261,6 +281,7 @@ export function GiroPrinting() {
                   <div className="flex flex-col gap-2 pt-1">
                     <Field
                       label="Bank"
+                      required
                       hint="As the account map spells it — BCA, MANDIRI."
                     >
                       <Input
@@ -272,7 +293,8 @@ export function GiroPrinting() {
                       <Button
                         variant="soft"
                         className="flex-1"
-                        disabled={newBank.trim() === "" || add.isPending}
+                        pending={add.isPending}
+                        disabled={newBank.trim() === ""}
                         onClick={() => add.mutate()}
                       >
                         {add.isPending ? "Adding…" : "Add it"}
@@ -466,9 +488,7 @@ function Nudge({
         value={value === null ? "" : String(value)}
         onChange={(event) =>
           onChange(
-            event.target.value === ""
-              ? null
-              : round(Number(event.target.value))
+            event.target.value === "" ? null : round(Number(event.target.value))
           )
         }
       />

@@ -42,8 +42,8 @@ use super::ga_contracts::{
     ga_contract_on, ga_contract_page, GaContractRow, GaContractScope, MAX_GA_CONTRACT_LIMIT,
 };
 use super::ga_maintenance::{
-    ga_maintenance_task_page, ga_repair_page, GaMaintenanceTaskRow, GaRepairRow,
-    MAX_GA_MAINTENANCE_LIMIT,
+    ga_maintenance_task_page, ga_repair_page, GaMaintenanceScope, GaMaintenanceTaskRow,
+    GaRepairRow, MAX_GA_MAINTENANCE_LIMIT,
 };
 use super::ga_supplies::{
     ga_supply_requests, GaSupplyRequestRow, GaSupplyScope, MAX_GA_SUPPLY_LIMIT,
@@ -239,20 +239,16 @@ pub async fn ga_location(
     .await?
     .rows;
 
-    // The upkeep lists read the whole estate and are narrowed here: neither
-    // reader takes a site, and a place's strip wants only its own rows.
-    let repairs = ga_repair_page(pool, MAX_GA_MAINTENANCE_LIMIT)
-        .await?
-        .rows
-        .into_iter()
-        .filter(|repair| repair.site_id == site_id)
-        .collect();
-    let tasks = ga_maintenance_task_page(pool, MAX_GA_MAINTENANCE_LIMIT)
-        .await?
-        .rows
-        .into_iter()
-        .filter(|task| task.site_id.as_deref() == Some(site_id))
-        .collect();
+    // The upkeep lists narrowed to this place in the query, so a busy site's
+    // strip is its own newest rows rather than whatever of them survived the
+    // estate's first page.
+    let here = || GaMaintenanceScope {
+        site_id: Some(site_id.to_string()),
+        cursor: None,
+        limit: MAX_GA_MAINTENANCE_LIMIT,
+    };
+    let repairs = ga_repair_page(pool, here(), today).await?.rows;
+    let tasks = ga_maintenance_task_page(pool, here()).await?.rows;
 
     let supplies = ga_supply_requests(
         pool,

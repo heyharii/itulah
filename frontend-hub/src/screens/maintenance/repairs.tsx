@@ -1,6 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { Plus, Wrench } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -10,7 +15,12 @@ import { Field, Input, Money, Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  LoadMore,
+  type Pageable,
+} from "@/components/ui/states"
 import { count, money } from "@/lib/format"
 import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
 import {
@@ -28,7 +38,11 @@ import { RepairSheet } from "@/screens/maintenance/hub"
 import { RepairStagePill } from "@/screens/maintenance/parts"
 import { repairObjectTiles, repairOver } from "@/screens/maintenance/format"
 import { FinanceMark } from "@/screens/contracts/parts"
-import type { GaAssetRow, GaRepairRow } from "@itulah/contract"
+import type {
+  GaAssetRow,
+  GaRepairRow,
+  GaRepairSummary,
+} from "@itulah/contract"
 
 /// Perbaikan — the book of things that broke.
 ///
@@ -43,55 +57,69 @@ import type { GaAssetRow, GaRepairRow } from "@itulah/contract"
 ///
 /// # One row per breakdown, not per visit
 ///
-/// A repair is the problem ("AC cassette tidak dingin"), and the site is
+/// A repair is the problem ("AC cassette not cooling"), and the site is
 /// required even when no single asset is — a leaking ceiling happens to a
 /// building. That is what makes the cost readable per location later.
+/// How many repairs one page of the book asks for.
+const PAGE = 100
+
 export function Repairs() {
   const open = useSheet("repair")
   const [adding, setAdding] = useState(false)
 
-  const book = useQuery({
-    queryKey: gaKeys.repairs({}),
-    queryFn: ({ signal }) => gaRepairs({ limit: 200 }, signal),
+  /// The book, a page at a time as its foot nears view. Its own key under
+  /// the book's prefix: the replacement form reads the same scope as one
+  /// plain page, and an infinite answer cannot share its cache entry.
+  const book = useInfiniteQuery({
+    queryKey: [...gaKeys.repairs({}), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaRepairs({ limit: PAGE, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
-  const rows = book.data?.rows ?? []
+  const rows = useMemo(
+    () => book.data?.pages.flatMap((page) => page.rows) ?? [],
+    [book.data]
+  )
+  const head = book.data?.pages[0]
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Pemeliharaan"
-        title="Perbaikan"
-        sub="Apa yang rusak, di mana, siapa yang memperbaiki, dan estimasinya. Biaya aktual dibaca dari bill yang menunjuk perbaikan ini."
+        crumb="GA"
+        title="Repairs"
+        sub="What broke, where, who is fixing it, and the estimate. The actual cost is read from bills that point to this repair."
         actions={
           <Button variant="primary" onClick={() => setAdding(true)}>
             <Plus />
-            Catat perbaikan
+            Record repair
           </Button>
         }
       />
 
-      {book.data !== undefined && <SummaryStrip rows={rows} />}
+      {head !== undefined && <SummaryStrip summary={head.summary} />}
 
       {queryState(book, {
-        loading: "Membuka buku perbaikan…",
+        loading: "Opening the repair book…",
         render: () =>
           rows.length === 0 ? (
             <Card>
               <EmptyState
                 action={
                   <Button variant="ghost" onClick={() => setAdding(true)}>
-                    Catat yang pertama
+                    Record the first one
                   </Button>
                 }
               >
-                Belum ada perbaikan dicatat. Perbaikan dicatat saat sesuatu
-                rusak — besok dari inspeksi yang menemukan kerusakan, atau
-                langsung dari laporan toko.
+                No repairs recorded yet. A repair is recorded when something
+                breaks — tomorrow from an inspection that finds damage, or
+                straight from a store report.
               </EmptyState>
             </Card>
           ) : (
-            <RepairTable rows={rows} onOpen={open.open} />
+            <RepairTable rows={rows} onOpen={open.open} more={book} />
           ),
       })}
 
@@ -114,43 +142,23 @@ export function Repairs() {
   )
 }
 
-/// The four figures the book is managed by, counted over the SAME rows the
-/// table draws — the server sends no sums, and a strip that fetched its own
-/// answer would drift from the table it sits above.
-function SummaryStrip({ rows }: { rows: readonly GaRepairRow[] }) {
-  const pending = rows.filter((row) => row.status === "OPEN").length
-  const today = new Date().toISOString().slice(0, 10)
-  const ninetyAgo = new Date(Date.parse(today) - 90 * 86_400_000)
-    .toISOString()
-    .slice(0, 10)
-  const doneRecently = rows.filter(
-    (row) =>
-      (row.status === "COMPLETED" || row.status === "CLOSED") &&
-      row.completed_at !== null &&
-      row.completed_at >= ninetyAgo
-  ).length
-  const over = rows.filter((row) => repairOver(row).over).length
-  const thisYear = today.slice(0, 4)
-  const actualThisYear = rows
-    .filter(
-      (row) =>
-        row.actual_cost_minor > 0 &&
-        (row.completed_at ?? row.failure_at ?? "").startsWith(thisYear)
-    )
-    .reduce((sum, row) => sum + row.actual_cost_minor, 0)
-
+/// The four figures the book is managed by, counted by the server over the
+/// WHOLE book — the table below pages as it scrolls, and a strip summed over
+/// the rows it happens to hold would change with the scroll position.
+function SummaryStrip({ summary }: { summary: GaRepairSummary }) {
   return (
     <KpiStrip className="md:grid-cols-2 xl:grid-cols-4">
-      <Kpi label="Terbuka" value={count(pending)} />
-      <Kpi label="Selesai 90 hari terakhir" value={count(doneRecently)} />
-      <Kpi label="Aktual di atas estimasi/budget" value={count(over)} />
+      <Kpi label="Open" value={count(summary.open)} />
+      <Kpi label="Done in the last 90 days" value={count(summary.done_recently)} />
+      <Kpi label="Actual over estimate/budget" value={count(summary.over)} />
       <Kpi
         label={
           <>
-            Aktual {thisYear} <FinanceMark className="ml-1 align-[0.125rem]" />
+            Actual {summary.year}{" "}
+            <FinanceMark className="ml-1 align-[0.125rem]" />
           </>
         }
-        value={money(actualThisYear)}
+        value={money(summary.actual_this_year_minor)}
       />
     </KpiStrip>
   )
@@ -163,9 +171,11 @@ function SummaryStrip({ rows }: { rows: readonly GaRepairRow[] }) {
 function RepairTable({
   rows,
   onOpen,
+  more,
 }: {
   rows: readonly GaRepairRow[]
   onOpen: (repairId: string) => void
+  more: Pageable
 }) {
   return (
     <Card className="overflow-hidden">
@@ -173,13 +183,13 @@ function RepairTable({
         <div className="min-w-[70rem]">
           <div className="grid h-10 grid-cols-[3rem_minmax(14rem,1fr)_10rem_5.5rem_10rem_9rem_9.5rem_8rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
             <span>No</span>
-            <span>Masalah</span>
-            <span>Objek</span>
-            <span>Site</span>
+            <span>Problem</span>
+            <span>Object</span>
+            <span>Location</span>
             <span>Vendor</span>
-            <span className="text-right">Estimasi</span>
+            <span className="text-right">Estimate</span>
             <span className="text-right">
-              Aktual <FinanceMark className="ml-1 align-[0.0625rem]" />
+              Actual <FinanceMark className="ml-1 align-[0.0625rem]" />
             </span>
             <span>Status</span>
           </div>
@@ -193,6 +203,9 @@ function RepairTable({
           ))}
         </div>
       </div>
+      {/* Outside the sideways-scrolling box, which computes as a vertical
+          scroller too — see `<LoadMore>`. The page scrolls. */}
+      <LoadMore query={more} />
     </Card>
   )
 }
@@ -218,7 +231,7 @@ function RepairLine({
           {row.title}
         </span>
         <span className="block truncate text-pill text-mute">
-          {row.asset_name ?? "tanpa aset"}
+          {row.asset_name ?? "no asset"}
         </span>
       </div>
       <span className="min-w-0 truncate text-meta text-body">
@@ -242,7 +255,7 @@ function RepairLine({
         </span>
         {over && (
           <span className="block truncate text-pill text-bad">
-            di atas {capWord}
+            over {capWord}
           </span>
         )}
       </span>
@@ -364,12 +377,12 @@ export function RepairComposer({
 
   const submit = () => {
     const next: Record<string, string> = {}
-    if ((form.title ?? "").trim() === "") next.title = "Tulis masalahnya dulu."
+    if ((form.title ?? "").trim() === "") next.title = "Enter the problem first."
     if (assetId === "" && (form.objek ?? "") === "")
-      next.objek = "Pilih objeknya dulu."
+      next.objek = "Choose the object first."
     if (assetId === "" && (form.site ?? "") === "")
-      next.site = "Pilih site dulu."
-    if ((form.vendor ?? "") === "") next.vendor = "Pilih vendor dulu."
+      next.site = "Choose a location first."
+    if ((form.vendor ?? "") === "") next.vendor = "Choose a vendor first."
     if (Object.keys(next).length > 0) {
       setProblems(next)
       return
@@ -382,27 +395,23 @@ export function RepairComposer({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title="Perbaikan baru"
-      caption="Fakta yang dicatat: apa yang rusak, di mana, dan siapa yang mengurusnya. Angka aktualnya datang dari Finance."
+      title="New repair"
+      caption="The facts recorded: what broke, where, and who is handling it. The actual figure comes from Finance."
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="text-pill text-mute">
             {asset === undefined
               ? object === undefined
-                ? "Tanpa aset — pilih objek dan site"
-                : `Objek ${object.label.toLowerCase()}`
-              : "Objek dan site ikut asetnya"}
+                ? "No asset — choose an object and location"
+                : `Object ${object.label.toLowerCase()}`
+              : "Object and location follow the asset"}
           </span>
           <div className="flex items-center gap-2">
             <Button variant="ghost" onClick={onClose}>
-              Batal
+              Cancel
             </Button>
-            <Button
-              variant="primary"
-              disabled={save.isPending}
-              onClick={submit}
-            >
-              {save.isPending ? "Menyimpan…" : "Simpan perbaikan"}
+            <Button variant="primary" pending={save.isPending} onClick={submit}>
+              {save.isPending ? "Saving…" : "Save repair"}
             </Button>
           </div>
         </div>
@@ -413,28 +422,28 @@ export function RepairComposer({
           <Banner tone="bad">{save.error.message}</Banner>
         )}
 
-        <Section title="Masalah">
-          <Field label="Masalah" problem={problems.title || undefined}>
+        <Section title="Problem">
+          <Field label="Problem" required problem={problems.title || undefined}>
             <Input
               value={form.title ?? ""}
               onChange={(event) => set("title", event.target.value)}
-              placeholder="mis. AC cassette tidak dingin"
+              placeholder="e.g. AC cassette not cooling"
               autoFocus
             />
           </Field>
         </Section>
 
-        <Section title="Aset dan objek" aside="objek ikut kelas asetnya">
+        <Section title="Asset and object" aside="object follows the asset's class">
           <Field
-            label="Aset"
-            aside={asset === undefined ? "kosong = tanpa aset" : undefined}
+            label="Asset"
+            aside={asset === undefined ? "empty = no asset" : undefined}
           >
             <Select
               value={form.asset ?? ""}
               onChange={(next) => set("asset", next)}
-              aria-label="Aset"
+              aria-label="Asset"
             >
-              <option value="">Tanpa aset: bangunan, pengecatan, dll.</option>
+              <option value="">No asset: building, painting, etc.</option>
               {(assets.data?.rows ?? [])
                 .filter((one: GaAssetRow) => one.status !== "DRAFT")
                 .map((one: GaAssetRow) => (
@@ -448,7 +457,7 @@ export function RepairComposer({
           {asset === undefined && (
             <>
               <Choices
-                label="Objek"
+                label="Object"
                 columns={3}
                 value={form.objek ?? ""}
                 onChange={(next) => set("objek", next)}
@@ -461,15 +470,15 @@ export function RepairComposer({
           )}
         </Section>
 
-        <Section title="Tempat dan vendor">
+        <Section title="Location and vendor">
           {asset === undefined && (
-            <Field label="Site" problem={problems.site || undefined}>
+            <Field label="Location" required problem={problems.site || undefined}>
               <Select
                 value={form.site ?? ""}
                 onChange={(next) => set("site", next)}
-                aria-label="Site"
+                aria-label="Location"
               >
-                <option value="">Pilih…</option>
+                <option value="">Choose…</option>
                 {(shape.data?.facets.sites ?? []).map((one) => (
                   <option key={one.value} value={one.value}>
                     {one.label ?? one.value}
@@ -478,13 +487,13 @@ export function RepairComposer({
               </Select>
             </Field>
           )}
-          <Field label="Vendor" problem={problems.vendor || undefined}>
+          <Field label="Vendor" required problem={problems.vendor || undefined}>
             <Select
               value={form.vendor ?? ""}
               onChange={(next) => set("vendor", next)}
               aria-label="Vendor"
             >
-              <option value="">Pilih vendor…</option>
+              <option value="">Choose a vendor…</option>
               {(vendors.data?.rows ?? []).map((one) => (
                 <option key={one.supplier_id} value={one.supplier_id}>
                   {one.name}
@@ -492,11 +501,11 @@ export function RepairComposer({
               ))}
             </Select>
           </Field>
-          <Field label="Kontrak" aside="kosong = tidak dicover kontrak">
+          <Field label="Contract" aside="empty = not covered by a contract">
             <Select
               value={form.contract ?? ""}
               onChange={(next) => set("contract", next)}
-              aria-label="Kontrak"
+              aria-label="Contract"
             >
               <option value="">—</option>
               {(contracts.data?.rows ?? []).map((one) => (
@@ -509,11 +518,11 @@ export function RepairComposer({
           </Field>
         </Section>
 
-        <Section title="Estimasi dan waktu">
+        <Section title="Estimate and timing">
           <div className="grid grid-cols-2 gap-4">
             <Field
-              label="Estimasi biaya"
-              aside="fakta GA; budget menyusul lewat persetujuan"
+              label="Cost estimate"
+              aside="GA's own fact; the budget follows through approval"
             >
               <Money
                 value={form.estimate ?? ""}
@@ -521,7 +530,7 @@ export function RepairComposer({
                 placeholder="5000000"
               />
             </Field>
-            <Field label="Dilaporkan">
+            <Field label="Reported">
               <Input
                 type="date"
                 value={form.failure_at ?? new Date().toISOString().slice(0, 10)}
@@ -529,20 +538,20 @@ export function RepairComposer({
               />
             </Field>
           </div>
-          <Field label="Catatan" aside="muncul di bawah masalah di buku">
+          <Field label="Notes" aside="appears below the problem in the book">
             <Input
               value={form.notes ?? ""}
               onChange={(event) => set("notes", event.target.value)}
-              placeholder="mis. unit 1-04, lantai 2"
+              placeholder="e.g. unit 1-04, floor 2"
             />
           </Field>
           <p className="flex items-center gap-1.5 text-pill text-mute">
             <Wrench className="size-3.5 text-line-ico" />
             {asset !== undefined
-              ? "Objek dan akun mengikuti kelas asetnya; site mengikuti aset."
+              ? "Object and account follow the asset's class; location follows the asset."
               : object === undefined
-                ? "Pilih objeknya — akun usulan mengikuti objek."
-                : `Akun usulan: ${object.tag ?? "—"} (Finance tetap bisa mengganti).`}
+                ? "Choose the object — the proposed account follows it."
+                : `Proposed account: ${object.tag ?? "—"} (Finance can still change it).`}
           </p>
         </Section>
       </div>

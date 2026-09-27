@@ -2,9 +2,15 @@
 
 export type DiscussionThread = { thread_id: string, 
 /**
- * One of the nine. What the thread is about, structurally.
+ * A record kind. What the thread is about, structurally.
  */
 subject_kind: string, 
+/**
+ * What to call that kind on screen — `Purchase order`, `Fixed asset`.
+ * Sent rather than mirrored, so a kind added next month is named on the
+ * board the day it exists.
+ */
+subject_label: string, 
 /**
  * The record's own identifier, as a person reads it: `PO-2607-0108`.
  */
@@ -12,7 +18,19 @@ subject_id: string, subject_note: string | null, title: string,
 /**
  * `open`, `resolved`, or `locked`.
  */
-status: string, created_by: string, created_at: string, last_activity_at: string, reply_count: number, 
+status: string, created_by: string, created_at: string, last_activity_at: string, 
+/**
+ * When the title, note or tags were last changed after opening.
+ */
+edited_at: string | null, 
+/**
+ * Set when head office pinned it above the rest of the board.
+ */
+pinned_at: string | null, pinned_by: string | null, 
+/**
+ * Replies still standing — withdrawn ones are not counted.
+ */
+reply_count: number, 
 /**
  * Distinct people who have opened it. Not page loads.
  */
@@ -22,10 +40,43 @@ people: number, tags: Array<string>,
  */
 bookmarked_by_me: boolean, 
 /**
- * Everyone who has posted, for the row of faces.
+ * Everyone who has posted, opener first, for the row of faces.
  */
 voices: Array<string>, latest_post_preview: string | null, 
 /**
+ * Who wrote the newest post still standing.
+ */
+last_poster: string | null, 
+/**
  * Whether one of the replies has been marked as the answer.
  */
-has_solution: boolean, };
+has_solution: boolean, 
+/**
+ * The newest post's position, withdrawn or not.
+ */
+last_seq: number, 
+/**
+ * How far the caller had read when this was fetched. `0` if never.
+ */
+last_read_seq: number, 
+/**
+ * Whether the caller has ever opened it.
+ */
+seen_by_me: boolean, 
+/**
+ * Posts by other people after the caller's reading position.
+ */
+unread_count: number, 
+/**
+ * The caller's own level: `watching`, `normal` or `muted`.
+ */
+subscription: string, 
+/**
+ * Whether the caller may retitle it, change its state and mark the answer:
+ * whoever opened it, and head office.
+ */
+can_manage: boolean, 
+/**
+ * Whether the caller may pin it: head office only.
+ */
+can_pin: boolean, };

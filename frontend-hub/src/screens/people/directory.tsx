@@ -1,12 +1,18 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
-import { CalendarClock } from "lucide-react"
+import { CalendarClock, UserPlus } from "lucide-react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { AppLink } from "@/components/ui/app-link"
 import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -26,16 +32,12 @@ import {
 } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import {
-  Banner,
-  EmptyState,
-  ErrorState,
-  Truncated,
-} from "@/components/ui/states"
+import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { Timeline } from "@/components/ui/timeline"
-import { useFilters } from "@/lib/filters"
+import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
+import { useDebounced } from "@/lib/use-debounced"
 import { count, day, money, moment } from "@/lib/format"
 import type { Tone } from "@/lib/format"
 import {
@@ -65,7 +67,7 @@ import {
   leaveRequestsOf,
   leaveStateLabel,
   linkAccount,
-  listEmployees,
+  listWorkforce,
   listExitInterviews,
   listFnF,
   openAdvances,
@@ -80,6 +82,7 @@ import {
   useReach,
   TRANSITIONS,
   type AmendableField,
+  type EmployeeFilters,
   type ContractKind,
   type Transition,
 } from "@/lib/queries/people"
@@ -140,7 +143,8 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     header: "Number",
     size: 120,
     // No filter on this or on Name: both are looked up rather than narrowed
-    // by, and the search box in the header already reads them.
+    // by, and the search box in the header already reads them — at the
+    // server, which matches the number and the name.
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
         {row.original.employee_code}
@@ -165,9 +169,10 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     accessorKey: "status",
     header: "Status",
     size: 160,
-    /// The same words the pill wears, so a clause reads like the column it
-    /// came from rather than like the enum underneath it.
-    meta: { filter: { kind: "option", format: statusLabel } },
+    // Narrowed by the Status filter, which the server counts. Sorting four
+    // state names alphabetically groups nothing anybody asked for, and the
+    // server offers no such order.
+    enableSorting: false,
     cell: ({ row }) => (
       <Pill tone={statusTone(row.original.status)}>
         {statusLabel(row.original.status)}
@@ -179,11 +184,6 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     accessorFn: (row) => row.place_name ?? row.place_id ?? "",
     header: "Posted to",
     size: 160,
-    /// Faceted from the rows the server already bounded to this caller's own
-    /// reach, which is the only list of places that can be right here — and
-    /// the empty string an unposted person carries is what makes "is empty"
-    /// ask for exactly them.
-    meta: { filter: { kind: "option" } },
     cell: ({ row }) =>
       row.original.place_id ? (
         (row.original.place_name ?? row.original.place_id)
@@ -195,7 +195,7 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     accessorKey: "position",
     header: "Job",
     size: 160,
-    meta: { filter: { kind: "option" } },
+    enableSorting: false,
     cell: ({ row }) =>
       row.original.position ?? <span className="text-mute">—</span>,
   },
@@ -203,9 +203,9 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     accessorKey: "contract_kind",
     header: "Contract",
     size: 110,
-    /// PKWT against PKWTT — fixed term against permanent — which is the
-    /// question the expiry column beside it cannot be asked (see below).
-    meta: { filter: { kind: "option" } },
+    // PKWT against PKWTT is the Contract filter's question; "Term ends in"
+    // beside it is the order that answers "who needs a renewal first".
+    enableSorting: false,
     cell: ({ row }) =>
       row.original.contract_kind ? (
         <Tag tone={row.original.contract_kind === "PKWT" ? "warn" : "neutral"}>
@@ -252,18 +252,9 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     accessorFn: (row) => (row.username === null ? 0 : 1),
     header: "Login",
     size: 100,
-    /// The options are named rather than faceted raw, because the accessor is
-    /// a 0 and a 1 and "Login is 0" is a sentence about a database. The counts
-    /// beside them are still the table's own.
-    meta: {
-      filter: {
-        kind: "option",
-        options: [
-          { value: "1", label: "Linked" },
-          { value: "0", label: "None" },
-        ],
-      },
-    },
+    // Narrowed by the Login filter, which the server counts; a column of two
+    // words has no order worth asking for.
+    enableSorting: false,
     cell: ({ row }) =>
       row.original.username ? (
         <span className="text-text">Linked</span>
@@ -273,12 +264,50 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
   },
 ]
 
-/// What this screen asks for, named once so the banner and the request cannot
-/// disagree. It is the server's ceiling, not a page size: the search and the
-/// sort below both run in the BROWSER, over whatever this fetched, so the
-/// number here is also the number past which this screen stops being able to
-/// answer the question it appears to answer.
-const CAP = 1000
+/// How many employees one page of the directory asks for. A step, not a
+/// ceiling: the list pages as it scrolls, and the server clamps anything above
+/// a thousand.
+const PAGE = 100
+
+/// The column ids the server can order by, and the word it knows each by.
+///
+/// Every other column is `enableSorting: false` — a header that offered an
+/// order the request cannot carry would sort the pages in hand and call it
+/// the workforce.
+const SORTS: Record<string, string> = {
+  employee_code: "code",
+  name: "name",
+  expiry: "contract_end",
+  place: "place",
+}
+
+/// The Login filter's two values, in words rather than as the `1`/`0` the
+/// request carries — "Login is 0" is a sentence about a database.
+function loginLabel(value: string): string {
+  return value === "1" ? "Linked" : "None"
+}
+
+/// Contract kinds as the filter shows them. `NONE` is the server's word for
+/// somebody with no contract on file.
+function contractLabel(value: string): string {
+  return value === "NONE" ? "No contract" : value
+}
+
+/// The chips, as the request that answers them. One value each, because the
+/// endpoint compares one column to one value; every field is `single`.
+function scopeFromFilters(filters: readonly Filter[]): EmployeeFilters {
+  const scope: { -readonly [K in keyof EmployeeFilters]: EmployeeFilters[K] } =
+    {}
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0 || operator !== "isAnyOf") continue
+    if (column === "status") scope.status = values[0]
+    else if (column === "place") scope.placeId = values[0]
+    else if (column === "contract_kind") scope.contractKind = values[0]
+    else if (column === "position") scope.position = values[0]
+    else if (column === "account") scope.login = values[0]
+  }
+  return scope
+}
 
 export function Directory() {
   const [query, setQuery] = useState("")
@@ -293,35 +322,145 @@ export function Directory() {
     { id: "expiry", desc: false },
   ])
 
-  // The whole workforce in one read, at the server's ceiling. Filtering is done
-  // on what is here rather than by re-asking: a directory is read constantly
-  // and is small enough to hold, and `<DataTable>` virtualises past 150 rows,
-  // so nothing is ever sliced away to make it fast.
-  const people = useQuery({
-    queryKey: peopleKeys.employees({ limit: CAP }),
-    queryFn: ({ signal }) => listEmployees({ limit: CAP }, signal),
+  /// What this list can be narrowed by, and only that: each field is a
+  /// parameter `GET /employees` answers, so no chip narrows only the rows that
+  /// happen to be loaded. The options and their counts arrive with the answer
+  /// (see `counted` below).
+  const fields = useMemo<FilterField[]>(
+    () => [
+      {
+        column: "status",
+        label: "Status",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          format: statusLabel,
+        },
+      },
+      {
+        column: "place",
+        label: "Posted to",
+        spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+      },
+      {
+        column: "position",
+        label: "Job",
+        spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+      },
+      {
+        column: "contract_kind",
+        label: "Contract",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          format: contractLabel,
+        },
+      },
+      {
+        column: "account",
+        label: "Login",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          format: loginLabel,
+        },
+      },
+    ],
+    []
+  )
+  const filters = useFilterState(fields)
+
+  /// Search, chips and order, as the one request that answers all three.
+  /// Debounced, because every keystroke is a round trip.
+  const needle = useDebounced(query.trim(), 400)
+  const scope = useMemo<EmployeeFilters>(() => {
+    const by = sorting[0]
+    return {
+      ...scopeFromFilters(filters.filters),
+      ...(needle === "" ? {} : { q: needle }),
+      sort: by === undefined ? undefined : SORTS[by.id],
+      dir: by?.desc === true ? "desc" : undefined,
+      limit: PAGE,
+    }
+  }, [filters.filters, needle, sorting])
+  const narrowed = needle !== "" || filters.filters.length > 0
+
+  // The workforce a page at a time, searched, filtered and sorted by the
+  // server — so a sort by contract end is the whole company's order and not
+  // the order of whatever had loaded.
+  const people = useInfiniteQuery({
+    queryKey: peopleKeys.workforce(scope),
+    queryFn: ({ pageParam, signal }) =>
+      listWorkforce({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched. Without
+    // it every keystroke empties the table to a loading line.
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => people.data ?? [], [people.data])
+  const rows = useMemo(
+    () => people.data?.pages.flatMap((page) => page.rows) ?? [],
+    [people.data]
+  )
+  const head = people.data?.pages[0]
 
-  const filters = useFilters(columns)
+  /// The same fields, carrying the server's own tally over everything the
+  /// search and the caller's reach match — not over the rows loaded.
+  const counted = useMemo<FilterField[]>(() => {
+    const facets = head?.facets
+    if (!facets) return fields
+    const placeNames = new Map(
+      facets.places.map((one) => [one.value, one.label ?? one.value])
+    )
+    return fields.map((field) => {
+      switch (field.column) {
+        case "status":
+          return { ...field, spec: { ...field.spec, counted: facets.statuses } }
+        case "place":
+          return {
+            ...field,
+            spec: {
+              ...field.spec,
+              counted: facets.places,
+              format: (id: string) => placeNames.get(id) ?? id,
+            },
+          }
+        case "position":
+          return {
+            ...field,
+            spec: { ...field.spec, counted: facets.positions },
+          }
+        case "contract_kind":
+          return {
+            ...field,
+            spec: { ...field.spec, counted: facets.contract_kinds },
+          }
+        case "account":
+          return { ...field, spec: { ...field.spec, counted: facets.logins } }
+        default:
+          return field
+      }
+    })
+  }, [fields, head])
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: filters.columns,
+        columns,
         getRowId: (row: EmployeeSummary) => row.employee_id,
-        state: {
-          columnFilters: filters.columnFilters,
-          globalFilter: query,
-          sorting,
-        },
+        state: { sorting },
+        // The rows arrive in the order the request asked for. Sorting them
+        // again here would sort the pages in hand and call it the workforce.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, sorting]
     )
   )
 
@@ -372,12 +511,21 @@ export function Directory() {
             : `${bounded} only — your own posting is what you may read. Personal data is a different question and a different privilege.`
         }
         actions={
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search"
-            className="h-8 w-48"
-          />
+          <>
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search number or name"
+              className="h-8 w-48"
+            />
+            {/* Asking for somebody — a sidebar row until 2026-09-27, and the
+                front of the lifecycle this list holds the rest of. A shop
+                asks here and head office decides here. */}
+            <AppLink to="/people/hire" variant="ghost">
+              <UserPlus />
+              New employees
+            </AppLink>
+          </>
         }
       />
 
@@ -390,13 +538,15 @@ export function Directory() {
       )}
 
       <Toolbar>
-        <FilterPanel model={filters} table={table} />
+        <FilterPanel model={{ ...filters, fields: counted }} />
+        {/* The server's count of everything the search and the chips match,
+            not of the rows loaded so far. */}
+        {head !== undefined && (
+          <span className="ml-auto text-[0.8125rem] text-body">
+            {count(head.total)} {head.total === 1 ? "employee" : "employees"}
+          </span>
+        )}
       </Toolbar>
-
-      {/* Only when the answer came back exactly as large as the question. A
-          shorter answer proves there was nothing more to send; this length
-          proves nothing either way, which is the whole point of saying so. */}
-      {rows.length >= CAP && <Truncated limit={CAP} noun="employees" />}
 
       <Card className="overflow-hidden">
         {queryState(people, {
@@ -404,23 +554,16 @@ export function Directory() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                Nobody has been registered yet. An employee record is created
-                with a number, and a name is enrolled onto it afterwards.
+                {narrowed
+                  ? "Nobody matches this search and the filters in force."
+                  : "Nobody has been registered yet. An employee record is created with a number, and a name is enrolled onto it afterwards."}
               </EmptyState>
             ) : (
               <DataTable<EmployeeSummary>
                 table={table}
                 onRowClick={(row) => employee.open(row.employee_id)}
                 isSelected={(row) => row.employee_id === employee.value}
-                // The count is the difference between "nobody works here" and
-                // "nobody here matches what you typed". Without it an empty box
-                // after a search reads as a company with no employees.
-                empty={
-                  <>
-                    None of the {rows.length.toLocaleString("id-ID")} people
-                    loaded match this search and the filters in force.
-                  </>
-                }
+                more={people}
                 className="max-h-[calc(100vh-14rem)]"
               />
             ),
@@ -821,6 +964,7 @@ function Reason({
     <Field
       label="Reason"
       hint="Recorded against this decision. The server refuses one without it."
+      required
     >
       <Textarea
         rows={2}
@@ -866,7 +1010,7 @@ function TransitionForm({ employeeId }: { employeeId: string }) {
       // The record itself, and the directory row — which carries the status.
       client.invalidateQueries({ queryKey: peopleKeys.employee(employeeId) })
       client.invalidateQueries({
-        queryKey: peopleKeys.employees({ limit: 1000 }),
+        queryKey: peopleKeys.lists(),
       })
       // The reason only: the transition and the date stay, because a batch of
       // hires on the same day is one date typed once.
@@ -918,6 +1062,7 @@ function TransitionForm({ employeeId }: { employeeId: string }) {
         {(field) => (
           <Field
             label="Effective on"
+            required
             hint="The day it takes effect, which is rarely the day it is typed."
           >
             <Day
@@ -982,7 +1127,7 @@ function PostingForm({ employeeId }: { employeeId: string }) {
       // The record's postings, and the directory row's "Posted to".
       client.invalidateQueries({ queryKey: peopleKeys.employee(employeeId) })
       client.invalidateQueries({
-        queryKey: peopleKeys.employees({ limit: 1000 }),
+        queryKey: peopleKeys.lists(),
       })
       // The reason only: posting a team to the same place on the same day is
       // one place and one date typed once.
@@ -1018,6 +1163,7 @@ function PostingForm({ employeeId }: { employeeId: string }) {
         {(field) => (
           <Field
             label="Place"
+            required
             hint="The place id, as the register knows it — ho, jkt-01."
           >
             <Input
@@ -1033,7 +1179,7 @@ function PostingForm({ employeeId }: { employeeId: string }) {
       <div className="grid grid-cols-2 gap-3">
         <form.Field name="validFrom">
           {(field) => (
-            <Field label="From">
+            <Field label="From" required>
               <Day
                 value={field.state.value}
                 onBlur={field.handleBlur}
@@ -1125,7 +1271,7 @@ function ContractForm({ employeeId }: { employeeId: string }) {
       // the end date this list sorts by.
       client.invalidateQueries({ queryKey: peopleKeys.contracts(employeeId) })
       client.invalidateQueries({
-        queryKey: peopleKeys.employees({ limit: 1000 }),
+        queryKey: peopleKeys.lists(),
       })
       // The reason only: a renewal on the same terms is the ordinary next
       // contract, and re-typing the grade is how a typo gets in.
@@ -1176,7 +1322,7 @@ function ContractForm({ employeeId }: { employeeId: string }) {
       <div className="grid grid-cols-2 gap-3">
         <form.Field name="startsOn">
           {(field) => (
-            <Field label="Starts on">
+            <Field label="Starts on" required>
               <Day
                 value={field.state.value}
                 onBlur={field.handleBlur}
@@ -1191,6 +1337,7 @@ function ContractForm({ employeeId }: { employeeId: string }) {
               {(field) => (
                 <Field
                   label="Ends on"
+                  required={draft.kind === "PKWT"}
                   hint={
                     draft.kind === "PKWT"
                       ? "Required: a fixed term must say when it ends"
@@ -1216,7 +1363,7 @@ function ContractForm({ employeeId }: { employeeId: string }) {
       <div className="grid grid-cols-2 gap-3">
         <form.Field name="position">
           {(field) => (
-            <Field label="Position">
+            <Field label="Position" required>
               <Input
                 value={field.state.value}
                 onBlur={field.handleBlur}
@@ -1227,7 +1374,7 @@ function ContractForm({ employeeId }: { employeeId: string }) {
         </form.Field>
         <form.Field name="grade">
           {(field) => (
-            <Field label="Grade">
+            <Field label="Grade" required>
               <Input
                 value={field.state.value}
                 onBlur={field.handleBlur}
@@ -1268,7 +1415,7 @@ function CodeForm({ employeeId }: { employeeId: string }) {
     onSuccess: () => {
       client.invalidateQueries({ queryKey: peopleKeys.employee(employeeId) })
       client.invalidateQueries({
-        queryKey: peopleKeys.employees({ limit: 1000 }),
+        queryKey: peopleKeys.lists(),
       })
       setCode("")
       setReason("")
@@ -1279,7 +1426,7 @@ function CodeForm({ employeeId }: { employeeId: string }) {
     <div className="flex flex-col gap-4">
       {correct.isError && <ErrorState error={correct.error} />}
 
-      <Field label="New employee number">
+      <Field label="New employee number" required>
         <Input
           value={code}
           onChange={(event) => setCode(event.target.value)}
@@ -1342,7 +1489,7 @@ function AccountForm({
   const refresh = () => {
     client.invalidateQueries({ queryKey: peopleKeys.employee(employeeId) })
     client.invalidateQueries({
-      queryKey: peopleKeys.employees({ limit: 1000 }),
+      queryKey: peopleKeys.lists(),
     })
     setUsername("")
     setReason("")
@@ -1454,6 +1601,7 @@ function AccountForm({
         <>
           <Field
             label="Username"
+            required
             hint="An account that already exists, and that nobody else is."
           >
             <Input
@@ -1474,7 +1622,11 @@ function AccountForm({
         </>
       ) : (
         <>
-          <Field label="Username" hint="Lower case, and nobody else's.">
+          <Field
+            label="Username"
+            hint="Lower case, and nobody else's."
+            required
+          >
             <Input
               value={fresh.username}
               onChange={(event) =>
@@ -1483,7 +1635,7 @@ function AccountForm({
               placeholder="siti.rahayu"
             />
           </Field>
-          <Field label="Display name">
+          <Field label="Display name" required>
             <Input
               value={fresh.displayName}
               onChange={(event) =>
@@ -1494,6 +1646,7 @@ function AccountForm({
           </Field>
           <Field
             label="Password"
+            required
             hint="Typed once and never echoed back. Hand it over, and have them change it."
           >
             <Input
@@ -1585,9 +1738,10 @@ function AccountForm({
                       <Field
                         label={
                           freshAtDc
-                            ? "Offline password at that DC (optional)"
+                            ? "Offline password at that DC"
                             : "Password at that node"
                         }
+                        required={!freshAtDc}
                         hint={
                           freshAtDc
                             ? "Not needed to sign in: the hub uses this login. Set one only for signing in while the DC cannot reach the centre."
@@ -1718,7 +1872,7 @@ function AmendmentForm({ employeeId }: { employeeId: string }) {
       // an amendment can change. Nothing else is invalidated because nothing
       // else is held.
       client.invalidateQueries({
-        queryKey: peopleKeys.employees({ limit: 1000 }),
+        queryKey: peopleKeys.lists(),
       })
       form.setFieldValue("value", "")
       form.setFieldValue("reason", "")
@@ -1782,6 +1936,7 @@ function AmendmentForm({ employeeId }: { employeeId: string }) {
               {(field) => (
                 <Field
                   label="New value"
+                  required={!clearable(chosen)}
                   hint={
                     clearable(chosen)
                       ? "Leave blank to clear it — only phone and email may be cleared."
@@ -1799,7 +1954,7 @@ function AmendmentForm({ employeeId }: { employeeId: string }) {
           ) : (
             <form.Field name="birthDate">
               {(field) => (
-                <Field label="Date of birth">
+                <Field label="Date of birth" required>
                   <Day
                     value={field.state.value}
                     onBlur={field.handleBlur}

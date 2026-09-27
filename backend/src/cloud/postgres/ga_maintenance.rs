@@ -52,6 +52,55 @@ pub const DEFAULT_GA_MAINTENANCE_LIMIT: i64 = 200;
 /// the same ceiling the registers keep, for the same reason.
 pub const MAX_GA_MAINTENANCE_LIMIT: i64 = 1000;
 
+/// What a caller asks one of the upkeep lists for.
+///
+/// Every list pages by a keyset on its own house order, so a screen walks the
+/// whole book a page at a time rather than stopping silently at the first
+/// `limit`. `site_id` narrows the rows AND the counts to one place — a shop's
+/// till, or a location's own strip — in the query rather than after it, which
+/// is what lets a narrowed read page honestly.
+#[derive(Clone, Debug, Default)]
+pub struct GaMaintenanceScope {
+    /// Only the rows whose own row names this site. Ignored by the lists that
+    /// have no site of their own (inspections, replacements).
+    pub site_id: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    pub cursor: Option<String>,
+    pub limit: i64,
+}
+
+/// Where the previous page of an upkeep list stopped: the last row's id. Each
+/// list's seek reads that row's sort key back out of its own table.
+#[derive(Serialize, Deserialize)]
+struct GaMaintenanceCursor {
+    id: Uuid,
+}
+
+impl GaMaintenanceScope {
+    fn page_size(&self) -> i64 {
+        self.limit.clamp(1, MAX_GA_MAINTENANCE_LIMIT)
+    }
+
+    fn after(&self) -> Result<Option<Uuid>, AppError> {
+        Ok(self
+            .cursor
+            .as_deref()
+            .map(super::decode_cursor::<GaMaintenanceCursor>)
+            .transpose()?
+            .map(|cursor| cursor.id))
+    }
+}
+
+/// The next page's cursor: the last row's id when the page came back full.
+fn next_cursor_after(last: Option<Uuid>, len: usize, limit: i64) -> Result<Option<String>, AppError> {
+    match last {
+        Some(id) if len as i64 == limit => Ok(Some(super::encode_cursor(&GaMaintenanceCursor {
+            id,
+        })?)),
+        _ => Ok(None),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Maintenance tasks
 // ---------------------------------------------------------------------------
@@ -172,6 +221,9 @@ pub struct GaMaintenanceTaskFacets {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct GaMaintenanceTaskPage {
     pub rows: Vec<GaMaintenanceTaskRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    pub next_cursor: Option<String>,
     pub total: i64,
     pub facets: GaMaintenanceTaskFacets,
 }
@@ -241,6 +293,9 @@ pub struct GaInspectionFacets {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct GaInspectionPage {
     pub rows: Vec<GaInspectionRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    pub next_cursor: Option<String>,
     pub total: i64,
     pub facets: GaInspectionFacets,
 }
@@ -378,16 +433,40 @@ pub struct GaRepairFacets {
     pub statuses: Vec<GaMaintenanceFacet>,
 }
 
+/// The four figures the repair book is managed by, counted over the WHOLE
+/// book (within the scope's site) rather than over a page of it — a strip
+/// that summed the rows on screen would change as somebody scrolled.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct GaRepairSummary {
+    /// Repairs still at OPEN.
+    pub open: i64,
+    /// COMPLETED or CLOSED with a completion day in the last ninety days.
+    pub done_recently: i64,
+    /// Whose actual cost is above the approved budget, or the estimate where
+    /// no budget was approved.
+    pub over: i64,
+    /// Σ actual cost of the repairs completed (or, not yet completed, failed)
+    /// in `year`.
+    pub actual_this_year_minor: i64,
+    /// The business clock's year the figure above is for.
+    pub year: i32,
+}
+
 /// A page of the repair list, with the actual-cost total over what it shows.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct GaRepairPage {
     pub rows: Vec<GaRepairRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    pub next_cursor: Option<String>,
     pub total: i64,
     pub facets: GaRepairFacets,
     /// Σ `actual_cost_minor` of the rows on this page — a read of Finance's
     /// side, never a copy of it.
     pub actual_cost_total_minor: i64,
+    pub summary: GaRepairSummary,
 }
 
 // ---------------------------------------------------------------------------
@@ -476,6 +555,9 @@ pub struct GaReplacementFacets {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct GaReplacementPage {
     pub rows: Vec<GaReplacementRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    pub next_cursor: Option<String>,
     pub total: i64,
     pub facets: GaReplacementFacets,
 }
@@ -794,31 +876,49 @@ fn to_task_row(row: &sqlx::postgres::PgRow) -> Result<GaMaintenanceTaskRow, AppE
     })
 }
 
-/// The task list, newest due first among the living.
+/// The task list, soonest due first, the undated last.
+///
+/// Paged by a keyset on `(next_due, title, task_id)` with an undated task's
+/// day read as `infinity` — the same place `NULLS LAST` put it, spelled so a
+/// row comparison can seek past it.
 pub async fn ga_maintenance_task_page(
     pool: &PgPool,
-    limit: i64,
+    scope: GaMaintenanceScope,
 ) -> Result<GaMaintenanceTaskPage, AppError> {
-    let limit = limit.clamp(1, MAX_GA_MAINTENANCE_LIMIT);
+    let limit = scope.page_size();
+    let after = scope.after()?;
     let sql = format!(
         "{GA_TASK_SELECT}
-         ORDER BY t.next_due NULLS LAST, t.title
-          LIMIT $1"
+          WHERE ($1::text IS NULL OR t.site_id = $1)
+            AND ($2::uuid IS NULL
+                 OR (COALESCE(t.next_due, 'infinity'::date), t.title, t.task_id) >
+                    (SELECT COALESCE(x.next_due, 'infinity'::date), x.title, x.task_id
+                       FROM ga_maintenance_task x WHERE x.task_id = $2))
+          ORDER BY COALESCE(t.next_due, 'infinity'::date), t.title, t.task_id
+          LIMIT $3"
     );
-    let rows = sqlx::query(&sql).bind(limit).fetch_all(pool).await?;
+    let rows = sqlx::query(&sql)
+        .bind(&scope.site_id)
+        .bind(after)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
     let out = rows.iter().map(to_task_row).collect::<Result<Vec<_>, _>>()?;
+    let next_cursor = next_cursor_after(out.last().map(|row| row.task_id), out.len(), limit)?;
 
     let facet_rows = sqlx::query(
-        "SELECT 'site' AS kind, t.site_id AS value,
+        "WITH t AS (SELECT * FROM ga_maintenance_task WHERE $1::text IS NULL OR site_id = $1)
+         SELECT 'site' AS kind, t.site_id AS value,
                 (SELECT s.name FROM site s WHERE s.id = t.site_id) AS label,
                 COUNT(*)::bigint AS n
-           FROM ga_maintenance_task t WHERE t.site_id IS NOT NULL GROUP BY t.site_id
+           FROM t WHERE t.site_id IS NOT NULL GROUP BY t.site_id
           UNION ALL
          SELECT 'status', t.status, NULL::text, COUNT(*)::bigint
-           FROM ga_maintenance_task t GROUP BY t.status
+           FROM t GROUP BY t.status
           UNION ALL
-         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM ga_maintenance_task",
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM t",
     )
+    .bind(&scope.site_id)
     .fetch_all(pool)
     .await?;
     let mut facets = GaMaintenanceTaskFacets {
@@ -831,6 +931,7 @@ pub async fn ga_maintenance_task_page(
     ])?;
     Ok(GaMaintenanceTaskPage {
         rows: out,
+        next_cursor,
         total,
         facets,
     })
@@ -1030,17 +1131,31 @@ fn to_inspection_row(row: &sqlx::postgres::PgRow) -> Result<GaInspectionRow, App
 }
 
 /// The walk-round list, newest inspection first.
+///
+/// Paged by a keyset on `(inspected_on, recorded_at, inspection_id)`, all
+/// descending. The scope's site is ignored: an inspection is of an asset and
+/// carries no site of its own.
 pub async fn ga_inspection_page(
     pool: &PgPool,
-    limit: i64,
+    scope: GaMaintenanceScope,
 ) -> Result<GaInspectionPage, AppError> {
-    let limit = limit.clamp(1, MAX_GA_MAINTENANCE_LIMIT);
-    let sql = format!("{GA_INSPECTION_SELECT} ORDER BY i.inspected_on DESC, i.recorded_at DESC LIMIT $1");
-    let rows = sqlx::query(&sql).bind(limit).fetch_all(pool).await?;
+    let limit = scope.page_size();
+    let after = scope.after()?;
+    let sql = format!(
+        "{GA_INSPECTION_SELECT}
+          WHERE $1::uuid IS NULL
+             OR (i.inspected_on, i.recorded_at, i.inspection_id) <
+                (SELECT x.inspected_on, x.recorded_at, x.inspection_id
+                   FROM ga_inspection x WHERE x.inspection_id = $1)
+          ORDER BY i.inspected_on DESC, i.recorded_at DESC, i.inspection_id DESC
+          LIMIT $2"
+    );
+    let rows = sqlx::query(&sql).bind(after).bind(limit).fetch_all(pool).await?;
     let out = rows
         .iter()
         .map(to_inspection_row)
         .collect::<Result<Vec<_>, _>>()?;
+    let next_cursor = next_cursor_after(out.last().map(|row| row.inspection_id), out.len(), limit)?;
 
     let facet_rows = sqlx::query(
         "SELECT 'result' AS kind, i.result AS value, NULL::text AS label, COUNT(*)::bigint AS n
@@ -1056,6 +1171,7 @@ pub async fn ga_inspection_page(
     let total = collect_facets(facet_rows, &mut [("result", &mut facets.results)])?;
     Ok(GaInspectionPage {
         rows: out,
+        next_cursor,
         total,
         facets,
     })
@@ -1195,9 +1311,16 @@ fn to_repair_row(row: &sqlx::postgres::PgRow) -> Result<GaRepairRow, AppError> {
 ///
 /// The actual cost rides the page and nothing else, exactly as the asset
 /// register's acquisition trail does: the aggregate is a correlated subquery ON
-/// THE PAGE, where the LIMIT has already cut the list down.
-pub async fn ga_repair_page(pool: &PgPool, limit: i64) -> Result<GaRepairPage, AppError> {
-    let limit = limit.clamp(1, MAX_GA_MAINTENANCE_LIMIT);
+/// THE PAGE, where the LIMIT has already cut the list down. Paged by a keyset
+/// on `(failure_at, repair_id)`, both descending. The summary strip's figures
+/// are counted over the whole book in the scope, as of `today`.
+pub async fn ga_repair_page(
+    pool: &PgPool,
+    scope: GaMaintenanceScope,
+    today: NaiveDate,
+) -> Result<GaRepairPage, AppError> {
+    let limit = scope.page_size();
+    let after = scope.after()?;
     let actual = repair_actual_cost_select();
     let sql = format!(
         "SELECT r.repair_id, r.site_id, r.asset_id, r.objek, r.title, r.supplier_id,
@@ -1212,28 +1335,40 @@ pub async fn ga_repair_page(pool: &PgPool, limit: i64) -> Result<GaRepairPage, A
            LEFT JOIN fixed_asset a ON a.asset_id = r.asset_id
            JOIN supplier s ON s.supplier_id = r.supplier_id
            LEFT JOIN ga_contract c ON c.contract_id = r.contract_id
-          ORDER BY r.failure_at DESC, r.repair_id
-          LIMIT $1"
+          WHERE ($1::text IS NULL OR r.site_id = $1)
+            AND ($2::uuid IS NULL
+                 OR (r.failure_at, r.repair_id) <
+                    (SELECT x.failure_at, x.repair_id FROM ga_repair x WHERE x.repair_id = $2))
+          ORDER BY r.failure_at DESC, r.repair_id DESC
+          LIMIT $3"
     );
-    let rows = sqlx::query(&sql).bind(limit).fetch_all(pool).await?;
+    let rows = sqlx::query(&sql)
+        .bind(&scope.site_id)
+        .bind(after)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
     let out = rows.iter().map(to_repair_row).collect::<Result<Vec<_>, _>>()?;
     let actual_cost_total_minor = out.iter().map(|row| row.actual_cost_minor).sum();
+    let next_cursor = next_cursor_after(out.last().map(|row| row.repair_id), out.len(), limit)?;
 
     let facet_rows = sqlx::query(
-        "SELECT 'site' AS kind, r.site_id AS value,
+        "WITH r AS (SELECT * FROM ga_repair WHERE $1::text IS NULL OR site_id = $1)
+         SELECT 'site' AS kind, r.site_id AS value,
                 (SELECT s.name FROM site s WHERE s.id = r.site_id) AS label,
                 COUNT(*)::bigint AS n
-           FROM ga_repair r GROUP BY r.site_id
+           FROM r GROUP BY r.site_id
           UNION ALL
          SELECT 'object', r.objek, MIN(o.name), COUNT(*)::bigint
-           FROM ga_repair r JOIN ga_repair_object o ON o.code = r.objek
+           FROM r JOIN ga_repair_object o ON o.code = r.objek
           GROUP BY r.objek
           UNION ALL
          SELECT 'status', r.status, NULL::text, COUNT(*)::bigint
-           FROM ga_repair r GROUP BY r.status
+           FROM r GROUP BY r.status
           UNION ALL
-         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM ga_repair",
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM r",
     )
+    .bind(&scope.site_id)
     .fetch_all(pool)
     .await?;
     let mut facets = GaRepairFacets {
@@ -1246,11 +1381,54 @@ pub async fn ga_repair_page(pool: &PgPool, limit: i64) -> Result<GaRepairPage, A
         ("object", &mut facets.objects),
         ("status", &mut facets.statuses),
     ])?;
+    let summary = ga_repair_summary(pool, scope.site_id.as_deref(), today).await?;
     Ok(GaRepairPage {
         rows: out,
+        next_cursor,
         total,
         facets,
         actual_cost_total_minor,
+        summary,
+    })
+}
+
+/// The repair book's strip, over every repair in the site (or the estate).
+///
+/// The actual cost is the same correlated read the page uses, run over the
+/// whole book here — the book is small, and a strip that summed only the
+/// loaded page would be a figure about the scroll position.
+async fn ga_repair_summary(
+    pool: &PgPool,
+    site_id: Option<&str>,
+    today: NaiveDate,
+) -> Result<GaRepairSummary, AppError> {
+    let actual = repair_actual_cost_select();
+    let sql = format!(
+        "SELECT
+             COUNT(*) FILTER (WHERE r.status = 'OPEN') AS open,
+             COUNT(*) FILTER (WHERE r.status IN ('COMPLETED', 'CLOSED')
+                                AND r.completed_at >= $2::date - 90) AS done_recently,
+             COUNT(*) FILTER (WHERE cost.actual >
+                                COALESCE(r.approved_budget_minor, r.estimated_cost_minor)) AS over_count,
+             COALESCE(SUM(cost.actual) FILTER (
+                 WHERE cost.actual > 0
+                   AND EXTRACT(YEAR FROM COALESCE(r.completed_at, r.failure_at))
+                     = EXTRACT(YEAR FROM $2::date)), 0)::bigint AS actual_this_year
+           FROM ga_repair r
+           CROSS JOIN LATERAL (SELECT {actual} AS actual) cost
+          WHERE $1::text IS NULL OR r.site_id = $1"
+    );
+    let row = sqlx::query(&sql)
+        .bind(site_id)
+        .bind(today)
+        .fetch_one(pool)
+        .await?;
+    Ok(GaRepairSummary {
+        open: row.try_get("open")?,
+        done_recently: row.try_get("done_recently")?,
+        over: row.try_get("over_count")?,
+        actual_this_year_minor: row.try_get("actual_this_year")?,
+        year: chrono::Datelike::year(&today),
     })
 }
 
@@ -1600,14 +1778,31 @@ fn to_replacement_row(row: &sqlx::postgres::PgRow) -> Result<GaReplacementRow, A
 }
 
 /// The replacement list, newest proposal first.
-pub async fn ga_replacement_page(pool: &PgPool, limit: i64) -> Result<GaReplacementPage, AppError> {
-    let limit = limit.clamp(1, MAX_GA_MAINTENANCE_LIMIT);
-    let sql = format!("{GA_REPLACEMENT_SELECT} ORDER BY p.proposed_on DESC, p.replacement_id LIMIT $1");
-    let rows = sqlx::query(&sql).bind(limit).fetch_all(pool).await?;
+///
+/// Paged by a keyset on `(proposed_on, replacement_id)`, both descending. The
+/// scope's site is ignored: a replacement names assets, not a place.
+pub async fn ga_replacement_page(
+    pool: &PgPool,
+    scope: GaMaintenanceScope,
+) -> Result<GaReplacementPage, AppError> {
+    let limit = scope.page_size();
+    let after = scope.after()?;
+    let sql = format!(
+        "{GA_REPLACEMENT_SELECT}
+          WHERE $1::uuid IS NULL
+             OR (p.proposed_on, p.replacement_id) <
+                (SELECT x.proposed_on, x.replacement_id
+                   FROM ga_replacement x WHERE x.replacement_id = $1)
+          ORDER BY p.proposed_on DESC, p.replacement_id DESC
+          LIMIT $2"
+    );
+    let rows = sqlx::query(&sql).bind(after).bind(limit).fetch_all(pool).await?;
     let out = rows
         .iter()
         .map(to_replacement_row)
         .collect::<Result<Vec<_>, _>>()?;
+    let next_cursor =
+        next_cursor_after(out.last().map(|row| row.replacement_id), out.len(), limit)?;
 
     let facet_rows = sqlx::query(
         "SELECT 'status' AS kind, p.status AS value, NULL::text AS label, COUNT(*)::bigint AS n
@@ -1623,6 +1818,7 @@ pub async fn ga_replacement_page(pool: &PgPool, limit: i64) -> Result<GaReplacem
     let total = collect_facets(facet_rows, &mut [("status", &mut facets.statuses)])?;
     Ok(GaReplacementPage {
         rows: out,
+        next_cursor,
         total,
         facets,
     })

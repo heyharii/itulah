@@ -2,7 +2,7 @@ import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
-import { Input, Select } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState } from "@/components/ui/states"
@@ -70,20 +70,18 @@ export function Rules() {
 
       <Section title="New rule">
         <div className="flex flex-wrap items-end gap-3">
-          <label className="min-w-[13rem] flex-1">
-            <span className="mb-1 block font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
-              When the description contains
-            </span>
+          <Field
+            label="When the description contains"
+            required
+            className="min-w-[13rem] flex-1"
+          >
             <Input
               value={contains}
               onChange={(e) => setContains(e.target.value)}
               placeholder="TRSF E-BANKING DB"
             />
-          </label>
-          <label className="min-w-[11rem]">
-            <span className="mb-1 block font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
-              Categorise as
-            </span>
+          </Field>
+          <Field label="Categorise as" required className="min-w-[11rem]">
             <Select value={role} onChange={setRole} className={FILTER_W}>
               <option value="">Select category…</option>
               {CATEGORIES.map((c) => (
@@ -92,11 +90,8 @@ export function Rules() {
                 </option>
               ))}
             </Select>
-          </label>
-          <label className="min-w-[11rem]">
-            <span className="mb-1 block font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
-              From/To
-            </span>
+          </Field>
+          <Field label="From/To" className="min-w-[11rem]">
             <Select value={party} onChange={setParty} className={FILTER_W}>
               <option value="">Leave blank</option>
               {PARTIES.map((p) => (
@@ -105,7 +100,7 @@ export function Rules() {
                 </option>
               ))}
             </Select>
-          </label>
+          </Field>
           <Button
             variant="primary"
             disabled={!contains.trim() || !role}

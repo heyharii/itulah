@@ -1,4 +1,6 @@
 import {
+  Radar,
+  ShieldAlert,
   ScrollText,
   Activity,
   HeartPulse,
@@ -36,6 +38,10 @@ export const systemNav: AppModule = {
         // First, because it is the question the rest of the module answers in
         // pieces: is data moving between the centre and every node, both ways,
         // and is anything stuck.
+        // A status page for the shop servers, shaped like UptimeRobot's:
+        // are they up, since when, how often they fell over.
+        { path: "/system/monitoring", label: "Monitoring", icon: Radar },
+        { path: "/system/incidents", label: "Incidents", icon: ShieldAlert },
         { path: "/system/health", label: "Health", icon: HeartPulse },
         { path: "/system", label: "Nodes", icon: LayoutGrid },
         { path: "/system/sync", label: "Sync", icon: RefreshCcw },

@@ -144,7 +144,7 @@ function SubmitClaim({ claimId }: { claimId: string }) {
   const [reason, setReason] = useState("")
   return (
     <div className="mt-1 flex flex-col gap-2">
-      <Field label="Why you are sending it now">
+      <Field label="Why you are sending it now" required>
         <Input value={reason} onChange={(e) => setReason(e.target.value)} />
       </Field>
       <Button
@@ -180,7 +180,7 @@ function ClaimForm({ onDone }: { onDone: () => void }) {
       }
     >
       <div className="flex flex-col gap-3">
-        <Field label="Kind of expense">
+        <Field label="Kind of expense" required>
           <Select
             value={typeCode}
             onChange={setTypeCode}
@@ -197,7 +197,7 @@ function ClaimForm({ onDone }: { onDone: () => void }) {
               ))}
           </Select>
         </Field>
-        <Field label="What it was">
+        <Field label="What it was" required>
           <Input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -214,14 +214,14 @@ function ClaimForm({ onDone }: { onDone: () => void }) {
             className={TAP}
           />
         </Field>
-        <Field label="Amount, whole rupiah">
+        <Field label="Amount, whole rupiah" required>
           <Input
             inputMode="numeric"
             value={amount}
             onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))}
           />
         </Field>
-        <Field label="Why">
+        <Field label="Why" required>
           <Input value={reason} onChange={(e) => setReason(e.target.value)} />
         </Field>
         {failed !== null && <p className="text-meta text-bad">{failed}</p>}

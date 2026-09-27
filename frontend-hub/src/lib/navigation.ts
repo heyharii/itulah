@@ -32,7 +32,7 @@ import { systemNav } from "@/screens/system/nav"
 import { lettersNav } from "@/screens/letters/nav"
 import { assetsNav } from "@/screens/assets/nav"
 import { contractsNav } from "@/screens/contracts/nav"
-import { maintenanceNav } from "@/screens/maintenance/nav"
+import { maintenanceNav, serviceScheduleNav } from "@/screens/maintenance/nav"
 import { vendorsNav } from "@/screens/vendors/nav"
 import { chatNav, discussionsNav, libraryNav } from "@/screens/workplace/nav"
 import { gaOverviewNav } from "@/screens/ga/nav"
@@ -122,16 +122,15 @@ export interface NavItem {
   readonly hidden?: boolean
   /// Other paths this row is the parent of, so opening one lights this row.
   ///
-  /// Router's own matching already lights a row whose path is a PREFIX of where
-  /// you are — `/assets/software` keeps `/assets` lit only because Register is
-  /// the module's home and matches exactly, so the hidden register views need
-  /// this and the two visible ones do not. It exists for the case where the
-  /// child is NOT under the parent's path at all: Utilities and Cleaning are
-  /// views over the same table as Langganan and Jasa, and the brief keeps them
-  /// at `/contracts/utilities` and `/contracts/cleaning`, which share no prefix
-  /// with the group they belong to.
+  /// Router's own matching lights a row whose path is a PREFIX of where you
+  /// are, except on the module's home and base, which match exactly — they are
+  /// a prefix of every other path in the module. That leaves a hidden screen
+  /// with nothing lit when its parent row is one of those, or when it shares
+  /// no prefix with the row it belongs to: Period close lives under
+  /// Attendance, Pay agreements under Payroll, Replacements under Repairs,
+  /// since each stopped being a row of its own on 2026-09-27.
   ///
-  /// Without it, arriving at `/contracts/utilities` from a shop's shortcut
+  /// Without it, arriving at `/people/periods` from the Attendance button
   /// leaves every row in the column unlit — and a sidebar with nothing lit
   /// reads as a screen that does not belong to anything.
   readonly alsoLights?: readonly string[]
@@ -177,10 +176,16 @@ export interface AppModule {
   /// at any more.
   readonly moved?: readonly string[]
   readonly sections: readonly NavSection[]
-  /// Optional heading shared by consecutive single-screen modules in the
-  /// sidebar. Used when those destinations belong together but should not
-  /// look like children of the multi-screen group above them.
-  readonly sidebarSection?: string
+  /// Draw a hairline above this module's row, in a domain drawn as one flat
+  /// list.
+  ///
+  /// GA is the domain that has one: ten one-row modules read as one column,
+  /// and three hairlines split it into the day's work, the registers and the
+  /// documents without spending a word on each group — the rule a later
+  /// unlabelled section already follows inside a module. It replaced a
+  /// labelled `sidebarSection` and a GA-only special case in the sidebar on
+  /// 2026-09-27, when the owner asked for a shorter menu.
+  readonly divider?: boolean
   /// The count on the module's own row, drawn only while the module is
   /// collapsed — expanded, its sub-items carry their own and the same number
   /// twice is noise.
@@ -255,6 +260,7 @@ export const modules: readonly AppModule[] = [
   contractsNav,
   assetsNav,
   maintenanceNav,
+  serviceScheduleNav,
   gaSuppliesNav,
   libraryNav,
   systemNav,
@@ -404,22 +410,25 @@ export const domains: readonly AppDomain[] = [
     id: "ga",
     label: "GA",
     icon: MessagesSquare,
-    // The register of the company's own things and deals, read in the order
-    // the department works: what wants looking at, who we deal with, where we
-    // operate from, what we own, what we have agreed, what we keep working,
-    // what the places run out of, and the letters that go out.
+    // One row per place, in the order of how often it is opened (owner,
+    // 2026-09-27, when the menu was cut from eighteen rows to ten): what wants
+    // looking at; the day's work — what the places ask for, what broke, what
+    // is due for a service; the registers — what we own, what we have agreed,
+    // where we operate from, who we deal with; and the documents — the
+    // letters that go out and the files the company keeps (moved here from the
+    // icon strip on the owner's word, 2026-09-26). The hairlines between the
+    // four are each group's first module's `divider`.
     //
-    // Files closes the list: the company's filed documents are GA's to keep
-    // (moved here from the icon strip on the owner's word, 2026-09-26).
     // Conversations stay on the strip (`asides`) with their routes untouched.
     modules: [
       "ga-overview",
-      "vendors",
-      "ga-locations",
+      "ga-supplies",
+      "maintenance",
+      "maintenance-schedule",
       "ga-assets",
       "contracts",
-      "maintenance",
-      "ga-supplies",
+      "ga-locations",
+      "vendors",
       "letters",
       "library",
     ],
@@ -441,9 +450,9 @@ export function modulesOfDomain(domain: AppDomain): readonly AppModule[] {
 /// was six modules of one screen each, that heading was the same word twice,
 /// six times down the column, and the owner asked for it gone on
 /// 2026-09-13 — the day it read flat. It stopped being flat when Assets grew
-/// its three doors and Maintenance its two, which is the commit the comment
-/// is read on: the question is asked of the modules, so the headings came
-/// back by themselves.
+/// three rows and Contracts six, and it is flat again since 2026-09-27: those
+/// became chips on their screens, so every GA module is one row. The question
+/// is asked of the modules, so the headings went by themselves.
 ///
 /// Read off the modules rather than declared on the domain, so the heading
 /// is never a flag to remember — a domain where one module has four screens

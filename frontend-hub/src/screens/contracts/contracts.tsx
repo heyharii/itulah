@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query"
-import { useRouterState } from "@tanstack/react-router"
 import { Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/field"
@@ -15,32 +15,43 @@ import { count, money, span } from "@/lib/format"
 import { gaContracts, gaKeys } from "@/lib/queries/ga"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { cn } from "@/lib/utils"
 import { ContractComposer } from "@/screens/contracts/composer"
 import { monthLabel, partyOf, siteOf } from "@/screens/contracts/format"
+import {
+  CONTRACT_GROUPS,
+  type ContractGroupCode,
+} from "@/screens/contracts/groups"
 import { ContractHubSheet } from "@/screens/contracts/hub"
-import { CONTRACT_GROUPS } from "@/screens/contracts/nav"
 import { FinanceMark, StandingPill } from "@/screens/contracts/parts"
 import type { GaContractRow } from "@itulah/contract"
 
-/// The contract register — six group doors plus the two hidden views, all
-/// reading one screen.
+/// The contract register — every deal behind the bills, on one screen.
 ///
-/// # The URL decides the reading
+/// # One row, the groups as chips
 ///
-/// `/contracts/sewa` and `/contracts/jasa` are the same table narrowed by
-/// `group`; `/contracts/utilities` is Langganan read per PLACE; `/contracts/
-/// cleaning` is Jasa narrowed to `JASA_CLEANING`. One screen and one endpoint,
-/// because the register answers one question — "what have we signed" — and a
-/// screen per door would be six copies of the same columns drifting apart.
+/// The six groups (Leases, Services, Insurance, Permits, Subscriptions,
+/// Leased out) were six sidebar rows, plus two hidden views, until the owner
+/// asked for a shorter menu on 2026-09-27. They were always one table read
+/// through eight doors that differed by one parameter — and every link into a
+/// contract landed on the Leases door whatever the contract was. So there is
+/// one Contracts row, and the group is a chip whose value rides in
+/// `?contract-group=`; a link to one group is still a link somebody can send.
+///
+/// # Subscriptions read per place
+///
+/// A subscription is checked by where it is connected — "what is connected at
+/// the warehouse" — and its meter readings live on it, so that chip swaps the
+/// columns for the provider, the customer number and the last reading, and
+/// sorts by location. It is what the hidden Utilities view used to be; the
+/// per-site version of the same list is the Utilities tab on a location.
 ///
 /// # What the strip above the table is allowed to sum
 ///
 /// The page the server sends carries rows, a total and facets — no sums. The
-/// strip reads the SAME rows the table draws, so the two can never disagree;
-/// `limit` stays at the register's working size (the whole point of the six
-/// groups is that none of them is a report).
+/// strip reads the SAME rows the table draws, so the two can never disagree.
 ///
-/// # Ditagih reads zero today, and that is honest
+/// # Billed reads zero today, and that is honest
 ///
 /// `billed_minor` counts POSTED bill lines pointing at the contract, and the
 /// column that lets a bill line point (`contract_id`) lands in tahap 6. Until
@@ -51,63 +62,43 @@ import type { GaContractRow } from "@itulah/contract"
 type Reading = {
   title: string
   sub: string
-  /// The `group=` the register is narrowed by, when this is a group door.
-  group?: string
-  /// The `type=` for Cleaning, which narrows Jasa to one kind instead.
-  type?: string
-  /// The group the composer starts on, when Tambah kontrak is pressed here.
-  composerGroup: string
-  /// Utilities re-sorts by site and swaps its columns; cleaning only drops
-  /// the Jenis column, whose every row would say the same word.
-  kind: "group" | "utilities" | "cleaning"
+  /// The `group=` the register is narrowed by; absent for every group.
+  group?: ContractGroupCode
+  /// Subscriptions re-sort by site and swap their columns.
+  kind: "register" | "utilities"
 }
 
-function readingFor(pathname: string): Reading {
-  const slug = pathname.replace("/contracts/", "")
-  const group = CONTRACT_GROUPS.find((one) =>
-    slug.startsWith(one.label.toLowerCase())
-  )
-  if (group) {
+function readingFor(group: ContractGroupCode | undefined): Reading {
+  const chosen = CONTRACT_GROUPS.find((one) => one.group_code === group)
+  if (chosen === undefined) {
     return {
-      kind: "group",
-      title: group.label,
-      sub: GROUP_LEADS[group.group_code],
-      group: group.group_code,
-      composerGroup: group.group_code,
-    }
-  }
-  if (slug === "utilities") {
-    return {
-      kind: "utilities",
-      title: "Langganan per lokasi",
-      sub: "Lihat kontrak listrik, air, telepon, dan internet menurut tempatnya.",
-      group: "LANGGANAN",
-      composerGroup: "LANGGANAN",
+      kind: "register",
+      title: "Contracts",
+      sub: "Every deal behind the bills: what we rent, the services we buy, insurance, permits, subscriptions, and what we rent out.",
     }
   }
   return {
-    kind: "cleaning",
-    title: "Jasa kebersihan",
-    sub: "Lihat kontrak kebersihan dan masa berlakunya.",
-    type: "JASA_CLEANING",
-    composerGroup: "JASA",
+    kind: chosen.group_code === "LANGGANAN" ? "utilities" : "register",
+    title: `Contracts · ${chosen.label}`,
+    sub: GROUP_LEADS[chosen.group_code],
+    group: chosen.group_code,
   }
 }
 
-/// The group leads, in the prototype's words.
-const GROUP_LEADS: Record<string, string> = {
-  SEWA: "Tanah, toko, gudang, kantor, rumah/mess, dan kendaraan yang disewa perusahaan.",
-  JASA: "Layanan rutin seperti pemeliharaan dan kebersihan.",
-  ASURANSI: "Polis properti dan kendaraan, dengan tanggal habisnya.",
-  IZIN: "Izin usaha, STNK/KIR, PBB dan pajak reklame: semua yang punya tanggal habis dan harus diperpanjang.",
+/// One sentence per group, under the title.
+const GROUP_LEADS: Record<ContractGroupCode, string> = {
+  SEWA: "Land, stores, warehouses, offices, staff housing and vehicles the company rents.",
+  JASA: "Recurring services such as maintenance and cleaning.",
+  ASURANSI: "Property and vehicle policies, with the date each one runs out.",
+  IZIN: "Business permits, vehicle papers (STNK/KIR), property tax and billboard tax: everything that expires and has to be renewed.",
   LANGGANAN:
-    "Sambungan listrik, air, telepon, dan internet untuk setiap lokasi.",
-  DISEWAKAN: "Ruang dan peralatan yang perusahaan sewakan ke pihak lain.",
+    "Electricity, water, telephone and internet connections, listed by location.",
+  DISEWAKAN: "Space and equipment the company rents out to others.",
 }
 
 export function Contracts() {
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const view = readingFor(pathname)
+  const chip = useSheet("contract-group")
+  const view = readingFor(chip.value)
   const open = useSheet("contract")
   const [search, setSearch] = useState("")
   const [archived, setArchived] = useState(false)
@@ -117,14 +108,13 @@ export function Contracts() {
     () => ({
       q: search.trim() === "" ? undefined : search.trim(),
       group: view.group,
-      type: view.type,
       // The archive is the register's only way back out of the list, so the
       // reading is explicit: the default list is the living register, and the
       // archived contracts are one deliberate click away rather than gone.
       archived: archived || undefined,
       limit: 200,
     }),
-    [search, archived, view.group, view.type]
+    [search, archived, view.group]
   )
 
   const register = useQuery({
@@ -134,9 +124,9 @@ export function Contracts() {
 
   const rows = useMemo(() => {
     const loaded = register.data?.rows ?? []
-    // Utilities reads the same rows sorted by PLACE: the question this view
-    // answers is "what is connected there", and a register order would
-    // scatter one site's sambungan across the table.
+    // Subscriptions read the same rows sorted by PLACE: the question this
+    // reading answers is "what is connected there", and a register order
+    // would scatter one site's connections across the table.
     if (view.kind === "utilities") {
       return [...loaded].sort((a, b) =>
         (a.site_id ?? "").localeCompare(b.site_id ?? "")
@@ -148,7 +138,7 @@ export function Contracts() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Kontrak"
+        crumb="GA"
         title={view.title}
         sub={view.sub}
         actions={
@@ -156,24 +146,31 @@ export function Contracts() {
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Nomor, pihak, atau lokasi"
+              placeholder="Number, party or location"
               className="h-8 w-56"
             />
             <Button variant="primary" onClick={() => setAdding(true)}>
               <Plus />
-              Tambah kontrak
+              Add contract
             </Button>
           </>
         }
       />
+
+      <Toolbar>
+        <GroupChips
+          here={view.group ?? null}
+          counts={register.data?.facets.groups ?? []}
+        />
+      </Toolbar>
 
       {register.data !== undefined && <SummaryStrip rows={rows} view={view} />}
 
       <Toolbar>
         <Segmented
           options={[
-            { value: "LIVE" as const, label: "Aktif" },
-            { value: "ARCHIVED" as const, label: "Arsip" },
+            { value: "LIVE" as const, label: "Active" },
+            { value: "ARCHIVED" as const, label: "Archived" },
           ]}
           value={archived ? "ARCHIVED" : "LIVE"}
           onChange={(next) => setArchived(next === "ARCHIVED")}
@@ -182,26 +179,26 @@ export function Contracts() {
         {register.data !== undefined && (
           <span className="text-meta text-body">
             <b className="font-medium text-ink">{count(register.data.total)}</b>{" "}
-            kontrak
+            {register.data.total === 1 ? "contract" : "contracts"}
           </span>
         )}
       </Toolbar>
 
       {queryState(register, {
-        loading: "Memuat daftar kontrak…",
+        loading: "Loading contracts…",
         render: () =>
           rows.length === 0 ? (
             <Card>
               <EmptyState
                 action={
                   <Button variant="ghost" onClick={() => setAdding(true)}>
-                    Catat yang pertama
+                    Record the first one
                   </Button>
                 }
               >
                 {archived
-                  ? "Arsipnya kosong. Kontrak yang diarsipkan pindah ke sini, bukan hilang."
-                  : "Belum ada kontrak di bacaan ini. Kontrak dicatat dari perjanjiannya: jenisnya, pihaknya, jendela waktunya."}
+                  ? "The archive is empty. An archived contract moves here; it is not deleted."
+                  : "No contracts in this reading yet. A contract is recorded from its agreement: its type, its parties, and its term."}
               </EmptyState>
             </Card>
           ) : (
@@ -209,15 +206,16 @@ export function Contracts() {
           ),
       })}
 
-      {/* Keyed per door and per record: the composer re-arms on the door it
+      {/* Keyed per chip and per record: the composer re-arms on the group it
           is opened from, and the hub drops its archive question (and its own
           tab) whenever another contract opens. Without the key, a cancelled
-          form would leak a Sewa type into a Cleaning composer and an abandoned
-          archive reason would still be waiting under the next contract. */}
+          form would leak a Leases type into a Services composer and an
+          abandoned archive reason would still be waiting under the next
+          contract. */}
       <ContractComposer
-        key={view.composerGroup}
+        key={view.group ?? "all"}
         open={adding}
-        group={view.composerGroup}
+        group={view.group ?? ""}
         onClose={() => setAdding(false)}
         onSaved={(contractId) => {
           setAdding(false)
@@ -232,6 +230,89 @@ export function Contracts() {
         onClose={open.close}
       />
     </PageContent>
+  )
+}
+
+/// The six groups, as chips with their counts.
+///
+/// Links rather than buttons, so the group is in the address bar and a
+/// reading of one group is something somebody can send. The counts are the
+/// server's facets over the SEARCH rather than over the chip, so every chip
+/// keeps its number while another one is lit.
+function GroupChips({
+  here,
+  counts,
+}: {
+  here: ContractGroupCode | null
+  counts: readonly { value: string; count: number }[]
+}) {
+  const total = counts.reduce((sum, one) => sum + one.count, 0)
+  return (
+    <nav
+      aria-label="Contract groups"
+      className="flex flex-wrap items-center gap-1.5"
+    >
+      <GroupChip label="All" n={total} active={here === null} />
+      {CONTRACT_GROUPS.map((group) => (
+        <GroupChip
+          key={group.group_code}
+          group={group.group_code}
+          label={group.label}
+          icon={group.icon}
+          n={counts.find((one) => one.value === group.group_code)?.count ?? 0}
+          active={here === group.group_code}
+        />
+      ))}
+    </nav>
+  )
+}
+
+/// One chip; no `group` is every group.
+function GroupChip({
+  group,
+  label,
+  icon: Glyph,
+  n,
+  active,
+}: {
+  group?: ContractGroupCode
+  label: string
+  icon?: React.ComponentType<{ className?: string }>
+  n: number
+  active: boolean
+}) {
+  return (
+    <AppLink
+      to="/contracts"
+      sheet={
+        group === undefined ? undefined : { key: "contract-group", value: group }
+      }
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-meta font-medium transition-colors",
+        active
+          ? "border-accent bg-accent-bg text-accent"
+          : "border-hairline-2 bg-canvas text-text hover:bg-soft"
+      )}
+    >
+      {Glyph && (
+        <Glyph
+          className={cn(
+            "size-4 stroke-[1.7]",
+            active ? "text-accent" : "text-line-ico"
+          )}
+        />
+      )}
+      {label}
+      <span
+        className={cn(
+          "text-pill tabular-nums",
+          active ? "text-accent" : "text-mute"
+        )}
+      >
+        {count(n)}
+      </span>
+    </AppLink>
   )
 }
 
@@ -252,16 +333,21 @@ function SummaryStrip({
   const renew = rows.filter(
     (row) => row.standing === "SEGERA_HABIS" || row.standing === "HABIS"
   )
-  const billed = rows.reduce((sum, row) => sum + row.billed_minor, 0)
+  // Leased out is the one group where the money flows IN, so across every
+  // group it is left out of what was billed to us: a sum of both directions
+  // is a number nobody can use.
+  const billed = rows
+    .filter((row) => view.group !== undefined || row.group_code !== "DISEWAKAN")
+    .reduce((sum, row) => sum + row.billed_minor, 0)
 
   if (view.kind === "utilities") {
     return (
       <KpiStrip className="md:grid-cols-2 xl:grid-cols-2">
-        <Kpi label="Sambungan" value={count(rows.length)} />
+        <Kpi label="Connections" value={count(rows.length)} />
         <Kpi
           label={
             <>
-              Ditagih s/d hari ini{" "}
+              Billed to date{" "}
               <FinanceMark className="ml-1 align-[0.125rem]" />
             </>
           }
@@ -273,23 +359,20 @@ function SummaryStrip({
 
   return (
     <KpiStrip className="md:grid-cols-2 xl:grid-cols-4">
-      <Kpi label="Aktif" value={count(active.length)} />
-      <Kpi label="Perlu diperpanjang" value={count(renew.length)} />
+      <Kpi label="Active" value={count(active.length)} />
+      <Kpi label="Due for renewal" value={count(renew.length)} />
       <Kpi
-        label="Nilai kontrak aktif"
+        label="Active contract value"
         value={money(
           active.reduce((sum, row) => sum + (row.contract_value_minor ?? 0), 0)
         )}
       />
-      {/* Disewakan is the one group where the money flows IN, so the same
-          column reads "diterima" there — the ledger behind it is the other
-          desk's either way, hence the mark. */}
+      {/* The ledger behind the figure is the other desk's either way, hence
+          the mark. */}
       <Kpi
         label={
           <>
-            {view.group === "DISEWAKAN"
-              ? "Diterima s/d hari ini"
-              : "Ditagih s/d hari ini"}{" "}
+            {view.group === "DISEWAKAN" ? "Received to date" : "Billed to date"}{" "}
             <FinanceMark className="ml-1 align-[0.125rem]" />
           </>
         }
@@ -323,63 +406,36 @@ function ContractTable({
         {view.kind === "utilities" ? (
           <div className="min-w-[61rem]">
             <div className="grid h-10 grid-cols-[minmax(13rem,1fr)_6.5rem_10rem_9rem_10rem_9rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-              <span>Penyedia</span>
-              <span>Site</span>
-              <span>ID pelanggan</span>
+              <span>Provider</span>
+              <span>Location</span>
+              <span>Customer no.</span>
               <span className="text-right">
-                Ditagih <FinanceMark className="ml-1 align-[0.0625rem]" />
+                Billed <FinanceMark className="ml-1 align-[0.0625rem]" />
               </span>
-              <span>Pemakaian terakhir</span>
+              <span>Last reading</span>
               <span>Status</span>
             </div>
             {rows.map((row) => (
               <UtilityRow key={row.contract_id} row={row} onOpen={onOpen} />
             ))}
           </div>
-        ) : view.kind === "cleaning" ? (
-          <div className="min-w-[68rem]">
-            <div className="grid h-10 grid-cols-[7rem_minmax(13rem,1fr)_6.5rem_11rem_8.5rem_8.5rem_9rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-              <span>Nomor</span>
-              <span>Pihak</span>
-              <span>Site</span>
-              <span>Periode</span>
-              <span className="text-right">Nilai kontrak</span>
-              <span className="text-right">
-                Ditagih <FinanceMark className="ml-1 align-[0.0625rem]" />
-              </span>
-              <span>Status</span>
-            </div>
-            {rows.map((row) => (
-              <GroupRow
-                key={row.contract_id}
-                row={row}
-                onOpen={onOpen}
-                showType={false}
-              />
-            ))}
-          </div>
         ) : (
           <div className="min-w-[78rem]">
             <div className="grid h-10 grid-cols-[7rem_minmax(12rem,1fr)_10rem_6.5rem_11rem_8.5rem_8.5rem_9rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-              <span>Nomor</span>
-              <span>Pihak</span>
-              <span>Jenis</span>
-              <span>Site</span>
-              <span>Periode</span>
-              <span className="text-right">Nilai kontrak</span>
+              <span>Number</span>
+              <span>Party</span>
+              <span>Type</span>
+              <span>Location</span>
+              <span>Term</span>
+              <span className="text-right">Contract value</span>
               <span className="text-right">
-                {view.group === "DISEWAKAN" ? "Diterima" : "Ditagih"}{" "}
+                {view.group === "DISEWAKAN" ? "Received" : "Billed"}{" "}
                 <FinanceMark className="ml-1 align-[0.0625rem]" />
               </span>
               <span>Status</span>
             </div>
             {rows.map((row) => (
-              <GroupRow
-                key={row.contract_id}
-                row={row}
-                onOpen={onOpen}
-                showType
-              />
+              <GroupRow key={row.contract_id} row={row} onOpen={onOpen} />
             ))}
           </div>
         )}
@@ -388,15 +444,13 @@ function ContractTable({
   )
 }
 
-/// One contract, in the group reading.
+/// One contract, in the register reading.
 function GroupRow({
   row,
   onOpen,
-  showType,
 }: {
   row: GaContractRow
   onOpen: (contractId: string) => void
-  showType: boolean
 }) {
   return (
     <div
@@ -416,19 +470,17 @@ function GroupRow({
           </span>
         )}
       </div>
-      {showType && (
-        <span className="min-w-0 truncate text-meta text-body">
-          {row.contract_type_name}
-          {/* Objek rides under the type, because it only exists for
-              maintenance contracts and a column of mostly-dashes is not a
-              column. */}
-          {row.objek_name !== null && (
-            <span className="block truncate text-pill text-mute">
-              Objek: {row.objek_name}
-            </span>
-          )}
-        </span>
-      )}
+      <span className="min-w-0 truncate text-meta text-body">
+        {row.contract_type_name}
+        {/* The object rides under the type, because it only exists for
+            maintenance contracts and a column of mostly-dashes is not a
+            column. */}
+        {row.objek_name !== null && (
+          <span className="block truncate text-pill text-mute">
+            Object: {row.objek_name}
+          </span>
+        )}
+      </span>
       <span className="truncate text-meta text-body">{siteOf(row)}</span>
       <span className="truncate text-meta text-body tabular-nums">
         {span(row.starts_on, row.ends_on)}
@@ -441,7 +493,7 @@ function GroupRow({
         {/* The rest of the value, while there is a value to rest from. */}
         {row.remaining_minor !== null && (
           <span className="block truncate text-pill text-mute">
-            sisa {money(row.remaining_minor)}
+            {money(row.remaining_minor)} left
           </span>
         )}
       </span>
@@ -452,8 +504,8 @@ function GroupRow({
   )
 }
 
-/// One sambungan, in the utilities reading: the place leads, because that is
-/// what a facilities person scans for.
+/// One connection, in the Subscriptions reading: the place leads, because
+/// that is what a facilities person scans for.
 function UtilityRow({
   row,
   onOpen,

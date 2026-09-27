@@ -186,6 +186,7 @@ function TemplateForm({
       <Problem error={save.error} />
       <Field
         label="Code"
+        required
         aside={template === null ? "Never changes" : undefined}
       >
         <Input
@@ -195,11 +196,12 @@ function TemplateForm({
           placeholder="PPH23_JASA"
         />
       </Field>
-      <Field label="Name">
+      <Field label="Name" required>
         <Input value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
       <Field
         label="Rate"
+        required
         aside="%"
         problem={
           rate.trim() !== "" && bps === null
@@ -221,7 +223,7 @@ function TemplateForm({
         onChange={setFinal}
       />
       <Checkbox label="Active" checked={active} onChange={setActive} />
-      <Field label="Note" aside="Optional">
+      <Field label="Note">
         <Input value={note} onChange={(event) => setNote(event.target.value)} />
       </Field>
       <div className="flex items-center justify-end gap-2">
@@ -234,12 +236,8 @@ function TemplateForm({
         )}
         <Button
           variant="primary"
-          disabled={
-            code.trim() === "" ||
-            name.trim() === "" ||
-            bps === null ||
-            save.isPending
-          }
+          pending={save.isPending}
+          disabled={code.trim() === "" || name.trim() === "" || bps === null}
           onClick={() => save.mutate()}
         >
           {save.isPending ? "Saving…" : "Save category"}
@@ -387,7 +385,11 @@ function TaxTypeForm({
       onClose={onDone}
     >
       <Problem error={save.error} />
-      <Field label="Code" aside={tax === null ? "Never changes" : undefined}>
+      <Field
+        label="Code"
+        required
+        aside={tax === null ? "Never changes" : undefined}
+      >
         <Input
           value={code}
           disabled={tax !== null}
@@ -395,7 +397,7 @@ function TaxTypeForm({
           placeholder="PPH4_2"
         />
       </Field>
-      <Field label="Name">
+      <Field label="Name" required>
         <Input value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
       <Field label="Nature">
@@ -406,6 +408,7 @@ function TaxTypeForm({
       </Field>
       <Field
         label="Role"
+        required
         hint="The posting role its account answers to on Account links."
       >
         <Input
@@ -429,7 +432,7 @@ function TaxTypeForm({
         />
       </Field>
       <Checkbox label="Active" checked={active} onChange={setActive} />
-      <Field label="Note" aside="Optional">
+      <Field label="Note">
         <Input value={note} onChange={(event) => setNote(event.target.value)} />
       </Field>
       <div className="flex items-center justify-end gap-2">
@@ -442,11 +445,9 @@ function TaxTypeForm({
         )}
         <Button
           variant="primary"
+          pending={save.isPending}
           disabled={
-            code.trim() === "" ||
-            name.trim() === "" ||
-            role.trim() === "" ||
-            save.isPending
+            code.trim() === "" || name.trim() === "" || role.trim() === ""
           }
           onClick={() => save.mutate()}
         >

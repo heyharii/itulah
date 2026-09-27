@@ -5,7 +5,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Input, Select } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import {
@@ -288,7 +288,7 @@ function NewAccrual({ open, onClose }: { open: boolean; onClose: () => void }) {
         <Field label="Counterparty">
           <Input value={party} onChange={(e) => setParty(e.target.value)} />
         </Field>
-        <Field label="Amount (Rp)">
+        <Field label="Amount (Rp)" required>
           <Input
             value={amount}
             inputMode="numeric"
@@ -324,22 +324,5 @@ function NewAccrual({ open, onClose }: { open: boolean; onClose: () => void }) {
         </div>
       </div>
     </Sheet>
-  )
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
-        {label}
-      </span>
-      {children}
-    </label>
   )
 }

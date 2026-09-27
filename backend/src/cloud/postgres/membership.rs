@@ -35,7 +35,11 @@
 //! on every read, by the same `FROM` this file declares.
 
 use crate::cloud::application::AppError;
-use crate::cloud::reports::compile::{bind_params, Narrowing};
+use crate::cloud::reports::{
+    catalogue::dataset,
+    compile::{bind_params, narrow, Narrowing},
+    spec::{check_filters, Filter},
+};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, PgPool, Row};
@@ -419,8 +423,9 @@ pub struct MemberQuery {
     /// omits the field on purpose — see `EmployeeScope::needle`, which makes
     /// the same argument about NIK.
     pub q: Option<String>,
-    /// `spent`, `name`, `card`, `joined` or `last_purchase` — the closed set
-    /// this server names, and nothing else is a sort.
+    /// `spent`, `name`, `card`, `joined`, `last_purchase`, `transactions`,
+    /// `atv`, `units`, `upt`, `points` or `points_spent` — the closed set this
+    /// server names, and nothing else is a sort.
     ///
     /// Anything unrecognised falls back to `spent`, the house order, rather
     /// than refusing: a sort arrives from a URL somebody may have kept from an
@@ -433,10 +438,77 @@ pub struct MemberQuery {
     /// and recency read downwards and names read upwards.
     #[serde(default)]
     pub dir: Option<String>,
+    /// The filter bar's clauses, as a JSON array of `reports::spec::Filter`
+    /// over the `member` dataset — the same clause a saved segment is written
+    /// in, checked by the same `check_filters` and compiled by the same
+    /// `narrow`. ANDed together, and ANDed with a saved segment when both are
+    /// given. See [`directory_narrowing`].
+    ///
+    /// On the wire rather than applied in the browser because the directory is
+    /// paged: a clause run over the rows already loaded is a filter of the
+    /// page, not of the scheme.
+    #[serde(default)]
+    pub filters: Option<String>,
     /// A `next_cursor` from the previous page, verbatim.
     #[serde(default)]
     pub cursor: Option<String>,
     pub limit: Option<i64>,
+}
+
+/// Everything that narrows the directory beyond the search and the six: a
+/// saved segment's own clauses (already compiled, numbered from `bound + 1`),
+/// then the filter bar's, numbered after them. `None` when neither narrows.
+///
+/// The filter bar's clauses are refused, not skipped, when they name something
+/// the `member` dataset does not have: a chip the server quietly ignored would
+/// be a chip promising a narrowing that did not happen.
+pub fn directory_narrowing(
+    saved: Option<Narrowing>,
+    filters: Option<&str>,
+    bound: usize,
+    now: DateTime<Utc>,
+) -> Result<Option<Narrowing>, AppError> {
+    let Some(raw) = filters.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return Ok(saved);
+    };
+    let clauses: Vec<Filter> = serde_json::from_str(raw).map_err(|_| {
+        AppError::Validation("filters is not a list of clauses over the member dataset".into())
+    })?;
+    if clauses.is_empty() {
+        return Ok(saved);
+    }
+    let members = dataset("member").ok_or_else(|| {
+        AppError::Configuration("the `member` dataset is missing from the catalogue".into())
+    })?;
+    let mut problems = Vec::new();
+    check_filters(members, &clauses, &mut problems);
+    if !problems.is_empty() {
+        return Err(AppError::Validation(problems.join("; ")));
+    }
+
+    let offset = bound + saved.as_ref().map_or(0, |one| one.params.len());
+    let added = narrow(members, &clauses, true, offset, now);
+    let Some(added_sql) = added.sql else {
+        return Ok(saved);
+    };
+    Ok(Some(match saved {
+        None => Narrowing {
+            sql: Some(added_sql),
+            params: added.params,
+        },
+        Some(held) => {
+            let sql = match held.sql {
+                Some(first) => format!("({first}) AND ({added_sql})"),
+                None => added_sql,
+            };
+            let mut params = held.params;
+            params.extend(added.params);
+            Narrowing {
+                sql: Some(sql),
+                params,
+            }
+        }
+    }))
 }
 
 const DEFAULT_PAGE: i64 = 200;
@@ -600,7 +672,17 @@ pub async fn list_members(
                 COALESCE(s.spent_minor, 0)                       AS spent_key,
                 upper(COALESCE(m.display_name, ''))              AS name_key,
                 COALESCE(s.last_purchase_at,
-                         TIMESTAMPTZ '-infinity')                AS last_key
+                         TIMESTAMPTZ '-infinity')                AS last_key,
+                -- The two averages the screen draws, for sorting on. Never
+                -- bought is no average rather than a zero one, so it takes -1
+                -- and sorts below the cheapest shopper — non-null for the same
+                -- reason `last_key` is.
+                COALESCE(COALESCE(s.spent_minor, 0)::numeric
+                         / NULLIF(COALESCE(s.transaction_count, 0), 0),
+                         -1)                                     AS atv_key,
+                COALESCE(COALESCE(n.units_total, 0)::numeric
+                         / NULLIF(COALESCE(s.transaction_count, 0), 0),
+                         -1)                                     AS upt_key
            {MEMBER_SOURCE}
           -- The card number and the name on it. Not personal data this list
           -- deliberately does not carry — see `MemberQuery::q`.
@@ -626,6 +708,12 @@ pub async fn list_members(
         Some("card") => ("member_id", false),
         Some("joined") => ("joined_on", true),
         Some("last_purchase") => ("last_key", true),
+        Some("transactions") => ("transaction_count", true),
+        Some("atv") => ("atv_key", true),
+        Some("units") => ("units_total", true),
+        Some("upt") => ("upt_key", true),
+        Some("points") => ("points_balance", true),
+        Some("points_spent") => ("points_spent_total", true),
         _ => ("spent_key", true),
     };
     let descending = match query.dir.as_deref() {
@@ -932,7 +1020,6 @@ pub async fn list_unenrolled(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cloud::reports::catalogue::dataset;
 
     /// The two windows are declared twice — once as integers the screen prints
     /// under "Active within", once as literals inside a CASE the catalogue

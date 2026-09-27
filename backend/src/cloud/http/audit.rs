@@ -133,6 +133,17 @@ pub async fn audit_actions(
     if path.ends_with("/auth/login") || path.ends_with("/auth/logout") {
         return Ok(next.run(request).await);
     }
+    // Two chat writes that are not actions. "Typing" is posted every few
+    // seconds while somebody types and is worthless a few seconds later; a
+    // read mark moves because somebody LOOKED, and a GET is not logged for
+    // exactly that reason. Recording either would bury every real change to
+    // a conversation under a row per keystroke and per glance.
+    if pattern.as_deref().is_some_and(|pattern| {
+        pattern == "/api/v1/chat/conversations/{id}/typing"
+            || pattern == "/api/v1/chat/conversations/{id}/read"
+    }) {
+        return Ok(next.run(request).await);
+    }
     let principal = request.extensions().get::<Principal>().cloned();
 
     let response = next.run(request).await;

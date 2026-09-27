@@ -161,6 +161,11 @@ async fn run_catalog_publisher(pool: sqlx::PgPool) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(seconds));
     loop {
         interval.tick().await;
+        match postgres::publish_payment_methods_if_changed(&pool, "system:catalog-publisher").await {
+            Ok(0) => {}
+            Ok(nodes) => info!(%nodes, "sent shop nodes their payment methods"),
+            Err(error) => tracing::error!(%error, "failed to publish payment methods"),
+        }
         match postgres::publish_catalog_if_changed(&pool, "system:catalog-publisher").await {
             Ok(Some(generation)) => {
                 info!(%generation, "published a new product list to the fleet");

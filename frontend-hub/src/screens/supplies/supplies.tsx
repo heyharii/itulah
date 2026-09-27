@@ -57,39 +57,39 @@ export function Supplies() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Layanan pendukung"
-        title="Permintaan barang"
-        sub="Ajukan dan pantau kebutuhan barang habis pakai untuk kantor, gudang, toko, dan mess."
+        crumb="GA"
+        title="Supply requests"
+        sub="Submit and track requests for consumables needed by the office, warehouse, stores and mess."
         actions={
           <Button variant="primary" onClick={() => setAdding(true)}>
             <Plus />
-            Minta barang
+            Request supplies
           </Button>
         }
       />
 
       <Banner tone="info">
-        Pencatatan pesanan barang non-dagangan belum terhubung ke modul
-        Pengadaan. Nomor pesanan dicatat pada permintaan ini.
+        Non-merchandise purchase orders aren't connected to a Procurement module
+        yet. The order number is recorded on this request.
       </Banner>
 
       {requests.data !== undefined && <SummaryStrip rows={rows} />}
 
       {queryState(requests, {
-        loading: "Membuka permintaan barang…",
+        loading: "Opening supply requests…",
         render: () =>
           rows.length === 0 ? (
             <Card>
               <EmptyState
                 action={
                   <Button variant="ghost" onClick={() => setAdding(true)}>
-                    Minta yang pertama
+                    Request the first one
                   </Button>
                 }
               >
-                Belum ada permintaan barang. Barang habis pakai — ATK, rumah
-                tangga, perlengkapan toko — diminta dari sini oleh tempat yang
-                membutuhkannya, bukan dipesan sebagai dagangan.
+                No supply requests yet. Consumables — stationery, household
+                supplies, store fittings — are requested here by the place that
+                needs them, not ordered as merchandise.
               </EmptyState>
             </Card>
           ) : (
@@ -117,7 +117,7 @@ export function Supplies() {
 }
 
 /// The three figures the screen is managed by, counted over the SAME rows the
-/// table draws. "Di Procurement" is the three middle stages together, because
+/// table draws. "With Procurement" is the three middle stages together, because
 /// from GA's side they are one answer to "where is it" — out of our hands.
 function SummaryStrip({ rows }: { rows: readonly GaSupplyRequestRow[] }) {
   const asked = rows.filter((row) => row.status === "REQUESTED").length
@@ -128,12 +128,12 @@ function SummaryStrip({ rows }: { rows: readonly GaSupplyRequestRow[] }) {
 
   return (
     <KpiStrip className="md:grid-cols-3 xl:grid-cols-3">
-      <Kpi label="Diajukan" value={count(asked)} />
-      <Kpi label="Di Procurement" value={count(inProcurement)} />
+      <Kpi label="Submitted" value={count(asked)} />
+      <Kpi label="With Procurement" value={count(inProcurement)} />
       <Kpi
         label={
           <>
-            Sudah ditagih <FinanceMark className="ml-1 align-[0.125rem]" />
+            Billed <FinanceMark className="ml-1 align-[0.125rem]" />
           </>
         }
         value={count(billed)}
@@ -158,13 +158,13 @@ function SupplyTable({
       <div className="overflow-x-auto">
         <div className="min-w-[76rem]">
           <div className="grid h-10 grid-cols-[9rem_minmax(13rem,1.3fr)_minmax(12rem,1fr)_10rem_8rem_8.5rem_8.5rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-            <span>Permintaan</span>
-            <span>Barang</span>
-            <span>Kategori · akun</span>
-            <span>Lokasi</span>
+            <span>Request</span>
+            <span>Item</span>
+            <span>Category · account</span>
+            <span>Location</span>
             <span>PO</span>
             <span className="text-right">
-              Tagihan <FinanceMark className="ml-1 align-[0.0625rem]" />
+              Bill <FinanceMark className="ml-1 align-[0.0625rem]" />
             </span>
             <span>Status</span>
           </div>
@@ -195,8 +195,8 @@ function SupplyLine({
         </span>
         <span className="block truncate text-pill text-mute">
           {row.needed_by === null
-            ? "tanpa tanggal"
-            : `butuh ${day(row.needed_by)}`}
+            ? "no date"
+            : `needed by ${day(row.needed_by)}`}
         </span>
       </div>
       <div className="min-w-0">
@@ -230,7 +230,7 @@ function SupplyLine({
       </span>
       <span className="min-w-0 truncate text-right text-meta tabular-nums">
         {row.status === "BILLED" ? (
-          <span className="text-ok">Sudah ditagih</span>
+          <span className="text-ok">Billed</span>
         ) : (
           <span className="text-mute">—</span>
         )}
@@ -259,17 +259,17 @@ const SUPPLY_FLOW = [
 function supplyStageWords(status: string): string {
   switch (status) {
     case "REQUESTED":
-      return "Diajukan"
+      return "Submitted"
     case "APPROVED":
-      return "Disetujui"
+      return "Approved"
     case "ORDERED":
-      return "PO dibuat"
+      return "PO created"
     case "RECEIVED":
-      return "Diterima"
+      return "Received"
     case "BILLED":
-      return "Sudah ditagih"
+      return "Billed"
     default:
-      return "Ditolak"
+      return "Rejected"
   }
 }
 
@@ -298,7 +298,7 @@ function supplyNextStage(status: string): string | null {
 }
 
 /// The stage line, drawn here rather than through Maintenance's `StageLine`
-/// because the words are this flow's own ("PO dibuat", not "Disetujui"), and
+/// because the words are this flow's own ("PO created", not "Approved"), and
 /// one shared drawing with a per-flow word table is how the wrong word reaches
 /// the page. Behind is green, here is accent, ahead is quiet; REJECTED stands
 /// alone in red.
@@ -360,7 +360,7 @@ export function SupplySheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title={row === undefined ? "Permintaan barang" : row.item}
+      title={row === undefined ? "Supply request" : row.item}
       id={requestId === undefined ? undefined : requestId.slice(0, 8)}
       caption={
         row === undefined ? undefined : `${row.category_name} · ${row.site_id}`
@@ -377,34 +377,34 @@ export function SupplySheet({
           : [
               {
                 value: "request",
-                label: "Permintaan",
+                label: "Request",
                 content: <RequestTab row={row} />,
               },
               {
                 value: "stage",
-                label: "Tahap",
+                label: "Stage",
                 content: <StageTab row={row} />,
               },
               {
                 value: "billing",
-                label: "Tagihan (Finance)",
+                label: "Bill (Finance)",
                 content: <BillingTab row={row} />,
               },
               {
                 value: "accounts",
-                label: "Akun",
+                label: "Accounts",
                 content: <AccountsTab row={row} />,
               },
             ]
       }
     >
       {requests.isLoading && (
-        <LoadingState>Membuka permintaannya…</LoadingState>
+        <LoadingState>Opening the request…</LoadingState>
       )}
       {row === undefined && !requests.isLoading && (
         <p className="text-meta text-body">
-          Permintaan ini tidak ada di daftar. Mungkin sudah dihapus, atau
-          tautannya menunjuk permintaan yang tidak lagi dibaca layar ini.
+          This request isn't in the list. It may have been deleted, or the
+          link points to a request this screen no longer reads.
         </p>
       )}
     </Sheet>
@@ -416,15 +416,15 @@ export function SupplySheet({
 function RequestTab({ row }: { row: GaSupplyRequestRow }) {
   return (
     <Facts>
-      <Fact term="Barang">{row.item}</Fact>
-      <Fact term="Jumlah">{row.quantity ?? "—"}</Fact>
-      <Fact term="Kategori">{row.category_name}</Fact>
-      <Fact term="Lokasi">{row.site_id}</Fact>
-      <Fact term="Diminta oleh">{row.requested_by}</Fact>
-      <Fact term="Dibutuhkan">
+      <Fact term="Item">{row.item}</Fact>
+      <Fact term="Quantity">{row.quantity ?? "—"}</Fact>
+      <Fact term="Category">{row.category_name}</Fact>
+      <Fact term="Location">{row.site_id}</Fact>
+      <Fact term="Requested by">{row.requested_by}</Fact>
+      <Fact term="Needed by">
         {row.needed_by === null ? "—" : day(row.needed_by)}
       </Fact>
-      <Fact term="Estimasi">{money(row.estimated_cost_minor)}</Fact>
+      <Fact term="Estimate">{money(row.estimated_cost_minor)}</Fact>
       <Fact term="PO (Procurement)">
         {row.po_reference === null ? (
           "—"
@@ -452,25 +452,24 @@ function StageTab({ row }: { row: GaSupplyRequestRow }) {
       )}
       {row.status === "BILLED" && (
         <p className="text-pill text-mute">
-          Sudah ditagih — ujung alurnya. Tagihannya milik Finance.
+          Billed — the end of the flow. The bill belongs to Finance.
         </p>
       )}
       {rejected && (
         <p className="text-pill text-mute">
-          Ditolak. Permintaan yang ditolak berhenti di sini dan tidak bisa
-          dilanjutkan.
+          Rejected. A rejected request stops here and cannot continue.
         </p>
       )}
       {next !== null && form === null && (
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="soft" onClick={() => setForm("advance")}>
             <Check />
-            {`Lanjut: ${supplyStageWords(next)}`}
+            {`Next: ${supplyStageWords(next)}`}
           </Button>
           {row.status === "REQUESTED" && (
             <Button variant="ghost" onClick={() => setForm("reject")}>
               <X />
-              Tolak
+              Reject
             </Button>
           )}
         </div>
@@ -534,13 +533,14 @@ function AdvanceForm({
       )}
       {needsPo && (
         <Field
-          label="Nomor PO (Procurement)"
-          aside="diketik dari PO yang dibuat Procurement; belum ada modulnya"
+          label="PO number (Procurement)"
+          required
+          aside="typed from the PO Procurement created; there's no module for it yet"
         >
           <Input
             value={po}
             onChange={(event) => setPo(event.target.value)}
-            placeholder="mis. PO-GA-2609-01"
+            placeholder="e.g. PO-GA-2609-01"
             autoFocus
           />
         </Field>
@@ -548,13 +548,14 @@ function AdvanceForm({
       <div className="flex items-center gap-2">
         <Button
           variant="primary"
-          disabled={(needsPo && (po ?? "").trim() === "") || move.isPending}
+          pending={move.isPending}
+          disabled={needsPo && (po ?? "").trim() === ""}
           onClick={() => move.mutate()}
         >
-          {move.isPending ? "Memindahkan…" : `Lanjut: ${supplyStageWords(to)}`}
+          {move.isPending ? "Moving…" : `Next: ${supplyStageWords(to)}`}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Batal
+          Cancel
         </Button>
       </div>
     </div>
@@ -591,7 +592,7 @@ function RejectForm({
 
   const submit = () => {
     if (reason.trim() === "") {
-      setProblem("Tulis alasannya dulu.")
+      setProblem("Write the reason first.")
       return
     }
     move.mutate()
@@ -603,9 +604,10 @@ function RejectForm({
         <Banner tone="bad">{move.error.message}</Banner>
       )}
       <Field
-        label="Alasan menolak"
+        label="Reason for rejection"
+        required
         problem={problem || undefined}
-        aside="masuk ke permintaan"
+        aside="recorded on the request"
       >
         <Input
           value={reason}
@@ -613,7 +615,7 @@ function RejectForm({
             setProblem("")
             setReason(event.target.value)
           }}
-          placeholder="mis. Anggarannya belum ada bulan ini"
+          placeholder="e.g. No budget for it this month"
           onKeyDown={(event) => {
             if (event.key === "Enter") submit()
           }}
@@ -621,11 +623,11 @@ function RejectForm({
         />
       </Field>
       <div className="flex items-center gap-2">
-        <Button variant="primary" disabled={move.isPending} onClick={submit}>
-          {move.isPending ? "Menolak…" : "Tolak permintaan"}
+        <Button variant="primary" pending={move.isPending} onClick={submit}>
+          {move.isPending ? "Rejecting…" : "Reject request"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Batal
+          Cancel
         </Button>
       </div>
     </div>
@@ -640,16 +642,16 @@ function BillingTab({ row }: { row: GaSupplyRequestRow }) {
     <div className="flex flex-col gap-4">
       <figure>
         <figcaption className="text-eyebrow font-medium text-body">
-          Tagihan <FinanceMark className="ml-1 align-[0.125rem]" />
+          Bill <FinanceMark className="ml-1 align-[0.125rem]" />
         </figcaption>
         <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-          {row.status === "BILLED" ? "Sudah ditagih" : "—"}
+          {row.status === "BILLED" ? "Billed" : "—"}
         </div>
       </figure>
       <p className="text-pill text-mute">
-        Dihitung dari tagihan POSTED yang menunjuk permintaan ini. Baris tagihan
-        baru bisa menunjuk supply request mulai tahap 6; sebelum itu angkanya
-        memang belum ada, bukan nol.
+        Calculated from POSTED bills that point to this request. A bill line
+        can only point to a supply request from stage 6 onward; before that
+        the figure genuinely doesn't exist yet, not zero.
       </p>
     </div>
   )
@@ -664,14 +666,15 @@ function AccountsTab({ row }: { row: GaSupplyRequestRow }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-col">
         <AccountRow
-          role={`Beban (${row.category_name})`}
+          role={`Expense (${row.category_name})`}
           code={row.account_code}
         />
-        <AccountRow role="Hutang" code="2004" />
+        <AccountRow role="Payable" code="2004" />
       </div>
       <p className="flex items-center gap-1.5 text-pill text-mute">
-        <FinanceMark className="align-[0.0625rem]" /> Akun diusulkan dari
-        kategori permintaan. Finance tetap bisa menggantinya di baris tagihan.
+        <FinanceMark className="align-[0.0625rem]" /> The accounts are
+        proposed from the request category. Finance can still change them on
+        the bill line.
       </p>
     </div>
   )

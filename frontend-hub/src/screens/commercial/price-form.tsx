@@ -202,6 +202,9 @@ function ShopTile({
   )
 }
 
+/// How many matches the product search asks for. Said on screen when hit.
+const PRODUCT_CAP = 100
+
 /// "Khaki · 02", or nothing when a product carries neither.
 function variantOf(product: CommercialProduct): string {
   return [product.color, product.size].filter((one) => one !== null).join(" · ")
@@ -234,8 +237,8 @@ export function NewPriceSheet({
     // limits are different answers, and sharing one entry hands the narrower
     // one a list it thinks is complete. This screen asks for 100 here and 500
     // below, so they were colliding on a key that named neither.
-    queryKey: commercialKeys.products(needle, 100),
-    queryFn: ({ signal }) => commercialProducts(needle, 100, signal),
+    queryKey: commercialKeys.products(needle, PRODUCT_CAP),
+    queryFn: ({ signal }) => commercialProducts(needle, PRODUCT_CAP, signal),
     // Two characters, because one is every product in the catalogue and the
     // endpoint caps rather than refuses — a silent slice of five hundred is
     // worse than being asked for another letter.
@@ -490,7 +493,7 @@ export function NewPriceSheet({
                 : `${count(chosen.length)} product${chosen.length === 1 ? "" : "s"} · ${where}`}
           </span>
           <Button variant="primary" disabled={!ready} onClick={commit}>
-            Add to the book
+            Add to this change
           </Button>
         </div>
       }
@@ -537,6 +540,14 @@ export function NewPriceSheet({
                   Add all {count(results.data.length)}
                 </Button>
               </div>
+              {/* The search is capped; at the cap, say so rather than let
+                  the list pass for every match. */}
+              {results.data.length >= PRODUCT_CAP && (
+                <Quiet>
+                  Showing the first {count(PRODUCT_CAP)} matches. Type more to
+                  narrow the search.
+                </Quiet>
+              )}
               {/* A window onto the matches rather than the whole list, so the
                   price and the shops stay on screen while somebody picks. */}
               <div className="max-h-[17rem] overflow-y-auto rounded-inner border border-hairline-2 px-3">
@@ -640,12 +651,10 @@ export function NewPriceSheet({
                         value={priceText(product.sku_id)}
                         label={`Price for ${product.sku_code}`}
                         placeholder="—"
-                        className={cn(
-                          "h-7 w-28 px-2.5 text-right text-[0.875rem]",
+                        invalid={
                           minor === null && priceText(product.sku_id) !== ""
-                            ? "border-bad"
-                            : undefined
-                        )}
+                        }
+                        className="h-7 w-28 px-2.5 text-right text-[0.875rem]"
                         onChange={(next) =>
                           setOwn((was) => ({ ...was, [product.sku_id]: next }))
                         }
@@ -743,7 +752,7 @@ export function NewPriceSheet({
           {books.length > 1 && (
             <Banner tone="info">
               {count(books.length)} start dates — published as{" "}
-              {count(books.length)} books.
+              {count(books.length)} price changes.
             </Banner>
           )}
         </Section>

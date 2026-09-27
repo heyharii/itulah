@@ -361,6 +361,20 @@ pub struct EmployeeScope {
     /// The place the caller asked for, AFTER the handler has reconciled it
     /// against their reach. Never a raw query parameter.
     pub place_id: Option<String>,
+    /// `PKWT`, `PKWTT`, or `NONE` for somebody with no contract on file — the
+    /// kind of the LATEST contract, which is the one the row shows.
+    ///
+    /// The directory filtered this in the browser over a thousand-row fetch;
+    /// here so the filter survives paging.
+    pub contract_kind: Option<String>,
+    /// The latest contract's position, compared whole. One of the values the
+    /// `positions` facet offered, not free text.
+    pub position: Option<String>,
+    /// `1` for somebody with a bound login, `0` for somebody without. A
+    /// string rather than a flag because it arrives from a filter chip that
+    /// names the facet value it was offered, and anything else narrows to
+    /// nothing, as an unknown status does.
+    pub login: Option<String>,
     /// `code`, `name`, `contract_end` or `place` — the closed set this server
     /// names, and nothing else is a sort.
     ///
@@ -411,7 +425,7 @@ pub struct EmployeeFacet {
     pub count: i64,
 }
 
-/// The two things this list can be narrowed by.
+/// What this list can be narrowed by.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct EmployeeFacets {
@@ -427,6 +441,14 @@ pub struct EmployeeFacets {
     /// count. Only an unbounded caller ever sees such a row at all:
     /// `Reach::covers(None)` is true for `Everywhere` alone.
     pub places: Vec<EmployeeFacet>,
+    /// The latest contract's kind — `PKWT`, `PKWTT`, or `NONE` for somebody
+    /// with no contract on file.
+    pub contract_kinds: Vec<EmployeeFacet>,
+    /// The latest contract's position. People with no contract have none and
+    /// are not counted here.
+    pub positions: Vec<EmployeeFacet>,
+    /// `1` with a bound login, `0` without.
+    pub logins: Vec<EmployeeFacet>,
 }
 
 /// A page of the workforce, and the shape of everything it was drawn from.
@@ -557,6 +579,21 @@ const WORKFORCE_ROWS: &str = "
        AND ($2::text IS NULL OR e.code ILIKE $2 OR p.full_name ILIKE $2)
 ";
 
+/// The workforce list's filters, spelled once for the page and for the facets'
+/// total.
+///
+/// Binds: `$3` status, `$4` place, `$5` contract kind (`NONE` for no
+/// contract), `$6` position, `$7` login (`1`/`0`). Every one is NULL for "not
+/// narrowed".
+const WORKFORCE_FILTERS: &str = "
+     WHERE ($3::text IS NULL OR status = $3)
+       AND ($4::text IS NULL OR place_id = $4)
+       AND ($5::text IS NULL OR COALESCE(contract_kind, 'NONE') = $5)
+       AND ($6::text IS NULL OR position = $6)
+       AND ($7::text IS NULL
+            OR (CASE WHEN username IS NULL THEN '0' ELSE '1' END) = $7)
+";
+
 /// The workforce, one page at a time, beside how big the whole answer is.
 ///
 /// `scope.reach_place` is the caller's own bound and `scope.place_id` is the
@@ -624,21 +661,22 @@ pub async fn list_employees(pool: &PgPool, scope: EmployeeScope) -> Result<Emplo
     let sql = format!(
         "WITH searched AS NOT MATERIALIZED ({WORKFORCE_ROWS}),
               kept AS NOT MATERIALIZED (
-             SELECT * FROM searched
-              WHERE ($3::text IS NULL OR status = $3)
-                AND ($4::text IS NULL OR place_id = $4)
+             SELECT * FROM searched {WORKFORCE_FILTERS}
          )
          SELECT * FROM kept
-          WHERE $5::text IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $5)
+          WHERE $8::text IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $8)
           ORDER BY {order}
-          LIMIT $6"
+          LIMIT $9"
     );
     let rows = sqlx::query(&sql)
         .bind(&scope.reach_place)
         .bind(&needle)
         .bind(&scope.status)
         .bind(&scope.place_id)
+        .bind(&scope.contract_kind)
+        .bind(&scope.position)
+        .bind(&scope.login)
         .bind(cursor.as_ref().map(|c| c.employee_id.clone()))
         .bind(limit)
         .fetch_all(pool)
@@ -721,14 +759,22 @@ async fn workforce_facets(
     };
     let sql = format!(
         "WITH searched AS ({WORKFORCE_ROWS}), kept AS (
-             SELECT * FROM searched
-              WHERE ($3::text IS NULL OR status = $3)
-                AND ($4::text IS NULL OR place_id = $4)
+             SELECT * FROM searched {WORKFORCE_FILTERS}
          )
          SELECT 'status' AS kind, status AS value, NULL::text AS label,
                 COUNT(*)::bigint AS n
            FROM searched GROUP BY status
           {places}
+          UNION ALL
+         SELECT 'contract', COALESCE(contract_kind, 'NONE'), NULL::text, COUNT(*)::bigint
+           FROM searched GROUP BY COALESCE(contract_kind, 'NONE')
+          UNION ALL
+         SELECT 'position', position, NULL::text, COUNT(*)::bigint
+           FROM searched WHERE position IS NOT NULL GROUP BY position
+          UNION ALL
+         SELECT 'login', CASE WHEN username IS NULL THEN '0' ELSE '1' END,
+                NULL::text, COUNT(*)::bigint
+           FROM searched GROUP BY CASE WHEN username IS NULL THEN '0' ELSE '1' END
           UNION ALL
          SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
     );
@@ -737,12 +783,18 @@ async fn workforce_facets(
         .bind(needle)
         .bind(&scope.status)
         .bind(&scope.place_id)
+        .bind(&scope.contract_kind)
+        .bind(&scope.position)
+        .bind(&scope.login)
         .fetch_all(pool)
         .await?;
 
     let mut total = 0i64;
     let mut statuses = Vec::new();
     let mut places_out = Vec::new();
+    let mut contract_kinds = Vec::new();
+    let mut positions = Vec::new();
+    let mut logins = Vec::new();
     for row in &rows {
         let kind: String = row.try_get("kind")?;
         let value: String = row.try_get("value")?;
@@ -759,6 +811,21 @@ async fn workforce_facets(
                 label,
                 count: n,
             }),
+            "contract" => contract_kinds.push(EmployeeFacet {
+                value,
+                label,
+                count: n,
+            }),
+            "position" => positions.push(EmployeeFacet {
+                value,
+                label,
+                count: n,
+            }),
+            "login" => logins.push(EmployeeFacet {
+                value,
+                label,
+                count: n,
+            }),
             _ => total = n,
         }
     }
@@ -766,7 +833,13 @@ async fn workforce_facets(
     // the value somebody is most likely to want is the one with the most behind
     // it. Ties break on the value so the order is stable between calls — a list
     // that reshuffles under the cursor is a list nobody can click.
-    for list in [&mut statuses, &mut places_out] {
+    for list in [
+        &mut statuses,
+        &mut places_out,
+        &mut contract_kinds,
+        &mut positions,
+        &mut logins,
+    ] {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
     }
     Ok((
@@ -774,6 +847,9 @@ async fn workforce_facets(
         EmployeeFacets {
             statuses,
             places: places_out,
+            contract_kinds,
+            positions,
+            logins,
         },
     ))
 }

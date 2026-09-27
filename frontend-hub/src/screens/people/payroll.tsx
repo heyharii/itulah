@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { BadgeDollarSign, HeartHandshake } from "lucide-react"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, Input } from "@/components/ui/field"
@@ -42,6 +44,7 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { usePeopleAudience } from "@/screens/people/scope"
 import type { PayrollRunView } from "@itulah/contract"
 
 /// Payroll runs. The place asks for its own; head office answers.
@@ -101,6 +104,7 @@ function unitName(
 
 export function PayrollRuns() {
   const run = useSheet("payrollRun")
+  const employer = usePeopleAudience() === "employer"
   const units = usePlaces()
   const places = units.data ?? []
   const runs = useQuery({
@@ -113,9 +117,26 @@ export function PayrollRuns() {
   return (
     <PageContent>
       <PageHeader
-        crumb="People · Pay"
-        title="Payroll runs"
+        crumb="People"
+        title="Payroll"
         sub="One place, one month, and two different people: the place that sends it and the head office that approves it."
+        actions={
+          // What a run is made of, one door each — sidebar rows until
+          // 2026-09-27. Pay agreements are the employer's to write, so a
+          // place is not shown a door it would be refused at.
+          <>
+            {employer && (
+              <AppLink to="/people/pay" variant="ghost">
+                <BadgeDollarSign />
+                Pay agreements
+              </AppLink>
+            )}
+            <AppLink to="/people/benefits" variant="ghost">
+              <HeartHandshake />
+              Benefits
+            </AppLink>
+          </>
+        }
       />
 
       {/* Not a blanket claim about punches any more: a unit with a station
@@ -306,7 +327,11 @@ function RunSheet({
       )}
 
       <div className="mt-4 flex flex-col gap-3">
-        <Field label="Why" hint="Recorded against the step, and required.">
+        <Field
+          label="Why"
+          hint="Recorded against the step, and required."
+          required
+        >
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -419,7 +444,11 @@ function Handover({ run }: { run: PayrollRunView }) {
             cannot be taken back on its own — after it, reopening this run needs
             Finance to reverse its entry first.
           </p>
-          <Field label="Why" hint="Recorded against the handover, and required.">
+          <Field
+            label="Why"
+            hint="Recorded against the handover, and required."
+            required
+          >
             <Input
               value={reason}
               onChange={(event) => setReason(event.target.value)}
@@ -429,7 +458,8 @@ function Handover({ run }: { run: PayrollRunView }) {
           <div>
             <Button
               variant="primary"
-              disabled={reason.trim() === "" || send.isPending}
+              pending={send.isPending}
+              disabled={reason.trim() === ""}
               onClick={() => send.mutate()}
             >
               Hand over to Finance
@@ -451,8 +481,8 @@ function Handover({ run }: { run: PayrollRunView }) {
             </KeyValue>
           ) : (
             <KeyValue term="Paid">
-              not yet — Finance has received it, which is not the same as
-              having paid it
+              not yet — Finance has received it, which is not the same as having
+              paid it
             </KeyValue>
           )}
           <p className="mt-2 text-meta text-mute">
@@ -503,7 +533,7 @@ function OpenRun() {
             and named three of them in the hint, which is a screen asking
             somebody to remember a primary key — and one typo away from a 404
             that reads as "there is no payroll for your shop". */}
-        <Field label="Unit">
+        <Field label="Unit" required>
           <PickOne
             label="Unit"
             placeholder="Choose a unit…"
@@ -515,14 +545,14 @@ function OpenRun() {
             onChange={(next) => setPlaceId(next ?? "")}
           />
         </Field>
-        <Field label="Month">
+        <Field label="Month" required>
           <Input
             type="month"
             value={period}
             onChange={(event) => setPeriod(event.target.value)}
           />
         </Field>
-        <Field label="Why" hint="Recorded against the run.">
+        <Field label="Why" hint="Recorded against the run." required>
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -532,11 +562,9 @@ function OpenRun() {
         <div>
           <Button
             variant="primary"
+            pending={open.isPending}
             disabled={
-              placeId.trim() === "" ||
-              period === "" ||
-              reason.trim() === "" ||
-              open.isPending
+              placeId.trim() === "" || period === "" || reason.trim() === ""
             }
             onClick={() => open.mutate()}
           >
@@ -625,8 +653,7 @@ function Adjustments() {
   const recoverable = (advances.data ?? []).filter(
     (row) => row.status === "PAID" || row.status === "PARTIALLY_SETTLED"
   )
-  const picked =
-    recoverable.find((row) => row.advance_id === advanceId) ?? null
+  const picked = recoverable.find((row) => row.advance_id === advanceId) ?? null
   const cap = picked === null ? null : picked.outstanding_minor
 
   // With no advance picked the form offers every one-off component; the
@@ -692,7 +719,7 @@ function Adjustments() {
       </CardHeader>
       <div className="flex flex-col gap-3 px-4 pb-4">
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
-        <Field label="Unit">
+        <Field label="Unit" required>
           <PickOne
             label="Unit"
             placeholder="Choose a unit…"
@@ -707,7 +734,7 @@ function Adjustments() {
             }}
           />
         </Field>
-        <Field label="Month">
+        <Field label="Month" required>
           <Input
             type="month"
             value={period}
@@ -721,6 +748,7 @@ function Adjustments() {
             <Field
               label="Why (taking one back)"
               hint="Recorded against the withdrawal, and required."
+              required
             >
               <Input
                 value={withdrawReason}
@@ -773,10 +801,8 @@ function Adjustments() {
                             {row.withdrawable ? (
                               <Button
                                 variant="danger"
-                                disabled={
-                                  withdrawReason.trim() === "" ||
-                                  withdraw.isPending
-                                }
+                                pending={withdraw.isPending}
+                                disabled={withdrawReason.trim() === ""}
                                 onClick={() => withdraw.mutate(row.id)}
                               >
                                 Take back
@@ -795,7 +821,7 @@ function Adjustments() {
         )}
 
         <SubHead>File one</SubHead>
-        <Field label="Who">
+        <Field label="Who" required>
           <PickOne
             label="Who"
             placeholder="Choose a person…"
@@ -817,6 +843,7 @@ function Adjustments() {
         <Field
           label="Component"
           hint="A one-off files against a PER_OCCASION component."
+          required
         >
           <PickOne
             label="Component"
@@ -846,7 +873,7 @@ function Adjustments() {
             />
           </Field>
         )}
-        <Field label="Amount" hint="Positive, in rupiah.">
+        <Field label="Amount" hint="Positive, in rupiah." required>
           <Input
             inputMode="numeric"
             value={amount}
@@ -865,7 +892,11 @@ function Adjustments() {
             and head office decides it with the batch.
           </Banner>
         )}
-        <Field label="Why" hint="Recorded against the figure, and required.">
+        <Field
+          label="Why"
+          hint="Recorded against the figure, and required."
+          required
+        >
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -875,14 +906,14 @@ function Adjustments() {
         <div>
           <Button
             variant="primary"
+            pending={file.isPending}
             disabled={
               placeId === "" ||
               employeeId === "" ||
               componentChosen === "" ||
               amountMinor <= 0 ||
               over ||
-              reason.trim() === "" ||
-              file.isPending
+              reason.trim() === ""
             }
             onClick={() => file.mutate()}
           >

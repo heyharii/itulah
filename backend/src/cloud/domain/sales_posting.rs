@@ -316,6 +316,9 @@ fn meanings_for(
         // bucket that names no bank never reaches here — `exception_reason`
         // sends it to the sale-day exception queue first.
         "QRIS" => Ok(("card_receivable_debit", "revenue_debit")),
+        // An e-wallet (OVO, GoPay, …) is owed by its provider until it pays,
+        // like a debit card by its bank (0468's payment_method_roles).
+        "EWALLET" => Ok(("card_receivable_debit", "revenue_debit")),
         // Every voucher is free (owner decision 13): nothing was owed when it
         // was issued, so the value spent is a sales discount (4012), not a
         // tender and not a liability being settled.
@@ -351,6 +354,11 @@ const ONLINE_REFUSAL: &str =
 /// line must not hold up every other rupiah the shop took that day.
 pub fn exception_reason(method: &str, acquirer: &str) -> Option<String> {
     match method {
+        "EWALLET" if acquirer.trim().is_empty() => Some(
+            "e-wallet tender without its provider: the till has to send which wallet took the \
+             money (the payment method's bank_code), then resolve this line"
+                .to_string(),
+        ),
         "QRIS" if acquirer.trim().is_empty() => Some(
             "QRIS tender without the bank of its EDC terminal: register the terminal under \
              Finance EDC terminals (or let the POS send the bank), then resolve this line"
@@ -367,7 +375,7 @@ pub fn exception_reason(method: &str, acquirer: &str) -> Option<String> {
 /// OTHER remains qualified by the counterparty that owes the money.
 fn qualifiers_for(method: &str, acquirer: &str) -> (String, String) {
     match method {
-        "CARD" | "QRIS" => (acquirer.to_string(), acquirer.to_string()),
+        "CARD" | "QRIS" | "EWALLET" => (acquirer.to_string(), acquirer.to_string()),
         "OTHER" => (acquirer.to_string(), String::new()),
         _ => (String::new(), String::new()),
     }

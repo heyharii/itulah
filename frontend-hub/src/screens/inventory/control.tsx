@@ -401,14 +401,16 @@ export function Control() {
                   <Toolbar.Spacer />
                   <Button
                     variant="ghost"
-                    disabled={actor === "" || repost.isPending}
+                    pending={repost.isPending}
+                    disabled={actor === ""}
                     onClick={() => repost.mutate()}
                   >
                     {repost.isPending ? "Rebuilding…" : "Repost the projection"}
                   </Button>
                   <Button
                     variant="primary"
-                    disabled={actor === "" || replay.isPending}
+                    pending={replay.isPending}
+                    disabled={actor === ""}
                     onClick={() => replay.mutate()}
                   >
                     {replay.isPending ? "Replaying…" : "Replay and compare"}
@@ -548,6 +550,7 @@ function TestSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
           {(field) => (
             <Field
               label="Subject"
+              required
               hint="The subject uuid from a differences row."
             >
               <Input
@@ -561,7 +564,11 @@ function TestSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
         </form.Field>
         <form.Field name="place">
           {(field) => (
-            <Field label="Place" hint="For example dc.warehouse:on_hand.">
+            <Field
+              label="Place"
+              required
+              hint="For example dc.warehouse:on_hand."
+            >
               <Input
                 value={field.state.value}
                 onBlur={field.handleBlur}
@@ -594,7 +601,8 @@ function TestSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
             <Button
               type="submit"
               variant="danger"
-              disabled={!ready || corrupt.isPending}
+              pending={corrupt.isPending}
+              disabled={!ready}
             >
               {corrupt.isPending ? "Breaking…" : "Corrupt this row"}
             </Button>

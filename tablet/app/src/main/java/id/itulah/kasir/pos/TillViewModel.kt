@@ -15,6 +15,7 @@ import id.itulah.kasir.data.SaleResult
 import id.itulah.kasir.data.ShiftReport
 import id.itulah.kasir.data.Supervisor
 import id.itulah.kasir.data.Tender
+import id.itulah.kasir.data.PaymentMethod
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -96,6 +97,10 @@ data class TillState(
     /// not exist, which is the server-side cart this till was built to avoid.
     /// It lives as long as the app does, which is as long as the shift.
     val held: List<HeldBasket> = emptyList(),
+    /// Finance's payment methods (cloud Mode of Payment master), read at
+    /// sign-in and whenever a shift opens. Starts as — and falls back to — the
+    /// till's own four tiles, so a master that cannot be read never stops a sale.
+    val paymentMethods: List<PaymentMethod> = PaymentMethod.FALLBACK,
 ) {
     /**
      * What the screen shows while the node has not answered yet.
@@ -148,6 +153,27 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
         viewModelScope.launch {
             withContext(Dispatchers.IO) { api.warm() }
             refreshShift()
+            refreshPaymentMethods()
+        }
+    }
+
+    /**
+     * Ask the node for Finance's payment methods. A failure, or an answer with
+     * nothing the till can take, keeps whatever is shown now — the last good
+     * list, or the built-in fallback — and is only logged.
+     */
+    fun refreshPaymentMethods() {
+        viewModelScope.launch {
+            val outcome = runCatching { withContext(Dispatchers.IO) { api.paymentMethods() } }
+            val usable = outcome.getOrNull()?.let { PaymentMethod.forTill(it) }
+            if (usable == null) {
+                android.util.Log.w(
+                    Perf.TAG,
+                    "payment methods unavailable (${outcome.exceptionOrNull()?.message ?: "empty list"}); keeping current list",
+                )
+                return@launch
+            }
+            _state.update { it.copy(paymentMethods = usable) }
         }
     }
 
@@ -459,6 +485,7 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
     fun openShift(floatMinor: Long, onDone: () -> Unit = {}) = run("membuka shift") {
         val shift = api.openShift(floatMinor)
         _state.update { it.copy(shift = shift) }
+        refreshPaymentMethods()
         onDone()
     }
 

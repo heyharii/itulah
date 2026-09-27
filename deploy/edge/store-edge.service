@@ -45,6 +45,10 @@ TimeoutStartSec=300
 # Long enough to finish the request in flight and fold the WAL.
 TimeoutStopSec=30
 
+# When the machine runs out of memory the kernel kills something; let it be
+# something other than the shop's server.
+OOMScoreAdjust=-500
+
 StateDirectory=itulah/store
 StateDirectoryMode=0700
 NoNewPrivileges=true

@@ -82,7 +82,8 @@ export function SalesSetup() {
         label: null,
         active: true,
       }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: keys.terminals }),
+    onSuccess: () =>
+      void client.invalidateQueries({ queryKey: keys.terminals }),
   })
 
   // ── rate ────────────────────────────────────────────────────────────────
@@ -110,36 +111,46 @@ export function SalesSetup() {
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="flex flex-col gap-3 p-4">
-          <h2 className="text-[0.9375rem] font-semibold text-ink">Tambah bank</h2>
+          <h2 className="text-[0.9375rem] font-semibold text-ink">
+            Tambah bank
+          </h2>
           <p className="text-[0.875rem] text-body">
-            Creates the bank&apos;s leaves in the right groups (Cash In Bank Giro /
-            Tabungan, Outstanding Giro, Penjualan Debit Card), maps them by the
-            bank&apos;s code, registers the account and — QRIS on this
+            Creates the bank&apos;s leaves in the right groups (Cash In Bank
+            Giro / Tabungan, Outstanding Giro, Penjualan Debit Card), maps them
+            by the bank&apos;s code, registers the account and — QRIS on this
             bank&apos;s EDC posts to its debit-card pair.
           </p>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Bank code" hint="e.g. BSI">
+            <Field label="Bank code" required hint="e.g. BSI">
               <Input
                 value={bank.bank_code}
-                onChange={(e) => setBank({ ...bank, bank_code: e.target.value.toUpperCase() })}
+                onChange={(e) =>
+                  setBank({ ...bank, bank_code: e.target.value.toUpperCase() })
+                }
               />
             </Field>
-            <Field label="Name in the chart" hint="e.g. BSI">
+            <Field label="Name in the chart" required hint="e.g. BSI">
               <Input
                 value={bank.bank_name}
-                onChange={(e) => setBank({ ...bank, bank_name: e.target.value })}
+                onChange={(e) =>
+                  setBank({ ...bank, bank_name: e.target.value })
+                }
               />
             </Field>
-            <Field label="Account number" hint="optional">
+            <Field label="Account number">
               <Input
                 value={bank.account_no}
-                onChange={(e) => setBank({ ...bank, account_no: e.target.value })}
+                onChange={(e) =>
+                  setBank({ ...bank, account_no: e.target.value })
+                }
               />
             </Field>
-            <Field label="Account holder" hint="optional">
+            <Field label="Account holder">
               <Input
                 value={bank.account_holder}
-                onChange={(e) => setBank({ ...bank, account_holder: e.target.value })}
+                onChange={(e) =>
+                  setBank({ ...bank, account_holder: e.target.value })
+                }
               />
             </Field>
           </div>
@@ -149,15 +160,22 @@ export function SalesSetup() {
                 <input
                   type="checkbox"
                   checked={bank[flag]}
-                  onChange={(e) => setBank({ ...bank, [flag]: e.target.checked })}
+                  onChange={(e) =>
+                    setBank({ ...bank, [flag]: e.target.checked })
+                  }
                 />
-                {flag === "giro" ? "Giro" : flag === "savings" ? "Tabungan" : "Debit card / QRIS"}
+                {flag === "giro"
+                  ? "Giro"
+                  : flag === "savings"
+                    ? "Tabungan"
+                    : "Debit card / QRIS"}
               </label>
             ))}
           </div>
           <div>
             <Button
-              disabled={addBank.isPending || !bank.bank_code || !bank.bank_name}
+              pending={addBank.isPending}
+              disabled={!bank.bank_code || !bank.bank_name}
               onClick={() =>
                 addBank.mutate({
                   bank_code: bank.bank_code,
@@ -175,11 +193,15 @@ export function SalesSetup() {
               Add bank
             </Button>
           </div>
-          {addBank.isError && <Banner tone="bad">{problemText(addBank.error)}</Banner>}
+          {addBank.isError && (
+            <Banner tone="bad">{problemText(addBank.error)}</Banner>
+          )}
         </Card>
 
         <Card className="flex flex-col gap-3 p-4">
-          <h2 className="text-[0.9375rem] font-semibold text-ink">EDC terminals</h2>
+          <h2 className="text-[0.9375rem] font-semibold text-ink">
+            EDC terminals
+          </h2>
           <table className="text-[0.875rem]">
             <thead className="text-left text-mute">
               <tr>
@@ -202,25 +224,39 @@ export function SalesSetup() {
             <Input
               placeholder="store-01"
               value={terminal.site_id}
-              onChange={(e) => setTerminal({ ...terminal, site_id: e.target.value })}
+              onChange={(e) =>
+                setTerminal({ ...terminal, site_id: e.target.value })
+              }
             />
             <Input
               placeholder="Terminal id"
               value={terminal.terminal_id}
-              onChange={(e) => setTerminal({ ...terminal, terminal_id: e.target.value })}
+              onChange={(e) =>
+                setTerminal({ ...terminal, terminal_id: e.target.value })
+              }
             />
             <Input
               placeholder="BCA"
               value={terminal.bank_code}
-              onChange={(e) => setTerminal({ ...terminal, bank_code: e.target.value.toUpperCase() })}
+              onChange={(e) =>
+                setTerminal({
+                  ...terminal,
+                  bank_code: e.target.value.toUpperCase(),
+                })
+              }
             />
           </div>
           <div>
-            <Button disabled={saveTerminal.isPending} onClick={() => saveTerminal.mutate()}>
+            <Button
+              pending={saveTerminal.isPending}
+              onClick={() => saveTerminal.mutate()}
+            >
               Save terminal
             </Button>
           </div>
-          {saveTerminal.isError && <Banner tone="bad">{problemText(saveTerminal.error)}</Banner>}
+          {saveTerminal.isError && (
+            <Banner tone="bad">{problemText(saveTerminal.error)}</Banner>
+          )}
         </Card>
 
         <Card className="flex flex-col gap-3 p-4">
@@ -239,7 +275,9 @@ export function SalesSetup() {
             </thead>
             <tbody>
               {(rates.data ?? []).map((row) => (
-                <tr key={`${row.bank_code}/${row.fee_kind}/${row.effective_from}`}>
+                <tr
+                  key={`${row.bank_code}/${row.fee_kind}/${row.effective_from}`}
+                >
                   <td>{row.bank_code}</td>
                   <td>{row.fee_kind}</td>
                   <td>{row.rate_percent}</td>
@@ -252,7 +290,9 @@ export function SalesSetup() {
             <Input
               placeholder="BCA"
               value={rate.bank_code}
-              onChange={(e) => setRate({ ...rate, bank_code: e.target.value.toUpperCase() })}
+              onChange={(e) =>
+                setRate({ ...rate, bank_code: e.target.value.toUpperCase() })
+              }
             />
             <Select
               aria-label="Fee kind"
@@ -260,30 +300,43 @@ export function SalesSetup() {
               onChange={(fee_kind) => setRate({ ...rate, fee_kind })}
             >
               {["DEBIT_ON_US", "DEBIT_OFF_US", "CREDIT", "QRIS"].map((kind) => (
-                <option key={kind} value={kind}>{kind}</option>
+                <option key={kind} value={kind}>
+                  {kind}
+                </option>
               ))}
             </Select>
             <Input
               placeholder="0.15"
               value={rate.rate_percent}
-              onChange={(e) => setRate({ ...rate, rate_percent: e.target.value })}
+              onChange={(e) =>
+                setRate({ ...rate, rate_percent: e.target.value })
+              }
             />
             <Input
               type="date"
               value={rate.effective_from}
-              onChange={(e) => setRate({ ...rate, effective_from: e.target.value })}
+              onChange={(e) =>
+                setRate({ ...rate, effective_from: e.target.value })
+              }
             />
           </div>
           <div>
-            <Button disabled={saveRate.isPending} onClick={() => saveRate.mutate()}>
+            <Button
+              pending={saveRate.isPending}
+              onClick={() => saveRate.mutate()}
+            >
               Save rate
             </Button>
           </div>
-          {saveRate.isError && <Banner tone="bad">{problemText(saveRate.error)}</Banner>}
+          {saveRate.isError && (
+            <Banner tone="bad">{problemText(saveRate.error)}</Banner>
+          )}
         </Card>
 
         <Card className="flex flex-col gap-3 p-4">
-          <h2 className="text-[0.9375rem] font-semibold text-ink">Finance settings</h2>
+          <h2 className="text-[0.9375rem] font-semibold text-ink">
+            Finance settings
+          </h2>
           <table className="text-[0.875rem]">
             <tbody>
               {(settings.data ?? []).map((row) => (

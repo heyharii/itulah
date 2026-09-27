@@ -500,12 +500,16 @@ pub struct SaleReturnFacet {
     pub refund_total_minor: i64,
 }
 
-/// The two things the returns list can be narrowed by.
+/// The closed sets the returns list can be narrowed by, each counted.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct SaleReturnFacets {
     pub sites: Vec<SaleReturnFacet>,
     pub reasons: Vec<SaleReturnFacet>,
+    // Who took the refunds — the people standing at the counters. A plain
+    // comment rather than a doc comment, so the generated binding stays the
+    // one-line shape its siblings have.
+    pub actors: Vec<SaleReturnFacet>,
 }
 
 /// A page of refunds, and the shape of everything it was drawn from.
@@ -571,13 +575,23 @@ const RETURN_ROWS: &str = "
       JOIN sale s ON s.id = r.sale_id
      WHERE ($1::text IS NULL
             OR r.return_number ILIKE $1
-            OR s.sale_number ILIKE $1)
+            OR s.sale_number ILIKE $1
+            OR r.reason ILIKE $1)
 ";
 
 /// Every filter, in one place, so the page and the total cannot drift.
+///
+/// Binds `$2`..`$8`, contiguous after the search, so the facet query — which
+/// binds exactly these and nothing after — never leaves a parameter PostgreSQL
+/// cannot type. The page query's own cursor and limit come after them.
 const RETURN_FILTERS: &str = "
     WHERE ($2::text IS NULL OR site_id = $2)
       AND ($3::text IS NULL OR reason = $3)
+      AND ($4::text IS NULL OR actor_id = $4)
+      AND ($5::timestamptz IS NULL OR created_at >= $5)
+      AND ($6::timestamptz IS NULL OR created_at < $6)
+      AND ($7::bigint IS NULL OR refund_total_minor >= $7)
+      AND ($8::bigint IS NULL OR refund_total_minor <= $8)
 ";
 
 /// Refunds, one page at a time, beside the shape of the whole answer.
@@ -613,6 +627,26 @@ pub async fn list_sale_returns(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_owned);
+    let actor = query
+        .actor_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    // Local business days, turned into the instants that bound them here
+    // rather than in SQL, by the same arithmetic the sales reports use — so
+    // "refunds on the 3rd" and "sales on the 3rd" are the same Tuesday.
+    let offset = crate::reporting::DEFAULT_UTC_OFFSET_MINUTES;
+    let from_at = query
+        .from
+        .map(|day| crate::reporting::window_of(day, day, offset).map(|(start, _)| start))
+        .transpose()
+        .map_err(AppError::Validation)?;
+    let to_at = query
+        .to
+        .map(|day| crate::reporting::window_of(day, day, offset).map(|(_, end)| end))
+        .transpose()
+        .map_err(AppError::Validation)?;
 
     // The sort, and the tie-break that makes it total. Every order ends in the
     // return's id, which is the primary key, so no two rows can compare equal —
@@ -654,15 +688,20 @@ pub async fn list_sale_returns(
              SELECT * FROM searched {RETURN_FILTERS}
          )
          SELECT * FROM kept
-          WHERE $4::uuid IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $4)
+          WHERE $9::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $9)
           ORDER BY {order}
-          LIMIT $5"
+          LIMIT $10"
     );
     let rows = sqlx::query(&sql)
         .bind(&needle)
         .bind(&site)
         .bind(&reason)
+        .bind(&actor)
+        .bind(from_at)
+        .bind(to_at)
+        .bind(query.min_refund)
+        .bind(query.max_refund)
         .bind(cursor.as_ref().map(|one| one.id))
         .bind(limit)
         .fetch_all(pool)
@@ -713,6 +752,10 @@ pub async fn list_sale_returns(
                 COALESCE(SUM(refund_total_minor), 0)::bigint
            FROM searched GROUP BY reason
           UNION ALL
+         SELECT 'actor', actor_id, COUNT(*)::bigint,
+                COALESCE(SUM(refund_total_minor), 0)::bigint
+           FROM searched GROUP BY actor_id
+          UNION ALL
          SELECT 'all', '', COUNT(*)::bigint,
                 COALESCE(SUM(refund_total_minor), 0)::bigint
            FROM kept"
@@ -720,12 +763,17 @@ pub async fn list_sale_returns(
     .bind(&needle)
     .bind(&site)
     .bind(&reason)
+    .bind(&actor)
+    .bind(from_at)
+    .bind(to_at)
+    .bind(query.min_refund)
+    .bind(query.max_refund)
     .fetch_all(pool)
     .await?;
 
     let mut total = 0i64;
     let mut refunded = 0i64;
-    let (mut sites, mut reasons) = (Vec::new(), Vec::new());
+    let (mut sites, mut reasons, mut actors) = (Vec::new(), Vec::new(), Vec::new());
     for row in &counted {
         let facet: String = row.try_get("facet")?;
         let one = SaleReturnFacet {
@@ -737,6 +785,7 @@ pub async fn list_sale_returns(
         match facet.as_str() {
             "site" => sites.push(one),
             "reason" => reasons.push(one),
+            "actor" => actors.push(one),
             _ => {
                 total = one.count;
                 refunded = one.refund_total_minor;
@@ -746,7 +795,7 @@ pub async fn list_sale_returns(
     // Biggest first, with ties broken on the value so the order is stable
     // between calls — a filter list that reshuffles under the cursor is one
     // nobody can click.
-    for list in [&mut sites, &mut reasons] {
+    for list in [&mut sites, &mut reasons, &mut actors] {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
     }
 
@@ -755,7 +804,11 @@ pub async fn list_sale_returns(
         next_cursor,
         total,
         refund_total_minor: refunded,
-        facets: SaleReturnFacets { sites, reasons },
+        facets: SaleReturnFacets {
+            sites,
+            reasons,
+            actors,
+        },
     })
 }
 

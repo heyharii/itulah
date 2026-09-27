@@ -188,6 +188,41 @@ pub struct ExpenseWindowQuery {
     /// How many receipts to list. The totals are computed over the whole span
     /// regardless, so a truncated list never makes the summary lie.
     pub limit: Option<i64>,
+    /// `true` reads the span as ONE book — receipts and hand-overs merged,
+    /// newest first — a page at a time, with `limit` the size of the page and
+    /// `next_cursor` on the answer where the page stopped. Absent is the
+    /// original read: the newest `limit` of each half, side by side, which is
+    /// what the shop's own screen still asks for.
+    ///
+    /// Opt-in rather than the new default because the two reads split `limit`
+    /// differently — the book shares it between both halves — and a caller
+    /// that never asked for a page should not find its receipt list shorter.
+    pub paged: Option<bool>,
+    /// The previous page's `next_cursor`. Implies `paged`.
+    pub cursor: Option<String>,
+}
+
+/// Where a page of the merged book stopped: the last line's instant and id.
+///
+/// Both halves are ordered by the same pair, so one cursor seeks both. The id
+/// is the tie-break — two lines stamped in the same microsecond are ordered by
+/// it rather than repeated or lost across a page boundary.
+#[derive(Serialize, Deserialize)]
+struct BookCursor {
+    at: String,
+    id: String,
+}
+
+fn encode_book_cursor(cursor: &BookCursor) -> Result<String, EdgeError> {
+    let bytes =
+        serde_json::to_vec(cursor).map_err(|error| EdgeError::Validation(error.to_string()))?;
+    Ok(hex::encode(bytes))
+}
+
+fn decode_book_cursor(raw: &str) -> Result<BookCursor, EdgeError> {
+    let refused = || EdgeError::Validation("cursor is not a cursor this node issued".into());
+    let bytes = hex::decode(raw).map_err(|_| refused())?;
+    serde_json::from_slice(&bytes).map_err(|_| refused())
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -290,6 +325,17 @@ pub struct ExpenseWindow {
     /// What came IN over the same span, so the book reads as one page rather
     /// than two screens a manager has to hold in their head.
     pub top_ups: Vec<PettyCashTopUpView>,
+    /// What was handed over across the WHOLE span, and how many times —
+    /// the other half's `spent_minor` and `count`, so a paged book can total
+    /// both columns without adding up the lines it happens to hold.
+    #[serde(default)]
+    pub top_up_minor: i64,
+    #[serde(default)]
+    pub top_up_count: i64,
+    /// Where the next page of the merged book starts. Only a `paged` read
+    /// sets it, and `None` there means the book ends here.
+    #[serde(default)]
+    pub next_cursor: Option<String>,
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -557,6 +603,38 @@ pub fn window(
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
         )
         .map_err(db)?;
+    let (top_up_minor, top_up_count) = connection
+        .query_row(
+            "SELECT COALESCE(SUM(amount_minor),0), COUNT(*) FROM petty_cash_top_up
+              WHERE received_at >= ?1 AND received_at < ?2",
+            params![stamp(start), stamp(end)],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .map_err(db)?;
+
+    if query.paged == Some(true) || query.cursor.is_some() {
+        let cursor = query
+            .cursor
+            .as_deref()
+            .map(decode_book_cursor)
+            .transpose()?;
+        let (expenses, top_ups, next_cursor) =
+            book_page(connection, &stamp(start), &stamp(end), cursor, limit)?;
+        return Ok(ExpenseWindow {
+            from: query.from,
+            to: query.to,
+            utc_offset_minutes,
+            spent_minor,
+            count,
+            truncated: next_cursor.is_some(),
+            limit,
+            expenses,
+            top_ups,
+            top_up_minor,
+            top_up_count,
+            next_cursor,
+        });
+    }
 
     let mut expenses = Vec::new();
     {
@@ -631,7 +709,119 @@ pub fn window(
         limit,
         expenses,
         top_ups,
+        top_up_minor,
+        top_up_count,
+        next_cursor: None,
     })
+}
+
+/// One page of the merged book: receipts and hand-overs over `[start, end)`,
+/// newest first, after `cursor`.
+///
+/// One `UNION ALL` ordered by `(at, id)` rather than two lists each cut at
+/// `limit`: two independently capped halves cannot be paged as one book — the
+/// hand-overs on page one could reach back further than the receipts do, and
+/// page two would then draw receipts above hand-overs already shown. The
+/// columns the two halves do not share are NULL on the other side and the page
+/// is split back into the two lists the answer has always carried.
+fn book_page(
+    connection: &Connection,
+    start: &str,
+    end: &str,
+    cursor: Option<BookCursor>,
+    limit: i64,
+) -> Result<
+    (
+        Vec<StoreExpenseView>,
+        Vec<PettyCashTopUpView>,
+        Option<String>,
+    ),
+    EdgeError,
+> {
+    let (after_at, after_id) = match cursor {
+        Some(cursor) => (Some(cursor.at), Some(cursor.id)),
+        None => (None, None),
+    };
+    let mut statement = connection
+        .prepare(
+            "SELECT kind,id,at,amount_minor,category,party,reason,claimed_by,
+                    approved_by,approved_role
+               FROM (
+                 SELECT 'EXPENSE' AS kind,id,spent_at AS at,amount_minor,category,
+                        payee AS party,reason,claimed_by,approved_by,approved_role
+                   FROM store_expense
+                  WHERE spent_at >= ?1 AND spent_at < ?2
+                 UNION ALL
+                 SELECT 'TOP_UP',id,received_at,amount_minor,NULL,
+                        reference,note,received_by,approved_by,NULL
+                   FROM petty_cash_top_up
+                  WHERE received_at >= ?1 AND received_at < ?2
+               )
+              WHERE ?3 IS NULL OR at < ?3 OR (at = ?3 AND id < ?4)
+              ORDER BY at DESC, id DESC
+              LIMIT ?5",
+        )
+        .map_err(db)?;
+    // One more than asked for, so whether another page exists is answered by
+    // the same scan rather than by a second count.
+    let mut lines = statement
+        .query_map(params![start, end, after_at, after_id, limit + 1], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, String>(8)?,
+                row.get::<_, Option<String>>(9)?,
+            ))
+        })
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?;
+    let more = i64::try_from(lines.len()).unwrap_or(i64::MAX) > limit;
+    lines.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+    let next_cursor = match (more, lines.last()) {
+        (true, Some(last)) => Some(encode_book_cursor(&BookCursor {
+            at: last.2.clone(),
+            id: last.1.clone(),
+        })?),
+        _ => None,
+    };
+
+    let mut expenses = Vec::new();
+    let mut top_ups = Vec::new();
+    for (kind, id, at, amount_minor, category, party, reason, claimed_by, approved_by, role) in
+        lines
+    {
+        if kind == "EXPENSE" {
+            expenses.push(StoreExpenseView {
+                id,
+                category: category.unwrap_or_default(),
+                amount_minor,
+                payee: party.unwrap_or_default(),
+                reason: reason.unwrap_or_default(),
+                claimed_by,
+                approved_by,
+                approved_role: role.unwrap_or_default(),
+                spent_at: at,
+            });
+        } else {
+            top_ups.push(PettyCashTopUpView {
+                id,
+                amount_minor,
+                reference: party,
+                note: reason,
+                received_by: claimed_by,
+                approved_by,
+                received_at: at,
+            });
+        }
+    }
+    Ok((expenses, top_ups, next_cursor))
 }
 
 /// Which rung an approver holds.

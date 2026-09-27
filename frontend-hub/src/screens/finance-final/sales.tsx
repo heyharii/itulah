@@ -394,6 +394,11 @@ const TENDERS: readonly {
     settles: "Acquirer, then the bank the next day, less a fee",
   },
   {
+    method: "EWALLET",
+    label: "E-wallet",
+    settles: "The wallet provider, then the bank, less a fee",
+  },
+  {
     method: "VOUCHER",
     label: "Voucher",
     settles: "No money arrives — a liability settled",

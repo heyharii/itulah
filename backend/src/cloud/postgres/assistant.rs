@@ -24,8 +24,12 @@
 //! `UPDATE`, a `DELETE` or any DDL inside one, however it is spelled and
 //! however deeply it is nested in a CTE. The guards in `guard` are the second
 //! line — they refuse the query before it costs a round trip, and they keep
-//! the model away from the three things a read-only transaction would happily
-//! hand over: password hashes and live session tokens.
+//! the model away from what a read-only transaction would happily hand over:
+//! password hashes, live sessions, and the tables in `OUT_OF_BOUNDS_TABLES`.
+//!
+//! Neither line decides **who** may read across the business. That is
+//! `http/assistant.rs`, which offers `sql_query` and `describe_schema` only to
+//! a caller whose reach is everywhere.
 //!
 //! A statement timeout and a row ceiling do the rest. Neither is about safety;
 //! both are about a mistyped join not holding a connection for a minute or
@@ -149,7 +153,8 @@ pub async fn assistant_conversation_detail(
     .ok_or_else(|| AppError::NotFound(format!("conversation {id}")))?;
 
     let messages = sqlx::query(
-        "SELECT message_id, seq, role, content, thinking, runs, error, created_at
+        "SELECT message_id, seq, role, content, thinking, runs, error, created_at,
+                model, cost_usd_micros, verdict, verdict_note
            FROM assistant_message
           WHERE conversation_id = $1
           ORDER BY seq",
@@ -175,24 +180,35 @@ pub async fn assistant_conversation_detail(
                 "runs": row.get::<Value, _>("runs"),
                 "error": row.get::<Option<String>, _>("error"),
                 "created_at": row.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+                // Which model answered and what it cost — see 0500. Null on a
+                // question, and on an answer kept before anybody counted.
+                "model": row.get::<Option<String>, _>("model"),
+                "cost_usd_micros": row.get::<Option<i64>, _>("cost_usd_micros"),
+                // Whether the person judged it right, and why not — see 0501.
+                "verdict": row.get::<Option<String>, _>("verdict"),
+                "verdict_note": row.get::<Option<String>, _>("verdict_note"),
             }))
             .collect::<Vec<_>>(),
     }))
 }
 
-/// The words of a conversation, oldest first, for handing back to the model.
+/// The words of a conversation, oldest first, for handing back to the model,
+/// as `(role, content, runs)`.
 ///
-/// Words only: no tool results, no reasoning. That is the same discipline the
-/// browser-held transcript had and it matters more now that the server keeps
-/// one — a follow-up must be answered from a fresh read, never from figures
-/// that were true when the tab was opened.
+/// Words, and the reads behind an answer — never what those reads returned,
+/// and no reasoning. That is the same discipline the browser-held transcript
+/// had and it matters more now that the server keeps one: a follow-up must be
+/// answered from a fresh read, never from figures that were true when the tab
+/// was opened. The runs come back whole because this is one query; which of
+/// them the model is shown, and how much of each, is `http/assistant.rs`'s to
+/// decide.
 pub async fn assistant_conversation_turns(
     pool: &PgPool,
     id: Uuid,
     owner: &str,
-) -> Result<Vec<(String, String)>, AppError> {
+) -> Result<Vec<(String, String, Value)>, AppError> {
     let rows = sqlx::query(
-        "SELECT m.role, m.content
+        "SELECT m.role, m.content, m.runs
            FROM assistant_message m
            JOIN assistant_conversation c USING (conversation_id)
           WHERE m.conversation_id = $1
@@ -211,9 +227,39 @@ pub async fn assistant_conversation_turns(
             (
                 row.get::<String, _>("role"),
                 row.get::<String, _>("content"),
+                row.get::<Value, _>("runs"),
             )
         })
         .collect())
+}
+
+/// What the model calls behind one answer cost, as the gateway reported them.
+///
+/// Summed over the turn: a question that took three model calls is one answer
+/// with one price. `model` and `provider` are what actually served it — the
+/// model id and the host the gateway routed to — because a gateway choosing
+/// among hosts is making a choice worth being able to read back.
+#[derive(Debug, Default, Clone)]
+pub struct AssistantUsage {
+    pub model: Option<String>,
+    pub provider: Option<String>,
+    /// Model calls made, answered or not.
+    pub rounds: i64,
+    pub prompt_tokens: i64,
+    pub completion_tokens: i64,
+    /// Prompt tokens the host read from its cache rather than processed.
+    pub cached_tokens: i64,
+    /// `None` when no call reported a price — a gateway that does not, or a
+    /// turn stopped before the accounting frame arrived. Not the same fact as
+    /// free, and not counted as it.
+    pub cost_usd_micros: Option<i64>,
+}
+
+/// A count for an `integer` column. A turn's tokens are nowhere near the
+/// ceiling; the clamp is so that a gateway reporting nonsense cannot fail the
+/// insert that keeps the answer.
+fn as_count(value: i64) -> i32 {
+    i32::try_from(value.max(0)).unwrap_or(i32::MAX)
 }
 
 /// Append a turn and move the conversation to the top of the list.
@@ -221,6 +267,11 @@ pub async fn assistant_conversation_turns(
 /// `seq` is taken inside the insert rather than read and then written: two
 /// browser tabs asking the same conversation at once would otherwise both
 /// compute the same number and one of them would lose the unique constraint.
+///
+/// `usage` is the answer's cost and `None` for a question — in the same insert
+/// as the answer, so the monthly ceiling never counts an answer that was not
+/// kept or misses one that was.
+#[allow(clippy::too_many_arguments)]
 pub async fn append_assistant_message(
     pool: &PgPool,
     conversation: Uuid,
@@ -229,15 +280,19 @@ pub async fn append_assistant_message(
     thinking: Option<&str>,
     runs: &Value,
     error: Option<&str>,
+    usage: Option<&AssistantUsage>,
 ) -> Result<Uuid, AppError> {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO assistant_message
-             (message_id, conversation_id, seq, role, content, thinking, runs, error)
+             (message_id, conversation_id, seq, role, content, thinking, runs, error,
+              model, provider, rounds, prompt_tokens, completion_tokens, cached_tokens,
+              cost_usd_micros)
          SELECT $1, $2,
                 coalesce((SELECT max(seq) + 1 FROM assistant_message
                            WHERE conversation_id = $2), 0),
-                $3, $4, $5, $6, $7",
+                $3, $4, $5, $6, $7,
+                $8, $9, $10, $11, $12, $13, $14",
     )
     .bind(id)
     .bind(conversation)
@@ -246,6 +301,13 @@ pub async fn append_assistant_message(
     .bind(thinking)
     .bind(runs)
     .bind(error)
+    .bind(usage.and_then(|usage| usage.model.clone()))
+    .bind(usage.and_then(|usage| usage.provider.clone()))
+    .bind(usage.map(|usage| as_count(usage.rounds)))
+    .bind(usage.map(|usage| as_count(usage.prompt_tokens)))
+    .bind(usage.map(|usage| as_count(usage.completion_tokens)))
+    .bind(usage.map(|usage| as_count(usage.cached_tokens)))
+    .bind(usage.and_then(|usage| usage.cost_usd_micros.map(|cost| cost.max(0))))
     .execute(pool)
     .await?;
 
@@ -300,6 +362,226 @@ pub async fn archive_assistant_conversation(
     Ok(())
 }
 
+// ---- Whether it was right ----------------------------------------------
+
+/// Judge one answer — `UP`, `DOWN`, or `None` to take a verdict back — with a
+/// line on what was wrong.
+///
+/// Only by the person the conversation belongs to, and only on an answer,
+/// both decided in the statement that changes the row: a verdict on a
+/// question, or on somebody else's chat, finds nothing to update and is a
+/// 404. Taking a verdict back takes its note with it.
+pub async fn judge_assistant_answer(
+    pool: &PgPool,
+    conversation: Uuid,
+    message: Uuid,
+    owner: &str,
+    verdict: Option<&str>,
+    note: Option<&str>,
+) -> Result<(), AppError> {
+    let done = sqlx::query(
+        "UPDATE assistant_message m
+            SET verdict = $4,
+                verdict_note = CASE WHEN $4::text IS NULL THEN NULL ELSE $5 END,
+                verdict_at = CASE WHEN $4::text IS NULL THEN NULL ELSE now() END
+           FROM assistant_conversation c
+          WHERE m.message_id = $2
+            AND m.conversation_id = $1
+            AND m.role = 'assistant'
+            AND c.conversation_id = m.conversation_id
+            AND c.owner_username = $3
+            AND c.archived_at IS NULL",
+    )
+    .bind(conversation)
+    .bind(message)
+    .bind(owner)
+    .bind(verdict)
+    .bind(note)
+    .execute(pool)
+    .await?;
+    if done.rows_affected() == 0 {
+        return Err(AppError::NotFound(format!("answer {message}")));
+    }
+    Ok(())
+}
+
+// ---- The business's words ----------------------------------------------
+
+/// The glossary as the hub edits it, alphabetically.
+pub async fn assistant_glossary(pool: &PgPool) -> Result<Value, AppError> {
+    let rows = sqlx::query(
+        "SELECT id, term, meaning, set_by, set_at
+           FROM assistant_glossary
+          ORDER BY lower(term)",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(json!({
+        "items": rows
+            .iter()
+            .map(|row| json!({
+                "id": row.get::<Uuid, _>("id"),
+                "term": row.get::<String, _>("term"),
+                "meaning": row.get::<String, _>("meaning"),
+                "set_by": row.get::<String, _>("set_by"),
+                "set_at": row.get::<chrono::DateTime<chrono::Utc>, _>("set_at"),
+            }))
+            .collect::<Vec<_>>(),
+    }))
+}
+
+/// The glossary as the model is given it: `(term, meaning)`, alphabetically.
+pub async fn assistant_glossary_terms(pool: &PgPool) -> Result<Vec<(String, String)>, AppError> {
+    let rows = sqlx::query("SELECT term, meaning FROM assistant_glossary ORDER BY lower(term)")
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .iter()
+        .map(|row| {
+            (
+                row.get::<String, _>("term"),
+                row.get::<String, _>("meaning"),
+            )
+        })
+        .collect())
+}
+
+/// Add a word. A word already there, in any capitalisation, is a conflict the
+/// person can act on rather than a constraint name.
+pub async fn add_assistant_glossary_term(
+    pool: &PgPool,
+    term: &str,
+    meaning: &str,
+    actor: &str,
+) -> Result<Uuid, AppError> {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO assistant_glossary (id, term, meaning, set_by)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(id)
+    .bind(term)
+    .bind(meaning)
+    .bind(actor)
+    .execute(pool)
+    .await
+    .map_err(|error| already_in_the_glossary(error, term))?;
+    Ok(id)
+}
+
+/// Change a word or what it means.
+pub async fn amend_assistant_glossary_term(
+    pool: &PgPool,
+    id: Uuid,
+    term: &str,
+    meaning: &str,
+    actor: &str,
+) -> Result<(), AppError> {
+    let done = sqlx::query(
+        "UPDATE assistant_glossary
+            SET term = $2, meaning = $3, set_by = $4, set_at = now()
+          WHERE id = $1",
+    )
+    .bind(id)
+    .bind(term)
+    .bind(meaning)
+    .bind(actor)
+    .execute(pool)
+    .await
+    .map_err(|error| already_in_the_glossary(error, term))?;
+    if done.rows_affected() == 0 {
+        return Err(AppError::NotFound(format!("glossary entry {id}")));
+    }
+    Ok(())
+}
+
+/// Take a word out. Gone from the next question onward; the answers already
+/// given with it stand as they were.
+pub async fn remove_assistant_glossary_term(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
+    let done = sqlx::query("DELETE FROM assistant_glossary WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    if done.rows_affected() == 0 {
+        return Err(AppError::NotFound(format!("glossary entry {id}")));
+    }
+    Ok(())
+}
+
+/// The unique index on the lowered term, said in words.
+fn already_in_the_glossary(error: sqlx::Error, term: &str) -> AppError {
+    let duplicate = error
+        .as_database_error()
+        .and_then(sqlx::error::DatabaseError::code)
+        .is_some_and(|code| code == "23505");
+    if duplicate {
+        AppError::Conflict(format!("\"{term}\" is already in the glossary"))
+    } else {
+        AppError::from(error)
+    }
+}
+
+// ---- What it costs -----------------------------------------------------
+
+/// One local calendar month of the assistant's spending, against its ceiling.
+#[derive(Debug, Clone)]
+pub struct AssistantBudget {
+    /// The local month, `YYYY-MM`.
+    pub month: String,
+    /// `assistant_monthly_budget_usd` (0500), in millionths of a dollar.
+    /// `None` when the setting is missing — a node not yet migrated to 0500 —
+    /// which is no ceiling rather than a ceiling of nothing.
+    pub limit_usd_micros: Option<i64>,
+    pub spent_usd_micros: i64,
+}
+
+impl AssistantBudget {
+    /// Spent, or set to nothing. Asked before a question costs anything.
+    pub fn exhausted(&self) -> bool {
+        self.limit_usd_micros
+            .is_some_and(|limit| self.spent_usd_micros >= limit)
+    }
+}
+
+/// This month's spend and the ceiling Finance set, in one read.
+///
+/// The month is the local one — the same `utc_offset_minutes` the sales
+/// reports use — so the budget turns over at midnight on the first where the
+/// business is, not at seven in the morning. Every answer kept since then
+/// counts, whoever asked it and whether or not it finished: a turn that failed
+/// halfway was still paid for.
+pub async fn assistant_budget(
+    pool: &PgPool,
+    now: chrono::DateTime<chrono::Utc>,
+    utc_offset_minutes: i32,
+) -> Result<AssistantBudget, AppError> {
+    let row = sqlx::query(
+        "WITH month AS (
+             SELECT date_trunc('month', ($1::timestamptz AT TIME ZONE 'UTC')
+                                        + make_interval(mins => $2)) AS local_start
+         )
+         SELECT to_char(month.local_start, 'YYYY-MM') AS month,
+                (SELECT round(value_numeric * 1000000)::bigint
+                   FROM finance_setting
+                  WHERE setting_key = 'assistant_monthly_budget_usd') AS limit_usd_micros,
+                (SELECT coalesce(sum(m.cost_usd_micros), 0)::bigint
+                   FROM assistant_message m
+                  WHERE m.cost_usd_micros IS NOT NULL
+                    AND m.created_at >= (month.local_start - make_interval(mins => $2))
+                                        AT TIME ZONE 'UTC') AS spent_usd_micros
+           FROM month",
+    )
+    .bind(now)
+    .bind(utc_offset_minutes)
+    .fetch_one(pool)
+    .await?;
+    Ok(AssistantBudget {
+        month: row.get::<String, _>("month"),
+        limit_usd_micros: row.get::<Option<i64>, _>("limit_usd_micros"),
+        spent_usd_micros: row.get::<i64, _>("spent_usd_micros"),
+    })
+}
+
 // ---- Reading anything --------------------------------------------------
 
 /// How long one statement may run. Long enough for a join across a year of
@@ -311,23 +593,54 @@ const STATEMENT_TIMEOUT: &str = "20s";
 /// the database for.
 const ROW_CEILING: i64 = 500;
 
+/// Tables the assistant never reads and is never told exist.
+///
+/// Live sessions and node credentials, which no screen shows anybody; the
+/// payroll identity (a whole bank account number and an NPWP, which the
+/// screen that checks them masks); grievances, which are filed in confidence;
+/// and every conversation with the assistant itself, which belongs to the
+/// person who had it and nobody else.
+///
+/// **A stopgap, and a denylist.** A table added tomorrow is readable until it
+/// is named here, and a column cannot be withheld from `SELECT *` at all. The
+/// real line is a schema of views the assistant's own database role may read
+/// and nothing else — until that exists, the tools that reach this far are
+/// offered to Admins only (`http/assistant.rs`, `Audience`).
+const OUT_OF_BOUNDS_TABLES: &[&str] = &[
+    "auth_session",
+    "member_session",
+    "member_pairing_code",
+    "sync_origin_credential",
+    "payroll_identity",
+    "employee_grievance",
+    "assistant_conversation",
+    "assistant_message",
+];
+
+/// `OUT_OF_BOUNDS_TABLES`, in the shape a query binds.
+fn out_of_bounds_tables() -> Vec<String> {
+    OUT_OF_BOUNDS_TABLES
+        .iter()
+        .map(|table| (*table).to_owned())
+        .collect()
+}
+
 /// Words that are never part of a legitimate question about this business.
 ///
-/// Two kinds. The first three are the credentials and live sessions — a
-/// read-only transaction would return them perfectly happily, and the person
-/// asking has no screen anywhere in the hub that shows them. The rest are the
-/// server-side reach a SQL prompt is the classic way to acquire: reading files,
-/// opening connections, sleeping on a connection.
+/// Two kinds. The first are credentials and secrets — a read-only transaction
+/// would return them perfectly happily, and the person asking has no screen
+/// anywhere in the hub that shows them — together with every table in
+/// `OUT_OF_BOUNDS_TABLES`. The rest are the server-side reach a SQL prompt is
+/// the classic way to acquire: reading files, opening connections, sleeping
+/// on a connection.
 ///
 /// Matched as whole identifiers, not substrings: a column called
 /// `copy_of_purchase_order` is not `COPY`.
 const FORBIDDEN: &[&str] = &[
     "password_hash",
-    "auth_session",
-    "member_session",
-    "member_pairing_code",
     "token_sha256",
     "csrf_token_sha256",
+    "ingest_key_sha256",
     "pg_authid",
     "pg_shadow",
     "pg_read_file",
@@ -360,7 +673,7 @@ pub struct QueryOutcome {
 ///
 /// Everything here is a second line of defence — see the module comment. It
 /// exists to give the model a sentence it can act on ("that is not a SELECT")
-/// rather than a Postgres error, and to keep the three forbidden tables out of
+/// rather than a Postgres error, and to keep `OUT_OF_BOUNDS_TABLES` out of
 /// reach of a transaction that would otherwise read them.
 fn guard(sql: &str) -> Result<(), String> {
     let trimmed = sql.trim().trim_end_matches(';').trim();
@@ -386,10 +699,11 @@ fn guard(sql: &str) -> Result<(), String> {
         .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
         .map(str::to_ascii_lowercase);
     for word in words {
-        if FORBIDDEN.contains(&word.as_str()) {
+        if FORBIDDEN.contains(&word.as_str()) || OUT_OF_BOUNDS_TABLES.contains(&word.as_str()) {
             return Err(format!(
-                "`{word}` is out of bounds — credentials, live sessions and \
-                 anything that reaches outside the database are not readable here"
+                "`{word}` is out of bounds — credentials, sessions, payroll identity, \
+                 grievances, conversations with the assistant and anything that \
+                 reaches outside the database are not readable here"
             ));
         }
     }
@@ -634,11 +948,12 @@ pub async fn describe_schema(pool: &PgPool, needle: Option<&str>) -> Result<Valu
                    AND (table_name ILIKE '%' || $1 || '%'
                         OR column_name ILIKE '%' || $1 || '%')
             )
-            AND c.table_name NOT IN ('auth_session', 'member_session', 'member_pairing_code')
+            AND c.table_name <> ALL($2)
           ORDER BY c.table_name, c.ordinal_position
           LIMIT 1200",
     )
     .bind(needle)
+    .bind(out_of_bounds_tables())
     .fetch_all(pool)
     .await?;
 
@@ -746,10 +1061,11 @@ async fn column_names(pool: &PgPool, tables: &[String]) -> Result<Value, AppErro
           WHERE table_schema = 'public'
             AND table_name = ANY($1)
             AND column_name <> 'password_hash'
-            AND table_name NOT IN ('auth_session', 'member_session', 'member_pairing_code')
+            AND table_name <> ALL($2)
           ORDER BY table_name, ordinal_position",
     )
     .bind(tables)
+    .bind(out_of_bounds_tables())
     .fetch_all(pool)
     .await?;
 
@@ -788,10 +1104,11 @@ async fn table_index(pool: &PgPool) -> Result<Value, AppError> {
            JOIN pg_namespace n ON n.oid = c.relnamespace
           WHERE n.nspname = 'public'
             AND c.relkind IN ('r', 'v', 'm')
-            AND c.relname NOT IN ('auth_session', 'member_session', 'member_pairing_code')
+            AND c.relname <> ALL($1)
             AND c.relname NOT LIKE '\\_sqlx%'
           ORDER BY c.relname",
     )
+    .bind(out_of_bounds_tables())
     .fetch_all(pool)
     .await?;
 
@@ -829,10 +1146,13 @@ async fn foreign_keys(pool: &PgPool, tables: &[String]) -> Result<Vec<Value>, Ap
            JOIN pg_attribute b ON b.attrelid = con.confrelid AND b.attnum = f.attnum
           WHERE con.contype = 'f'
             AND (src.relname = ANY($1) OR tgt.relname = ANY($1))
+            AND src.relname <> ALL($2)
+            AND tgt.relname <> ALL($2)
           ORDER BY 1, 2
           LIMIT 300",
     )
     .bind(tables)
+    .bind(out_of_bounds_tables())
     .fetch_all(pool)
     .await?;
 
@@ -898,6 +1218,10 @@ mod tests {
         // The account itself is readable — who wrote a report is a fair
         // question — and only the hash is not.
         assert!(guard("SELECT username, role FROM app_user").is_ok());
+        // Nobody's business in a chat, however the query is spelled.
+        assert!(guard("SELECT * FROM employee_grievance").is_err());
+        assert!(guard("select bank_account from public.payroll_identity").is_err());
+        assert!(guard("SELECT content FROM \"assistant_message\"").is_err());
     }
 
     #[test]

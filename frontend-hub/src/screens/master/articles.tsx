@@ -5,14 +5,13 @@ import { LayoutGrid, Rows3, Search } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
 import { SetupSheets, SetupTrigger } from "@/screens/procurement/setups"
 import { Pill } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadMore } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { FilterOmnibox } from "@/components/ui/filter-omnibox"
 import {
@@ -623,22 +622,16 @@ export function Articles() {
                         isSelected={(row) =>
                           row.article.article_code === article.value
                         }
+                        more={catalogue}
                         className="max-h-[calc(100vh-22rem)]"
                       />
                     </Card>
                   )}
 
-                  {catalogue.hasNextPage && (
-                    <div className="mt-6 flex justify-center">
-                      <Button
-                        onClick={() => void catalogue.fetchNextPage()}
-                        disabled={catalogue.isFetchingNextPage}
-                      >
-                        {catalogue.isFetchingNextPage
-                          ? "Fetching…"
-                          : "Show more"}
-                      </Button>
-                    </div>
+                  {/* The grid scrolls with the page, so its foot is watched
+                      here; the table scrolls itself and watches its own. */}
+                  {view === "grid" && (
+                    <LoadMore query={catalogue} className="mt-6" />
                   )}
                 </>
               ),

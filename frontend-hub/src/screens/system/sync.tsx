@@ -1,5 +1,10 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
@@ -16,7 +21,7 @@ import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
@@ -24,7 +29,7 @@ import { count, moment } from "@/lib/format"
 import {
   commandReach,
   issueCommand,
-  listDeadLetters,
+  deadLettersPage,
   listOrigins,
   reconciliation,
   resetBreaker,
@@ -166,7 +171,7 @@ export function SyncLane() {
         actions={
           <>
             <Button
-              disabled={breaker.isPending}
+              pending={breaker.isPending}
               onClick={() => breaker.mutate()}
             >
               {breaker.isPending ? "Resetting…" : "Reset breaker"}
@@ -293,10 +298,13 @@ function ReconciliationTab() {
 /// nothing to restore, and it prints and finds-in-page like the rest of the
 /// document.
 function DeadLettersTab() {
-  const letters = useQuery({
+  const letters = useInfiniteQuery({
     queryKey: systemKeys.deadLetters(),
-    queryFn: ({ signal }) => listDeadLetters(100, signal),
+    queryFn: ({ pageParam, signal }) => deadLettersPage(pageParam, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   })
+  const total = letters.data?.pages[0]?.total ?? 0
 
   return (
     <Card className="overflow-hidden">
@@ -305,47 +313,51 @@ function DeadLettersTab() {
         {/* The server's own count of the whole backlog, not the length of
             the page — which was the same number only while the backlog was
             smaller than the request. */}
-        {letters.data && letters.data.total > 0 && (
+        {total > 0 && (
           <span className="text-[0.875rem] text-mute tabular-nums">
-            {count(letters.data.total)}
+            {count(total)}
           </span>
         )}
       </CardHeader>
       {queryState(letters, {
         loading: "Loading what was refused…",
-        render: (page) =>
-          page.rows.length === 0 ? (
+        render: (data) =>
+          data.pages[0].rows.length === 0 ? (
             <EmptyState>
               Nothing has been refused. Every fact a node has sent was accepted
               into the ledger.
             </EmptyState>
           ) : (
             <div className="border-t border-hairline">
-              {page.rows.map((letter) => (
-                <details
-                  key={letter.event_id}
-                  className="border-b border-hairline last:border-b-0"
-                >
-                  <summary className="flex cursor-pointer flex-wrap items-center gap-2 px-4 py-2.5 transition-colors hover:bg-soft">
-                    <Tag>{letter.origin_id}</Tag>
-                    <span className="text-[0.875rem] font-medium text-ink">
-                      {letter.event_type}
-                    </span>
-                    <span className="font-mono text-id text-mute">
-                      gen {count(letter.generation)} · seq {count(letter.seq)}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[0.875rem] text-bad-fg">
-                      {letter.reason}
-                    </span>
-                    <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
-                      {moment(letter.rejected_at)}
-                    </span>
-                  </summary>
-                  <pre className="mx-4 mb-3 max-h-64 overflow-auto rounded-inner bg-soft p-2.5 font-mono text-[0.875rem] leading-relaxed text-body">
-                    {JSON.stringify(letter.payload, null, 2)}
-                  </pre>
-                </details>
-              ))}
+              {data.pages
+                .flatMap((page) => page.rows)
+                .map((letter) => (
+                  <details
+                    key={letter.event_id}
+                    className="border-b border-hairline last:border-b-0"
+                  >
+                    <summary className="flex cursor-pointer flex-wrap items-center gap-2 px-4 py-2.5 transition-colors hover:bg-soft">
+                      <Tag>{letter.origin_id}</Tag>
+                      <span className="text-[0.875rem] font-medium text-ink">
+                        {letter.event_type}
+                      </span>
+                      <span className="font-mono text-id text-mute">
+                        gen {count(letter.generation)} · seq {count(letter.seq)}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[0.875rem] text-bad-fg">
+                        {letter.reason}
+                      </span>
+                      <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
+                        {moment(letter.rejected_at)}
+                      </span>
+                    </summary>
+                    <pre className="mx-4 mb-3 max-h-64 overflow-auto rounded-inner bg-soft p-2.5 font-mono text-[0.875rem] leading-relaxed text-body">
+                      {JSON.stringify(letter.payload, null, 2)}
+                    </pre>
+                  </details>
+                ))}
+              {/* The page scrolls, not this card — see `<LoadMore>`. */}
+              <LoadMore query={letters} />
             </div>
           ),
       })}
@@ -466,15 +478,11 @@ function CommandsTab({
                 <Section title="Issued">
                   <MiniTable head={["Fact", "Value"]}>
                     <tr className="border-t border-hairline">
-                      <td className="py-2 pr-2 text-[0.875rem] text-ink">
-                        By
-                      </td>
+                      <td className="py-2 pr-2 text-[0.875rem] text-ink">By</td>
                       <td className="py-2 text-right">{command.issued_by}</td>
                     </tr>
                     <tr className="border-t border-hairline">
-                      <td className="py-2 pr-2 text-[0.875rem] text-ink">
-                        At
-                      </td>
+                      <td className="py-2 pr-2 text-[0.875rem] text-ink">At</td>
                       <td className="py-2 text-right tabular-nums">
                         {moment(command.issued_at)}
                       </td>
@@ -539,7 +547,7 @@ function CommandsTab({
                       that already applied it keep what it did.
                     </p>
                     <div className="flex flex-col gap-2.5">
-                      <Field label="Reason" hint="Kept on the record.">
+                      <Field label="Reason" required hint="Kept on the record.">
                         <Input
                           value={reason}
                           onChange={(event) => setReason(event.target.value)}
@@ -560,7 +568,8 @@ function CommandsTab({
                       <div>
                         <Button
                           variant="danger"
-                          disabled={reason.trim() === "" || revoke.isPending}
+                          pending={revoke.isPending}
+                          disabled={reason.trim() === ""}
                           onClick={() => revoke.mutate()}
                         >
                           {revoke.isPending ? "Recalling…" : "Recall command"}
@@ -701,7 +710,8 @@ function IssueSheet({
           <form.Subscribe selector={(state) => ready(state.values)}>
             {(can) => (
               <Button
-                disabled={!can || issue.isPending}
+                pending={issue.isPending}
+                disabled={!can}
                 onClick={() => form.handleSubmit()}
               >
                 {issue.isPending ? "Issuing…" : "Issue"}
@@ -725,7 +735,11 @@ function IssueSheet({
       >
         <form.Field name="commandType">
           {(field) => (
-            <Field label="Command type" hint="As the nodes' handlers name it.">
+            <Field
+              label="Command type"
+              required
+              hint="As the nodes' handlers name it."
+            >
               <Input
                 value={field.state.value}
                 onBlur={field.handleBlur}
@@ -741,6 +755,7 @@ function IssueSheet({
           {(field) => (
             <Field
               label="Payload"
+              required
               hint="JSON. Checked here before it is sent, because a malformed broadcast blocks every node it reaches."
               problem={parsePayload(field.state.value).problem}
             >

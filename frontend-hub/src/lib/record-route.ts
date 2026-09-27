@@ -39,6 +39,10 @@ const WHERE: Partial<Record<RecordKind, { to: string; sheet?: SheetKey }>> = {
   // sheet key does the rest.
   discussion: { to: "/discussions", sheet: "thread" },
 
+  // A chat message pushed to a phone names its room (migration 0476), and the
+  // room opens where the list does.
+  conversation: { to: "/chat", sheet: "conversation" },
+
   // Assets have two doors onto one register, and a notification goes through
   // GA's: what a fault report is about is the thing, not what it is carried
   // at, and the money screen would ask its reader for a rung they may not have.

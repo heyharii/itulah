@@ -24,6 +24,7 @@
 pub mod enrolment;
 pub mod handshake;
 pub mod inventory;
+pub mod node_ops;
 pub mod node_status;
 pub mod port;
 pub mod rfid;

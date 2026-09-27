@@ -126,6 +126,7 @@ export function LeaveNew() {
               return (
                 <Field
                   label="Kind of leave"
+                  required
                   hint={
                     chosen?.requiresEvidence === true &&
                     "Bring the doctor's note to your manager — this app does not take attachments yet."
@@ -198,7 +199,7 @@ export function LeaveNew() {
 
           <form.Field name="reason">
             {(field) => (
-              <Field label="Why">
+              <Field label="Why" required>
                 <Textarea
                   name={field.name}
                   value={field.state.value}

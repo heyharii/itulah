@@ -2,12 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { ConfirmButton } from "@/components/ui/dialog"
 import { Day } from "@/components/ui/day"
 import { Field, Input, Money, Select } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
 import { ErrorState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
+import { queryState } from "@/lib/query-state"
 import {
   acknowledgeCampaignBreach,
   campaignKeys,
@@ -23,6 +25,12 @@ import {
 } from "@/lib/queries/commercial"
 import { percent } from "@/screens/commercial/shared"
 import { Quiet } from "@/screens/commercial/parts"
+import { bpsOfPercent } from "@/screens/commercial/objective"
+
+/// Where the campaign sheet's checklist scrolls to. One campaign sheet is open
+/// at a time, so a fixed id is unique.
+export const PLAN_ANCHOR = "campaign-plan-activities"
+export const LIMITS_ANCHOR = "campaign-plan-limits"
 
 /// What a campaign RUNS, where it was DECLARED to run, and the lines it must
 /// not cross.
@@ -48,18 +56,16 @@ export function CampaignPlan({ campaignId }: { campaignId: string }) {
     retry: false,
   })
 
-  if (plan.isError) return <ErrorState error={plan.error} />
-  if (plan.data === undefined) {
-    return <Quiet>Reading what this campaign runs…</Quiet>
-  }
-
-  return (
-    <>
-      <Activities campaignId={campaignId} plan={plan.data} />
-      <Reach campaignId={campaignId} plan={plan.data} />
-      <Rails campaignId={campaignId} plan={plan.data} />
-    </>
-  )
+  return queryState(plan, {
+    loading: "Reading what this campaign runs…",
+    render: (data) => (
+      <>
+        <Activities campaignId={campaignId} plan={data} />
+        <Reach campaignId={campaignId} plan={data} />
+        <Rails campaignId={campaignId} plan={data} />
+      </>
+    ),
+  })
 }
 
 const KINDS: readonly { value: string; label: string; needsRef: boolean }[] = [
@@ -111,7 +117,7 @@ function Activities({
   })
 
   return (
-    <div>
+    <div id={PLAN_ANCHOR} className="scroll-mt-4">
       <SubHead
         aside={
           <button
@@ -158,7 +164,7 @@ function Activities({
       {plan.undeclared_rule_ids.length > 0 && (
         <div className="mt-2.5 rounded-inner border border-hairline px-3 py-2.5">
           <div className="text-eyebrow font-medium text-body">
-            In the books and not in the plan
+            Published offers not in the plan
           </div>
           {/* Published offers that name this campaign and that no activity
               here claims. They run either way; a press files one. */}
@@ -169,12 +175,18 @@ function Activities({
                 type="button"
                 disabled={file.isPending}
                 onClick={() => file.mutate(ruleId)}
+                aria-label={`Add ${ruleId} to the plan`}
                 className="rounded-full border border-hairline px-2.5 py-1 font-mono text-[0.875rem] text-body hover:bg-soft"
               >
                 {ruleId} +
               </button>
             ))}
           </div>
+          {file.isError && (
+            <div className="mt-2">
+              <ErrorState error={file.error} />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -207,7 +219,7 @@ function Activity({
         // The activity claims a rule the published books file elsewhere. That
         // rule's takings are attributed to another campaign in every report, so
         // this one is reading somebody else's numbers.
-        <span className="text-[0.875rem] text-bad-fg">not in any book</span>
+        <span className="text-[0.875rem] text-bad-fg">not published</span>
       )}
       {activity.starts_on !== null && (
         <span className="text-[0.875rem] text-mute tabular-nums">
@@ -220,14 +232,16 @@ function Activity({
           {money(activity.cost_minor)}
         </span>
       )}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={onForget}
-        className="text-[0.875rem] text-mute hover:text-bad-fg"
-      >
-        Remove
-      </button>
+      <ConfirmButton
+        label="Remove"
+        variant="quiet"
+        tone="danger"
+        title={`Remove ${activity.name}?`}
+        description="It comes off this campaign's plan. Nothing changes at the shops — a published offer keeps running."
+        confirmLabel="Remove"
+        pending={busy}
+        onConfirm={onForget}
+      />
     </div>
   )
 }
@@ -292,14 +306,14 @@ function ActivityForm({
             ))}
           </Select>
         </Field>
-        <Field label="Name">
+        <Field label="Name" required>
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Window poster, 13 shops"
           />
         </Field>
-        <Field label={needsRef ? "Reference" : "Reference (optional)"}>
+        <Field label="Reference" required={needsRef}>
           <Input
             value={reference}
             onChange={(event) => setReference(event.target.value)}
@@ -346,8 +360,9 @@ function ActivityForm({
             Cancel
           </Button>
           <Button
-            variant="primary"
-            disabled={problem !== undefined || add.isPending}
+            variant="soft"
+            pending={add.isPending}
+            disabled={problem !== undefined}
             onClick={() => add.mutate()}
           >
             {add.isPending ? "Adding…" : "Add"}
@@ -558,7 +573,7 @@ function Reach({
                     ])
                   }
                 >
-                  Take the book's shops
+                  Use the published shops
                 </Button>
               )}
           </div>
@@ -599,22 +614,22 @@ function Drift({ plan }: { plan: CampaignPlanView }) {
       {wideOpen && (
         <>
           Declared for {count(declaredSites.length)} shop
-          {declaredSites.length === 1 ? "" : "s"}, and the published book
-          narrows nothing — so the offers inside it reach every shop that holds
-          the book. Narrowing that is a new book, not a change here.
+          {declaredSites.length === 1 ? "" : "s"}, but the published campaign
+          names no shop — so the offers inside it reach every shop. Narrowing
+          that takes a new price change, not a change here.
         </>
       )}
       {declared_not_bound.length > 0 && (
         <>
           {" "}
-          Declared but not carried by the book: {declared_not_bound.join(", ")}.
-          Nothing runs there.
+          Declared but not in the published campaign:{" "}
+          {declared_not_bound.join(", ")}. Nothing runs there.
         </>
       )}
       {bound_not_declared.length > 0 && (
         <>
           {" "}
-          Carried by the book and never declared:{" "}
+          In the published campaign and never declared:{" "}
           {bound_not_declared.join(", ")}.
         </>
       )}
@@ -722,8 +737,14 @@ function Rails({
     },
   })
 
-  const limit = threshold.trim() === "" ? null : Number(threshold)
   const chosen = measureOf(measure)
+  // A rate is typed in percent and stored in basis points.
+  const limit =
+    threshold.trim() === ""
+      ? null
+      : chosen?.unit === "bps"
+        ? bpsOfPercent(threshold)
+        : Number(threshold)
   const problem =
     limit === null || Number.isNaN(limit)
       ? "A limit is a number."
@@ -734,7 +755,7 @@ function Rails({
           : undefined
 
   return (
-    <div>
+    <div id={LIMITS_ANCHOR} className="scroll-mt-4">
       <SubHead
         aside={
           <span className="flex items-center gap-2">
@@ -771,12 +792,12 @@ function Rails({
                 ))}
               </Select>
             </Field>
-            <Field label="Limit">
+            <Field label="Limit" required>
               <Money
                 value={threshold}
                 onChange={setThreshold}
                 prefix={chosen?.unit === "money" ? "Rp" : undefined}
-                suffix={chosen?.unit === "bps" ? "bps" : undefined}
+                suffix={chosen?.unit === "bps" ? "%" : undefined}
                 label="Limit"
               />
             </Field>
@@ -795,8 +816,9 @@ function Rails({
               {problem ?? ""}
             </span>
             <Button
-              variant="primary"
-              disabled={problem !== undefined || write.isPending}
+              variant="soft"
+              pending={write.isPending}
+              disabled={problem !== undefined}
               onClick={() =>
                 write.mutate([
                   ...plan.guardrails,
@@ -857,20 +879,22 @@ function Rails({
                 {rail.breach_action === "PAUSE_CAMPAIGN" && (
                   <Pill tone="warn">Stops it</Pill>
                 )}
-                <button
-                  type="button"
-                  disabled={write.isPending}
-                  onClick={() =>
+                <ConfirmButton
+                  label="Remove"
+                  variant="quiet"
+                  tone="danger"
+                  title="Remove this limit?"
+                  description={`${measureOf(rail.measure)?.label ?? rail.measure} stops being watched. Nothing changes at the shops.`}
+                  confirmLabel="Remove"
+                  pending={write.isPending}
+                  onConfirm={() =>
                     write.mutate(
                       plan.guardrails.filter(
                         (one) => one.guardrail_id !== rail.guardrail_id
                       )
                     )
                   }
-                  className="text-[0.875rem] text-mute hover:text-bad-fg"
-                >
-                  Remove
-                </button>
+                />
               </div>
             )
           })}

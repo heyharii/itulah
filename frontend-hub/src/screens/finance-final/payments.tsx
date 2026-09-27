@@ -1,11 +1,23 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Panel } from "@/components/ui/dialog"
-import { Checkbox, Field, Input, Money, Select, Textarea } from "@/components/ui/field"
+import {
+  Checkbox,
+  Field,
+  Input,
+  Money,
+  Select,
+  Textarea,
+} from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
@@ -14,9 +26,9 @@ import { Fact, Facts } from "@/components/ui/sheet"
 import {
   Banner,
   EmptyState,
+  LoadMore,
   NoAccessState,
   NoMatch,
-  Truncated,
 } from "@/components/ui/states"
 import { count, day, label, money, moment, toneFor } from "@/lib/format"
 import {
@@ -30,6 +42,7 @@ import {
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { useDebounced } from "@/lib/use-debounced"
 import {
   CardRow,
   Grid,
@@ -100,9 +113,9 @@ import type { SupplierBill, SupplierPayment } from "@itulah/contract"
 /// bill a draft already has. The composer shows the room rather than the
 /// outstanding for exactly that reason.
 
-/// What this screen asks the register for. The server's ceiling, not a page
-/// size: nothing here pages.
-const CAP = 200
+/// One page of the register. The list scrolls on — this is the size of a
+/// step, not a ceiling.
+const PAGE = 100
 
 /// `RecordPaymentRequest.method` is a fixed set on the server — four since
 /// 0220 dropped CHEQUE, because the client's chart has no cheque account and a
@@ -150,42 +163,59 @@ export function Payments() {
   const reading = useSheet("payment")
   const [composing, setComposing] = useState(false)
 
-  // Unit and status go on the wire and the key carries both. A register
-  // narrowed in the browser is a slice of the newest 200 payments of every
-  // status, which answers a different question and looks identical.
-  const payments = useQuery({
-    queryKey: financeKeys.payments(status || null, site || null, null),
-    queryFn: ({ signal }) =>
+  // Unit, status and the search all go on the wire and the key carries all
+  // three. A register narrowed in the browser is a slice of whatever pages it
+  // happens to hold, which answers a different question and looks identical.
+  const q = useDebounced(needle.trim(), 300)
+  const payments = useInfiniteQuery({
+    queryKey: [
+      ...financeKeys.payments(status || null, site || null, null),
+      "pages",
+      q,
+    ],
+    queryFn: ({ pageParam, signal }) =>
       listPayments(
         {
           status: status || undefined,
           site: site || undefined,
-          limit: CAP,
+          q: q || undefined,
+          limit: PAGE,
+          cursor: pageParam,
         },
         signal
-      ).then((page) => page.rows),
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => payments.data ?? [], [payments.data])
-  // The search box stays here: `financeKeys.payments` has no slot for a search
-  // term, so sending one on the wire would file two different searches under
-  // one cache entry. It narrows what is drawn, and the placeholder says so.
-  const shown = useMemo(() => {
-    const text = needle.trim().toLowerCase()
-    if (text === "") return rows
-    return rows.filter(
-      (row) =>
-        row.payment_number.toLowerCase().includes(text) ||
-        (row.reference ?? "").toLowerCase().includes(text) ||
-        partiesOf(row).some((name) => name.toLowerCase().includes(text))
-    )
-  }, [rows, needle])
+  // In draft is its own question, asked of the server: the register pages, so
+  // adding up the drafts among the loaded rows would be a figure about how far
+  // somebody scrolled. One row is asked for; the sum is what is wanted.
+  const drafts = useQuery({
+    queryKey: [...financeKeys.payments("DRAFT", site || null, null), "sum", q],
+    queryFn: ({ signal }) =>
+      listPayments(
+        {
+          status: "DRAFT",
+          site: site || undefined,
+          q: q || undefined,
+          limit: 1,
+        },
+        signal
+      ),
+    enabled: status !== "POSTED",
+  })
 
-  const paid = rows.reduce((sum, row) => sum + row.total_minor, 0)
+  const rows = useMemo(
+    () => payments.data?.pages.flatMap((page) => page.rows) ?? [],
+    [payments.data]
+  )
+  const head = payments.data?.pages[0]
+  const matched = head?.total ?? rows.length
+  const paid = head?.total_minor ?? 0
   const open = rows.reduce((sum, row) => sum + unallocated(row), 0)
-  const draft = rows
-    .filter((row) => row.status === "DRAFT")
-    .reduce((sum, row) => sum + row.total_minor, 0)
+  const draft = status === "POSTED" ? 0 : (drafts.data?.total_minor ?? null)
 
   return (
     <PageContent>
@@ -198,7 +228,7 @@ export function Payments() {
             <Input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
-              placeholder="Search what is loaded"
+              placeholder="Number, reference or supplier"
               className="h-8 w-48"
             />
             <Button variant="primary" onClick={() => setComposing(true)}>
@@ -232,18 +262,16 @@ export function Payments() {
         <span className="text-[0.875rem] text-mute">
           {site === "" ? "Every unit" : <SiteName id={site} />}
           {status !== "" && ` · ${label(status)}`}
-          {` · ${count(rows.length)} ${rows.length === 1 ? "payment" : "payments"}`}
+          {` · ${count(matched)} ${matched === 1 ? "payment" : "payments"}`}
         </span>
       </Toolbar>
-
-      {rows.length >= CAP && <Truncated limit={CAP} noun="payments" />}
 
       <div className="flex flex-col gap-4">
         <CardRow columns={3}>
           <NumberCard
             label="Paid"
             value={paid}
-            note={`${count(rows.length)} ${rows.length === 1 ? "payment" : "payments"} listed, draft and posted together`}
+            note={`${count(matched)} ${matched === 1 ? "payment" : "payments"} matched, draft and posted together`}
           />
           {/* ERPNext's own term, and not an error state: a payment on account
               is legitimate there and waits to be told what it settled. Drawn
@@ -251,12 +279,12 @@ export function Payments() {
           <NumberCard
             label="Unallocated amount"
             value={open}
-            note="What was paid less what it was pointed at. Structurally zero here — see below."
+            note={`What was paid less what it was pointed at, over the ${count(rows.length)} loaded. Structurally zero here — see below.`}
           />
           <NumberCard
             label="In draft"
-            value={draft}
-            tone={draft > 0 ? "warn" : undefined}
+            value={draft ?? 0}
+            tone={draft !== null && draft > 0 ? "warn" : undefined}
             note="Recorded, not posted: no ledger row, and no money has left."
           />
         </CardRow>
@@ -270,7 +298,7 @@ export function Payments() {
             />
           ),
           render: () =>
-            rows.length === 0 ? (
+            rows.length === 0 && q === "" ? (
               <EmptyState>
                 No payment is recorded
                 {site === "" ? "" : " at this unit"}
@@ -278,130 +306,120 @@ export function Payments() {
                 Recording one writes it down; it is not in the books until
                 somebody posts it.
               </EmptyState>
-            ) : shown.length === 0 ? (
-              <NoMatch
-                what="payments"
-                held={rows.length}
-                onClear={() => setNeedle("")}
-              />
+            ) : rows.length === 0 ? (
+              <NoMatch what="payments" onClear={() => setNeedle("")} />
             ) : (
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th width="6.5rem">Date</Th>
-                    <Th width="9rem">Payment</Th>
-                    <Th width="5rem">Type</Th>
-                    <Th>Party</Th>
-                    <Th width="11rem">Paid from</Th>
-                    <Th width="8rem">Unit</Th>
-                    <Th align="right" width="9.5rem">
-                      Paid amount
-                    </Th>
-                    <Th align="right" width="9.5rem">
-                      Unallocated
-                    </Th>
-                    <Th width="6rem">Status</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shown.map((row) => (
-                    <tr
-                      key={row.payment_id}
-                      onClick={() => reading.open(row.payment_id)}
-                      className="cursor-pointer hover:bg-soft"
-                    >
-                      <Td>{day(row.payment_date)}</Td>
-                      <Td>
-                        <span className="block font-mono text-[0.875rem] text-ink">
-                          {row.payment_number}
-                        </span>
-                        <span className="block text-[0.875rem] text-mute">
-                          {row.reference ?? label(row.method)}
-                        </span>
-                      </Td>
-                      <Td>
-                        {/* One value in every row, and that is the point — see
-                            the head of this file. */}
-                        <Pill>Pay</Pill>
-                      </Td>
-                      <Td>
-                        <Parties payment={row} />
-                      </Td>
-                      <Td>
-                        <AccountMeaning
-                          meaning={row.account_key}
-                          qualifier={row.account_qualifier}
-                          code={row.account_code}
-                          name={row.account_name}
-                        />
-                      </Td>
-                      <Td>
-                        <SiteName id={row.site_id} />
-                      </Td>
-                      <Td align="right">
-                        <span className="font-medium text-ink">
-                          {money(row.total_minor)}
-                        </span>
-                      </Td>
-                      <Td align="right">
-                        {unallocated(row) === 0 ? (
-                          <span className="text-hairline-strong">·</span>
-                        ) : (
-                          money(unallocated(row))
-                        )}
-                      </Td>
-                      <Td>
-                        <Pill tone={toneFor(row.status)}>
-                          {label(row.status)}
-                        </Pill>
-                      </Td>
+              <>
+                <Grid>
+                  <thead>
+                    <tr>
+                      <Th width="6.5rem">Date</Th>
+                      <Th width="9rem">Payment</Th>
+                      <Th width="5rem">Type</Th>
+                      <Th>Party</Th>
+                      <Th width="11rem">Paid from</Th>
+                      <Th width="8rem">Unit</Th>
+                      <Th align="right" width="9.5rem">
+                        Paid amount
+                      </Th>
+                      <Th align="right" width="9.5rem">
+                        Unallocated
+                      </Th>
+                      <Th width="6rem">Status</Th>
                     </tr>
-                  ))}
-                  {/* A sum of the rows above, which is what it says it is. The
-                      register's wrapper unwraps the server's envelope to an
-                      array, so `total_minor` over everything the filters match
-                      does not reach this screen — see the note below. */}
-                  <TotalRow>
-                    <Td />
-                    <Td>Total</Td>
-                    <Td />
-                    <Td className="font-normal text-mute">
-                      the {count(shown.length)} listed
-                    </Td>
-                    <Td />
-                    <Td />
-                    <Td align="right">
-                      {money(
-                        shown.reduce((sum, row) => sum + row.total_minor, 0)
-                      )}
-                    </Td>
-                    <Td align="right">
-                      {money(
-                        shown.reduce((sum, row) => sum + unallocated(row), 0)
-                      )}
-                    </Td>
-                    <Td />
-                  </TotalRow>
-                </tbody>
-              </Grid>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr
+                        key={row.payment_id}
+                        onClick={() => reading.open(row.payment_id)}
+                        className="cursor-pointer hover:bg-soft"
+                      >
+                        <Td>{day(row.payment_date)}</Td>
+                        <Td>
+                          <span className="block font-mono text-[0.875rem] text-ink">
+                            {row.payment_number}
+                          </span>
+                          <span className="block text-[0.875rem] text-mute">
+                            {row.reference ?? label(row.method)}
+                          </span>
+                        </Td>
+                        <Td>
+                          {/* One value in every row, and that is the point — see
+                            the head of this file. */}
+                          <Pill>Pay</Pill>
+                        </Td>
+                        <Td>
+                          <Parties payment={row} />
+                        </Td>
+                        <Td>
+                          <AccountMeaning
+                            meaning={row.account_key}
+                            qualifier={row.account_qualifier}
+                            code={row.account_code}
+                            name={row.account_name}
+                          />
+                        </Td>
+                        <Td>
+                          <SiteName id={row.site_id} />
+                        </Td>
+                        <Td align="right">
+                          <span className="font-medium text-ink">
+                            {money(row.total_minor)}
+                          </span>
+                        </Td>
+                        <Td align="right">
+                          {unallocated(row) === 0 ? (
+                            <span className="text-hairline-strong">·</span>
+                          ) : (
+                            money(unallocated(row))
+                          )}
+                        </Td>
+                        <Td>
+                          <Pill tone={toneFor(row.status)}>
+                            {label(row.status)}
+                          </Pill>
+                        </Td>
+                      </tr>
+                    ))}
+                    {/* The server's own total over everything the search and the
+                      filters match — not a sum of the pages scrolled so far.
+                      Unallocated is summed over what is loaded, and says so. */}
+                    <TotalRow>
+                      <Td />
+                      <Td>Total</Td>
+                      <Td />
+                      <Td className="font-normal text-mute">
+                        all {count(matched)} matched
+                      </Td>
+                      <Td />
+                      <Td />
+                      <Td align="right">{money(paid)}</Td>
+                      <Td align="right">
+                        <span title={`Over the ${count(rows.length)} loaded`}>
+                          {money(open)}
+                        </span>
+                      </Td>
+                      <Td />
+                    </TotalRow>
+                  </tbody>
+                </Grid>
+                <LoadMore query={payments} />
+              </>
             ),
         })}
 
         <Note>
-          <b>Three things this register cannot be.</b> Every row is a{" "}
-          <b>Pay</b>: there is no Receive document — customer money is taken at
-          the till and becomes a sale — and no Internal Transfer, so moving
-          money between two of our own pots is a manual journal entry.{" "}
-          <b>Unallocated amount</b> is ERPNext&rsquo;s word for money on account
-          and is a perfectly good state there; here it can never be anything but
-          zero, because <code>POST /finance/payments</code> refuses a payment
-          that names no bill and takes the total from the allocations. And the{" "}
-          <b>Total</b> row adds up the payments drawn above it rather than
-          everything the filters match: the endpoint answers with an envelope
-          carrying its own <code>total_minor</code>, and the wrapper this screen
-          shares with the live Finance module unwraps it to the rows. Both are
-          one-line changes on the backend, and both are named here rather than
-          papered over.
+          <b>Two things this register cannot be.</b> Every row is a <b>Pay</b>:
+          there is no Receive document — customer money is taken at the till and
+          becomes a sale — and no Internal Transfer, so moving money between two
+          of our own pots is a manual journal entry. <b>Unallocated amount</b>{" "}
+          is ERPNext&rsquo;s word for money on account and is a perfectly good
+          state there; here it can never be anything but zero, because{" "}
+          <code>POST /finance/payments</code> refuses a payment that names no
+          bill and takes the total from the allocations. The <b>Total</b> row is
+          the server&rsquo;s own sum over everything the search and the filters
+          match, however far the list has been scrolled.
         </Note>
       </div>
 
@@ -660,13 +678,15 @@ function PaymentPanel({
                 <Note>
                   <b>This payment is evidence now.</b> The journal entry quotes
                   these amounts, so the database refuses to change either the
-                  payment or the bills it named — <i>&ldquo;payment{" "}
-                  {payment.payment_number} is posted; the bills it settled
-                  cannot be changed afterwards&rdquo;</i>. Correcting an
-                  allocation means reversing its journal entry and recording the
-                  payment again; there is no re-pointing of a settled payment,
-                  which is what ERPNext&rsquo;s Payment Reconciliation does and
-                  what that screen has no door for.
+                  payment or the bills it named —{" "}
+                  <i>
+                    &ldquo;payment {payment.payment_number} is posted; the bills
+                    it settled cannot be changed afterwards&rdquo;
+                  </i>
+                  . Correcting an allocation means reversing its journal entry
+                  and recording the payment again; there is no re-pointing of a
+                  settled payment, which is what ERPNext&rsquo;s Payment
+                  Reconciliation does and what that screen has no door for.
                 </Note>
               ) : (
                 <div className="flex flex-wrap items-end justify-between gap-3 border-t border-hairline pt-4">
@@ -688,7 +708,7 @@ function PaymentPanel({
                     </span>
                     <Button
                       variant="primary"
-                      disabled={post.isPending}
+                      pending={post.isPending}
                       onClick={() => post.mutate()}
                     >
                       {post.isPending ? "Posting…" : "Post to the books"}
@@ -847,12 +867,10 @@ function ComposerPanel({
           total_minor: paidMinor,
           reference: reference.trim() === "" ? null : reference.trim(),
           note: note.trim() === "" ? null : note.trim(),
-          allocations: priced.map(
-            (row): AllocateToBill => ({
-              invoice_id: row.invoice_id,
-              amount_minor: row.amount ?? 0,
-            })
-          ),
+          allocations: priced.map((row): AllocateToBill => ({
+            invoice_id: row.invoice_id,
+            amount_minor: row.amount ?? 0,
+          })),
           // Sent only on GIRO and refused by the server on anything else, so
           // a method changed after typing must not smuggle the old paper in.
           giro_number:
@@ -949,7 +967,7 @@ function ComposerPanel({
         )}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Unit" hint="A unit pays its own bills.">
+          <Field label="Unit" required hint="A unit pays its own bills.">
             <LocationSelect
               value={site}
               onChange={(next) => {
@@ -962,7 +980,7 @@ function ComposerPanel({
               emptyLabel="Choose a unit"
             />
           </Field>
-          <Field label="Payment date" hint="The day the money left.">
+          <Field label="Payment date" required hint="The day the money left.">
             <Day value={paymentDate} onChange={setPaymentDate} />
           </Field>
           <Field label="Method">
@@ -982,6 +1000,7 @@ function ComposerPanel({
             <>
               <Field
                 label="Giro number"
+                required
                 hint="Printed on the slip. Required for a giro."
               >
                 <Input
@@ -991,6 +1010,7 @@ function ComposerPanel({
               </Field>
               <Field
                 label="Giro due date"
+                required
                 hint="The date on its face — not before the payment date."
                 problem={
                   giroDueDate !== "" && giroDueDate < paymentDate
@@ -1009,6 +1029,7 @@ function ComposerPanel({
           )}
           <Field
             label="Paid amount"
+            required
             hint="What actually left the bank."
             problem={
               total.trim() !== "" && paidMinor === null
@@ -1076,8 +1097,7 @@ function ComposerPanel({
                 {candidates.map((bill) => {
                   const amount = chosen.get(bill.invoice_id)
                   const on = amount !== undefined
-                  const typed =
-                    amount === undefined ? null : parseMinor(amount)
+                  const typed = amount === undefined ? null : parseMinor(amount)
                   const free = roomOn(bill)
                   return (
                     <tr key={bill.invoice_id}>
@@ -1116,7 +1136,10 @@ function ComposerPanel({
                         {free === bill.outstanding_minor ? (
                           <span className="text-hairline-strong">·</span>
                         ) : (
-                          <span className="text-warn-fg" title="A draft payment already has part of this bill.">
+                          <span
+                            className="text-warn-fg"
+                            title="A draft payment already has part of this bill."
+                          >
                             {money(free)}
                           </span>
                         )}
@@ -1217,7 +1240,8 @@ function ComposerPanel({
           </span>
           <Button
             variant="primary"
-            disabled={!ready || record.isPending}
+            pending={record.isPending}
+            disabled={!ready}
             onClick={() => record.mutate()}
           >
             {record.isPending ? "Recording…" : "Record"}
@@ -1250,6 +1274,7 @@ function AccountField({
   return (
     <Field
       label="Paid from"
+      required
       hint={
         site === ""
           ? "Choose a unit first."

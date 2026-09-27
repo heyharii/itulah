@@ -143,12 +143,17 @@ pub async fn directory(
     // contract; see `compile::narrow`. It was three while the limit was bound
     // third; the limit now comes after the narrowing's own parameters, because
     // how many of those there are depends on how many clauses somebody wrote.
-    let narrowing = match query.segment_id {
+    let saved = match query.segment_id {
         Some(id) => {
             Some(infrastructure::segment_narrowing(&state.db, id, 2, state.clock.now()).await?)
         }
         None => None,
     };
+    // The filter bar's clauses, numbered after the saved segment's. Unlike the
+    // segment these ARE taken from the query string: they are what the reader
+    // has on screen right now, not a copy of something stored elsewhere.
+    let narrowing =
+        infrastructure::directory_narrowing(saved, query.filters.as_deref(), 2, state.clock.now())?;
     Ok(Json(
         infrastructure::list_members(&state.db, query, narrowing.as_ref(), state.clock.now())
             .await?,

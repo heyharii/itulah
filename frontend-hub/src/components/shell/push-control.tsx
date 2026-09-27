@@ -156,7 +156,7 @@ export function PushControl({ className }: { className?: string }) {
         <Button
           size="sm"
           variant="quiet"
-          disabled={turnOff.isPending}
+          pending={turnOff.isPending}
           onClick={() => turnOff.mutate()}
         >
           Matikan
@@ -173,7 +173,8 @@ export function PushControl({ className }: { className?: string }) {
           <Button
             size="sm"
             variant="ghost"
-            disabled={turnOn.isPending || server.isPending || username === ""}
+            pending={turnOn.isPending || server.isPending}
+            disabled={username === ""}
             onClick={() => turnOn.mutate()}
           >
             <BellRing />

@@ -1,11 +1,13 @@
 import { Popover } from "@base-ui/react/popover"
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useId, useMemo, useRef, useState } from "react"
 
+import { INVALID, useFieldAria } from "@/components/ui/field-state"
 import { BottomSheet } from "@/components/ui/picker-sheet"
 import { POPUP } from "@/lib/filter-chrome"
 import { usePickerSheet } from "@/lib/layout"
 import { dateOf, monthGrid, startOfDay, today, WEEKDAYS } from "@/lib/calendar"
+import { readDay } from "@/lib/day-parse"
 import { day } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -23,6 +25,14 @@ import { cn } from "@/lib/utils"
 /// every question that only wanted a date, and a promotion has never once
 /// started at 14:32. Where an instant is genuinely meant — a price book coming
 /// into force — that is still its own control's problem, not this one's.
+///
+/// **It can be typed at.** "besok", "jumat", "15/10", "akhir bulan", "3 hari
+/// lagi" — in Indonesian or English, read by chrono through `readDay()` in
+/// `lib/day-parse.ts`. A key pressed on the closed field opens it with that
+/// key in the box; the reading is shown in full, weekday included, before
+/// Enter takes it, and a reading outside `notBefore`/`notAfter` is refused
+/// there rather than filed. Clicking through the month still works exactly
+/// as it did.
 export function Day({
   value,
   onChange,
@@ -34,6 +44,8 @@ export function Day({
   label,
   disabled,
   clearable = true,
+  invalid,
+  required,
   className,
 }: {
   /// An ISO day, `yyyy-mm-dd`, in the local calendar. `""` is unanswered —
@@ -67,9 +79,19 @@ export function Day({
   /// and an × on every row of a schedule is a control offering to make the
   /// document invalid.
   clearable?: boolean
+  /// Refused, outside a `<Field>`. Inside one the field says it.
+  invalid?: boolean
+  /// A day must be given. Takes the × away too — see `clearable`.
+  required?: boolean
   className?: string
 }) {
   const [open, setOpen] = useState(false)
+  const aria = useFieldAria({ invalid, required })
+  const canClear =
+    value !== "" &&
+    clearable &&
+    disabled !== true &&
+    aria["aria-required"] !== true
   const sheet = usePickerSheet()
   const [month, setMonth] = useState(() =>
     dateOf(value === "" ? today() : value)
@@ -83,18 +105,137 @@ export function Day({
   const step = (by: number) =>
     setMonth((was) => new Date(was.getFullYear(), was.getMonth() + by, 1))
 
-  const changeOpen = (next: boolean) => {
+  /// What is being typed into the box above the month, and the day it reads
+  /// as. See `day-parse.ts` for what it understands.
+  const [typed, setTyped] = useState("")
+  const typeBox = useRef<HTMLInputElement>(null)
+  const typeId = useId()
+  const bounds = { notBefore, notAfter }
+  const read = typed.trim() === "" ? null : readDay(typed, now, bounds)
+  const outside = read !== null && isDead(read, notBefore, notAfter)
+
+  const typing = (next: string) => {
+    setTyped(next)
+    // The grid follows the reading, so the day about to be taken is on screen
+    // and lit before Enter takes it.
+    const found = next.trim() === "" ? null : readDay(next, now, bounds)
+    if (found !== null) setMonth(dateOf(found))
+  }
+
+  const changeOpen = (next: boolean, seed = "") => {
     setOpen(next)
+    setTyped("")
     // Reopening lands on the chosen month, not wherever the last visit left
     // the grid.
-    if (next) setMonth(dateOf(value === "" ? today() : value))
-    else onBlur?.()
+    if (next) {
+      setMonth(dateOf(value === "" ? today() : value))
+      if (seed !== "") typing(seed)
+    } else onBlur?.()
   }
+
+  /// Taking a day, however it was chosen. Through `changeOpen` so the form's
+  /// `onBlur` hears about it — a day clicked in the grid used to close the
+  /// panel without telling it, so a field validated on blur never was.
+  const pick = (iso: string) => {
+    onChange(iso)
+    changeOpen(false)
+  }
+
+  /// A key typed on the closed trigger opens the panel with that key already
+  /// in the box: a keyboard user types "besok" at the field, not at a button
+  /// they first have to press.
+  const typeOnTrigger = (event: React.KeyboardEvent) => {
+    if (
+      open ||
+      event.key.length !== 1 ||
+      event.key === " " ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey
+    )
+      return
+    event.preventDefault()
+    changeOpen(true, event.key)
+  }
+
+  /// The box a day is typed into, and its reading of what was typed.
+  ///
+  /// Above the month on a desk, where it takes focus. Below it on a phone,
+  /// so the sheet's first stop is the month and not a box that raises the
+  /// keyboard over it — and so, when somebody does want to type, the box
+  /// sits just above the keys.
+  const typeBlock = (touch: boolean) => (
+    <div className={touch ? "mt-3 border-t border-hairline pt-3" : undefined}>
+      {/* A plain input, not `<Input>`: that one reads the enclosing
+        `<Field>`, and context crosses the portal — this box would be
+        announced as the field's own required, refused answer. */}
+      <input
+        ref={typeBox}
+        value={typed}
+        onChange={(event) => typing(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return
+          // Inside a form, Enter would submit it with the day not yet taken.
+          event.preventDefault()
+          if (read !== null && !outside) pick(read)
+        }}
+        aria-label={`Type ${label ?? "a day"}`}
+        aria-describedby={typed.trim() === "" ? undefined : `${typeId}-read`}
+        aria-invalid={typed.trim() !== "" && (read === null || outside)}
+        placeholder="Type: besok, jumat, 15/10, akhir bulan"
+        autoComplete="off"
+        spellCheck={false}
+        className={cn(
+          "w-full rounded-inner border border-hairline-2 bg-canvas px-2.5 text-ink transition-colors outline-none placeholder:text-mute focus:border-accent",
+          "aria-[invalid=true]:border-bad",
+          touch ? "h-tap text-[1rem]" : "h-8 text-[0.875rem]"
+        )}
+      />
+      <p
+        id={`${typeId}-read`}
+        aria-live="polite"
+        className={cn(
+          "mt-1 mb-2 min-h-5 px-0.5 text-[0.875rem]",
+          read === null || outside ? "text-bad" : "text-body"
+        )}
+      >
+        {typed.trim() === "" ? (
+          <span className="text-mute">
+            {touch ? "Or pick one above." : "Or pick one below."}
+          </span>
+        ) : read === null ? (
+          "Not a day this can read."
+        ) : outside ? (
+          <>{longDay(read)} is outside what this field allows.</>
+        ) : touch ? (
+          longDay(read)
+        ) : (
+          <>
+            {longDay(read)}
+            <span className="text-mute"> — Enter to take it</span>
+          </>
+        )}
+      </p>
+      {/* A phone's keyboard may not say "Enter" anywhere on it, so the
+          reading gets a button of its own. */}
+      {touch && read !== null && !outside && (
+        <button
+          type="button"
+          onClick={() => pick(read)}
+          className="h-tap w-full rounded-inner bg-cta text-[0.9375rem] font-medium text-cta-fg"
+        >
+          Take this day
+        </button>
+      )}
+    </div>
+  )
 
   /// The month itself, at two sizes: the desk's 28px days in a popover, or
   /// 44px days a thumb can hit in a sheet from the bottom of a phone.
   const calendar = (touch: boolean) => (
     <>
+      {!touch && typeBlock(false)}
+
       {presets && presets.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5 border-b border-hairline pb-2.5">
           {presets.map((one) => (
@@ -107,10 +248,7 @@ export function Day({
                   ? "px-3.5 py-2 text-[0.875rem]"
                   : "px-2.5 py-1 text-[0.875rem]"
               )}
-              onClick={() => {
-                onChange(one.value)
-                setOpen(false)
-              }}
+              onClick={() => pick(one.value)}
             >
               {one.label}
             </button>
@@ -168,9 +306,8 @@ export function Day({
         ))}
         {grid.map((iso) => {
           const inMonth = dateOf(iso).getMonth() === month.getMonth()
-          const dead =
-            (notBefore != null && notBefore !== "" && iso < notBefore) ||
-            (notAfter != null && notAfter !== "" && iso > notAfter)
+          const dead = isDead(iso, notBefore, notAfter)
+          const candidate = read !== null && !outside && iso === read
           return (
             <button
               key={iso}
@@ -183,23 +320,24 @@ export function Day({
                   ? "cursor-default text-faint"
                   : iso === value
                     ? "bg-ink font-medium text-white"
-                    : cn(
-                        "hover:bg-soft-2 hover:text-ink",
-                        iso === now && "font-semibold text-accent",
-                        !inMonth && iso !== now && "text-faint",
-                        inMonth && iso !== now && "text-text"
-                      )
+                    : candidate
+                      ? "bg-accent-bg font-medium text-accent ring-1 ring-accent"
+                      : cn(
+                          "hover:bg-soft-2 hover:text-ink",
+                          iso === now && "font-semibold text-accent",
+                          !inMonth && iso !== now && "text-faint",
+                          inMonth && iso !== now && "text-text"
+                        )
               )}
-              onClick={() => {
-                onChange(iso)
-                setOpen(false)
-              }}
+              onClick={() => pick(iso)}
             >
               {dateOf(iso).getDate()}
             </button>
           )
         })}
       </div>
+
+      {touch && typeBlock(true)}
     </>
   )
 
@@ -216,6 +354,7 @@ export function Day({
             onClick={() => changeOpen(true)}
             aria-label={label}
             disabled={disabled}
+            {...aria}
             className={cn(
               // `<Input>`'s chrome, class for class, because that is where this
               // control lives: of the forty-odd boxes it draws, nearly all stand
@@ -229,7 +368,8 @@ export function Day({
               "hover:border-hairline-strong",
               "focus-visible:border-accent data-[popup-open]:border-accent",
               "disabled:opacity-50",
-              value === "" || !clearable ? "pr-9" : "pr-14",
+              INVALID,
+              canClear ? "pr-14" : "pr-9",
               // The caller's classes reach BOTH boxes. A toolbar asks for `h-8`
               // and `w-40`; the height belongs to the control and the width to
               // the space it stands in, and a caller should not have to know
@@ -247,7 +387,7 @@ export function Day({
             </span>
             <CalendarDays className="absolute right-3 size-3.5 shrink-0 text-line-ico" />
           </button>
-          {value !== "" && clearable && (
+          {canClear && (
             <button
               type="button"
               aria-label={`Clear ${label}`}
@@ -260,7 +400,7 @@ export function Day({
         </span>
         <BottomSheet
           open={open}
-          onOpenChange={changeOpen}
+          onOpenChange={(next) => changeOpen(next)}
           title={label ?? "Pick a day"}
         >
           <div className="px-4 pb-4">{calendar(true)}</div>
@@ -270,7 +410,7 @@ export function Day({
   }
 
   return (
-    <Popover.Root open={open} onOpenChange={changeOpen}>
+    <Popover.Root open={open} onOpenChange={(next) => changeOpen(next)}>
       {/* Clearing is a decision and gets its own control — but BESIDE the
           trigger, never inside it: a button nested in a button is announced as
           two controls and activated as one. */}
@@ -278,6 +418,8 @@ export function Day({
         <Popover.Trigger
           aria-label={label}
           disabled={disabled}
+          onKeyDown={typeOnTrigger}
+          {...aria}
           className={cn(
             // `<Input>`'s chrome, class for class, because that is where this
             // control lives: of the forty-odd boxes it draws, nearly all stand
@@ -291,7 +433,9 @@ export function Day({
             "hover:border-hairline-strong",
             "focus-visible:border-accent data-[popup-open]:border-accent",
             "disabled:opacity-50",
-            value === "" || !clearable ? "pr-9" : "pr-14",
+            INVALID,
+            "aria-[invalid=true]:data-[popup-open]:border-bad",
+            canClear ? "pr-14" : "pr-9",
             // The caller's classes reach BOTH boxes. A toolbar asks for `h-8`
             // and `w-40`; the height belongs to the control and the width to
             // the space it stands in, and a caller should not have to know
@@ -314,7 +458,7 @@ export function Day({
               a sign, not the target. */}
           <CalendarDays className="absolute right-3 size-3.5 shrink-0 text-line-ico" />
         </Popover.Trigger>
-        {value !== "" && clearable && (
+        {canClear && (
           <button
             type="button"
             aria-label={`Clear ${label}`}
@@ -340,11 +484,41 @@ export function Day({
           align="start"
           sideOffset={6}
         >
-          <Popover.Popup className={cn(POPUP, "w-[17.5rem] p-2.5")}>
+          {/* The box takes focus on a desk, so opening and typing is one
+              motion. Not on a phone: a keyboard rising over the month is the
+              opposite of what a tap on a calendar asked for. */}
+          <Popover.Popup
+            initialFocus={typeBox}
+            className={cn(POPUP, "w-[17.5rem] p-2.5")}
+          >
             {calendar(false)}
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
     </Popover.Root>
   )
+}
+
+/// Outside the window the field declares. An empty bound is no bound.
+function isDead(
+  iso: string,
+  notBefore: string | null | undefined,
+  notAfter: string | null | undefined
+): boolean {
+  return (
+    (notBefore != null && notBefore !== "" && iso < notBefore) ||
+    (notAfter != null && notAfter !== "" && iso > notAfter)
+  )
+}
+
+/// The reading of what was typed, said in full — weekday and all — because
+/// the weekday is how somebody checks that "jumat" landed on the Friday they
+/// meant.
+function longDay(iso: string): string {
+  return dateOf(iso).toLocaleDateString("id-ID", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  })
 }

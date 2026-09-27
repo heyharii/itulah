@@ -142,10 +142,13 @@ export function idempotencyKey(): string {
 }
 
 /// The event kinds the server writes, named in `0040_collaboration.sql` and
-/// widened once by `0046_notifications.sql`.
+/// widened by `0046_notifications.sql` and `0476` (`chat.update`,
+/// `chat.room`).
 export const EVENT_KINDS = [
   "chat.message",
   "chat.read",
+  "chat.update",
+  "chat.room",
   "discussion.thread",
   "discussion.post",
   "notification",
@@ -163,8 +166,15 @@ export function eventSubject(payload: unknown): {
   threadId?: string
   author?: string
   title?: string
+  seq?: number
+  change?: string
+  /// `TEXT` or `SYSTEM`, on a `chat.message`.
+  messageKind?: string
+  /// Who a `chat.message` names with `@`. Empty when the payload predates
+  /// migration 0476 or names nobody.
+  mentions: string[]
 } {
-  if (typeof payload !== "object" || payload === null) return {}
+  if (typeof payload !== "object" || payload === null) return { mentions: [] }
   const record = payload as Record<string, unknown>
   const text = (value: unknown) =>
     typeof value === "string" && value !== "" ? value : undefined
@@ -173,5 +183,14 @@ export function eventSubject(payload: unknown): {
     threadId: text(record.thread_id),
     author: text(record.author),
     title: text(record.title),
+    seq:
+      typeof record.seq === "number" && Number.isFinite(record.seq)
+        ? record.seq
+        : undefined,
+    change: text(record.change),
+    messageKind: text(record.kind),
+    mentions: Array.isArray(record.mentions)
+      ? record.mentions.filter((one): one is string => typeof one === "string")
+      : [],
   }
 }

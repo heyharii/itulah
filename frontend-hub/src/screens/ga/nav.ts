@@ -30,8 +30,8 @@ import type { AppModule } from "@/lib/navigation"
 /// not been asked.
 export const gaOverviewNav: AppModule = {
   id: "ga-overview",
-  label: "Ringkasan",
+  label: "Overview",
   icon: Gauge,
   home: "/ga",
-  sections: [{ items: [{ path: "/ga", label: "Ringkasan", icon: Gauge }] }],
+  sections: [{ items: [{ path: "/ga", label: "Overview", icon: Gauge }] }],
 }

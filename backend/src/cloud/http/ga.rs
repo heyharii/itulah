@@ -74,35 +74,6 @@ fn allowed(principal: &Principal, needed: Role, act: &str) -> Result<(), AppErro
     )))
 }
 
-/// A facet counted over rows already narrowed to one shop, busiest first —
-/// the order the readers' own facets come in. For a relayed call, whose rows
-/// are narrowed in the handler rather than the query (see `repairs`).
-fn recount(
-    values: impl Iterator<Item = (String, Option<String>)>,
-) -> Vec<infrastructure::GaMaintenanceFacet> {
-    let mut counted: std::collections::BTreeMap<String, (Option<String>, i64)> =
-        std::collections::BTreeMap::new();
-    for (value, label) in values {
-        let entry = counted.entry(value).or_insert((label, 0));
-        entry.1 += 1;
-    }
-    let mut facets: Vec<_> = counted
-        .into_iter()
-        .map(|(value, (label, count))| infrastructure::GaMaintenanceFacet {
-            value,
-            label,
-            count,
-        })
-        .collect();
-    facets.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
-    facets
-}
-
-/// A caller's `limit`, clamped the way the maintenance readers clamp it.
-fn page_size(limit: i64) -> usize {
-    usize::try_from(limit.clamp(1, infrastructure::MAX_GA_MAINTENANCE_LIMIT)).unwrap_or(1)
-}
-
 /// What GA wants somebody to look at, as of the business clock's today.
 ///
 /// The thresholds are the server's and not the screen's, deliberately: a
@@ -127,7 +98,7 @@ pub async fn overview(
 /// and nothing else. `site`, `class`, `build`, `condition` and `status` filter,
 /// each repeatable or comma-separated. `draft=true` keeps only the assets a bill
 /// minted and nobody has walked the floor for; `draft=false` drops them.
-/// `limit` caps the answer.
+/// `limit` is the page size and `cursor` the previous page's `next_cursor`.
 ///
 /// Every one of these is a facet the same answer carries, so a filter panel can
 /// be drawn from the reply rather than from a second request that might
@@ -148,6 +119,7 @@ pub async fn assets(
             "condition",
             "status",
             "draft",
+            "cursor",
             "limit",
         ],
     )?;
@@ -174,6 +146,7 @@ pub async fn assets(
             conditions: facet_values(&params, "condition"),
             statuses: facet_values(&params, "status"),
             draft_only,
+            cursor: single_value(&params, "cursor"),
             limit: limit_value(&params)?.unwrap_or(DEFAULT_GA_ASSET_LIMIT),
         },
     )
@@ -471,43 +444,41 @@ pub async fn record_meter_reading(
 // Maintenance: the schedule, the walk-round, the repair, the swap, the disposal
 // ---------------------------------------------------------------------------
 
-/// The schedule of standing services, first page.
+/// One upkeep list's scope from the query string: `site` (one; a shop's till
+/// is held to its own), `cursor` and `limit`.
+///
+/// The site narrows in the query rather than after it, so a shop's till
+/// reads its own rows a page at a time, and every facet and count is over the
+/// same rows — the rule `/ga/locations/{site}` shows as the place's strip.
+fn maintenance_scope(
+    principal: &Principal,
+    params: &[(String, String)],
+) -> Result<infrastructure::GaMaintenanceScope, AppError> {
+    Ok(infrastructure::GaMaintenanceScope {
+        site_id: principal
+            .site_filter(facet_values(params, "site"))?
+            .into_iter()
+            .next(),
+        cursor: single_value(params, "cursor"),
+        limit: limit_value(params)?.unwrap_or(DEFAULT_GA_MAINTENANCE_LIMIT),
+    })
+}
+
+/// The schedule of standing services, a page at a time.
 pub async fn maintenance_tasks(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<GaMaintenanceTaskPage>, AppError> {
     allowed(&principal, Role::Supervisor, "read the maintenance schedule")?;
+    refuse_unknown_parameters(&params, &["limit", "cursor", "site"])?;
+    let scope = maintenance_scope(&principal, &params)?;
+    let mut page = infrastructure::ga_maintenance_task_page(&state.db, scope).await?;
     if let Some(site) = principal.bound_site() {
-        // Through a shop's till. The reader takes no site, so the schedule is
-        // read to its ceiling and narrowed here to the tasks whose own row
-        // names the site — the same rows, by the same rule, that
-        // `/ga/locations/{site}` shows as the place's strip. Every facet is
-        // recounted over what is left, so nothing counted across the estate
-        // leaves with it.
-        refuse_unknown_parameters(&params, &["limit", "site"])?;
-        principal.site_filter(facet_values(&params, "site"))?;
-        let limit = limit_value(&params)?.unwrap_or(DEFAULT_GA_MAINTENANCE_LIMIT);
-        let mut page = infrastructure::ga_maintenance_task_page(
-            &state.db,
-            infrastructure::MAX_GA_MAINTENANCE_LIMIT,
-        )
-        .await?;
-        page.rows.retain(|task| task.site_id.as_deref() == Some(site));
-        page.total = page.rows.len() as i64;
+        // The counts are already the site's own; the site facet says so.
         page.facets.sites.retain(|facet| facet.value == site);
-        page.facets.statuses = recount(page.rows.iter().map(|task| (task.status.clone(), None)));
-        page.rows.truncate(page_size(limit));
-        return Ok(Json(page));
     }
-    refuse_unknown_parameters(&params, &["limit"])?;
-    Ok(Json(
-        infrastructure::ga_maintenance_task_page(
-            &state.db,
-            limit_value(&params)?.unwrap_or(DEFAULT_GA_MAINTENANCE_LIMIT),
-        )
-        .await?,
-    ))
+    Ok(Json(page))
 }
 
 /// Put a standing service promise on the schedule. The first due date is
@@ -546,13 +517,10 @@ pub async fn inspections(
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<GaInspectionPage>, AppError> {
     allowed(&principal, Role::Supervisor, "read the inspection list")?;
-    refuse_unknown_parameters(&params, &["limit"])?;
+    refuse_unknown_parameters(&params, &["limit", "cursor"])?;
     Ok(Json(
-        infrastructure::ga_inspection_page(
-            &state.db,
-            limit_value(&params)?.unwrap_or(DEFAULT_GA_MAINTENANCE_LIMIT),
-        )
-        .await?,
+        infrastructure::ga_inspection_page(&state.db, maintenance_scope(&principal, &params)?)
+            .await?,
     ))
 }
 
@@ -575,39 +543,15 @@ pub async fn repairs(
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<GaRepairPage>, AppError> {
     allowed(&principal, Role::Supervisor, "read the repair list")?;
+    refuse_unknown_parameters(&params, &["limit", "cursor", "site"])?;
+    let scope = maintenance_scope(&principal, &params)?;
+    let today = state.clock.now().date_naive();
+    let mut page = infrastructure::ga_repair_page(&state.db, scope, today).await?;
     if let Some(site) = principal.bound_site() {
-        // Through a shop's till: read to the ceiling and narrowed to the site,
-        // as the maintenance schedule above and as `/ga/locations/{site}`
-        // narrows its repair strip. Facets and the cost total are recounted
-        // over the shop's own rows.
-        refuse_unknown_parameters(&params, &["limit", "site"])?;
-        principal.site_filter(facet_values(&params, "site"))?;
-        let limit = limit_value(&params)?.unwrap_or(DEFAULT_GA_MAINTENANCE_LIMIT);
-        let mut page =
-            infrastructure::ga_repair_page(&state.db, infrastructure::MAX_GA_MAINTENANCE_LIMIT)
-                .await?;
-        page.rows.retain(|repair| repair.site_id == site);
-        page.total = page.rows.len() as i64;
+        // The counts are already the site's own; the site facet says so.
         page.facets.sites.retain(|facet| facet.value == site);
-        page.facets.objects = recount(
-            page.rows
-                .iter()
-                .map(|repair| (repair.objek.clone(), Some(repair.objek_name.clone()))),
-        );
-        page.facets.statuses =
-            recount(page.rows.iter().map(|repair| (repair.status.clone(), None)));
-        page.rows.truncate(page_size(limit));
-        page.actual_cost_total_minor = page.rows.iter().map(|repair| repair.actual_cost_minor).sum();
-        return Ok(Json(page));
     }
-    refuse_unknown_parameters(&params, &["limit"])?;
-    Ok(Json(
-        infrastructure::ga_repair_page(
-            &state.db,
-            limit_value(&params)?.unwrap_or(DEFAULT_GA_MAINTENANCE_LIMIT),
-        )
-        .await?,
-    ))
+    Ok(Json(page))
 }
 
 /// Record a breakdown. The object is derived from the asset's class when it is
@@ -702,13 +646,10 @@ pub async fn replacements(
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<GaReplacementPage>, AppError> {
     allowed(&principal, Role::Supervisor, "read the replacement list")?;
-    refuse_unknown_parameters(&params, &["limit"])?;
+    refuse_unknown_parameters(&params, &["limit", "cursor"])?;
     Ok(Json(
-        infrastructure::ga_replacement_page(
-            &state.db,
-            limit_value(&params)?.unwrap_or(DEFAULT_GA_MAINTENANCE_LIMIT),
-        )
-        .await?,
+        infrastructure::ga_replacement_page(&state.db, maintenance_scope(&principal, &params)?)
+            .await?,
     ))
 }
 
@@ -921,6 +862,49 @@ pub async fn supplies(
         )
         .await?,
     ))
+}
+
+/// The supply register a page at a time, for the screen that walks it.
+///
+/// The same scope as [`supplies`] plus `cursor`, answered as a page with the
+/// total and the stage counts. `/supplies` stays the plain array a shop's
+/// till and the site hub read; this is the register's own reading of it.
+pub async fn supply_book(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<infrastructure::GaSupplyPage>, AppError> {
+    allowed(&principal, Role::Supervisor, "read the supply register")?;
+    refuse_unknown_parameters(&params, &["site", "status", "q", "cursor", "limit"])?;
+    Ok(Json(
+        infrastructure::ga_supply_page(
+            &state.db,
+            GaSupplyScope {
+                site_id: principal
+                    .site_filter(single_value(&params, "site").into_iter().collect())?
+                    .into_iter()
+                    .next(),
+                statuses: facet_values(&params, "status"),
+                needle: single_value(&params, "q"),
+                limit: limit_value(&params)?.unwrap_or(DEFAULT_GA_SUPPLY_LIMIT),
+            },
+            single_value(&params, "cursor").as_deref(),
+        )
+        .await?,
+    ))
+}
+
+/// One supply request — what the request sheet opens, wherever in the
+/// register it sits. A shop's till reads only its own site's.
+pub async fn supply(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(request_id): Path<Uuid>,
+) -> Result<Json<GaSupplyRequestRow>, AppError> {
+    allowed(&principal, Role::Supervisor, "read a supply request")?;
+    let row = infrastructure::ga_supply_request(&state.db, request_id).await?;
+    principal.may_touch_site(Some(&row.site_id), "supply request")?;
+    Ok(Json(row))
 }
 
 /// File an ask. Brief §11: a shop files for its own site. A call relayed by a
@@ -1280,5 +1264,7 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
         )
         .route("/api/v1/ga/supply-categories", get(supply_categories))
         .route("/api/v1/ga/supplies", get(supplies).post(record_supply))
+        .route("/api/v1/ga/supply-book", get(supply_book))
+        .route("/api/v1/ga/supplies/{request_id}", get(supply))
         .route("/api/v1/ga/supplies/{request_id}/move", post(move_supply))
 }

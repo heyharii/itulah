@@ -1,12 +1,20 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { CreditCard, HeartHandshake, RotateCcw } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { AppLink } from "@/components/ui/app-link"
 import { Day } from "@/components/ui/day"
+import { FindMany, type Found } from "@/components/ui/find"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
@@ -20,9 +28,10 @@ import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, Truncated } from "@/components/ui/states"
+import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { commercialKeys, promotionCatalogue } from "@/lib/queries/commercial"
+import { listMembers } from "@/lib/queries/members"
 import { useFilters } from "@/lib/filters"
 import { count, day, money, moment } from "@/lib/format"
 import {
@@ -34,6 +43,10 @@ import {
   voidVoucher,
   voucherDetail,
   voucherKeys,
+  voucherScopeFromFilters,
+  VOUCHER_DATE_OPERATORS,
+  VOUCHER_NUMBER_OPERATORS,
+  type VoucherQuery,
   type VoucherKind,
   type VoucherRow,
   type VoucherStatus,
@@ -41,6 +54,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import { Question } from "@/screens/commercial/controls"
 
 /// Vouchers — value a customer already holds and can pay with.
@@ -142,6 +156,9 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     accessorFn: (row) => holder(row),
     header: "Holder",
     size: 180,
+    // Sorted by the server, which has no holder order — a sort over the pages
+    // loaded would put page two's Adi below page one's Yusuf.
+    enableSorting: false,
     // No filter: the box in the header already searches the holder, and this
     // accessor never goes blank — an unnamed card reads "Bearer" — so an
     // emptiness clause would find nothing and a facet would be a list of every
@@ -164,9 +181,18 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     // `lib/format`'s `money` — so a bound is compared exactly as it is typed.
     // Multiplying by a hundred here is what makes a filter for cards over
     // 500.000 match nothing at all.
+    //
+    // Narrowed by the SERVER, so the operators are the ones the request can
+    // carry, and one clause per column — see `voucherScopeFromFilters`.
     meta: {
       align: "right",
-      filter: { kind: "number", label: "Face value", unit: "Rp" },
+      filter: {
+        kind: "number",
+        label: "Face value",
+        unit: "Rp",
+        operators: VOUCHER_NUMBER_OPERATORS,
+        single: true,
+      },
     },
     cell: ({ row }) => (
       <span className="text-body tabular-nums">
@@ -184,7 +210,13 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     // "is 0" is a spent card that has not been marked SPENT.
     meta: {
       align: "right",
-      filter: { kind: "number", label: "Left on it", unit: "Rp" },
+      filter: {
+        kind: "number",
+        label: "Left on it",
+        unit: "Rp",
+        operators: VOUCHER_NUMBER_OPERATORS,
+        single: true,
+      },
     },
     // The balance and how much of the card it is, together. A number alone
     // does not say whether 50,000 is most of a card or the last of one, and
@@ -218,7 +250,23 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     // stored status, and past-its-date is not one — it is the clock. So "is
     // EXPIRED" is the only way to ask for live cards nobody may spend, which
     // is the list somebody writing off a liability wants.
-    meta: { filter: { kind: "option", label: "Status", format: stateWord } },
+    //
+    // The server answers it as `state`, ANDed with the segment. Its four
+    // values are fixed rather than read off the loaded rows — the rows are a
+    // page of the book, and a value missing from page one still exists.
+    enableSorting: false,
+    meta: {
+      filter: {
+        kind: "option",
+        label: "Status",
+        format: stateWord,
+        options: (["ACTIVE", "EXPIRED", "SPENT", "VOIDED"] as const).map(
+          (value) => ({ value, label: stateWord(value) })
+        ),
+        operators: ["is"],
+        single: true,
+      },
+    },
     cell: ({ row }) => (
       <span className="flex items-center gap-1.5">
         <Pill tone={statusTone(row.original.status)}>
@@ -239,7 +287,15 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     // A voucher book is read by period — what was sold before Christmas, what
     // is still outstanding from last year — and that is a question no search
     // box and no sort can be made to answer.
-    meta: { align: "right", filter: { kind: "date", label: "Issued" } },
+    meta: {
+      align: "right",
+      filter: {
+        kind: "date",
+        label: "Issued",
+        operators: VOUCHER_DATE_OPERATORS,
+        single: true,
+      },
+    },
     cell: ({ row }) => (
       <span className="text-body tabular-nums">
         {day(row.original.issued_at)}
@@ -250,14 +306,14 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
 
 type Shown = "ALL" | VoucherStatus
 
-/// How many cards one answer carries.
-///
-/// Not asked for — this screen sends no `limit`, so it is the server's own
-/// `DEFAULT_PAGE` in `postgres/vouchers.rs`. Named here anyway, because the
-/// alternative is a screen that is silently a page of a book: everything on it
-/// is filtered, sorted and totalled over these rows and no others, and a
-/// reader has no way to tell that from the whole voucher book.
-const PAGE = 200
+/// Column → the server's sort key. The two columns missing here (holder,
+/// status) have no server order and so are not sortable at all.
+const SORTS: Record<string, string> = {
+  code: "code",
+  face: "value",
+  balance: "balance",
+  issued: "issued",
+}
 
 export function Vouchers() {
   const search = useSheet("q")
@@ -267,17 +323,67 @@ export function Vouchers() {
   const [issuing, setIssuing] = useState(false)
   const [coupons, setCoupons] = useState(false)
 
-  const list = useQuery({
-    queryKey: voucherKeys.list({
-      status: shown === "ALL" ? undefined : shown,
+  const filters = useFilters(columns)
+
+  /// Everything that narrows the list, as ONE request: the segment, the search
+  /// (debounced — every keystroke would be a round trip over the whole book),
+  /// the docked chips and the sort. All of it is the server's, so every page
+  /// is already the answer and the list can simply scroll — nothing narrows
+  /// only the pages that happen to be loaded.
+  const status = shown === "ALL" ? undefined : shown
+  const typed = (search.value ?? "").trim()
+  const needle = useDebounced(typed, 300)
+  const order = sorting[0]
+  const scope = useMemo<VoucherQuery>(
+    () => ({
+      status,
+      ...voucherScopeFromFilters(filters.filters),
+      ...(needle === "" ? {} : { q: needle }),
+      ...(order === undefined || SORTS[order.id] === undefined
+        ? {}
+        : { sort: SORTS[order.id], dir: order.desc ? "desc" : "asc" }),
     }),
-    queryFn: ({ signal }) =>
-      listVouchers({ status: shown === "ALL" ? undefined : shown }, signal),
+    [status, filters.filters, needle, order]
+  )
+  const narrowed =
+    needle !== "" || filters.filters.length > 0 || status !== undefined
+
+  /// A page at a time, on the server's cursor — the book is not capped, it is
+  /// paged, and the table fetches the next one as its foot nears view. Its own
+  /// key beside the plain list's: the Overview reads that one as a single page.
+  const list = useInfiniteQuery({
+    queryKey: [...voucherKeys.list(scope), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      listVouchers({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The rows already drawn stay while a new filter's first page is on its
+    // way, rather than the table blinking to a spinner on every keystroke.
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => list.data?.rows ?? [], [list.data])
+  const rows = useMemo(
+    () => list.data?.pages.flatMap((page) => page.rows) ?? [],
+    [list.data]
+  )
+  /// Every card the search and filters match, not just the pages loaded.
+  const total = list.data?.pages[0]?.total ?? rows.length
 
-  const filters = useFilters(columns)
+  /// Search, chips and segment off in one navigation — two `close()`s would be
+  /// two history entries racing over one search.
+  const navigate = useNavigate()
+  const clearFilters = () => {
+    setShown("ALL")
+    void navigate({
+      to: ".",
+      replace: true,
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        q: undefined,
+        f: undefined,
+      }),
+    } as never)
+  }
 
   const table = useTable(
     useMemo(
@@ -286,50 +392,36 @@ export function Vouchers() {
         data: rows,
         columns: filters.columns,
         getRowId: (row: VoucherRow) => row.code,
-        state: {
-          columnFilters: filters.columnFilters,
-          globalFilter: search.value ?? "",
-          sorting,
-        },
+        // No column filters and no global filter here: the server has already
+        // applied both, and applying them again would only re-check its work.
+        state: { sorting },
+        // The rows arrive in the order the request asked for. Sorting them
+        // again here would sort what has loaded, not the book.
+        manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, filters.columns, filters.columnFilters, search.value, sorting]
+      [rows, filters.columns, sorting]
     )
   )
 
-  const ledger = list.data?.ledger
+  const ledger = list.data?.pages[0]?.ledger
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Commercial"
+        crumb="Marketing"
         title="Vouchers"
         sub="Value a customer already holds and can pay with. Not a price, and not a discount."
         actions={
-          <>
-            <Input
-              value={search.value ?? ""}
-              onChange={(event) =>
-                event.target.value === ""
-                  ? search.close()
-                  : search.open(event.target.value)
-              }
-              placeholder="Card code or holder"
-              className="h-8 w-52"
-            />
-            {/* Coupons live here as a READER only — no list screen, no menu
-                row. A coupon is a gate on a promotion and cannot exist without
-                one, so it is authored on the promotion form; what it lacks is
-                a place to answer "which codes are out there", and a sheet on
-                the screen people already associate with codes answers it
-                without implying a coupon is a thing of its own. */}
-            <Button variant="soft" onClick={() => setCoupons(true)}>
-              Coupons
-            </Button>
-            <Button variant="primary" onClick={() => setIssuing(true)}>
-              New voucher
-            </Button>
-          </>
+          // Coupons live here as a READER only — no list screen, no menu
+          // row. A coupon is a gate on a promotion and cannot exist without
+          // one, so it is authored on the promotion form; what it lacks is a
+          // place to answer "which codes are out there", and a sheet on the
+          // screen people already associate with codes answers it without
+          // implying a coupon is a thing of its own.
+          <Button variant="soft" onClick={() => setCoupons(true)}>
+            Coupons
+          </Button>
         }
       />
 
@@ -346,7 +438,7 @@ export function Vouchers() {
           <Kpi label="Issued" value={money(ledger.issued_minor)} />
           <Kpi label="Cards issued" value={count(ledger.issued_count)} />
           <Kpi label="Spent" value={money(ledger.redeemed_minor)} />
-          <Kpi label="Written off" value={money(ledger.voided_minor)} />
+          <Kpi label="Stopped" value={money(ledger.voided_minor)} />
           <Kpi
             label="Past date"
             value={money(ledger.expired_minor)}
@@ -362,10 +454,12 @@ export function Vouchers() {
           a screen people have to learn twice. */}
       <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
+          {/* Tabs, then search and the one CTA — the same toolbar as
+              Promotions. */}
           <Toolbar className="mb-3">
             <Segmented
               options={[
-                { value: "ALL", label: "Everything" },
+                { value: "ALL", label: "All" },
                 { value: "ACTIVE", label: "Live" },
                 { value: "SPENT", label: "Spent" },
                 { value: "VOIDED", label: "Stopped" },
@@ -373,51 +467,70 @@ export function Vouchers() {
               value={shown}
               onChange={setShown}
             />
-            <Toolbar.Spacer />
-            <span className="text-[0.875rem] text-mute tabular-nums">
-              {count(rows.length)} cards
-            </span>
+            <div className="ml-auto flex items-center gap-2">
+              {/* The server's count of every card the list matches — the
+                  rest arrive as the table scrolls, so the loaded share is not
+                  a number anybody needs. */}
+              <span className="text-[0.875rem] text-mute tabular-nums">
+                {`${count(total)} cards`}
+              </span>
+              <Input
+                value={search.value ?? ""}
+                onChange={(event) =>
+                  event.target.value === ""
+                    ? search.close()
+                    : search.replace(event.target.value)
+                }
+                placeholder="Card code or holder"
+                className="h-8 w-52"
+              />
+              <Button variant="primary" onClick={() => setIssuing(true)}>
+                New voucher
+              </Button>
+            </div>
           </Toolbar>
 
           {/* The strip above is the liability over every card ever issued and
-              does not move with any of this; what moves is the list. Said
-              because a page that came back exactly as long as the server's
-              default may be hiding cards, and the outstanding figure would go
-              on looking authoritative over a third of the book. */}
-          {rows.length >= PAGE && <Truncated limit={PAGE} noun="cards" />}
-
+              does not move with any of this; what moves is the list. The
+              search, the segment and the docked filters are all asked of the
+              server, so the list below is always the whole answer, paged. */}
           <Card className="overflow-hidden">
             {queryState(list, {
-              loading: "Reading the voucher book…",
-              render: (data) =>
-                data.rows.length === 0 ? (
-                  <EmptyState
-                    action={
-                      shown === "ALL" ? (
-                        <Button
-                          variant="primary"
-                          onClick={() => setIssuing(true)}
-                        >
-                          New voucher
+              loading: "Loading vouchers…",
+              // No second New voucher here: the toolbar's is the one CTA.
+              render: () =>
+                rows.length === 0 ? (
+                  narrowed ? (
+                    <EmptyState
+                      action={
+                        <Button variant="ghost" onClick={clearFilters}>
+                          Clear filters
                         </Button>
-                      ) : undefined
-                    }
-                  >
-                    {shown === "ALL"
-                      ? "No voucher has been issued. A card is money the shop already holds and still owes."
-                      : "No card is in that state."}
-                  </EmptyState>
+                      }
+                    >
+                      {needle === "" && filters.filters.length === 0
+                        ? "No card is in that state."
+                        : "No card matches that search."}
+                    </EmptyState>
+                  ) : (
+                    <EmptyState>
+                      No voucher has been issued. A card is money the shop
+                      already holds and still owes.
+                    </EmptyState>
+                  )
                 ) : (
                   <DataTable<VoucherRow>
                     table={table}
                     onRowClick={(row) => open.open(row.code)}
                     isSelected={(row) => row.code === open.value}
                     empty="No card matches that search."
-                    className="max-h-[calc(100vh-24rem)]"
+                    more={list}
+                    className="max-h-[calc(100dvh-24rem)]"
                   />
                 ),
             })}
           </Card>
+
         </div>
 
         <DockedFilters model={filters} id="vouchers" subject="Voucher" />
@@ -586,8 +699,22 @@ function VoucherSheet({
                       <MiniCell>{moment(movement.occurred_at)}</MiniCell>
                       <MiniCell>
                         <span className="text-body">
-                          {describeMovement(movement.kind)}
+                          {/* "Stopped", the word the card's status uses. */}
+                          {movement.kind === "VOID"
+                            ? "Stopped"
+                            : describeMovement(movement.kind)}
                         </span>
+                        {/* Spent at a till: the sale it paid for, one click
+                            away. */}
+                        {movement.sale_id !== null && (
+                          <AppLink
+                            to="/sales"
+                            sheet={{ key: "sale", value: movement.sale_id }}
+                            className="ml-1.5 text-accent hover:underline"
+                          >
+                            Sale
+                          </AppLink>
+                        )}
                       </MiniCell>
                       <MiniCell align="right">
                         <span
@@ -656,15 +783,19 @@ function Actions({ voucher }: { voucher: VoucherRow }) {
 
   return (
     <div className="flex flex-col gap-3 rounded-inner border border-hairline-2 p-3.5">
+      {/* Openers, not actions: the one black button is the form's submit, so
+          the chosen one is only tinted. */}
       <div className="flex items-center gap-2">
         <Button
-          variant={doing === "REDEEM" ? "primary" : "ghost"}
+          variant={doing === "REDEEM" ? "soft" : "ghost"}
+          aria-pressed={doing === "REDEEM"}
           onClick={() => setDoing(doing === "REDEEM" ? null : "REDEEM")}
         >
           Spend against a sale
         </Button>
         <Button
-          variant={doing === "VOID" ? "primary" : "ghost"}
+          variant={doing === "VOID" ? "soft" : "ghost"}
+          aria-pressed={doing === "VOID"}
           onClick={() => setDoing(doing === "VOID" ? null : "VOID")}
         >
           Stop the card
@@ -728,6 +859,7 @@ function RedeemForm({
         {(field) => (
           <Field
             label="Amount"
+            required
             problem={
               minorFrom(field.state.value) > voucher.balance_minor
                 ? `Only ${money(voucher.balance_minor)} is left on this card.`
@@ -777,8 +909,8 @@ function RedeemForm({
           <Button
             variant="primary"
             type="submit"
+            pending={spend.isPending}
             disabled={
-              spend.isPending ||
               minorFrom(amount) <= 0 ||
               minorFrom(amount) > voucher.balance_minor
             }
@@ -834,13 +966,24 @@ function VoidForm({
         // money on it takes value away from a customer, and the amount is the
         // part somebody needs to see while deciding.
         <Banner tone="warn">
-          {money(voucher.balance_minor)} left on this card will be written off.
+          {money(voucher.balance_minor)} left on this card stops with it and
+          cannot be spent.
         </Banner>
       )}
 
       <form.Field name="reason">
         {(field) => (
-          <Field label="Reason">
+          <Field
+            label="Reason"
+            required
+            aside="At least 4 characters"
+            problem={
+              field.state.meta.isBlurred &&
+              field.state.value.trim().length < 4
+                ? "Give a reason (at least 4 characters)."
+                : undefined
+            }
+          >
             <Textarea
               rows={2}
               value={field.state.value}
@@ -857,7 +1000,8 @@ function VoidForm({
           <Button
             variant="primary"
             type="submit"
-            disabled={stop.isPending || reason.trim().length < 4}
+            pending={stop.isPending}
+            disabled={reason.trim().length < 4}
             className="self-start"
           >
             {stop.isPending ? "Stopping…" : "Stop the card"}
@@ -887,6 +1031,8 @@ function IssueSheet({
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
+  /// The member picked as holder, as the picker's chip.
+  const [holder, setHolder] = useState<readonly Found[]>([])
 
   const issue = useMutation({
     mutationFn: (value: {
@@ -921,6 +1067,7 @@ function IssueSheet({
     onSuccess: (voucher) => {
       void client.invalidateQueries({ queryKey: voucherKeys.all })
       idempotency.rotate()
+      setHolder([])
       onIssued(voucher.code)
     },
   })
@@ -953,7 +1100,8 @@ function IssueSheet({
                 variant="primary"
                 type="submit"
                 form="new-voucher"
-                disabled={issue.isPending || minorFrom(amount) <= 0}
+                pending={issue.isPending}
+                disabled={minorFrom(amount) <= 0}
               >
                 {issue.isPending
                   ? "Issuing…"
@@ -998,7 +1146,17 @@ function IssueSheet({
               does. */}
           <form.Field name="amount">
             {(field) => (
-              <Field label="Value" className="min-w-0">
+              <Field
+                label="Value"
+                required
+                className="min-w-0"
+                problem={
+                  field.state.meta.isBlurred &&
+                  minorFrom(field.state.value) <= 0
+                    ? "Enter what the card is worth."
+                    : undefined
+                }
+              >
                 <Money
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -1024,21 +1182,41 @@ function IssueSheet({
           </form.Field>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          {/* Blank is a bearer card — whoever holds it can spend it. */}
-          <form.Field name="member">
-            {(field) => (
-              <Field label="Holder" className="min-w-0">
-                <Input
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder="Anyone holding it"
-                />
-              </Field>
-            )}
-          </form.Field>
+        {/* Blank is a bearer card — whoever holds it can spend it. Picked
+            from the directory rather than typed: a mistyped card number is a
+            card nobody can find again. One holder, so a second pick replaces
+            the first. */}
+        <form.Field name="member">
+          {(field) => (
+            <Field label="Holder" aside="Blank: anyone holding it">
+              <FindMany
+                chosen={holder}
+                onChange={(next) => {
+                  const last = next.length > 0 ? next[next.length - 1] : null
+                  setHolder(last === null ? [] : [last])
+                  field.handleChange(last === null ? "" : last.value)
+                }}
+                queryKey={(needle) => ["members", "pick", needle] as const}
+                search={(needle, signal) =>
+                  listMembers({ q: needle, limit: 20 }, signal).then((page) =>
+                    page.members.map((member) => ({
+                      value: member.member_id,
+                      label: member.display_name ?? member.member_id,
+                      note: member.member_id,
+                      aside:
+                        member.blocked_at === null ? undefined : "Blocked",
+                    }))
+                  )
+                }
+                placeholder="Search a member by name or card number"
+                label="The member this card belongs to"
+                offline="The member directory is not answering."
+              />
+            </Field>
+          )}
+        </form.Field>
 
+        <div className="grid grid-cols-2 gap-3">
           {/* Only for pre-printed stock; otherwise one is minted. */}
           <form.Field name="code">
             {(field) => (
@@ -1145,13 +1323,12 @@ function CouponSheet({
       }
     >
       {queryState(catalogue, {
-        loading: "Opening every published book…",
-        render: (data) =>
+        loading: "Loading coupons…",
+        render: () =>
           rows.length === 0 ? (
             <EmptyState>
-              No coupon is published. {count(data.book_count)} book
-              {data.book_count === 1 ? "" : "s"} were opened to check. A code is
-              added on the promotion it unlocks.
+              No coupon has been published. A code is added on the promotion it
+              unlocks.
             </EmptyState>
           ) : (
             <div className="flex flex-col gap-5">
@@ -1164,7 +1341,7 @@ function CouponSheet({
                   { label: "Max uses", align: "right" },
                 ]}
               >
-                {rows.map(({ coupon, book }) => (
+                {rows.map(({ coupon }) => (
                   <MiniRow key={`${coupon.code}:${coupon.rule_id}`}>
                     <MiniCell>
                       <span className="flex items-center gap-2">
@@ -1181,12 +1358,18 @@ function CouponSheet({
                       </span>
                     </MiniCell>
                     <MiniCell>
-                      <span className="block truncate text-ink">
-                        {ruleName.get(coupon.rule_id) ?? "—"}
-                      </span>
-                      <span className="block truncate text-[0.875rem] text-mute">
-                        {book.name}
-                      </span>
+                      {/* The promotion it opens, one click away. */}
+                      {ruleName.has(coupon.rule_id) ? (
+                        <AppLink
+                          to="/commercial/promotions"
+                          sheet={{ key: "rule", value: coupon.rule_id }}
+                          className="block truncate text-accent hover:underline"
+                        >
+                          {ruleName.get(coupon.rule_id)}
+                        </AppLink>
+                      ) : (
+                        <span className="text-mute">—</span>
+                      )}
                     </MiniCell>
                     <MiniCell>
                       {coupon.customer_id === null ? (

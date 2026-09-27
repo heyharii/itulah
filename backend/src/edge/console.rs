@@ -86,11 +86,11 @@ async fn sync_now(
     match &console.source.sync {
         Some(sync) => {
             sync.trigger();
-            Json(json!({ "message": "Sinkron dimulai." })).into_response()
+            Json(json!({ "message": "Sync started." })).into_response()
         }
         None => (
             StatusCode::CONFLICT,
-            Json(json!({ "error": "Server ini belum terhubung ke kantor pusat." })),
+            Json(json!({ "error": "This server is not connected to head office yet." })),
         )
             .into_response(),
     }
@@ -134,7 +134,7 @@ async fn restart(
             StatusCode::CONFLICT,
             Json(json!({
                 "error": format!(
-                    "{} laci kasir masih terbuka ({}). Tutup dulu, atau paksa restart.",
+                    "Cash drawers still open: {} ({}). Close them first, or force the restart.",
                     till.open_shifts,
                     till.open_shift_terminals.join(", ")
                 ),
@@ -144,7 +144,25 @@ async fn restart(
             .into_response();
     }
     let _ = console.stop.send(StopReason::Restart);
-    Json(json!({ "message": "Server dimulai ulang. Halaman ini tersambung lagi sendiri." })).into_response()
+    Json(json!({ "message": "Server restarting. This page reconnects by itself." })).into_response()
+}
+
+async fn backup_now(
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
+    State(console): State<Console>,
+) -> Response {
+    if !from.ip().is_loopback() {
+        return not_here();
+    }
+    let Some(dir) = console.data_dir.clone() else {
+        return (StatusCode::CONFLICT, Json(json!({ "error": "This server has no data folder." }))).into_response();
+    };
+    let connection = console.source.connection.clone();
+    match tokio::task::spawn_blocking(move || crate::edge::backup::take(&connection, &dir)).await {
+        Ok(Ok(path)) => Json(json!({ "message": format!("Backup saved: {}", path.display()) })).into_response(),
+        Ok(Err(error)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Backup failed: {error}") }))).into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": error.to_string() }))).into_response(),
+    }
 }
 
 /// The console's routes, to be merged beside the node's own.
@@ -155,5 +173,6 @@ pub fn router(console: Console) -> Router {
         .route("/console/sync", post(sync_now))
         .route("/console/diagnose", post(run_diagnose))
         .route("/console/restart", post(restart))
+        .route("/console/backup", post(backup_now))
         .with_state(console)
 }

@@ -136,16 +136,102 @@ data class Quote(
 }
 
 /** How the shopper paid, in the order it was taken. */
-data class Tender(val method: String, val amountMinor: Long, val reference: String? = null) {
+data class Tender(
+    val method: String,
+    val amountMinor: Long,
+    val reference: String? = null,
+    /** The bank's EDC / QRIS / e-wallet acquirer, upper-cased. */
+    val acquirer: String? = null,
+    /** `DEBIT` or `CREDIT`, on a card only. */
+    val cardKind: String? = null,
+    /** Finance's Mode of Payment code; null when the till fell back to its
+     *  built-in list because the master could not be read. */
+    val paymentMethodCode: String? = null,
+) {
     fun json(): JSONObject = JSONObject()
         .put("method", method)
         .put("amount_minor", amountMinor)
         .put("reference", reference ?: JSONObject.NULL)
+        // Only when known, so a fallback tender is byte-for-byte what it was.
+        .apply {
+            acquirer?.let { put("acquirer", it) }
+            cardKind?.let { put("card_kind", it) }
+            paymentMethodCode?.let { put("payment_method_code", it) }
+        }
 
     companion object {
-        /** The five the node accepts. Voucher settles a liability rather than
+        /** The six the node accepts. Voucher settles a liability rather than
          *  taking money, and only cash can produce change. */
-        val METHODS = listOf("CASH", "CARD", "QRIS", "VOUCHER", "OTHER")
+        val METHODS = listOf("CASH", "CARD", "QRIS", "EWALLET", "VOUCHER", "OTHER")
+    }
+}
+
+/**
+ * One active payment method from Finance's cloud master (ERPNext Mode of
+ * Payment), as `GET /api/v1/store/payment-methods` hands it down.
+ *
+ * `code` is blank only on [FALLBACK], the list this till showed before the
+ * master existed and still shows when the master cannot be read.
+ */
+data class PaymentMethod(
+    val code: String,
+    val name: String,
+    /** CASH, DEBIT_CARD, CREDIT_CARD, QRIS, EWALLET, VOUCHER or POINTS. */
+    val tenderType: String,
+    val bankCode: String?,
+    val settlementMode: String?,
+) {
+    /** What the node calls it on the tender's `method`. */
+    val wireMethod: String get() = when (tenderType) {
+        "DEBIT_CARD", "CREDIT_CARD" -> "CARD"
+        else -> tenderType
+    }
+
+    val cardKind: String? get() = when (tenderType) {
+        "DEBIT_CARD" -> "DEBIT"
+        "CREDIT_CARD" -> "CREDIT"
+        else -> null
+    }
+
+    val acquirer: String? get() =
+        if (tenderType in BANKED) bankCode?.takeIf { it.isNotBlank() }?.uppercase() else null
+
+    fun tender(amountMinor: Long, reference: String? = null) = Tender(
+        method = wireMethod,
+        amountMinor = amountMinor,
+        reference = reference,
+        acquirer = acquirer,
+        cardKind = cardKind,
+        paymentMethodCode = code.takeIf { it.isNotBlank() },
+    )
+
+    companion object {
+        private val BANKED = setOf("DEBIT_CARD", "CREDIT_CARD", "QRIS", "EWALLET")
+
+        /** What the till offers, in tile order. POINTS is not on the till yet. */
+        val TILL_TYPES = listOf("CASH", "DEBIT_CARD", "CREDIT_CARD", "QRIS", "EWALLET", "VOUCHER")
+
+        /** The till's own list from before the master: four tiles, no bank. */
+        val FALLBACK = listOf(
+            PaymentMethod("", "Tunai", "CASH", null, null),
+            PaymentMethod("", "Kartu", "CARD", null, null),
+            PaymentMethod("", "QRIS", "QRIS", null, null),
+            PaymentMethod("", "Voucher", "VOUCHER", null, null),
+        )
+
+        fun from(json: JSONObject) = PaymentMethod(
+            code = json.optString("code"),
+            name = json.optString("name"),
+            tenderType = json.optString("tender_type"),
+            bankCode = json.optString("bank_code").takeIf { it.isNotBlank() && it != "null" },
+            settlementMode = json.optString("settlement_mode").takeIf { it.isNotBlank() && it != "null" },
+        )
+
+        /** Keep what the till can take; null when nothing usable came back. */
+        fun forTill(all: List<PaymentMethod>): List<PaymentMethod>? =
+            all.filter { it.code.isNotBlank() && it.tenderType in TILL_TYPES }
+                .sortedBy { TILL_TYPES.indexOf(it.tenderType) }
+                .takeIf { it.isNotEmpty() }
     }
 }
 

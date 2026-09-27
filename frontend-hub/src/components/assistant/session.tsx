@@ -8,7 +8,13 @@ import {
   type Exchange,
 } from "@/components/assistant/state"
 import { node } from "@/lib/api"
-import { ask, cacheKey, type ConversationDetail } from "@/lib/queries/assistant"
+import {
+  ask,
+  cacheKey,
+  judgeAnswer,
+  type ConversationDetail,
+  type Verdict,
+} from "@/lib/queries/assistant"
 
 /// The session's one writer.
 ///
@@ -214,6 +220,22 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
             )
           },
           onError: (message) => settle(message),
+          // The answer's id arrives last, once it is kept — which is when a
+          // verdict can first be filed against it.
+          onDone: (kept) => {
+            setExchanges((current) =>
+              current.map((exchange) =>
+                exchange.id === id
+                  ? {
+                      ...exchange,
+                      answerId: kept.messageId ?? undefined,
+                      model: kept.model ?? undefined,
+                      costUsd: kept.costUsd ?? undefined,
+                    }
+                  : exchange
+              )
+            )
+          },
         },
         controller.signal
       )
@@ -228,6 +250,41 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         })
     },
     [busy, client, conversationId, flush, page]
+  )
+
+  /// Say whether an answer was right.
+  ///
+  /// Applied to the answer on screen before the node is asked, because a thumb
+  /// that waits for a round trip reads as a button that did not take — and put
+  /// back as it was if the node refuses.
+  const judge = useCallback(
+    (exchangeId: string, verdict: Verdict | null, note?: string) => {
+      const exchange = exchanges.find((one) => one.id === exchangeId)
+      if (!exchange?.answerId || !conversationId) return
+      const before = {
+        verdict: exchange.verdict,
+        verdictNote: exchange.verdictNote,
+      }
+      const apply = (change: Pick<Exchange, "verdict" | "verdictNote">) =>
+        setExchanges((current) =>
+          current.map((one) =>
+            one.id === exchangeId ? { ...one, ...change } : one
+          )
+        )
+      apply({
+        verdict: verdict ?? undefined,
+        verdictNote: verdict ? note : undefined,
+      })
+      judgeAnswer(conversationId, exchange.answerId, verdict, note)
+        .then(() => {
+          // The kept copy of this chat no longer says what the screen does.
+          void client.invalidateQueries({
+            queryKey: cacheKey.conversation(conversationId),
+          })
+        })
+        .catch(() => apply(before))
+    },
+    [client, conversationId, exchanges]
   )
 
   // A turn outlives the component only if nothing cancels it.
@@ -245,8 +302,20 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       stop,
       start,
       resume,
+      judge,
     }),
-    [open, conversationId, exchanges, busy, loading, send, stop, start, resume]
+    [
+      open,
+      conversationId,
+      exchanges,
+      busy,
+      loading,
+      send,
+      stop,
+      start,
+      resume,
+      judge,
+    ]
   )
 
   return <AssistantContext value={session}>{children}</AssistantContext>

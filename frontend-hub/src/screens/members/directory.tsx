@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { X } from "lucide-react"
@@ -14,8 +14,8 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { EmptyState, NoMatch, Truncated } from "@/components/ui/states"
-import { useFilters } from "@/lib/filters"
+import { EmptyState, NoMatch } from "@/components/ui/states"
+import { isComplete, useFilters } from "@/lib/filters"
 import { count, day, money } from "@/lib/format"
 import {
   describeSegment,
@@ -25,12 +25,16 @@ import {
   savedSegmentKeys,
   savedSegments,
   SEGMENT_ORDER,
+  type MemberQuery,
   type MemberRow,
+  type MemberSort,
   type SegmentKey,
 } from "@/lib/queries/members"
+import { toServerFilters } from "@/lib/queries/reports"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import { IssueCode } from "@/screens/members/counter"
 
 /// The member directory — everybody holding a card, and what they have done
@@ -56,21 +60,44 @@ import { IssueCode } from "@/screens/members/counter"
 /// acquires cards nobody ever collected. What stays here is the pairing code,
 /// which is read down a phone line to a member who already has one.
 ///
-/// **Segment goes to the server; the search box does not.** A segment changes
-/// which population is being read, so it is a query the database answers. The
-/// search box narrows what is already on screen, which is instant and costs
-/// nothing — at a price the banner states the moment it is being paid: it can
-/// only find somebody inside the page that was loaded. When a directory
-/// outgrows that, `q` moves to the server, which already takes it.
+/// **Everything that narrows or orders the list goes to the server.** The
+/// directory is read a page at a time as the table scrolls, so a search, a
+/// filter chip or a sort run in the browser would be run over the pages
+/// already loaded and would quietly miss everybody below them. The segment
+/// strip, the search box, the filter chips and the column sorts are all
+/// parameters of the one request; the table only draws what came back.
 
-/// One read, big enough that the client-side search is honest for a real
-/// membership, and capped where the server caps it.
+/// Rows per request. Small enough that the first page is quick, and the table
+/// asks for the next as it nears the bottom.
+const PAGE = 200
+
+/// Table column → the `member` dataset dimension the server filters it by.
 ///
-/// Named once so the request and the banner below cannot drift apart, and
-/// named a ceiling rather than a page because nothing here asks for a second
-/// one: past this number the directory stops being able to answer the question
-/// it appears to answer.
-const CAP = 1_000
+/// Only the columns listed here carry a filter. Avg transaction and UPT are
+/// worked out on the row rather than being dimensions of the dataset, so the
+/// server has nothing to narrow them by — and a chip on them would narrow the
+/// loaded rows only.
+const FILTER_COLUMN: Readonly<Record<string, string>> = {
+  spent: "spent_minor",
+  sales: "transaction_count",
+  units: "units_total",
+  points: "points_balance",
+  seen: "days_since_purchase",
+}
+
+/// Table column → the server's sort. Segment is not among them: its codes
+/// have no order worth reading, and the strip above already groups by it.
+const SORTS: Readonly<Record<string, MemberSort>> = {
+  member: "name",
+  spent: "spent",
+  sales: "transactions",
+  atv: "atv",
+  units: "units",
+  upt: "upt",
+  points: "points",
+  redeemed: "points_spent",
+  seen: "last_purchase",
+}
 
 /// Tint by how far gone somebody is, not by how much they are worth.
 ///
@@ -163,6 +190,7 @@ function columnsFor(
       accessorFn: (row) => row.segment,
       header: "Segment",
       size: 120,
+      enableSorting: false,
       cell: ({ row }) => (
         <Pill tone={segmentTone(row.original.segment)}>
           {windows === null
@@ -211,7 +239,8 @@ function columnsFor(
       accessorFn: (row) => per(row.spent_minor, row.transaction_count) ?? -1,
       header: "Avg transaction",
       size: 140,
-      meta: { align: "right", filter: { kind: "number", unit: "Rp" } },
+      // Sorted by the server, not filtered by it: see `FILTER_COLUMN`.
+      meta: { align: "right" },
       cell: ({ row }) => {
         const average = per(
           row.original.spent_minor,
@@ -236,7 +265,9 @@ function columnsFor(
         row.original.units_total === 0 ? (
           <span className="text-mute">—</span>
         ) : (
-          <span className="tabular-nums">{count(row.original.units_total)}</span>
+          <span className="tabular-nums">
+            {count(row.original.units_total)}
+          </span>
         ),
     },
     {
@@ -248,7 +279,10 @@ function columnsFor(
       // across the row against their spend, not narrowed by on its own.
       meta: { align: "right" },
       cell: ({ row }) => {
-        const upt = per(row.original.units_total, row.original.transaction_count)
+        const upt = per(
+          row.original.units_total,
+          row.original.transaction_count
+        )
         return upt === null ? (
           <span className="text-mute">—</span>
         ) : (
@@ -303,11 +337,10 @@ function columnsFor(
       accessorFn: (row) => row.days_since_purchase ?? Number.MAX_SAFE_INTEGER,
       header: "Last purchase",
       size: 130,
-      // Days, because that is what the accessor holds — and somebody who has
-      // never bought rides at the far end of it rather than dropping out, the
-      // same bargain the sort above makes. "At least 90 days" therefore means
-      // "including the ones who never came back", which is what a reader
-      // hunting lapsed members means by it.
+      // Days, filtered by the server. Somebody who has never bought has no
+      // number of days at all, so "at least 90 days" does NOT include them —
+      // "is empty" is the clause that finds them, and the Never bought
+      // segment is the strip's way of saying the same.
       meta: {
         align: "right",
         filter: { kind: "number", unit: "days" },
@@ -346,31 +379,8 @@ export function Members() {
   /// card that linked here.
   const written = useSheet("segmentId")
   const open = useSheet("member")
+  /// Empty is the server's house order: spend, most first.
   const [sorting, setSorting] = useState<SortingState>([])
-
-  /// The search now runs on the SERVER, over the card number and the name.
-  /// It was running in the browser over whatever the first thousand rows
-  /// happened to be, which is a search of the page rather than of the scheme —
-  /// and the membership this is built for is larger than the page. The table's
-  /// own `globalFilter` stays below: every row the server sent already matches,
-  /// so it narrows nothing further and is one fewer thing to move.
-  const directory = useQuery({
-    queryKey: memberKeys.directory({
-      segment: segment.value,
-      segmentId: written.value,
-      q: search.value,
-    }),
-    queryFn: ({ signal }) =>
-      listMembers(
-        {
-          segment: segment.value,
-          segmentId: written.value,
-          q: search.value,
-          limit: CAP,
-        },
-        signal
-      ),
-  })
 
   /// The written segment's own row, for the chip that says what the list is
   /// narrowed by. Read from the saved list rather than from the link, so the
@@ -402,25 +412,80 @@ export function Members() {
   )
 
   const columns = useMemo(() => columnsFor(windows), [windows])
-  const rows = useMemo(() => directory.data?.members ?? [], [directory.data])
 
+  /// The chips, read from the URL. Only the model is used — the table is not
+  /// handed `columnFilters`, because the server has already applied them.
   const filters = useFilters(columns)
+
+  /// The chips as the server's clauses, on the dataset's own column names.
+  /// Unfinished ones stay on screen and off the wire: a half-typed "between"
+  /// is not a narrower list.
+  const serverFilters = useMemo(
+    () =>
+      toServerFilters(
+        filters.filters.flatMap((clause) => {
+          const column = FILTER_COLUMN[clause.column]
+          return column !== undefined && isComplete(clause)
+            ? [{ ...clause, column }]
+            : []
+        })
+      ).filters,
+    [filters.filters]
+  )
+
+  /// Debounced, because every keystroke is a request over the whole scheme.
+  const needle = useDebounced((search.value ?? "").trim(), 300)
+
+  const scope = useMemo<MemberQuery>(() => {
+    const by = sorting[0]
+    const sort = by === undefined ? undefined : SORTS[by.id]
+    // "Last purchase" is drawn as days ago, and fewer days is a LATER
+    // purchase — so the column's ascending is the server's descending.
+    const desc =
+      by === undefined ? undefined : by.id === "seen" ? !by.desc : by.desc
+    return {
+      segment: segment.value,
+      segmentId: written.value,
+      q: needle === "" ? undefined : needle,
+      sort,
+      dir: sort === undefined ? undefined : desc ? "desc" : "asc",
+      filters: serverFilters,
+      limit: PAGE,
+    }
+  }, [segment.value, written.value, needle, sorting, serverFilters])
+
+  const directory = useInfiniteQuery({
+    queryKey: memberKeys.directory(scope),
+    queryFn: ({ pageParam, signal }) =>
+      listMembers({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched, so a
+    // keystroke or a chip does not blank the table to a loading line.
+    placeholderData: (previous) => previous,
+  })
+
+  const rows = useMemo(
+    () => directory.data?.pages.flatMap((page) => page.members) ?? [],
+    [directory.data]
+  )
+  const head = directory.data?.pages[0]
+  const narrowed = needle !== "" || serverFilters.length > 0
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: filters.columns,
+        columns,
         getRowId: (row: MemberRow) => row.member_id,
-        state: {
-          columnFilters: filters.columnFilters,
-          globalFilter: search.value ?? "",
-          sorting,
-        },
+        state: { sorting },
+        // The rows arrive in the order the request asked for. Sorting them
+        // again here would sort the pages in hand and call it the directory.
+        manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, filters.columns, filters.columnFilters, search.value, sorting]
+      [rows, columns, sorting]
     )
   )
 
@@ -476,35 +541,20 @@ export function Members() {
             <X className="size-3.5 text-line-ico" />
           </button>
         )}
-        {/* Segment is deliberately not among the questions in here. The strip
-            to the left asks it on the WIRE, over the whole membership; a
-            second copy in the panel would ask it in the browser over the first
-            thousand rows, and the two would disagree the day the scheme
-            outgrows the page. */}
-        <FilterPanel model={filters} table={table} />
+        {/* Segment is deliberately not among the questions in here: the
+            strip to the left already asks it, and two places to set one
+            question is two answers to reconcile. */}
+        <FilterPanel model={filters} />
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute tabular-nums">
-          {/* Two different numbers, and the difference is the point: the second
-              is everybody enrolled, so a filtered list can say what it is a
-              fraction of. */}
-          {count(rows.length)} shown ·{" "}
-          {count(directory.data?.member_count ?? 0)} enrolled
+          {/* Two different numbers, and the difference is the point: the first
+              is everybody the search, segment and chips match — the server's
+              count, not the rows loaded so far — and the second is everybody
+              enrolled, so a filtered list can say what it is a fraction of. */}
+          {count(head?.total ?? 0)} found · {count(head?.member_count ?? 0)}{" "}
+          enrolled
         </span>
       </Toolbar>
-
-      {/* This replaced a "· first 1,000 only" tacked onto the chip above, which
-          was the same fact whispered: it sat in grey nine-point type at the end
-          of a line whose first half is a count, where it read as a caption
-          rather than as a warning that the count is not one. Only when the
-          answer came back exactly as large as the question — a shorter one
-          proves there was nothing more to send. */}
-      {/* The server now says how many there really are, so the banner appears
-          when the answer is short of the truth rather than merely as long as
-          the question — which was a proxy that could not tell a full page from
-          a full scheme. */}
-      {(directory.data?.total ?? 0) > rows.length && (
-        <Truncated limit={CAP} noun="members" />
-      )}
 
       <Card className="overflow-hidden">
         {queryState(directory, {
@@ -514,8 +564,23 @@ export function Members() {
           // 403 to anybody holding a session at all. A state nobody can reach
           // would be a claim that somebody can.
           loading: "Reading the directory…",
-          render: (data) =>
-            data.members.length === 0 ? (
+          render: () =>
+            rows.length === 0 && narrowed ? (
+              // Held only when nothing else narrows: with a segment applied
+              // too, the whole scheme is not what the search was run over.
+              <NoMatch
+                what="members"
+                held={
+                  segment.value === undefined && written.value === undefined
+                    ? head?.member_count
+                    : undefined
+                }
+                onClear={() => {
+                  search.close()
+                  filters.clear()
+                }}
+              />
+            ) : rows.length === 0 ? (
               <EmptyState>
                 {written.value !== undefined
                   ? "Nobody matches that segment's conditions today. It is worked out on every read, so it empties and fills on its own."
@@ -528,17 +593,7 @@ export function Members() {
                 table={table}
                 onRowClick={(row) => open.open(row.member_id)}
                 isSelected={(row) => row.member_id === open.value}
-                // The held count is the loaded rows and not `member_count`: the
-                // search runs over what is on this page, and answering "there
-                // are 4.812 members and none of them match" would be true of
-                // the scheme and false of the search that was actually run.
-                empty={
-                  <NoMatch
-                    what="members"
-                    held={rows.length}
-                    onClear={() => search.close()}
-                  />
-                }
+                more={directory}
                 className="max-h-[calc(100vh-17rem)]"
               />
             ),
@@ -550,7 +605,6 @@ export function Members() {
         windows={windows}
         onClose={() => open.close()}
       />
-
     </PageContent>
   )
 }

@@ -125,7 +125,7 @@ export function Correction() {
           </div>
           <form.Field name="reason">
             {(field) => (
-              <Field label="What happened">
+              <Field label="What happened" required>
                 <Textarea
                   name={field.name}
                   rows={3}

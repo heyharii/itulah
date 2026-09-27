@@ -44,7 +44,7 @@ export function onlyScreen(tile: AppTile): string | undefined {
 ///
 /// Chat and Discussions are not tiles: they are the Messages tab.
 export function appsFor(role: Role | undefined): readonly AppTile[] {
-  if (role === undefined || role === "CASHIER") return []
+  if (!officeFor(role)) return []
   const departments: AppTile[] = [
     {
       id: homeNav.id,
@@ -65,7 +65,7 @@ export function appsFor(role: Role | undefined): readonly AppTile[] {
       modules: [module],
     })),
   ]
-  if (role === "ADMIN") {
+  if (systemFor(role)) {
     departments.push({
       id: systemNav.id,
       label: systemNav.label,
@@ -76,4 +76,23 @@ export function appsFor(role: Role | undefined): readonly AppTile[] {
   return departments.filter((tile) =>
     tile.modules.some((module) => visibleItems(module).length > 0)
   )
+}
+
+/// Whether a role is offered the office at all: the departments, Files and
+/// Reports. The owner's call above (2026-09-25), asked by the phone's launcher
+/// and by the desk's rail alike, so the two cannot disagree about who sees
+/// the departments.
+///
+/// It reached the rail on 2026-09-27. Until then a store admin signed in as a
+/// cashier (QA's "Dian", 2026-09-26) saw every domain on a desk — HR and GA
+/// among them — and was refused by the server screen by screen. The server's
+/// refusal is still the control; this only stops the menu offering doors that
+/// are locked.
+export function officeFor(role: Role | undefined): boolean {
+  return role !== undefined && role !== "CASHIER"
+}
+
+/// Whether a role is offered System: head office's administrators alone.
+export function systemFor(role: Role | undefined): boolean {
+  return role === "ADMIN"
 }

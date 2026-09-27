@@ -237,3 +237,47 @@ sedang melakukan analytics.
 Aside **Reports** yang tinggal adalah modul saved-reports yang ditulis lane
 lain — setiap laporan yang disusun siapa pun, termasuk yang belum ada saat app
 dibangun. Dua layar boleh berbagi kata tanpa berbagi rumah.
+
+## HR dan GA dipangkas (2026-09-27)
+
+Diminta Hari: *"how can we simplify HR dan GA menu"*, lalu *"all in English,
+kerjakan"*. Pemicunya temuan QA 26 Sep: di layar 800px menu HR dan GA
+kepotong, dan scrollbar sidebar disembunyikan, jadi baris terbawah hilang tanpa
+tanda.
+
+**Satu aturan:** satu baris = tempat yang dibuka minimal tiap minggu.
+Kelompok/jenis dari tabel yang sama jadi **chip**, pekerjaan bulanan jadi
+**tombol** di layar terkait, setup yang jarang dibuka dicapai dari layar
+setup-nya. Yang keluar dari sidebar tetap `hidden` — ter-route, ada di ⌘K, dan
+menyalakan baris induknya lewat `alsoLights`.
+
+| | Sebelum | Sesudah |
+|---|---|---|
+| HR · HO | 20 baris, 3 judul | 9 baris, garis tipis |
+| HR · toko | 13 baris | 7 baris |
+| GA | 18 baris, 4 judul | 10 baris, garis tipis |
+
+- **GA:** Kontrak 6 baris → 1 (chip `?contract-group=`; Subscriptions memakai
+  bacaan per lokasi yang dulu view Utilities). Aset 3 baris + 7 view
+  tersembunyi → 1 (chip `?asset-view=`; Software dan Projects kini benar-benar
+  menyaring lewat `build`). Penggantian keluar sidebar, menyalakan Repairs.
+  Maintenance jadi dua modul satu-baris (Repairs, Service schedule) supaya GA
+  tetap satu daftar datar. `conciseGa` dan `sidebarSection` dihapus; diganti
+  `AppModule.divider` (garis tipis).
+- **HR:** Overview jadi satu kotak masuk — layar Requests (cuti, koreksi,
+  tukar jadwal) digambar di dalamnya, dan klaim, usulan karyawan serta payroll
+  yang menunggu jadi baris di daftar perhatiannya; barisnya membawa angka
+  (`usePeopleWaitingCount`). New employees dari Employees, Overtime dari
+  Roster, Period close dari Attendance, Pay agreements dan Benefits dari
+  Payroll. Time policy jadi **Settings** (`/people/settings`), dengan Punch
+  stations dan Scheduler dibuka dari header-nya. Leave, Rule numbers, Salary
+  structures, dan file yatim Performance/Recruitment/Training **dihapus**;
+  changes/exits/lifecycle menunggu keputusan owner.
+- **Bahasa:** label dan teks layar GA jadi bahasa Inggris seperti bagian hub
+  lain. Isi kertas surat (STB, SJ) tetap bahasa Indonesia karena itu dokumen
+  yang dicetak.
+
+**Belum:** Pay agreements dan seragam sebagai tab di lembar karyawan (sekarang
+tombol di Payroll). Badge di Overview GA sengaja tidak dibuat: endpoint
+`/api/v1/ga/overview` memotong tiap bagian di 10 baris, jadi angkanya akan
+salah untuk register besar.

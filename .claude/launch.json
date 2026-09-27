@@ -2065,6 +2065,15 @@
         "VITE_API_TARGET": "http://127.0.0.1:8741",
         "VITE_EDGE_TARGET": "http://127.0.0.1:8082"
       }
+    },
+    {
+      "name": "health-proxy",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "/private/tmp/claude-501/-Users-hari-Documents-itulah/1ded43a7-5f7f-4e11-9f0f-abb39dcd3db0/scratchpad/uptime/health_proxy.py"
+      ],
+      "port": 8799,
+      "cwd": "."
     }
   ]
 }

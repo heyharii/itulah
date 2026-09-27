@@ -270,7 +270,7 @@ function ShopSaleReceipt({
             ]}
             total={{ label: "Total", value: money(record.total_minor) }}
           />
-          <p className="break-all font-mono text-[0.875rem] text-mute">
+          <p className="font-mono text-[0.875rem] break-all text-mute">
             Cloud sale ID: {record.sale_id}
           </p>
         </div>
@@ -486,9 +486,7 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
             {/* The server's own sentence about how that tax was arrived at.
                 Quoted rather than paraphrased: it is the difference between
                 two totals that would otherwise look like a rounding bug. */}
-            <p className="mt-2 text-[0.875rem] text-mute">
-              {printed.tax_note}
-            </p>
+            <p className="mt-2 text-[0.875rem] text-mute">{printed.tax_note}</p>
           </div>
         )}
 
@@ -817,7 +815,8 @@ function RefundPanel({ sale }: { sale: SaleDetail }) {
                 <Button
                   type="submit"
                   variant="soft"
-                  disabled={!ready(draft) || record.isPending}
+                  pending={record.isPending}
+                  disabled={!ready(draft)}
                 >
                   {record.isPending ? "Recording…" : "Record the return"}
                 </Button>
@@ -970,7 +969,8 @@ function OpenSaleComposer({ sale }: { sale: SaleDetail }) {
         />
         <Button
           variant="soft"
-          disabled={epc.trim() === "" || actor === undefined || scan.isPending}
+          pending={scan.isPending}
+          disabled={epc.trim() === "" || actor === undefined}
           onClick={() => scan.mutate()}
         >
           {scan.isPending ? "Adding…" : "Add"}
@@ -998,11 +998,9 @@ function OpenSaleComposer({ sale }: { sale: SaleDetail }) {
         </span>
         <Button
           variant="soft"
+          pending={tender.isPending}
           disabled={
-            amountMinor <= 0 ||
-            actor === undefined ||
-            sale.lines.length === 0 ||
-            tender.isPending
+            amountMinor <= 0 || actor === undefined || sale.lines.length === 0
           }
           onClick={() => tender.mutate()}
         >
@@ -1085,7 +1083,7 @@ function PricingPanel({ saleId }: { saleId: string }) {
                     {promotion.name ?? promotion.rule_id ?? "—"}
                   </MiniCell>
                   <MiniCell align="right">
-                      {money(promotion.benefit_minor)}
+                    {money(promotion.benefit_minor)}
                   </MiniCell>
                 </MiniRow>
               ))}

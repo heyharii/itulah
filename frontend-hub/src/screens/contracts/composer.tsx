@@ -27,7 +27,7 @@ import {
 } from "@/lib/queries/finance"
 import { gaKeys, gaContractTypes, recordGaContract } from "@/lib/queries/ga"
 import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
-import { CONTRACT_GROUPS } from "@/screens/contracts/nav"
+import { CONTRACT_GROUPS } from "@/screens/contracts/groups"
 import { FinanceMark } from "@/screens/contracts/parts"
 import type { GaContractType } from "@itulah/contract"
 
@@ -55,8 +55,9 @@ export function ContractComposer({
   onSaved,
 }: {
   open: boolean
-  /// The group the screen was reading when Tambah kontrak was pressed, so the
-  /// composer opens on the door it came from.
+  /// The group the register was narrowed to when Add contract was pressed, so
+  /// the composer opens on the chip it came from; empty when it was showing
+  /// every group, and the composer asks for one first.
   group: string
   onClose: () => void
   onSaved: (contractId: string) => void
@@ -128,7 +129,7 @@ export function ContractComposer({
           ...(type.prepaid_account_code !== null
             ? [
                 {
-                  role: "Bayar dimuka",
+                  role: "Prepaid",
                   code: type.prepaid_account_code,
                   name: mapName(
                     map.data,
@@ -141,7 +142,7 @@ export function ContractComposer({
           ...(type.expense_account_code !== null
             ? [
                 {
-                  role: "Beban",
+                  role: "Expense",
                   code: type.expense_account_code,
                   name: mapName(map.data, "contract_expense", typeCode),
                 },
@@ -149,11 +150,11 @@ export function ContractComposer({
             : typeCode === "JASA_MAINTENANCE"
               ? [
                   {
-                    role: "Beban",
+                    role: "Expense",
                     code:
                       REPAIR_OBJECTS.find((one) => one.value === form.objek)
                         ?.code ?? "—",
-                    name: `ikut objek yang dirawat${
+                    name: `follows the object being maintained${
                       form.objek === undefined
                         ? ""
                         : ` · ${REPAIR_OBJECTS.find((one) => one.value === form.objek)?.label}`
@@ -163,9 +164,9 @@ export function ContractComposer({
               : typeCode === "SEWA_KENDARAAN"
                 ? [
                     {
-                      role: "Beban",
+                      role: "Expense",
                       code: "—",
-                      name: "Biaya Sewa Kendaraan belum ada di COA",
+                      name: "Vehicle rental expense not yet in COA",
                     },
                   ]
                 : []),
@@ -191,7 +192,7 @@ export function ContractComposer({
           ...(type.income_account_code !== null
             ? [
                 {
-                  role: "Pendapatan",
+                  role: "Income",
                   code: type.income_account_code,
                   name: mapName(map.data, "contract_income", typeCode),
                 },
@@ -235,18 +236,18 @@ export function ContractComposer({
   const submit = () => {
     const next: Record<string, string> = {}
     if (!disewakan && (form.vendor ?? "") === "")
-      next.vendor = "Pilih vendor dulu."
+      next.vendor = "Choose a vendor first."
     if (disewakan && (form.tenant ?? "").trim() === "")
-      next.tenant = "Isi nama penyewa dulu."
+      next.tenant = "Enter the tenant's name first."
     if (!multiSite && scope === "SITE" && (form.site ?? "") === "")
-      next.site = "Pilih site dulu."
-    if ((form.starts_on ?? "") === "") next.starts_on = "Isi tanggal mulai."
+      next.site = "Choose a site first."
+    if ((form.starts_on ?? "") === "") next.starts_on = "Enter the start date."
     if (
       (form.starts_on ?? "") !== "" &&
       (form.ends_on ?? "") !== "" &&
       form.ends_on <= form.starts_on
     ) {
-      next.ends_on = "Tanggal selesai harus setelah tanggal mulai."
+      next.ends_on = "The end date must be after the start date."
     }
     if (Object.keys(next).length > 0) {
       setProblems(next)
@@ -264,23 +265,19 @@ export function ContractComposer({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title="Kontrak baru"
-      caption="Perjanjiannya yang dicatat: jenisnya, pihaknya, jendela waktunya. Tagihannya tetap lahir di Finance."
+      title="New contract"
+      caption="This records the agreement: its type, party and time window. Bills are still raised in Finance."
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="text-pill text-mute">
-            {type === undefined ? "Pilih jenis dulu" : type.name}
+            {type === undefined ? "Choose a type first" : type.name}
           </span>
           <div className="flex items-center gap-2">
             <Button variant="ghost" onClick={onClose}>
-              Batal
+              Cancel
             </Button>
-            <Button
-              variant="primary"
-              disabled={save.isPending}
-              onClick={submit}
-            >
-              {save.isPending ? "Menyimpan…" : "Simpan kontrak"}
+            <Button variant="primary" pending={save.isPending} onClick={submit}>
+              {save.isPending ? "Saving…" : "Save contract"}
             </Button>
           </div>
         </div>
@@ -291,9 +288,9 @@ export function ContractComposer({
           <Banner tone="bad">{save.error.message}</Banner>
         )}
 
-        <Section title="Kelompok" aside="pintu register yang sama">
+        <Section title="Group" aside="same door as the register">
           <Choices
-            label="Kelompok"
+            label="Group"
             columns={3}
             value={groupCode}
             onChange={(next) => {
@@ -315,14 +312,20 @@ export function ContractComposer({
           />
         </Section>
 
-        <Section title="Jenis kontrak" aside="kartu memuat akun usulannya">
+        <Section title="Contract type" aside="the card carries its proposed accounts">
           {typeOptions.length === 0 ? (
             <p className="text-meta text-mute">
-              {types.isLoading ? "Membaca daftar…" : "Tidak ada jenis di sini."}
+              {/* Opened from the whole register rather than from one group,
+                  the composer has no group yet — say what comes first. */}
+              {groupCode === ""
+                ? "Pick a group first."
+                : types.isLoading
+                  ? "Reading the list…"
+                  : "No types in this group."}
             </p>
           ) : (
             <Choices
-              label="Jenis kontrak"
+              label="Contract type"
               columns={2}
               value={typeCode}
               onChange={(next) => {
@@ -345,9 +348,9 @@ export function ContractComposer({
         </Section>
 
         {typeCode === "JASA_MAINTENANCE" && (
-          <Section title="Objek yang dirawat" aside="beban mengikuti objek">
+          <Section title="Object being maintained" aside="expense follows the object">
             <Choices
-              label="Objek yang dirawat"
+              label="Object being maintained"
               columns={3}
               value={form.objek ?? "AC"}
               onChange={(next) => set("objek", next)}
@@ -356,30 +359,32 @@ export function ContractComposer({
           </Section>
         )}
 
-        <Section title="Pihak dan tempat">
+        <Section title="Party and location">
           {disewakan ? (
             <Field
-              label="Penyewa"
-              aside="teks, bukan supplier"
+              label="Tenant"
+              required
+              aside="text, not a vendor"
               problem={problems.tenant || undefined}
             >
               <Input
                 value={form.tenant ?? ""}
                 onChange={(event) => set("tenant", event.target.value)}
-                placeholder="Koperasi Karyawan"
+                placeholder="Employee Cooperative"
               />
             </Field>
           ) : (
             <Field
-              label="Pihak (vendor)"
+              label="Party (vendor)"
+              required
               problem={problems.vendor || undefined}
             >
               <Select
                 value={form.vendor ?? ""}
                 onChange={(next) => set("vendor", next)}
-                aria-label="Pihak (vendor)"
+                aria-label="Party (vendor)"
               >
-                <option value="">Pilih vendor…</option>
+                <option value="">Choose a vendor…</option>
                 {(vendors.data?.rows ?? []).map((one) => (
                   <option key={one.supplier_id} value={one.supplier_id}>
                     {one.name}
@@ -395,14 +400,14 @@ export function ContractComposer({
                   may, and for them the scope is the question before the site
                   is. */}
               <Choices
-                label="Cakupan"
+                label="Scope"
                 columns={3}
                 value={scope}
                 onChange={(next) => set("scope", next)}
                 options={[
-                  { value: "SITE", label: "Satu site" },
-                  { value: "ALL_STORES", label: "Semua toko" },
-                  { value: "ALL_SITES", label: "Semua site" },
+                  { value: "SITE", label: "One site" },
+                  { value: "ALL_STORES", label: "All stores" },
+                  { value: "ALL_SITES", label: "All sites" },
                 ]}
               />
               {scope === "SITE" && (
@@ -416,7 +421,7 @@ export function ContractComposer({
               )}
             </>
           ) : (
-            <Field label="Site" problem={problems.site || undefined}>
+            <Field label="Site" problem={problems.site || undefined} required>
               <SiteSelect
                 sites={shape.data?.facets.sites ?? []}
                 site={form.site ?? ""}
@@ -427,8 +432,8 @@ export function ContractComposer({
 
           {langganan && (
             <Field
-              label="ID pelanggan"
-              aside="nomor sambungan PLN / PDAM / Telkom"
+              label="Customer no."
+              aside="PLN / PDAM / Telkom connection number"
             >
               <Input
                 value={form.customer_number ?? ""}
@@ -439,28 +444,32 @@ export function ContractComposer({
           )}
         </Section>
 
-        <Section title="Jendela dan nilai">
+        <Section title="Term and value">
           <div className="grid grid-cols-2 gap-4">
             <Field
-              label="Nomor di perjanjian"
-              aside="nomor kertasnya, bukan karangan"
+              label="Number on the agreement"
+              aside="the paper's own number, not made up"
             >
               <Input
                 value={form.contract_number ?? ""}
                 onChange={(event) => set("contract_number", event.target.value)}
-                placeholder="mis. 01/C007-PTS/2026"
+                placeholder="e.g. 01/C007-PTS/2026"
               />
             </Field>
-            <Field label="Keterangan" aside="muncul di bawah pihak di register">
+            <Field label="Notes" aside="appears below the party in the register">
               <Input
                 value={form.notes ?? ""}
                 onChange={(event) => set("notes", event.target.value)}
-                placeholder="Toko C009 · unit 1-04"
+                placeholder="Store C009 · unit 1-04"
               />
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Mulai" problem={problems.starts_on || undefined}>
+            <Field
+              label="Starts"
+              problem={problems.starts_on || undefined}
+              required
+            >
               <Input
                 type="date"
                 value={form.starts_on ?? ""}
@@ -468,8 +477,8 @@ export function ContractComposer({
               />
             </Field>
             <Field
-              label="Selesai"
-              aside="kosong = tanpa batas"
+              label="Ends"
+              aside="empty = open-ended"
               problem={problems.ends_on || undefined}
             >
               <Input
@@ -480,8 +489,8 @@ export function ContractComposer({
             </Field>
           </div>
           <Field
-            label="Nilai kontrak"
-            aside="total sepanjang kontrak, boleh kosong"
+            label="Contract value"
+            aside="total for the whole contract, can be left empty"
           >
             <Money
               value={form.value ?? ""}
@@ -491,7 +500,7 @@ export function ContractComposer({
           </Field>
         </Section>
 
-        <Section title="Tanda tangan">
+        <Section title="Signature">
           <Toggle
             on={form.signed === "yes"}
             onToggle={() =>
@@ -500,32 +509,32 @@ export function ContractComposer({
                 signed: current.signed === "yes" ? "" : "yes",
               }))
             }
-            label="Sudah ditandatangani"
+            label="Signed"
             note={
               form.signed === "yes"
-                ? "Sudah — tulis siapa yang menandatangani"
-                : "Belum ditandatangani"
+                ? "Yes — say who signed"
+                : "Not signed yet"
             }
           />
           {form.signed === "yes" && (
-            <Field label="Ditandatangani oleh">
+            <Field label="Signed by">
               <Input
                 value={form.signed_by ?? ""}
                 onChange={(event) => set("signed_by", event.target.value)}
-                placeholder="mis. Manajer GA"
+                placeholder="e.g. GA Manager"
               />
             </Field>
           )}
         </Section>
 
         <Section
-          title="Akun yang diusulkan ke Finance"
-          aside="dari account map site ini"
+          title="Accounts proposed to Finance"
+          aside="from this site's account map"
         >
           {proposed.length === 0 ? (
             <p className="text-meta text-mute">
-              Pilih jenisnya dulu — usulan akun mengikuti jenis kontrak dan
-              site.
+              Choose the type first — proposed accounts follow the contract
+              type and site.
             </p>
           ) : (
             <div className="flex flex-col">
@@ -548,9 +557,9 @@ export function ContractComposer({
             </div>
           )}
           <p className="flex items-center gap-1.5 text-pill text-mute">
-            <FinanceMark className="align-[0.0625rem]" /> Diatur Finance di
-            Account map; diusulkan di baris tagihan, dan Finance tetap bisa
-            mengganti.
+            <FinanceMark className="align-[0.0625rem]" /> Set by Finance in
+            the Account map; proposed on the bill line, and Finance can still
+            change it.
           </p>
         </Section>
       </div>
@@ -570,7 +579,7 @@ function SiteSelect({
 }) {
   return (
     <Select value={site} onChange={onChange} aria-label="Site">
-      <option value="">Pilih…</option>
+      <option value="">Choose…</option>
       {sites.map((one) => (
         <option key={one.value} value={one.value}>
           {one.label ?? one.value}
@@ -581,16 +590,16 @@ function SiteSelect({
 }
 
 /// The card's account tag, in the prototype's arrow grammar: prepaid →
-/// expense, or the income for the two Disewakan types. A deliberate gap says
-/// itself ("objek", "beban belum ada") rather than printing a dash, because a
+/// expense, or the income for the two Leased out types. A deliberate gap says
+/// itself ("object", "no expense yet") rather than printing a dash, because a
 /// dash reads as data nobody typed and these are decisions somebody made.
 function typeTag(type: GaContractType): string {
   const parts: string[] = []
   if (type.prepaid_account_code !== null) parts.push(type.prepaid_account_code)
-  if (type.code === "JASA_MAINTENANCE") parts.push("objek")
+  if (type.code === "JASA_MAINTENANCE") parts.push("object")
   else if (type.expense_account_code !== null)
     parts.push(type.expense_account_code)
-  else if (type.code === "SEWA_KENDARAAN") parts.push("beban belum ada")
+  else if (type.code === "SEWA_KENDARAAN") parts.push("no expense yet")
   if (type.income_account_code !== null) parts.push(type.income_account_code)
   return parts.join(" → ")
 }
@@ -638,32 +647,32 @@ const MULTI_SITE_TYPES: readonly string[] = [
 const REPAIR_OBJECTS: readonly (Tile<string> & { code: string })[] = [
   { value: "FFE", label: "FFE & OE", icon: Armchair, code: "6066" },
   { value: "SOFTWARE", label: "Software", icon: AppWindow, code: "6067" },
-  { value: "KOMPUTER", label: "Komputer", icon: Monitor, code: "6068" },
-  { value: "BANGUNAN", label: "Bangunan", icon: Building2, code: "6069" },
+  { value: "KOMPUTER", label: "Computer", icon: Monitor, code: "6068" },
+  { value: "BANGUNAN", label: "Building", icon: Building2, code: "6069" },
   {
     value: "STAFF_HOUSE",
     label: "Staff house / mess",
     icon: Building2,
     code: "6070",
   },
-  { value: "KENDARAAN", label: "Kendaraan", icon: Car, code: "6071" },
+  { value: "KENDARAAN", label: "Vehicle", icon: Car, code: "6071" },
   { value: "AC", label: "AC & refrigerator", icon: Snowflake, code: "6072" },
   {
     value: "POWER_PLANT",
-    label: "Genset / power plant",
+    label: "Generator / power plant",
     icon: Zap,
     code: "6073",
   },
   {
     value: "GENSET_BBM",
-    label: "Pelumas & BBM genset",
+    label: "Lubricant & generator fuel",
     icon: Droplets,
     code: "6058",
   },
-  { value: "CAT", label: "Pengecatan", icon: Paintbrush, code: "6074" },
+  { value: "CAT", label: "Painting", icon: Paintbrush, code: "6074" },
   {
     value: "LIFT",
-    label: "Lift & eskalator",
+    label: "Lift & escalator",
     icon: MoveVertical,
     code: "6075",
   },

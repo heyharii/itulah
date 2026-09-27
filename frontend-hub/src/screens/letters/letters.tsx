@@ -1,5 +1,10 @@
 import type { JSONContent } from "@tiptap/react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import {
   ArrowLeft,
@@ -23,7 +28,7 @@ import { RecordPanel } from "@/components/ui/record-panel"
 import { KeyValue } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
 import { count, day } from "@/lib/format"
 import { queryState } from "@/lib/query-state"
 import {
@@ -33,7 +38,7 @@ import {
   fact,
   issueLetter,
   letterKeys,
-  letterKind,
+  letterKindLabel,
   letterSources,
   letterTemplates,
   letterTone,
@@ -49,6 +54,7 @@ import {
   type LetterStatus,
 } from "@/lib/queries/letters"
 import { useSheet } from "@/lib/sheets"
+import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
 import { LetterBody } from "@/screens/letters/editor"
 import { LetterPaper, PrintStyles } from "@/screens/letters/document"
@@ -74,21 +80,21 @@ import type { LetterRow, LetterSource } from "@itulah/contract"
 /// it is the thing colleagues send each other links to.
 
 const STATUSES = [
-  { value: null, label: "Semua status" },
-  { value: "DRAFT", label: "Draf" },
-  { value: "ISSUED", label: "Diterbitkan" },
-  { value: "VOID", label: "Dibatalkan" },
+  { value: null, label: "Any status" },
+  { value: "DRAFT", label: "Draft" },
+  { value: "ISSUED", label: "Issued" },
+  { value: "VOID", label: "Void" },
 ] as const
 
 const KINDS = [
-  { value: "all", label: "Semua" },
-  ...LETTER_KINDS.map((one) => ({ value: one.value, label: one.label })),
+  { value: "all", label: "All" },
+  ...LETTER_KINDS.map((one) => ({ value: one.value, label: one.appLabel })),
 ] as const
 
 const STATUS_WORDS: Readonly<Record<string, string>> = {
-  DRAFT: "Draf",
-  ISSUED: "Diterbitkan",
-  VOID: "Dibatalkan",
+  DRAFT: "Draft",
+  ISSUED: "Issued",
+  VOID: "Void",
 }
 
 export function Letters() {
@@ -107,38 +113,52 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
   const [status, setStatus] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [writing, setWriting] = useState(false)
+  // The search is the server's, so it waits for the typing to stop.
+  const needle = useDebounced(search.trim(), 300)
 
   const query = useMemo<LetterQuery>(
     () => ({
       kind: kind === "all" ? null : kind,
       status: (status as LetterStatus | null) ?? null,
-      q: search,
+      q: needle,
     }),
-    [kind, status, search]
+    [kind, status, needle]
   )
 
-  const letters = useQuery({
+  /// The register, a page at a time as its foot nears view. It used to stop
+  /// at the two-hundredth letter without saying so, and the count beside it
+  /// counted what had loaded.
+  const letters = useInfiniteQuery({
     queryKey: letterKeys.list(query),
-    queryFn: ({ signal }) => listLetters(query, signal),
+    queryFn: ({ pageParam, signal }) =>
+      listLetters(query, { cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
+  const rows = useMemo(
+    () => letters.data?.pages.flatMap((page) => page.rows) ?? [],
+    [letters.data]
+  )
+  const head = letters.data?.pages[0]
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Layanan pendukung"
-        title="Surat"
-        sub="Kelola surat terima barang dan surat jalan. Nomor surat ditetapkan saat diterbitkan."
+        crumb="GA"
+        title="Letters"
+        sub="Manage goods receipt notes and delivery notes. The letter number is assigned when it's issued."
         actions={
           <>
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Nomor, pesanan, pemasok"
+              placeholder="Number, order, supplier"
               className="h-8 w-56"
             />
             <Button variant="primary" onClick={() => setWriting(true)}>
               <Plus />
-              Buat surat
+              New letter
             </Button>
           </>
         }
@@ -157,19 +177,15 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
         {/* Read straight off the query rather than through `queryState`: this
             is a caption on a toolbar, and a toolbar that says "Loading…" where
             a number goes is furniture that moves while somebody reads it. */}
-        {letters.data !== undefined && (
+        {head !== undefined && (
           <span className="text-meta text-body">
-            <b className="font-medium text-ink">
-              {count(letters.data.rows.length)}
-            </b>{" "}
-            surat
-            {letters.data.drafts > 0 && (
+            <b className="font-medium text-ink">{count(head.total)}</b>{" "}
+            {head.total === 1 ? "letter" : "letters"}
+            {head.drafts > 0 && (
               <>
                 {" · "}
-                <b className="font-medium text-ink">
-                  {count(letters.data.drafts)}
-                </b>{" "}
-                menunggu diterbitkan
+                <b className="font-medium text-ink">{count(head.drafts)}</b>{" "}
+                awaiting issue
               </>
             )}
           </span>
@@ -177,38 +193,40 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
       </Toolbar>
 
       {queryState(letters, {
-        loading: "Membuka daftar surat…",
-        render: (book) =>
-          book.rows.length === 0 ? (
+        loading: "Opening the letters list…",
+        render: () =>
+          rows.length === 0 ? (
             <Card>
               <EmptyState
                 action={
                   <Button variant="ghost" onClick={() => setWriting(true)}>
-                    Buat surat
+                    New letter
                   </Button>
                 }
               >
-                Belum ada surat. Buat surat dari penerimaan barang, pengiriman
-                ke toko, atau mulai dengan surat kosong.
+                No letters yet. Create one from a goods receipt, a delivery to
+                a store, or start with a blank letter.
               </EmptyState>
             </Card>
           ) : (
             <Card className="overflow-hidden">
               <div className="grid h-10 grid-cols-[9rem_minmax(0,1fr)_9rem_5rem_6rem_6rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-                <span>Nomor</span>
-                <span>Surat</span>
-                <span>Penerima</span>
-                <span className="text-right">Jumlah</span>
+                <span>Number</span>
+                <span>Letter</span>
+                <span>Recipient</span>
+                <span className="text-right">Quantity</span>
                 <span>Status</span>
-                <span className="text-right">Terbit</span>
+                <span className="text-right">Issued</span>
               </div>
-              {book.rows.map((row) => (
+              {rows.map((row) => (
                 <LetterRowLine
                   key={row.letter_id}
                   row={row}
                   onOpen={() => onOpen(row.letter_id)}
                 />
               ))}
+              {/* The page scrolls, not this card — see `<LoadMore>`. */}
+              <LoadMore query={letters} />
             </Card>
           ),
       })}
@@ -249,7 +267,7 @@ function LetterRowLine({
       </span>
       <div className="min-w-0">
         <div className="truncate text-cell font-medium text-ink">
-          {letterKind(row.kind)}
+          {letterKindLabel(row.kind)}
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-pill text-mute">
           <SubjectRef
@@ -417,7 +435,7 @@ function SourceSheet({
         <Segmented
           options={LETTER_KINDS.map((one) => ({
             value: one.value,
-            label: one.label,
+            label: one.appLabel,
           }))}
           value={kind}
           onChange={setKind}
@@ -473,7 +491,7 @@ function SourceSheet({
         {!fromRecord ? (
           <Button
             variant="primary"
-            disabled={draft.isPending}
+            pending={draft.isPending}
             onClick={() => draft.mutate(null)}
           >
             <FileSignature className="size-3.5" />
@@ -693,7 +711,8 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                   <div className="flex flex-col gap-2">
                     <Button
                       onClick={() => save.mutate()}
-                      disabled={!dirty || save.isPending}
+                      pending={save.isPending}
+                      disabled={!dirty}
                     >
                       {save.isPending ? "Saving…" : "Save"}
                     </Button>
@@ -705,7 +724,8 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                     <Button
                       variant="primary"
                       onClick={() => issue.mutate()}
-                      disabled={dirty || issue.isPending}
+                      pending={issue.isPending}
+                      disabled={dirty}
                     >
                       {issue.isPending ? "Issuing…" : "Issue and take a number"}
                     </Button>
@@ -791,7 +811,7 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                     <Button
                       variant="ghost"
                       onClick={() => discard.mutate()}
-                      disabled={discard.isPending}
+                      pending={discard.isPending}
                       className="justify-start text-bad"
                     >
                       <Trash2 className="size-3.5" />
@@ -816,7 +836,8 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                     </span>
                     <Button
                       variant="primary"
-                      disabled={patternName.trim() === "" || keep.isPending}
+                      pending={keep.isPending}
+                      disabled={patternName.trim() === ""}
                       onClick={() => keep.mutate()}
                     >
                       {keep.isPending ? "Keeping…" : "Keep it"}
@@ -832,12 +853,13 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                   </p>
                   <Field
                     label="Call it"
+                    required
                     aside="What somebody will look for in the menu."
                   >
                     <Input
                       value={patternName}
                       onChange={(event) => setPatternName(event.target.value)}
-                      placeholder="Penugasan pengambilan retur"
+                      placeholder="Return pickup assignment"
                     />
                   </Field>
                 </div>
@@ -854,7 +876,8 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                     </span>
                     <Button
                       variant="primary"
-                      disabled={reason.trim() === "" || stop.isPending}
+                      pending={stop.isPending}
+                      disabled={reason.trim() === ""}
                       onClick={() => stop.mutate()}
                     >
                       {stop.isPending ? "Voiding…" : "Void it"}
@@ -871,13 +894,14 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                   </p>
                   <Field
                     label="Why"
+                    required
                     aside="Whoever finds this letter in a year reads this sentence."
                   >
                     <Textarea
                       rows={3}
                       value={reason}
                       onChange={(event) => setReason(event.target.value)}
-                      placeholder="Salah alokasi, surat ditulis ulang"
+                      placeholder="Wrong allocation, letter rewritten"
                     />
                   </Field>
                 </div>

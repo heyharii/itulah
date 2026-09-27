@@ -1,6 +1,7 @@
 import { FolderOpen, MessageSquare, MessagesSquare } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
+import { useChatUnread } from "@/screens/workplace/chat-unread"
 
 /// The four workspace screens, as four asides rather than one module.
 ///
@@ -55,8 +56,20 @@ export const chatNav: AppModule = {
   icon: MessageSquare,
   home: "/chat",
   aside: true,
+  // Messages waiting, on the icon itself: a conversation is the one aside
+  // where somebody is waiting on YOU.
+  useCount: useChatUnread,
   sections: [
-    { items: [{ path: "/chat", label: "Chat", icon: MessageSquare }] },
+    {
+      items: [
+        {
+          path: "/chat",
+          label: "Chat",
+          icon: MessageSquare,
+          useCount: useChatUnread,
+        },
+      ],
+    },
   ],
 }
 

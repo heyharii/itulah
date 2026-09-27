@@ -118,6 +118,8 @@ tracing-appender = "=0.2.3"
 # system only: the defaults also pull in network, user and component probes
 # a shop node never reports.
 sysinfo = { version = "=0.39.6", default-features = false, features = ["disk", "system"] }
+# The store server advertises itself to the shop's devices (`edge/discovery.rs`).
+mdns-sd = "=0.21.4"
 tracing-subscriber = { version = "=0.3.20", features = ["env-filter", "json"] }
 uuid = { version = "=1.16.0", features = ["serde", "v4"] }
 
@@ -126,6 +128,8 @@ uuid = { version = "=1.16.0", features = ["serde", "v4"] }
 # need nothing here.
 [target.'cfg(windows)'.dependencies]
 windows-service = "=0.8.0"
+# A USB UPS presents itself as a battery (`edge/power.rs`).
+windows-sys = { version = "=0.61.2", features = ["Win32_System_Power", "Win32_Security_Cryptography", "Win32_Foundation"] }
 
 [[test]]
 name = "contract_types"

@@ -268,6 +268,7 @@ function ClassForm({
       <Problem error={save.error} />
       <Field
         label="Code"
+        required
         aside={assetClass === null ? "Never changes" : undefined}
       >
         <Input
@@ -277,7 +278,11 @@ function ClassForm({
           placeholder="AIR_CONDITIONER"
         />
       </Field>
-      <Field label="Name" hint="The client's own name, never translated.">
+      <Field
+        label="Name"
+        required
+        hint="The client's own name, never translated."
+      >
         <Input value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
       <div className="grid grid-cols-2 gap-3">
@@ -335,12 +340,8 @@ function ClassForm({
         )}
         <Button
           variant="primary"
-          disabled={
-            code.trim() === "" ||
-            name.trim() === "" ||
-            !lifeValid ||
-            save.isPending
-          }
+          pending={save.isPending}
+          disabled={code.trim() === "" || name.trim() === "" || !lifeValid}
           onClick={() => save.mutate()}
         >
           {save.isPending ? "Saving…" : "Save class"}

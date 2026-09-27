@@ -1,5 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
-import { useRouterState } from "@tanstack/react-router"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import { ListFilter, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
@@ -12,12 +11,13 @@ import { ChoiceMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { EmptyState } from "@/components/ui/states"
-import { buildOf, BUILD_VIEWS } from "@/lib/builds"
+import { EmptyState, LoadMore } from "@/components/ui/states"
+import { buildOf, BUILDS, BUILD_VIEWS } from "@/lib/builds"
 import { count } from "@/lib/format"
 import { gaKeys, gaAssets } from "@/lib/queries/ga"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
 import { AssetHubSheet, gaStatusWords } from "@/screens/assets/hub"
 import { RegisterAssetSheet } from "@/screens/assets/register"
@@ -55,74 +55,22 @@ import type { GaAssetRow } from "@itulah/contract"
 /// screen exists to start recording — from the next purchase forward, because
 /// it cannot be back-filled from a schedule of costs.
 ///
-/// # One register, three groups and seven build views
+/// # One row in the sidebar, the readings as chips
 ///
-/// The sidebar's Register · Software · Projects are this screen, narrowed by
-/// the group the URL names. The grouping follows the client's own chart —
-/// `asset_class.kind`, with the one exception that work in progress reads as
-/// Projects by CLASS, not by kind — and the server owns it, so the screen
-/// never spells the class list itself.
-///
-/// The seven chips narrow by `build` instead, which is how the things are
-/// found rather than how the money is filed: four of the fifty-nine classes
-/// are one form, and a facilities person looking for the shop's machines wants
-/// the machines rather than four AC-shaped lists. See `lib/builds.ts` for why
-/// the list is exactly eleven and why seven of them are chips.
-type AssetGroup = "register" | "software" | "projects"
-
-/// What the URL is asking for: which group, and which build within it.
-///
-/// A build view is a reading of Register — Property and Vehicles are plant —
-/// so the group is still sent, and the build narrows it. Sending both is what
-/// makes the total and the facets agree with the rows: a screen that narrowed
-/// only by build would count the whole register in its footer.
-function assetViewFor(pathname: string): {
-  group: AssetGroup
-  view: (typeof BUILD_VIEWS)[number] | undefined
-} {
-  if (pathname.startsWith("/assets/software")) {
-    return { group: "software", view: undefined }
-  }
-  if (pathname.startsWith("/assets/projects")) {
-    return { group: "projects", view: undefined }
-  }
-  const view = BUILD_VIEWS.find((one) =>
-    pathname.startsWith(`/assets/${one.value}`)
-  )
-  return { group: "register", view }
-}
-
-/// Which builds each group can be registered under.
-///
-/// The register offers the eight physical ones; Software offers its single
-/// build and Projects its two. A screen that offered all eleven everywhere
-/// would let somebody file a licence from a shop's floor, which is a thing
-/// GA does not do and Finance would then have to unpick.
-const GROUP_BUILDS: Record<AssetGroup, readonly string[]> = {
-  register: ["LAND", "BUILDING", "TECH", "VEHICLE", "FFE", "IT", "AUDIO", "OE"],
-  software: ["SOFTWARE"],
-  projects: ["DEFERRED", "CIP"],
-}
-
-const GROUP_TITLES: Record<AssetGroup, { title: string; sub: string }> = {
-  register: {
-    title: "Daftar aset",
-    sub: "Catat aset milik perusahaan, lokasinya, kondisinya, dan siapa yang memegangnya.",
-  },
-  software: {
-    title: "Perangkat lunak",
-    sub: "Daftar lisensi dan perangkat lunak yang digunakan perusahaan.",
-  },
-  projects: {
-    title: "Proyek",
-    sub: "Catat biaya persiapan dan pekerjaan yang masih berjalan sampai hasilnya siap didaftarkan sebagai aset.",
-  },
-}
+/// Register, Software and Projects were three sidebar rows, and seven build
+/// views sat behind them as hidden routes. The owner asked for a shorter menu
+/// on 2026-09-27, and the rows were never more than this screen narrowed by
+/// build — Software and Projects even showed the whole register, because the
+/// group they named was never sent. So there is one Assets row, and every
+/// reading is a chip whose value rides in `?asset-view=`: a facilities person
+/// who only ever wants the vehicles can still bookmark it and send it.
+/// How many assets one page of the register asks for. A step, not a ceiling:
+/// the rest arrive as the list is scrolled.
+const PAGE = 100
 
 export function Assets() {
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const { group, view } = assetViewFor(pathname)
-  const { title, sub } = GROUP_TITLES[group]
+  const reading = useSheet("asset-view")
+  const view = BUILD_VIEWS.find((one) => one.value === reading.value)
   const open = useSheet("asset")
   // The two maintenance records an asset can start, opened over the register
   // the moment they are filed from the hub: the proposal should land the
@@ -134,14 +82,17 @@ export function Assets() {
   const [site, setSite] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [adding, setAdding] = useState(false)
+  // The search goes to the server, so it waits for the typing to stop: one
+  // request per word rather than one per keystroke.
+  const needle = useDebounced(search.trim(), 300)
 
   const scope = useMemo(
     () => ({
-      q: search.trim() === "" ? undefined : search.trim(),
+      q: needle === "" ? undefined : needle,
       site: site ?? undefined,
-      // Every build the view means. Property is two of them, because land and
-      // the building on it are one question to a facilities person even though
-      // the chart charges them differently.
+      // Every build the reading means. Property is two of them, because land
+      // and the building on it are one question to a facilities person even
+      // though the chart charges them differently; Projects is two as well.
       build: view?.builds.join(","),
       condition: condition ?? undefined,
       // Asked as the register's OWN lifecycle and not as Finance's decision,
@@ -149,69 +100,82 @@ export function Assets() {
       // a bill and that nobody has walked the floor for is the open control gap
       // GA can actually close.
       draft: book === "ALL" ? undefined : book === "DRAFT",
-      limit: 200,
     }),
-    [search, book, site, condition, view]
+    [needle, book, site, condition, view]
   )
 
-  const register = useQuery({
-    queryKey: gaKeys.assets(scope),
-    queryFn: ({ signal }) => gaAssets(scope, signal),
+  /// The register, a page at a time, the next one fetched as the foot of the
+  /// list nears view. Its own key under the register's prefix: the pickers
+  /// read the same scope as one plain page, and an infinite answer and a plain
+  /// one cannot share a cache entry. `gaKeys.all` still reaches it.
+  const register = useInfiniteQuery({
+    queryKey: [...gaKeys.assets(scope), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaAssets({ ...scope, limit: PAGE, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched. Without
+    // it every search empties the register to a loading line.
+    placeholderData: (previous) => previous,
   })
 
-  const sites = register.data?.facets.sites ?? []
-  const conditions = register.data?.facets.conditions ?? []
+  const rows = useMemo(
+    () => register.data?.pages.flatMap((page) => page.rows) ?? [],
+    [register.data]
+  )
+  // Total and facets are the same on every page; the first one says them.
+  const head = register.data?.pages[0]
+  const sites = head?.facets.sites ?? []
+  const conditions = head?.facets.conditions ?? []
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Aset"
-        title={view === undefined ? title : `${title} · ${view.label}`}
-        sub={view?.note ?? sub}
+        crumb="GA"
+        title={view === undefined ? "Assets" : `Assets · ${view.label}`}
+        sub={
+          view?.note ??
+          "What the company owns: where each thing is, what state it is in, and who holds it."
+        }
         actions={
           <>
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Kode, nama atau serial"
+              placeholder="Code, name or serial"
               className="h-8 w-56"
             />
             <Button variant="primary" onClick={() => setAdding(true)}>
               <Plus />
-              Catat aset
+              Register asset
             </Button>
           </>
         }
       />
 
-      {/* The chips, and only on the group they read: Software and Projects have
-          no build to narrow by — every class in them is one build — so a chip
-          strip there would be a single chip that did nothing. */}
-      {group === "register" && (
-        <Toolbar>
-          <BuildChips
-            here={view?.value ?? null}
-            counts={register.data?.facets.builds ?? []}
-          />
-        </Toolbar>
-      )}
+      <Toolbar>
+        <BuildChips
+          here={view?.value ?? null}
+          counts={head?.facets.builds ?? []}
+        />
+      </Toolbar>
 
       <Toolbar>
         <Segmented
           options={[
-            { value: "ALL" as const, label: "Semua" },
-            { value: "DRAFT" as const, label: "Perlu dilengkapi" },
-            { value: "REGISTERED" as const, label: "Terdaftar" },
+            { value: "ALL" as const, label: "All" },
+            { value: "DRAFT" as const, label: "Needs details" },
+            { value: "REGISTERED" as const, label: "Registered" },
           ]}
           value={book}
           onChange={setBook}
         />
         <ChoiceMenu
-          heading="Kondisi"
+          heading="Condition"
           icon={ListFilter}
           value={condition}
           options={[
-            { value: null, label: "Semua kondisi" },
+            { value: null, label: "Any condition" },
             ...conditions.map((one) => ({
               value: one.value,
               label: conditionWords(one.value),
@@ -220,11 +184,11 @@ export function Assets() {
           onChange={setCondition}
         />
         <ChoiceMenu
-          heading="Lokasi"
+          heading="Location"
           icon={ListFilter}
           value={site}
           options={[
-            { value: null, label: "Semua lokasi" },
+            { value: null, label: "All locations" },
             ...sites.map((one) => ({
               value: one.value,
               label: one.label ?? one.value,
@@ -233,28 +197,28 @@ export function Assets() {
           onChange={setSite}
         />
         <Toolbar.Spacer />
-        {register.data !== undefined && (
+        {head !== undefined && (
           <span className="text-meta text-body">
-            <b className="font-medium text-ink">{count(register.data.total)}</b>{" "}
-            {register.data.total === 1 ? "aset" : "aset"}
+            <b className="font-medium text-ink">{count(head.total)}</b>{" "}
+            {head.total === 1 ? "asset" : "assets"}
           </span>
         )}
       </Toolbar>
 
       {queryState(register, {
-        loading: "Memuat daftar aset…",
-        render: (page) =>
-          page.rows.length === 0 ? (
+        loading: "Loading assets…",
+        render: () =>
+          rows.length === 0 ? (
             <Card>
               <EmptyState
                 action={
                   <Button variant="ghost" onClick={() => setAdding(true)}>
-                    Catat yang pertama
+                    Register the first one
                   </Button>
                 }
               >
-                Belum ada aset di daftar ini. Daftarkan aset saat diterima, lalu
-                lengkapi lokasi dan kondisinya.
+                No assets in this reading yet. Register an asset when it
+                arrives, then fill in where it is and what state it is in.
               </EmptyState>
             </Card>
           ) : (
@@ -267,17 +231,17 @@ export function Assets() {
               <div className="overflow-x-auto">
                 <div className="min-w-[72rem]">
                   <div className="grid h-10 grid-cols-[7rem_minmax(14rem,1fr)_11rem_6rem_9rem_9rem_7rem_9rem_9rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-                    <span>Kode</span>
-                    <span>Aset</span>
-                    <span>Kelas</span>
-                    <span>Lokasi</span>
-                    <span>Lokasi</span>
-                    <span>Pemegang</span>
-                    <span>Kondisi</span>
-                    <span>Status GA</span>
-                    <span>Status Finance</span>
+                    <span>Code</span>
+                    <span>Asset</span>
+                    <span>Class</span>
+                    <span>Location</span>
+                    <span>Area</span>
+                    <span>Holder</span>
+                    <span>Condition</span>
+                    <span>GA status</span>
+                    <span>Finance status</span>
                   </div>
-                  {page.rows.map((row) => (
+                  {rows.map((row) => (
                     <AssetLine
                       key={row.asset_id}
                       asset={row}
@@ -286,13 +250,19 @@ export function Assets() {
                   ))}
                 </div>
               </div>
+              {/* Outside the sideways-scrolling box: that box computes as a
+                  vertical scroller too, and a marker inside it would always
+                  be "in view" and pull every page. The page scrolls. */}
+              <LoadMore query={register} />
             </Card>
           ),
       })}
 
       <RegisterAssetSheet
         open={adding}
-        builds={GROUP_BUILDS[group]}
+        // The builds the reading means, so a licence is not offered from the
+        // vehicles; every build when nothing is narrowed.
+        builds={view?.builds ?? BUILDS.map((one) => one.value)}
         onClose={() => setAdding(false)}
         onRegistered={(assetId) => {
           setAdding(false)
@@ -329,17 +299,16 @@ export function Assets() {
   )
 }
 
-/// The seven build views, as chips with their counts.
+/// The readings, as chips with their counts.
 ///
-/// Chips and not a second sidebar: eleven rows under Assets would push
-/// Contracts and Maintenance off the screen to answer a question these answer
-/// in one click, and the sidebar is a list of places somebody sets out for
-/// while these are readings of the place they are already in.
+/// Chips and not sidebar rows: nine rows under Assets would push the rest of
+/// GA off the screen to answer a question these answer in one click, and the
+/// sidebar is a list of places somebody sets out for while these are readings
+/// of the place they are already in.
 ///
 /// Each chip is a LINK and not a button, so the reading is in the address bar:
-/// a facilities person who only ever wants the vehicles can bookmark it, send
-/// it, and land on it from ⌘K — which is the whole reason the seven have
-/// routes of their own.
+/// a facilities person who only ever wants the vehicles can bookmark it and
+/// send it.
 ///
 /// The counts are the server's facets, counted over the SEARCH and not over the
 /// filters, so "Vehicles 41" means there are forty-one vehicles rather than
@@ -356,40 +325,37 @@ function BuildChips({
   const total = counts.reduce((sum, one) => sum + one.count, 0)
   return (
     <nav
-      aria-label="Build views"
+      aria-label="Asset readings"
       className="flex flex-wrap items-center gap-1.5"
     >
-      <Chip to="/assets" label="Semua" n={total} active={here === null} />
-      {BUILD_VIEWS.map((view) => {
-        const Glyph = view.icon
-        return (
-          <Chip
-            key={view.value}
-            to={`/assets/${view.value}`}
-            label={view.label}
-            icon={Glyph}
-            n={counts
-              .filter((one) =>
-                view.builds.includes(one.value as (typeof view.builds)[number])
-              )
-              .reduce((sum, one) => sum + one.count, 0)}
-            active={here === view.value}
-          />
-        )
-      })}
+      <Chip label="All" n={total} active={here === null} />
+      {BUILD_VIEWS.map((view) => (
+        <Chip
+          key={view.value}
+          view={view.value}
+          label={view.label}
+          icon={view.icon}
+          n={counts
+            .filter((one) =>
+              view.builds.includes(one.value as (typeof view.builds)[number])
+            )
+            .reduce((sum, one) => sum + one.count, 0)}
+          active={here === view.value}
+        />
+      ))}
     </nav>
   )
 }
 
-/// One chip. A link, because the reading is a URL.
+/// One chip. A link, because the reading is a URL; no `view` is every build.
 function Chip({
-  to,
+  view,
   label,
   icon: Glyph,
   n,
   active,
 }: {
-  to: string
+  view?: string
   label: string
   icon?: React.ComponentType<{ className?: string }>
   n: number
@@ -397,7 +363,8 @@ function Chip({
 }) {
   return (
     <AppLink
-      to={to}
+      to="/assets"
+      sheet={view === undefined ? undefined : { key: "asset-view", value: view }}
       aria-current={active ? "page" : undefined}
       className={cn(
         "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-meta font-medium transition-colors",
@@ -462,7 +429,7 @@ function AssetLine({
             {asset.name}
           </span>
           <span className="block truncate font-mono text-pill text-mute">
-            {asset.serial_number ?? "tanpa serial"}
+            {asset.serial_number ?? "no serial"}
           </span>
         </span>
       </div>
@@ -481,7 +448,7 @@ function AssetLine({
       </span>
       <span>
         {asset.condition === "BAIK" ? (
-          <span className="text-meta text-body">Baik</span>
+          <span className="text-meta text-body">Good</span>
         ) : (
           <Pill tone={asset.condition === "RUSAK" ? "bad" : "warn"}>
             {conditionWords(asset.condition)}
@@ -490,19 +457,19 @@ function AssetLine({
       </span>
       <span>
         {/* The register's own status, not a two-way draft/registered
-            switch: a written-off laptop read "Terdaftar" here while its sheet
-            and the finance register both said it had gone. */}
+            switch: a written-off laptop read "Registered" here while its
+            sheet and the finance register both said it had gone. */}
         <Pill
           tone={
             draft || asset.status === "DISPOSAL_REQUESTED" ? "warn" : "neutral"
           }
         >
-          {draft ? "Perlu dilengkapi" : gaStatusWords(asset.status)}
+          {draft ? "Needs details" : gaStatusWords(asset.status)}
         </Pill>
       </span>
       <span>
         <Pill tone={asset.finance_decision === null ? "warn" : "neutral"}>
-          {asset.finance_decision === null ? "Belum dinilai" : "Sudah dinilai"}
+          {asset.finance_decision === null ? "Not assessed" : "Assessed"}
         </Pill>
       </span>
     </div>
@@ -512,10 +479,10 @@ function AssetLine({
 function conditionWords(condition: string): string {
   switch (condition) {
     case "PERLU_SERVIS":
-      return "Perlu servis"
+      return "Needs service"
     case "RUSAK":
-      return "Rusak"
+      return "Broken"
     default:
-      return "Baik"
+      return "Good"
   }
 }

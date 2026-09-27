@@ -14,7 +14,9 @@ export const auditKeys = {
   /// records do not share an answer.
   subject: (kind: string, id: string) =>
     ["audit", "subject", kind, id] as const,
-  feed: (actor: string | null) => ["audit", "feed", actor] as const,
+  /// The activity feed, keyed by everything that narrows it. Pages are the
+  /// infinite query's business, so the cursor is not part of the key.
+  feed: (scope: AuditScope) => ["audit", "feed", scope] as const,
 }
 
 /// One record's history. The server answers an envelope — rows, a cursor and
@@ -35,13 +37,47 @@ export function auditForSubject(
   })
 }
 
-export function recentAudit(
-  actor: string | null,
-  limit = 200,
+/// What the activity feed is asked for — every parameter `GET /api/v1/audit`
+/// answers for the global feed, and nothing it would refuse (the route is
+/// `deny_unknown_fields`).
+export interface AuditScope {
+  /// Free text over who acted, their name, the path and the record id.
+  readonly q?: string
+  /// One person's actions, by username.
+  readonly actor?: string
+  /// `POST`, `PATCH`, `PUT` or `DELETE`.
+  readonly method?: string
+  /// `OK` or `REFUSED` — `status >= 400`, decided by the server.
+  readonly outcome?: "OK" | "REFUSED"
+  /// `at`, `actor`, `path` or `status`.
+  readonly sort?: "at" | "actor" | "path" | "status"
+  /// Newest first is the route's own default, so only `false` is sent.
+  readonly desc?: boolean
+}
+
+/// One page of the activity feed. The server clamps `limit` at 500.
+export const AUDIT_PAGE = 100
+
+/// The feed, one page at a time, walking `next_cursor`.
+///
+/// Only the FIRST page asks for the exact total and the facet counts: that
+/// half reads the whole log whatever the page is, and the pages after it would
+/// only repeat the same numbers at the same cost.
+export function auditPage(
+  scope: AuditScope & { readonly cursor?: string },
   signal?: AbortSignal
 ): Promise<AuditFeed> {
-  const params = new URLSearchParams({ limit: String(limit) })
-  if (actor) params.set("actor", actor)
+  const params = new URLSearchParams({ limit: String(AUDIT_PAGE) })
+  if (scope.q) params.set("q", scope.q)
+  if (scope.actor) params.set("actor", scope.actor)
+  if (scope.method) params.set("method", scope.method)
+  if (scope.outcome) params.set("outcome", scope.outcome)
+  if (scope.sort) params.set("sort", scope.sort)
+  if (scope.desc === false) params.set("dir", "asc")
+  if (scope.cursor) {
+    params.set("cursor", scope.cursor)
+    params.set("count", "0")
+  }
   return node.get<AuditFeed>(`/api/v1/audit?${params.toString()}`, {
     signal,
   })

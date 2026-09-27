@@ -91,7 +91,7 @@ async fn announce(
             tx,
             NewNotification {
                 kind: "node.recovered",
-                title: format!("{place}: pulih"),
+                title: format!("{place}: recovered"),
                 body: format!("{} {}", assessment.headline, assessment.sentence),
                 subject: None,
                 origin_id: Some(origin_id),
@@ -285,6 +285,472 @@ pub async fn node_incidents(pool: &PgPool, origin_id: &str) -> Result<Vec<Value>
         "SELECT payload FROM node_incident
           WHERE origin_id = $1 AND at > now() - interval '7 days'
           ORDER BY at DESC LIMIT 200",
+    )
+    .bind(origin_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+// ---- Uptime: the status-page view ---------------------------------------------
+//
+// What UptimeRobot and its kind show — up since when, uptime per day and per
+// window, and every outage with its length — computed from what we already
+// keep: a heartbeat a minute (`node_health_sample`) and the node's own journal
+// (`node_incident`). The journal is what tells a deliberate stop from a
+// failure, so a restart somebody asked for is maintenance, not downtime.
+
+/// A heartbeat is due every minute; missing more than this is a gap.
+const GAP_AFTER_SECONDS: i64 = 150;
+/// Head office's day, for the daily bars.
+const DAY_OFFSET_SECONDS: i32 = 7 * 3600;
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum OutageKind {
+    Down,
+    Maintenance,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Outage {
+    pub start: DateTime<Utc>,
+    /// `None` while it is still going on.
+    pub end: Option<DateTime<Utc>>,
+    pub seconds: i64,
+    pub kind: OutageKind,
+    /// One sentence: why, as far as the node could tell.
+    pub cause: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct UptimeWindow {
+    pub days: i64,
+    /// `None` before the node was ever heard from in this window.
+    pub percent: Option<f64>,
+    pub outages: usize,
+    pub down_seconds: i64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct DayBar {
+    pub day: chrono::NaiveDate,
+    pub percent: Option<f64>,
+    pub down_seconds: i64,
+    pub maintenance_seconds: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NodeUptime {
+    pub origin_id: String,
+    /// `UP`, `DOWN`, `MAINTENANCE` or `UNKNOWN` (never heard from).
+    pub state: &'static str,
+    pub since: Option<DateTime<Utc>>,
+    pub last_check: Option<DateTime<Utc>>,
+    pub check_every_seconds: i64,
+    pub windows: Vec<UptimeWindow>,
+    pub days: Vec<DayBar>,
+    /// Newest first.
+    pub outages: Vec<Outage>,
+}
+
+fn interval(start: DateTime<Utc>, end: Option<DateTime<Utc>>, now: DateTime<Utc>) -> i64 {
+    (end.unwrap_or(now) - start).num_seconds().max(0)
+}
+
+/// Outages from the heartbeat gaps and the journal. Pure, for tests.
+fn outages_from(
+    samples: &[DateTime<Utc>],
+    incidents: &[crate::sync::node_status::Incident],
+    now: DateTime<Utc>,
+) -> Vec<Outage> {
+    use crate::sync::node_status::{Incident, PreviousExit};
+    let mut found: Vec<Outage> = Vec::new();
+    // What the journal knows, each with the span it covers.
+    let mut stopped_at: Option<DateTime<Utc>> = None;
+    for incident in incidents {
+        match incident {
+            Incident::Stopped { at, .. } => stopped_at = Some(*at),
+            Incident::Started { at, previous, .. } => {
+                let (start, kind, cause) = match previous {
+                    PreviousExit::Clean { at: stopped } => (
+                        stopped_at.unwrap_or(*stopped),
+                        OutageKind::Maintenance,
+                        "Stopped on purpose (restart, update, or shut down)".to_owned(),
+                    ),
+                    PreviousExit::Hung { at: hung } => (
+                        *hung,
+                        OutageKind::Down,
+                        "Hung, restarted itself".to_owned(),
+                    ),
+                    PreviousExit::Unclean { last_seen, machine_restarted: Some(true) } => (
+                        *last_seen,
+                        OutageKind::Down,
+                        "Power cut or the machine went off suddenly".to_owned(),
+                    ),
+                    PreviousExit::Unclean { last_seen, .. } => (
+                        *last_seen,
+                        OutageKind::Down,
+                        "Server stopped suddenly (crash), recovered on its own".to_owned(),
+                    ),
+                    PreviousExit::FirstStart => {
+                        stopped_at = None;
+                        continue;
+                    }
+                };
+                if *at > start {
+                    found.push(Outage {
+                        start,
+                        end: Some(*at),
+                        seconds: interval(start, Some(*at), now),
+                        kind,
+                        cause,
+                    });
+                }
+                stopped_at = None;
+            }
+            Incident::CrashLoop { at, hold_seconds, .. } => found.push(Outage {
+                start: *at,
+                end: Some(*at + Duration::seconds(*hold_seconds)),
+                seconds: *hold_seconds,
+                kind: OutageKind::Down,
+                cause: "Failed repeatedly, held back then tried again".to_owned(),
+            }),
+            _ => {}
+        }
+    }
+    // Heartbeat gaps the journal does not already explain: the node could not
+    // say why — the line, the power, or a machine that never came back.
+    let mut gaps: Vec<(DateTime<Utc>, Option<DateTime<Utc>>)> = samples
+        .windows(2)
+        .filter(|pair| (pair[1] - pair[0]).num_seconds() > GAP_AFTER_SECONDS)
+        .map(|pair| (pair[0], Some(pair[1])))
+        .collect();
+    if let Some(last) = samples.last() {
+        if (now - *last).num_seconds() > GAP_AFTER_SECONDS {
+            gaps.push((*last, None));
+        }
+    }
+    for (start, end) in gaps {
+        let gap_end = end.unwrap_or(now);
+        let explained = found
+            .iter_mut()
+            .find(|outage| outage.start <= gap_end && outage.end.unwrap_or(now) >= start);
+        match explained {
+            Some(outage) => {
+                // The journal says why; the heartbeat says how long.
+                outage.start = outage.start.min(start);
+                if end.is_none() {
+                    outage.end = None;
+                } else if let Some(outage_end) = outage.end {
+                    outage.end = Some(outage_end.max(gap_end));
+                }
+                outage.seconds = interval(outage.start, outage.end, now);
+            }
+            None => {
+                // Still going on and the last word was a deliberate stop:
+                // maintenance, not an outage.
+                let deliberate = end.is_none()
+                    && matches!(incidents.last(), Some(Incident::Stopped { at, .. }) if *at >= start - Duration::seconds(GAP_AFTER_SECONDS));
+                found.push(Outage {
+                    start,
+                    end,
+                    seconds: interval(start, end, now),
+                    kind: if deliberate { OutageKind::Maintenance } else { OutageKind::Down },
+                    cause: if deliberate {
+                        "Stopped on purpose".to_owned()
+                    } else {
+                        "No word from the server (internet, power, or machine off)".to_owned()
+                    },
+                });
+            }
+        }
+    }
+    found.sort_by(|a, b| b.start.cmp(&a.start));
+    found
+}
+
+/// Seconds of `outages` of `kind` inside `[from, to)`.
+fn overlap(outages: &[Outage], kind: OutageKind, from: DateTime<Utc>, to: DateTime<Utc>, now: DateTime<Utc>) -> i64 {
+    outages
+        .iter()
+        .filter(|outage| outage.kind == kind)
+        .map(|outage| {
+            let start = outage.start.max(from);
+            let end = outage.end.unwrap_or(now).min(to);
+            (end - start).num_seconds().max(0)
+        })
+        .sum()
+}
+
+/// Uptime of `[from, to)`, excluding maintenance, from the first heartbeat on.
+fn percent(outages: &[Outage], first: DateTime<Utc>, from: DateTime<Utc>, to: DateTime<Utc>, now: DateTime<Utc>) -> Option<f64> {
+    let from = from.max(first);
+    let to = to.min(now);
+    if to <= from {
+        return None;
+    }
+    let total = (to - from).num_seconds() as f64;
+    let maintenance = overlap(outages, OutageKind::Maintenance, from, to, now) as f64;
+    let down = overlap(outages, OutageKind::Down, from, to, now) as f64;
+    let counted = total - maintenance;
+    (counted > 0.0).then(|| ((counted - down) / counted * 100.0).clamp(0.0, 100.0))
+}
+
+fn uptime_from(
+    origin_id: &str,
+    samples: &[DateTime<Utc>],
+    incidents: &[crate::sync::node_status::Incident],
+    now: DateTime<Utc>,
+) -> NodeUptime {
+    let outages = outages_from(samples, incidents, now);
+    let first = samples.first().copied();
+    let last = samples.last().copied();
+    let ongoing = outages.iter().find(|outage| outage.end.is_none());
+    let (state, since) = match (first, ongoing) {
+        (None, _) => ("UNKNOWN", None),
+        (Some(_), Some(outage)) => (
+            if outage.kind == OutageKind::Maintenance { "MAINTENANCE" } else { "DOWN" },
+            Some(outage.start),
+        ),
+        (Some(first), None) => (
+            "UP",
+            Some(
+                outages
+                    .iter()
+                    .filter_map(|outage| outage.end)
+                    .max()
+                    .unwrap_or(first),
+            ),
+        ),
+    };
+    let windows = [1, 7, 30, 90]
+        .iter()
+        .map(|days| {
+            let from = now - Duration::days(*days);
+            UptimeWindow {
+                days: *days,
+                percent: first.and_then(|first| percent(&outages, first, from, now, now)),
+                outages: outages
+                    .iter()
+                    .filter(|outage| outage.kind == OutageKind::Down && outage.end.unwrap_or(now) > from)
+                    .count(),
+                down_seconds: overlap(&outages, OutageKind::Down, from, now, now),
+            }
+        })
+        .collect();
+    let offset = chrono::FixedOffset::east_opt(DAY_OFFSET_SECONDS).expect("valid offset");
+    let today = now.with_timezone(&offset).date_naive();
+    let days = (0..90)
+        .rev()
+        .map(|back| {
+            let day = today - Duration::days(back);
+            let start = day
+                .and_hms_opt(0, 0, 0)
+                .and_then(|midnight| midnight.and_local_timezone(offset).single())
+                .map(|local| local.with_timezone(&Utc))
+                .unwrap_or(now);
+            let end = start + Duration::days(1);
+            DayBar {
+                day,
+                percent: first.and_then(|first| percent(&outages, first, start, end, now)),
+                down_seconds: overlap(&outages, OutageKind::Down, start, end, now),
+                maintenance_seconds: overlap(&outages, OutageKind::Maintenance, start, end, now),
+            }
+        })
+        .collect();
+    NodeUptime {
+        origin_id: origin_id.to_owned(),
+        state,
+        since,
+        last_check: last,
+        check_every_seconds: 60,
+        windows,
+        days,
+        outages,
+    }
+}
+
+/// One node's uptime over the last 90 days.
+pub async fn node_uptime(pool: &PgPool, origin_id: &str) -> Result<NodeUptime, AppError> {
+    let now = Utc::now();
+    let samples: Vec<DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT at FROM node_health_sample
+          WHERE origin_id = $1 AND at > now() - interval '91 days' ORDER BY at",
+    )
+    .bind(origin_id)
+    .fetch_all(pool)
+    .await?;
+    let incidents: Vec<crate::sync::node_status::Incident> = sqlx::query_scalar::<_, Value>(
+        "SELECT payload FROM node_incident
+          WHERE origin_id = $1 AND at > now() - interval '91 days' ORDER BY at",
+    )
+    .bind(origin_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .filter_map(|payload| serde_json::from_value(payload).ok())
+    .collect();
+    Ok(uptime_from(origin_id, &samples, &incidents, now))
+}
+
+/// Every registered shop server's uptime, for the status overview.
+pub async fn fleet_uptime(pool: &PgPool) -> Result<Vec<NodeUptime>, AppError> {
+    let origins: Vec<String> = sqlx::query_scalar(
+        "SELECT origin_id FROM sync_origin_credential WHERE site_id IS NOT NULL ORDER BY origin_id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut all = Vec::with_capacity(origins.len());
+    for origin in origins {
+        all.push(node_uptime(pool, &origin).await?);
+    }
+    Ok(all)
+}
+
+#[cfg(test)]
+mod uptime_tests {
+    use super::*;
+    use crate::sync::node_status::{Incident, PreviousExit};
+
+    fn at(minutes: i64) -> DateTime<Utc> {
+        DateTime::<Utc>::from_timestamp(1_800_000_000, 0).unwrap_or_default() + Duration::minutes(minutes)
+    }
+
+    fn beats(from: i64, to: i64) -> Vec<DateTime<Utc>> {
+        (from..=to).map(at).collect()
+    }
+
+    #[test]
+    fn a_node_heard_every_minute_is_up_since_its_first_heartbeat() {
+        let uptime = uptime_from("s", &beats(0, 60), &[], at(60));
+        assert_eq!(uptime.state, "UP");
+        assert_eq!(uptime.since, Some(at(0)));
+        assert_eq!(uptime.windows[0].percent, Some(100.0));
+        assert!(uptime.outages.is_empty());
+    }
+
+    #[test]
+    fn a_silent_gap_is_downtime_and_a_silence_now_is_down() {
+        let mut samples = beats(0, 10);
+        samples.extend(beats(40, 50));
+        let uptime = uptime_from("s", &samples, &[], at(60));
+        assert_eq!(uptime.state, "DOWN");
+        assert_eq!(uptime.since, Some(at(50)));
+        assert_eq!(uptime.outages.len(), 2);
+        assert!(uptime.outages.iter().all(|o| o.kind == OutageKind::Down));
+        assert!(uptime.windows[0].percent.is_some_and(|p| p < 70.0));
+    }
+
+    #[test]
+    fn a_deliberate_restart_is_maintenance_and_not_downtime() {
+        let mut samples = beats(0, 10);
+        samples.extend(beats(20, 60));
+        let incidents = vec![
+            Incident::Stopped { at: at(10), reason: "asked to stop".into() },
+            Incident::Started { at: at(20), version: "1".into(), previous: PreviousExit::Clean { at: at(10) } },
+        ];
+        let uptime = uptime_from("s", &samples, &incidents, at(60));
+        assert_eq!(uptime.state, "UP");
+        assert_eq!(uptime.outages.len(), 1);
+        assert_eq!(uptime.outages[0].kind, OutageKind::Maintenance);
+        assert_eq!(uptime.windows[0].percent, Some(100.0), "maintenance does not count against uptime");
+    }
+
+    #[test]
+    fn a_crash_shorter_than_a_heartbeat_is_still_an_outage_with_its_cause() {
+        let incidents = vec![Incident::Started {
+            at: at(30),
+            version: "1".into(),
+            previous: PreviousExit::Unclean { last_seen: at(29), machine_restarted: Some(false) },
+        }];
+        let uptime = uptime_from("s", &beats(0, 60), &incidents, at(60));
+        assert_eq!(uptime.outages.len(), 1);
+        assert_eq!(uptime.outages[0].seconds, 60);
+        assert!(uptime.outages[0].cause.contains("crash"));
+        assert_eq!(uptime.state, "UP");
+        assert_eq!(uptime.since, Some(at(30)));
+    }
+
+    #[test]
+    fn a_power_cut_explains_the_gap_it_caused() {
+        let mut samples = beats(0, 10);
+        samples.extend(beats(35, 60));
+        let incidents = vec![Incident::Started {
+            at: at(35),
+            version: "1".into(),
+            previous: PreviousExit::Unclean { last_seen: at(10), machine_restarted: Some(true) },
+        }];
+        let uptime = uptime_from("s", &samples, &incidents, at(60));
+        assert_eq!(uptime.outages.len(), 1, "{:?}", uptime.outages);
+        assert!(uptime.outages[0].cause.contains("Power cut"));
+        assert_eq!(uptime.outages[0].seconds, 25 * 60);
+    }
+
+    #[test]
+    fn never_heard_from_is_unknown_not_down() {
+        let uptime = uptime_from("s", &[], &[], at(0));
+        assert_eq!(uptime.state, "UNKNOWN");
+        assert!(uptime.windows.iter().all(|w| w.percent.is_none()));
+    }
+}
+
+// ---- Acting from a distance --------------------------------------------------
+
+/// Ask a node to restart, back up, or diagnose itself (`sync/node_ops.rs`).
+/// Expires in an hour: an instruction that reaches a node which was off all
+/// afternoon is not the instruction anybody gave.
+pub async fn ask_node(
+    pool: &PgPool,
+    origin_id: &str,
+    kind: &str,
+    payload: Value,
+    issued_by: &str,
+) -> Result<Value, AppError> {
+    if !crate::sync::node_ops::is_node_op(kind) {
+        return Err(AppError::Validation(format!("unknown node operation {kind}")));
+    }
+    crate::sync::node_ops::validate(kind, &payload).map_err(AppError::Validation)?;
+    let (command_id, _) = super::issue_command(
+        pool,
+        kind,
+        &payload,
+        issued_by,
+        Some(Utc::now() + Duration::hours(1)),
+        &[origin_id.to_owned()],
+    )
+    .await?;
+    Ok(json!({ "command_id": command_id, "kind": kind, "origin_id": origin_id }))
+}
+
+/// File a diagnosis a node sent. Keeps the newest ten per node.
+pub async fn record_diagnostic(pool: &PgPool, origin_id: &str, report: &Value) -> Result<(), AppError> {
+    let verdict = report["verdict"].as_str().unwrap_or("WARN");
+    let verdict = if matches!(verdict, "OK" | "WARN" | "FAIL") { verdict } else { "WARN" };
+    let mut tx = pool.begin().await?;
+    sqlx::query("INSERT INTO node_diagnostic (diagnostic_id, origin_id, verdict, report) VALUES ($1, $2, $3, $4)")
+        .bind(uuid::Uuid::new_v4())
+        .bind(origin_id)
+        .bind(verdict)
+        .bind(report)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "DELETE FROM node_diagnostic WHERE origin_id = $1 AND diagnostic_id NOT IN (
+             SELECT diagnostic_id FROM node_diagnostic WHERE origin_id = $1
+              ORDER BY received_at DESC LIMIT 10)",
+    )
+    .bind(origin_id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// The newest diagnoses for a node, newest first.
+pub async fn node_diagnostics(pool: &PgPool, origin_id: &str) -> Result<Vec<Value>, AppError> {
+    Ok(sqlx::query_scalar(
+        "SELECT jsonb_build_object('received_at', received_at, 'verdict', verdict, 'report', report)
+           FROM node_diagnostic WHERE origin_id = $1 ORDER BY received_at DESC LIMIT 10",
     )
     .bind(origin_id)
     .fetch_all(pool)

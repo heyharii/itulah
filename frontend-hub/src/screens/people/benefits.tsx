@@ -33,11 +33,13 @@ import {
 export function Benefits() {
   const client = useQueryClient()
   const reach = useReach()
-  const manager = reach.data?.role === "ADMIN" || reach.data?.role === "SUPERVISOR"
+  const manager =
+    reach.data?.role === "ADMIN" || reach.data?.role === "SUPERVISOR"
 
   const team = useQuery({
     queryKey: peopleKeys.employees({ status: "ACTIVE", limit: 1000 }),
-    queryFn: ({ signal }) => listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
+    queryFn: ({ signal }) =>
+      listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
   })
   const rules = useQuery({
     queryKey: nextKeys.rules("benefit"),
@@ -47,13 +49,17 @@ export function Benefits() {
     queryKey: nextKeys.rules("statutory"),
     queryFn: ({ signal }) => readRules({ group: "statutory" }, signal),
   })
-  const people = (team.data ?? []).map((person) => ({ id: person.employee_id, name: person.full_name ?? person.employee_code ?? person.employee_id }))
-  const nameOf = (id: string) => people.find((person) => person.id === id)?.name ?? id
+  const people = (team.data ?? []).map((person) => ({
+    id: person.employee_id,
+    name: person.full_name ?? person.employee_code ?? person.employee_id,
+  }))
+  const nameOf = (id: string) =>
+    people.find((person) => person.id === id)?.name ?? id
 
   return (
     <PageContent>
       <PageHeader
-        crumb="People · Pay"
+        crumb="People · Payroll"
         title="Benefits"
         sub="Seragam dan plafonnya, dan angka BPJS yang dibaca setiap slip. Tarif dan jatah milik HO; pencatatan milik toko."
       />
@@ -65,7 +71,10 @@ export function Benefits() {
           </CardHeader>
           <div className="divide-y">
             {(rules.data ?? []).map((rule) => (
-              <div key={rule.key} className="flex items-baseline justify-between gap-3 px-4 py-2">
+              <div
+                key={rule.key}
+                className="flex items-baseline justify-between gap-3 px-4 py-2"
+              >
                 <span className="text-body">{rule.label}</span>
                 <span className="text-meta text-body">
                   {Number.isInteger(rule.value)
@@ -76,7 +85,10 @@ export function Benefits() {
               </div>
             ))}
             {(statutory.data ?? []).map((rule) => (
-              <div key={rule.key} className="flex items-baseline justify-between gap-3 px-4 py-2">
+              <div
+                key={rule.key}
+                className="flex items-baseline justify-between gap-3 px-4 py-2"
+              >
                 <span className="text-body">{rule.label}</span>
                 <span className="text-meta text-body">{rule.value}%</span>
               </div>
@@ -92,7 +104,11 @@ export function Benefits() {
           {manager ? (
             <RecordUniform
               team={people}
-              onDone={() => client.invalidateQueries({ queryKey: ["people", "next", "uniform"] })}
+              onDone={() =>
+                client.invalidateQueries({
+                  queryKey: ["people", "next", "uniform"],
+                })
+              }
             />
           ) : null}
         </Card>
@@ -130,7 +146,9 @@ function UniformOf({ id, name }: { id: string; name: string }) {
     queryFn: ({ signal }) => listUniformIssuances(id, signal),
   })
   const rows = ledger.data ?? []
-  const thisYear = rows.filter((row) => row.issued_on.startsWith(new Date().toISOString().slice(0, 4)))
+  const thisYear = rows.filter((row) =>
+    row.issued_on.startsWith(new Date().toISOString().slice(0, 4))
+  )
   const sets = thisYear.reduce((sum, row) => sum + row.sets, 0)
   return (
     <div className="flex items-baseline justify-between gap-3 px-4 py-2">
@@ -180,7 +198,7 @@ function RecordUniform({
   return (
     <div className="space-y-2 border-t border-hairline p-4">
       <div className="grid gap-2 sm:grid-cols-3">
-        <Field label="Who">
+        <Field label="Who" required>
           <Select value={employeeId} onChange={setEmployeeId}>
             <option value="">Choose…</option>
             {team.map((person) => (
@@ -190,10 +208,14 @@ function RecordUniform({
             ))}
           </Select>
         </Field>
-        <Field label="Sets">
-          <Input inputMode="numeric" value={sets} onChange={(e) => setSets(e.target.value.replace(/[^\d]/g, ""))} />
+        <Field label="Sets" required>
+          <Input
+            inputMode="numeric"
+            value={sets}
+            onChange={(e) => setSets(e.target.value.replace(/[^\d]/g, ""))}
+          />
         </Field>
-        <Field label="Why">
+        <Field label="Why" required>
           <Input value={reason} onChange={(e) => setReason(e.target.value)} />
         </Field>
       </div>
@@ -201,7 +223,8 @@ function RecordUniform({
       <div className="flex justify-end">
         <Button
           variant="primary"
-          disabled={employeeId === "" || sets === "" || reason.trim() === "" || record.isPending}
+          pending={record.isPending}
+          disabled={employeeId === "" || sets === "" || reason.trim() === ""}
           onClick={() => record.mutate()}
         >
           Record the handover

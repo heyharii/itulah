@@ -2,6 +2,7 @@ import { Combobox } from "@base-ui/react/combobox"
 import { Check, ChevronDown, Plus, X } from "lucide-react"
 import { useMemo, useState } from "react"
 
+import { HAS_INVALID, INVALID, useFieldAria } from "@/components/ui/field-state"
 import { PickerSheet } from "@/components/ui/picker-sheet"
 import { usePickerSheet } from "@/lib/layout"
 import { Tag } from "@/components/ui/tag"
@@ -40,8 +41,16 @@ export interface Choice {
 /// height would clip the second row. A caller in a table or a toolbar
 /// compacts it the way `<Day>` is compacted — `min-h-8 px-2.5
 /// text-[0.875rem]` — and twMerge lets those win.
-const FIELD =
-  "flex min-h-10 w-full items-center gap-1.5 rounded-inner border border-hairline-2 bg-canvas px-3 py-1 text-left text-[0.875rem] transition-colors hover:border-hairline-strong has-[input:focus-visible]:border-accent"
+const FIELD = cn(
+  "flex min-h-10 w-full items-center gap-1.5 rounded-inner border border-hairline-2 bg-canvas px-3 py-1 text-left text-[0.875rem] transition-colors hover:border-hairline-strong has-[input:focus-visible]:border-accent",
+  // Refused: the box itself carries `aria-invalid` on a phone (it is the
+  // button), the input inside it does on a desk.
+  INVALID,
+  HAS_INVALID,
+  "has-[[aria-invalid=true]]:has-[input:focus-visible]:border-bad",
+  // Locked. On a phone the box is the button; on a desk the input inside is.
+  "disabled:opacity-50 has-[input:disabled]:opacity-50 has-[input:disabled]:hover:border-hairline-2"
+)
 
 function match(choices: readonly Choice[], query: string): readonly Choice[] {
   const needle = query.trim().toLowerCase()
@@ -66,12 +75,22 @@ export function PickOne({
   className,
   label,
   action,
+  disabled,
+  invalid,
+  required,
 }: {
   choices: readonly Choice[]
   value: string | null
   onChange: (value: string | null) => void
   placeholder?: string
   className?: string
+  /// Locked: the answer is shown, and cannot be changed or cleared.
+  disabled?: boolean
+  /// Refused, outside a `<Field>`. Inside one the field says it.
+  invalid?: boolean
+  /// Also takes away the clearing ×: a required answer cannot be emptied from
+  /// the control that is asking for it.
+  required?: boolean
   /// For the screen reader. The visible label is usually a table header, which
   /// no assistive technology associates with a control on its own.
   label?: string
@@ -98,6 +117,9 @@ export function PickOne({
   const rows = useMemo(() => match(choices, query), [choices, query])
   const chosen = choices.find((one) => one.value === value) ?? null
   const sheet = usePickerSheet()
+  const aria = useFieldAria({ invalid, required })
+  const clearable =
+    chosen !== null && disabled !== true && aria["aria-required"] !== true
 
   // A phone: the field is a button, and the list comes up from the bottom.
   // See `picker-sheet.tsx` for why.
@@ -114,6 +136,8 @@ export function PickOne({
             type="button"
             aria-label={label}
             aria-haspopup="dialog"
+            disabled={disabled}
+            {...aria}
             onClick={() => setOpen(true)}
             className={cn(
               "min-h-9 min-w-0 flex-1 truncate text-left after:absolute after:inset-0 after:content-['']",
@@ -122,7 +146,7 @@ export function PickOne({
           >
             {chosen?.label ?? placeholder}
           </button>
-          {chosen !== null && (
+          {clearable && (
             <button
               type="button"
               aria-label="Clear"
@@ -182,17 +206,19 @@ export function PickOne({
       }}
       itemToStringLabel={(one) => (one ? (one as Choice).label : "")}
       modal={false}
+      disabled={disabled}
     >
       <Combobox.InputGroup className={cn(FIELD, className)}>
         <Combobox.Input
           aria-label={label}
+          {...aria}
           placeholder={placeholder}
           className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
         />
         {/* Clearing is a decision, so it gets its own control rather than
             being something you discover by emptying the box. Only drawn when
             there is something to clear. */}
-        {chosen !== null && (
+        {clearable && (
           <button
             type="button"
             aria-label="Clear"
@@ -283,6 +309,9 @@ export function PickMany({
   className,
   label,
   leading,
+  disabled,
+  invalid,
+  required,
 }: {
   choices: readonly Choice[]
   values: readonly string[]
@@ -296,6 +325,12 @@ export function PickMany({
   /// rather than read: "the navy one" is how somebody describes a garment they
   /// are holding, and a column of ticked words throws that away.
   leading?: (value: string) => React.ReactNode
+  /// Locked: the chips are shown and none can be added or removed.
+  disabled?: boolean
+  /// Refused, outside a `<Field>`. Inside one the field says it.
+  invalid?: boolean
+  /// At least one is wanted.
+  required?: boolean
 }) {
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
@@ -312,6 +347,7 @@ export function PickMany({
         : [...values, value]
     )
   const sheet = usePickerSheet()
+  const aria = useFieldAria({ invalid, required })
 
   if (sheet) {
     return (
@@ -320,6 +356,8 @@ export function PickMany({
           type="button"
           aria-label={label}
           aria-haspopup="dialog"
+          disabled={disabled}
+          {...aria}
           onClick={() => setOpen(true)}
           className={cn(FIELD, "flex-wrap", className)}
         >
@@ -385,6 +423,7 @@ export function PickMany({
       }}
       itemToStringLabel={(one) => (one ? (one as Choice).label : "")}
       modal={false}
+      disabled={disabled}
     >
       <Combobox.InputGroup className={cn(FIELD, "flex-wrap", className)}>
         {values.map((value) => {
@@ -393,22 +432,25 @@ export function PickMany({
             <Tag key={value} className="gap-1">
               {leading?.(value)}
               {one?.label ?? value}
-              <button
-                type="button"
-                aria-label={`Remove ${one?.label ?? value}`}
-                className="-mr-0.5 rounded-full text-line-ico hover:text-ink"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  toggle(value)
-                }}
-              >
-                <X className="size-2.5" />
-              </button>
+              {disabled !== true && (
+                <button
+                  type="button"
+                  aria-label={`Remove ${one?.label ?? value}`}
+                  className="-mr-0.5 rounded-full text-line-ico hover:text-ink"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    toggle(value)
+                  }}
+                >
+                  <X className="size-2.5" />
+                </button>
+              )}
             </Tag>
           )
         })}
         <Combobox.Input
           aria-label={label}
+          {...aria}
           placeholder={values.length === 0 ? placeholder : ""}
           className="min-w-[3rem] flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
         />

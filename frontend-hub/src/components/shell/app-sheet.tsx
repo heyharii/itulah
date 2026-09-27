@@ -42,8 +42,13 @@ export function AppSheet({
             onOpenChange(false)
         }}
       >
-        {tile?.modules.map((module) => (
+        {tile?.modules.map((module, index) => (
           <div key={module.id} className="flex flex-col gap-px">
+            {/* The sidebar's hairlines for a flat domain, so the phone groups
+                GA the way the desk does. */}
+            {!grouped && module.divider && index > 0 && (
+              <hr className="mx-[0.5625rem] mt-[0.6875rem] mb-[0.5625rem] border-0 border-t border-hairline" />
+            )}
             {grouped && (
               <span
                 className={cn(

@@ -217,6 +217,9 @@ export interface PolicyReceipt {
 export const systemKeys = {
   all: ["system"] as const,
   users: () => ["system", "users"] as const,
+  /// The account register, paged. Under `users()` so every write that
+  /// invalidates the pickers' answer reaches this one too.
+  userList: (scope: UserScope) => ["system", "users", "list", scope] as const,
   origins: () => ["system", "origins"] as const,
   fleet: () => ["system", "fleet"] as const,
   deadLetters: () => ["system", "dead-letters"] as const,
@@ -224,10 +227,19 @@ export const systemKeys = {
   health: () => ["system", "health"] as const,
   command: (id: string) => ["system", "commands", id] as const,
   notifications: () => ["system", "notifications"] as const,
+  /// The full notifications screen, paged. Under `notifications()` so every
+  /// write that invalidates that prefix reaches it — and apart from the bell's
+  /// `[…, "bell", 8]`, whose answer is a single page, not an infinite one.
+  notificationFeed: (unread: boolean) =>
+    ["system", "notifications", "feed", unread] as const,
   edgeAssignments: () => ["system", "edge-assignments"] as const,
   rfidDevices: () => ["system", "rfid-devices"] as const,
   enrolments: () => ["system", "enrolments"] as const,
   nodeHealth: () => ["system", "node-health"] as const,
+  uptime: () => ["system", "uptime"] as const,
+  nodeUptime: (originId: string) => ["system", "uptime", originId] as const,
+  nodeDiagnostics: (originId: string) =>
+    ["system", "node-diagnostics", originId] as const,
   nodeIncidents: (originId: string) =>
     ["system", "node-incidents", originId] as const,
 }
@@ -409,6 +421,16 @@ export type NodeIncident =
     }
   | { readonly kind: "AWAITING_ENROLMENT"; readonly at: string }
   | { readonly kind: "ENROLLED"; readonly at: string; readonly site_id: string }
+  | {
+      readonly kind: "ON_BATTERY"
+      readonly at: string
+      readonly charge_percent: number | null
+    }
+  | {
+      readonly kind: "POWER_RESTORED"
+      readonly at: string
+      readonly on_battery_seconds: number
+    }
 
 export type PreviousExit =
   | { readonly how: "FIRST_START" }
@@ -478,6 +500,103 @@ export function nodeIncidents(originId: string, signal?: AbortSignal) {
   return node
     .get<{ items: NodeIncident[] }>(
       `/api/v1/sync/nodes/${encodeURIComponent(originId)}/incidents`,
+      { signal }
+    )
+    .then((body) => body.items)
+}
+
+// ---- Uptime: the status-page view ---------------------------------------------
+//
+// Transcribed from `cloud/postgres/node_health.rs` (`NodeUptime`). A deliberate
+// stop is MAINTENANCE and does not count against the percentage; everything
+// else the node could not help is DOWN.
+
+export type UptimeState = "UP" | "DOWN" | "MAINTENANCE" | "UNKNOWN"
+
+export interface Outage {
+  readonly start: string
+  readonly end: string | null
+  readonly seconds: number
+  readonly kind: "DOWN" | "MAINTENANCE"
+  readonly cause: string
+}
+
+export interface NodeUptime {
+  readonly origin_id: string
+  readonly state: UptimeState
+  readonly since: string | null
+  readonly last_check: string | null
+  readonly check_every_seconds: number
+  readonly windows: readonly {
+    readonly days: number
+    readonly percent: number | null
+    readonly outages: number
+    readonly down_seconds: number
+  }[]
+  readonly days: readonly {
+    readonly day: string
+    readonly percent: number | null
+    readonly down_seconds: number
+    readonly maintenance_seconds: number
+  }[]
+  readonly outages: readonly Outage[]
+}
+
+export function listUptime(signal?: AbortSignal) {
+  return node
+    .get<{ items: NodeUptime[] }>("/api/v1/sync/nodes/uptime", { signal })
+    .then((body) => body.items)
+}
+
+export function nodeUptime(originId: string, signal?: AbortSignal) {
+  return node.get<NodeUptime>(
+    `/api/v1/sync/nodes/${encodeURIComponent(originId)}/uptime`,
+    { signal }
+  )
+}
+
+/// Ask a shop server to restart, back up, diagnose itself, or send it the
+/// initial data again. Carried on the signed command lane; every request is
+/// recorded with who made it and why.
+export type NodeAction =
+  "node.restart" | "node.backup" | "node.diagnose" | "node.update" | "bootstrap"
+
+export function askNode(
+  originId: string,
+  body: {
+    action: NodeAction
+    reason: string
+    force?: boolean
+    /// `node.update` only, as `deploy/release/sign-release.sh sign` prints it.
+    version?: string
+    url?: string
+    sha256?: string
+    signature?: string
+    window?: string
+  }
+) {
+  return node.post<Record<string, unknown>>(
+    `/api/v1/sync/nodes/${encodeURIComponent(originId)}/actions`,
+    body
+  )
+}
+
+export interface NodeDiagnosis {
+  readonly received_at: string
+  readonly verdict: "OK" | "WARN" | "FAIL"
+  readonly report: {
+    readonly checks: readonly {
+      readonly name: string
+      readonly verdict: "OK" | "WARN" | "FAIL"
+      readonly saying: string
+    }[]
+  }
+}
+
+export function nodeDiagnostics(originId: string, signal?: AbortSignal) {
+  return node
+    .get<{ items: NodeDiagnosis[] }>(
+      `/api/v1/sync/nodes/${encodeURIComponent(originId)}/diagnostics`,
       { signal }
     )
     .then((body) => body.items)
@@ -569,10 +688,14 @@ export interface DeadLetterList {
   readonly facets: DeadLetterFacets
 }
 
-export function listDeadLetters(limit = 100, signal?: AbortSignal) {
-  return node.get<DeadLetterList>(`/api/v1/sync/dead-letters?limit=${limit}`, {
-    signal,
-  })
+/// One page of the refused facts, newest first, walking `next_cursor`.
+export function deadLettersPage(cursor?: string, signal?: AbortSignal) {
+  const params = new URLSearchParams({ limit: "100" })
+  if (cursor) params.set("cursor", cursor)
+  return node.get<DeadLetterList>(
+    `/api/v1/sync/dead-letters?${params.toString()}`,
+    { signal }
+  )
 }
 
 export function reconciliation(signal?: AbortSignal) {
@@ -609,6 +732,39 @@ export interface UserList {
 
 export function listUsers(signal?: AbortSignal) {
   return node.get<UserList>("/api/v1/auth/users", { signal })
+}
+
+/// What the account register can be asked for — every parameter
+/// `GET /api/v1/auth/users` answers.
+export interface UserScope {
+  /// Free text over the login, the name, the badge number and the colleague.
+  readonly q?: string
+  readonly role?: string
+  /// `ACTIVE`, `LEFT_OPEN` (open, but its employee has left) or `DISABLED`.
+  readonly state?: string
+  /// Where the person behind the login is posted.
+  readonly place_id?: string
+  /// `username`, `role`, `created` or `last_login`.
+  readonly sort?: string
+  readonly desc?: boolean
+}
+
+/// One page of the account register, walking `next_cursor`.
+export function usersPage(
+  scope: UserScope & { readonly cursor?: string },
+  signal?: AbortSignal
+) {
+  const params = new URLSearchParams({ limit: "200" })
+  if (scope.q) params.set("q", scope.q)
+  if (scope.role) params.set("role", scope.role)
+  if (scope.state) params.set("state", scope.state)
+  if (scope.place_id) params.set("place_id", scope.place_id)
+  if (scope.sort) params.set("sort", scope.sort)
+  if (scope.desc === true) params.set("dir", "desc")
+  if (scope.cursor) params.set("cursor", scope.cursor)
+  return node.get<UserList>(`/api/v1/auth/users?${params.toString()}`, {
+    signal,
+  })
 }
 
 export function createUser(request: CreateUserRequest, signal?: AbortSignal) {
@@ -840,6 +996,22 @@ export function listNotifications(limit = 50, signal?: AbortSignal) {
   return node.get<NotificationPage>(`/api/v1/notifications?limit=${limit}`, {
     signal,
   })
+}
+
+/// One page of the reader's notifications, walking `next_cursor`. `unread`
+/// narrows at the server, so the Unread slice is the whole unread list rather
+/// than the unread rows among the newest page.
+export function notificationsPage(
+  scope: { readonly unread: boolean; readonly cursor?: string },
+  signal?: AbortSignal
+) {
+  const params = new URLSearchParams({ limit: "50" })
+  if (scope.unread) params.set("unread", "true")
+  if (scope.cursor) params.set("cursor", scope.cursor)
+  return node.get<NotificationPage>(
+    `/api/v1/notifications?${params.toString()}`,
+    { signal }
+  )
 }
 
 export function markNotificationRead(id: string, signal?: AbortSignal) {

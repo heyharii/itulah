@@ -153,6 +153,11 @@ pub struct LetterRow {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct LetterList {
     pub rows: Vec<LetterRow>,
+    /// Opaque. Pass it back as `cursor` for the next page; absent means this
+    /// was the last one.
+    pub next_cursor: Option<String>,
+    /// Every letter the kind, status and search match — not just this page.
+    pub total: i64,
     /// Drafts waiting to be issued, across every kind. The one number a person
     /// coming to this screen wants before they have read a row.
     pub drafts: i64,
@@ -254,6 +259,23 @@ pub struct LetterQuery {
     pub kind: Option<String>,
     pub status: Option<String>,
     pub q: Option<String>,
+    /// A `next_cursor` from the previous page, verbatim.
+    pub cursor: Option<String>,
+    /// The page size; clamped to [`LETTER_MAX_LIMIT`].
+    pub limit: Option<i64>,
+}
+
+/// The register's page when a caller does not say.
+const LETTER_DEFAULT_LIMIT: i64 = 100;
+/// And the most one page holds however loudly a caller asks.
+const LETTER_MAX_LIMIT: i64 = 500;
+
+/// Where the previous page stopped: the house order's two keys, carried whole
+/// so the seek needs no lookup of a row that may since have changed.
+#[derive(Serialize, Deserialize)]
+struct LetterCursor {
+    created_at: DateTime<Utc>,
+    letter_id: Uuid,
 }
 
 // ---------------------------------------------------------------------------
@@ -297,37 +319,76 @@ fn row_to_letter(row: &sqlx::postgres::PgRow) -> LetterRow {
 /// Ordered by when it was WRITTEN rather than when it was issued, so a draft
 /// somebody started this morning is at the top where they left it — an issued
 /// letter is finished business and a draft is not.
+///
+/// Paged by a keyset on that order — `(created_at, letter_id)`, newest first —
+/// so the register walks the whole book a page at a time rather than stopping
+/// silently at the two-hundredth letter.
 pub async fn list_letters(pool: &PgPool, query: LetterQuery) -> Result<LetterList, AppError> {
-    let rows = sqlx::query(
-        "SELECT letter_id,kind,status,letter_number,title,subject_kind,subject_id,\
-         facts,created_by,created_at,issued_at,issued_by,voided_at \
-         FROM letter \
+    let kind = query.kind.as_deref().filter(|value| !value.is_empty());
+    let status = query.status.as_deref().filter(|value| !value.is_empty());
+    let needle = query
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let limit = query
+        .limit
+        .unwrap_or(LETTER_DEFAULT_LIMIT)
+        .clamp(1, LETTER_MAX_LIMIT);
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(super::decode_cursor::<LetterCursor>)
+        .transpose()?;
+
+    // One definition of which letters match, for the page and for the count.
+    const MATCHED: &str = "FROM letter \
          WHERE ($1::text IS NULL OR kind = $1) \
            AND ($2::text IS NULL OR status = $2) \
            AND ($3::text IS NULL OR letter_number ILIKE '%' || $3 || '%' \
                 OR title ILIKE '%' || $3 || '%' \
                 OR facts->>'reference' ILIKE '%' || $3 || '%' \
-                OR facts->>'counterparty' ILIKE '%' || $3 || '%') \
-         ORDER BY created_at DESC LIMIT 200",
-    )
-    .bind(query.kind.as_deref().filter(|value| !value.is_empty()))
-    .bind(query.status.as_deref().filter(|value| !value.is_empty()))
-    .bind(
-        query
-            .q
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty()),
-    )
+                OR facts->>'counterparty' ILIKE '%' || $3 || '%')";
+    let rows = sqlx::query(&format!(
+        "SELECT letter_id,kind,status,letter_number,title,subject_kind,subject_id,\
+         facts,created_by,created_at,issued_at,issued_by,voided_at \
+         {MATCHED} \
+           AND ($4::timestamptz IS NULL OR (created_at, letter_id) < ($4, $5)) \
+         ORDER BY created_at DESC, letter_id DESC LIMIT $6"
+    ))
+    .bind(kind)
+    .bind(status)
+    .bind(needle)
+    .bind(cursor.as_ref().map(|c| c.created_at))
+    .bind(cursor.as_ref().map(|c| c.letter_id))
+    .bind(limit)
     .fetch_all(pool)
     .await?;
+
+    let out: Vec<LetterRow> = rows.iter().map(row_to_letter).collect();
+    let next_cursor = match out.last() {
+        Some(last) if out.len() as i64 == limit => Some(super::encode_cursor(&LetterCursor {
+            created_at: last.created_at,
+            letter_id: last.letter_id,
+        })?),
+        _ => None,
+    };
+
+    let total: i64 = sqlx::query_scalar(&format!("SELECT count(*) {MATCHED}"))
+        .bind(kind)
+        .bind(status)
+        .bind(needle)
+        .fetch_one(pool)
+        .await?;
 
     let drafts: i64 = sqlx::query_scalar("SELECT count(*) FROM letter WHERE status = 'DRAFT'")
         .fetch_one(pool)
         .await?;
 
     Ok(LetterList {
-        rows: rows.iter().map(row_to_letter).collect(),
+        rows: out,
+        next_cursor,
+        total,
         drafts,
     })
 }

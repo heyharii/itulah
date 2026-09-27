@@ -27,4 +27,8 @@ settlement_mode: string, mdr_bps: number, point_value_minor: number | null, is_a
  * The roles this method's day lines use, and how many of them resolve at
  * every site. A method whose roles do not all resolve cannot post a day.
  */
-roles: Array<string>, unlinked_roles: Array<string>, created_by: string, created_at: string, };
+roles: Array<string>, unlinked_roles: Array<string>, 
+/**
+ * The shops that take this method (0474).
+ */
+site_ids: Array<string>, created_by: string, created_at: string, };

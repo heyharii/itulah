@@ -1,17 +1,24 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import { useBlocker } from "@tanstack/react-router"
 import { ChevronRight } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Dialog } from "@/components/ui/dialog"
 import { Checkbox } from "@/components/ui/field"
 import { FilterOmnibox } from "@/components/ui/filter-omnibox"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  LoadMore,
+  type Pageable,
+} from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count, day, money, moment } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -178,6 +185,23 @@ function seedFrom(
     articleCodes: [...new Set(cells.map((one) => one.articleCode))],
     siteIds: [...new Set(cells.map((one) => one.siteId))],
     priceMinor,
+  }
+}
+
+/// One cell as the editor talks about it — what the till charges there now
+/// included, which is what a sale price or a % off is judged against.
+function cellRefOf(
+  row: ArticlePriceRow,
+  shop: PricelistShop,
+  priced: ArticlePriceShop | undefined
+): CellRef {
+  const top = priced === undefined ? undefined : winner(priced)
+  return {
+    articleCode: row.article_code,
+    articleName: row.article_name,
+    siteId: shop.site_id,
+    siteLabel: shop.label ?? shop.site_id,
+    currentMinor: top?.min_unit_price_minor ?? null,
   }
 }
 
@@ -499,6 +523,41 @@ export function Pricelist() {
         : [...was, ref]
     })
 
+  /// Tick or untick many cells at once — a row, a column, everything loaded.
+  /// Ticking adds only what is not already there, so the order cells were
+  /// picked in survives.
+  const selectMany = useCallback((refs: readonly CellRef[], on: boolean) => {
+    const keys = new Set(refs.map((one) => cellKey(one.articleCode, one.siteId)))
+    setSelection((was) => {
+      if (!on)
+        return was.filter(
+          (one) => !keys.has(cellKey(one.articleCode, one.siteId))
+        )
+      const held = new Set(was.map((one) => cellKey(one.articleCode, one.siteId)))
+      return [
+        ...was,
+        ...refs.filter(
+          (one) => !held.has(cellKey(one.articleCode, one.siteId))
+        ),
+      ]
+    })
+  }, [])
+
+  // ── unpublished edits are not lost silently ──────────────────────────────
+  //
+  // The edits live in screen state on purpose (see above), so leaving the
+  // screen drops them. A reload or a closed tab gets the browser's own
+  // warning; a move to another screen in the app is held with a question.
+  // Opening a sheet only changes the search, never the path, so it is not
+  // blocked.
+  const unsaved = pending.length > 0
+  const blocker = useBlocker({
+    shouldBlockFn: ({ current, next }) =>
+      unsaved && current.pathname !== next.pathname,
+    enableBeforeUnload: () => unsaved,
+    withResolver: true,
+  })
+
   /// The fields the bar actually draws: the declarations above, with the
   /// server's counts and the master list's names attached.
   ///
@@ -575,7 +634,7 @@ export function Pricelist() {
   return (
     <PageContent fill>
       <PageHeader
-        crumb="Commercial"
+        crumb="Marketing"
         title="Prices"
         sub="What each shop is charging. Open a style to see what that price beat."
         actions={
@@ -599,9 +658,9 @@ export function Pricelist() {
             <>
               {page.shops.length === 0 && (
                 <Banner tone="warn" className="mb-4">
-                  No shop origin is registered at the centre, so this grid has
-                  no columns and nothing below can be compared. Register a STORE
-                  node first — a published book with no fleet reaches no till.
+                  No shop is registered at the centre, so this grid has no
+                  columns and nothing below can be compared. Register a shop
+                  first — a price change published now reaches no till.
                 </Banner>
               )}
 
@@ -628,13 +687,13 @@ export function Pricelist() {
                   // summing the deliveries would hide it behind the two that
                   // worked.
                   const named = (one: PublishReceipt) =>
-                    bookNames.get(one.version) ?? `Book v${one.version}`
+                    bookNames.get(one.version) ?? "This price change"
                   const nowhere = receipt.filter(
                     (one) => one.delivered_to.length === 0
                   )
-                  // A book that reached its shops says nothing: the grid's
-                  // "pembaruan pending" and each cell already show delivery,
-                  // and a green paragraph after every publish was noise.
+                  // A book that reached its shops says nothing here: the
+                  // publish toast says where it went, and the column headings
+                  // and each cell show delivery.
                   if (nowhere.length === 0) return null
                   return (
                     <Banner
@@ -649,8 +708,8 @@ export function Pricelist() {
                         <>
                           {receipt.map(named).join(", ")}{" "}
                           {receipt.length === 1 ? "was" : "were"} published, and
-                          queued for nobody. No shop origin is registered, so no
-                          till will ever see these prices.
+                          queued for nobody. No shop is registered, so no till
+                          will ever see these prices.
                         </>
                       ) : (
                         <>{nowhere.map(named).join(" and ")} reached nobody.</>
@@ -684,16 +743,30 @@ export function Pricelist() {
 
               <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 {items.length === 0 ? (
-                  needle === "" ? (
+                  needle === "" && filters.filters.length === 0 ? (
                     <EmptyState>
-                      No published book prices anything for the shops. A product
-                      with no price is absent rather than free.
+                      No published price covers any style at these shops yet. A
+                      product with no price is absent rather than free.
                     </EmptyState>
                   ) : (
-                    <EmptyState>
-                      No article matches “{search.value}”. The search runs over
-                      the {count(page.rows.length)} articles loaded, not the
-                      whole catalogue.
+                    // Filtered, not empty: the search and the chips run on the
+                    // server over the whole catalogue.
+                    <EmptyState
+                      action={
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            search.close()
+                            filters.clear()
+                          }}
+                        >
+                          Clear search and filters
+                        </Button>
+                      }
+                    >
+                      {needle === ""
+                        ? "No article in the catalogue matches these filters."
+                        : `No article in the catalogue matches “${needle}”${filters.filters.length > 0 ? " with these filters" : ""}.`}
                     </EmptyState>
                   )
                 ) : (
@@ -712,26 +785,26 @@ export function Pricelist() {
                     pending={pendingByCell}
                     pricedCells={pricedCells}
                     onToggleSelected={toggleSelected}
+                    onSelectMany={selectMany}
                     expanded={expanded}
                     onToggleExpanded={toggleExpanded}
+                    more={prices}
                   />
                 )}
 
-                {/* The way through the rest of the catalogue, under the grid
-                    it pages rather than in a banner over it. A partial list
-                    still must not read as a complete one, but that is a footer
-                    job: the reader meets it when they reach the end of what
-                    was loaded, which is the moment the question arises. */}
-                {prices.hasNextPage && (
-                  <div className="shrink-0 border-t border-hairline-2 px-3.5 py-2 text-right">
-                    <button
-                      type="button"
-                      onClick={() => void prices.fetchNextPage()}
-                      disabled={prices.isFetchingNextPage}
-                      className="text-cell text-mute underline underline-offset-2 disabled:opacity-60"
-                    >
-                      {prices.isFetchingNextPage ? "Fetching…" : "Show more"}
-                    </button>
+                {/* How much of the catalogue is loaded, under the grid rather
+                    than in a banner over it. The rest arrives as the grid's
+                    foot nears view (`LoadMore` inside `PriceGrid`). */}
+                {items.length > 0 && (
+                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-hairline-2 px-3.5 py-2">
+                    <span className="text-[0.875rem] text-mute tabular-nums">
+                      {count(items.length)} of {count(page.total)} styles
+                      {/* The "falling to" markers come from one capped
+                          request; past the cap a style simply has none. */}
+                      {upcomingFrom !== null && page.total > UPCOMING_CAP
+                        ? ` · price changes starting ${day(upcomingFrom)} are marked on the first ${count(UPCOMING_CAP)} only`
+                        : ""}
+                    </span>
                   </div>
                 )}
               </Card>
@@ -773,6 +846,7 @@ export function Pricelist() {
         cell={open}
         channel={CHANNEL}
         at={null}
+        asOf={page?.as_of ?? null}
         bookNames={bookNames}
         row={
           open === null
@@ -863,6 +937,24 @@ export function Pricelist() {
           setPublishing(false)
         }}
       />
+
+      {/* Leaving with edits nobody has published. Stay is the default — the
+          prices typed here exist nowhere else. */}
+      <Dialog
+        open={blocker.status === "blocked"}
+        onOpenChange={(next) => {
+          if (!next) blocker.reset?.()
+        }}
+        title="Leave without publishing?"
+        cancel="Stay"
+        confirm="Leave and discard"
+        tone="danger"
+        onConfirm={() => blocker.proceed?.()}
+      >
+        {count(pending.length)} price edit{pending.length === 1 ? "" : "s"}{" "}
+        {pending.length === 1 ? "has" : "have"} not been published. Leaving
+        this screen throws {pending.length === 1 ? "it" : "them"} away.
+      </Dialog>
     </PageContent>
   )
 }
@@ -934,8 +1026,10 @@ function PriceGrid({
   pending,
   pricedCells,
   onToggleSelected,
+  onSelectMany,
   expanded,
   onToggleExpanded,
+  more,
 }: {
   page: ArticlePrices
   items: readonly ArticlePriceRow[]
@@ -953,12 +1047,17 @@ function PriceGrid({
   /// the publish sheet, because a cell is a style and a base price is not.
   pricedCells: ReadonlySet<string>
   onToggleSelected: (cell: CellRef) => void
+  /// Tick or untick a whole row, a whole column, or everything loaded.
+  onSelectMany: (cells: readonly CellRef[], on: boolean) => void
   /// Article codes whose cascade is showing. A set rather than one open row:
   /// comparing two styles' markdowns side by side is the whole reason to open
   /// one, and an accordion that shuts the first when you open the second makes
   /// that impossible.
   expanded: ReadonlySet<string>
   onToggleExpanded: (articleCode: string) => void
+  /// The rest of the catalogue, asked for as its foot comes into view — inside
+  /// this box because it is the one that scrolls.
+  more: Pageable
 }) {
   const selected = useMemo(
     () => new Set(selection.map((one) => cellKey(one.articleCode, one.siteId))),
@@ -1002,6 +1101,26 @@ function PriceGrid({
     return byRow
   }, [items])
 
+  // ── picking many at once ─────────────────────────────────────────────────
+  const refOf = (row: ArticlePriceRow, shop: PricelistShop) =>
+    cellRefOf(row, shop, shopsOf.get(row)?.get(shop.site_id))
+  const rowRefs = (row: ArticlePriceRow) =>
+    page.shops.map((shop) => refOf(row, shop))
+  const columnRefs = (shop: PricelistShop) =>
+    items.map((row) => refOf(row, shop))
+  /// How much of a set of cells is ticked, for the box that ticks all of it.
+  const ticked = (refs: readonly CellRef[]) => {
+    const on = refs.filter((one) =>
+      selected.has(cellKey(one.articleCode, one.siteId))
+    ).length
+    return {
+      checked: on > 0 && on === refs.length,
+      indeterminate: on > 0 && on < refs.length,
+    }
+  }
+  const everything = items.flatMap(rowRefs)
+  const all = ticked(everything)
+
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       {/* Fixed layout and separated borders, so a column keeps its width as
@@ -1029,18 +1148,54 @@ function PriceGrid({
               scope="col"
               className="sticky top-0 left-0 z-30 border-r border-b border-hairline-2 bg-canvas px-3.5 py-2.5 text-left text-cell font-normal text-body"
             >
-              Article
+              <span className="flex items-center justify-between gap-2">
+                Article
+                {/* Every cell loaded, or none. Always drawn: it is one box,
+                    and the way to clear a sweep without hunting for it. */}
+                <Checkbox
+                  checked={all.checked}
+                  indeterminate={all.indeterminate}
+                  onChange={(next) => onSelectMany(everything, next)}
+                  label={
+                    <span className="sr-only">
+                      {all.checked || all.indeterminate
+                        ? "Clear the selection"
+                        : "Select every loaded cell"}
+                    </span>
+                  }
+                />
+              </span>
             </th>
-            {page.shops.map((shop, index) => (
+            {page.shops.map((shop, index) => {
+              const column = columnRefs(shop)
+              const state = ticked(column)
+              return (
               <th
                 key={shop.site_id}
                 scope="col"
                 className={
-                  "sticky top-0 z-20 truncate border-b border-hairline-2 bg-canvas px-3.5 py-2.5 text-right text-cell font-normal text-body " +
+                  "group/head sticky top-0 z-20 truncate border-b border-hairline-2 bg-canvas px-3.5 py-2.5 text-right text-cell font-normal text-body " +
                   (index === page.shops.length - 1 ? "" : "border-r")
                 }
                 title={activationTitle(shop)}
               >
+                {/* This shop across every loaded style. */}
+                <Checkbox
+                  checked={state.checked}
+                  indeterminate={state.indeterminate}
+                  onChange={(next) => onSelectMany(column, next)}
+                  label={
+                    <span className="sr-only">
+                      Select {shop.label ?? shop.site_id} for every loaded style
+                    </span>
+                  }
+                  className={cn(
+                    "mr-1.5 align-middle transition-opacity",
+                    state.checked || state.indeterminate
+                      ? "opacity-100"
+                      : "opacity-0 group-hover/head:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
+                  )}
+                />
                 {/* The heading is the way into the shop — §4's "klik Store
                     header". A `<th>` is not a control, so the name inside it
                     is: a whole heading that navigated would also swallow the
@@ -1069,12 +1224,13 @@ function PriceGrid({
                   shop.pending_publication !== null) && (
                   <span className="block text-[0.875rem] font-normal text-mute">
                     {shop.active_version === null
-                      ? "belum terkonfirmasi"
-                      : "pembaruan pending"}
+                      ? "not confirmed"
+                      : "update pending"}
                   </span>
                 )}
               </th>
-            ))}
+              )
+            })}
           </tr>
         </thead>
 
@@ -1114,6 +1270,31 @@ function PriceGrid({
                       open={open}
                       onToggle={() => onToggleExpanded(row.article_code)}
                       onOpen={() => onOpenArticle(row.article_code)}
+                      pick={(() => {
+                        // This style at every shop.
+                        const refs = rowRefs(row)
+                        const state = ticked(refs)
+                        return (
+                          <Checkbox
+                            checked={state.checked}
+                            indeterminate={state.indeterminate}
+                            onChange={(next) => onSelectMany(refs, next)}
+                            label={
+                              <span className="sr-only">
+                                Select{" "}
+                                {row.article_name ?? row.article_code} at
+                                every shop
+                              </span>
+                            }
+                            className={cn(
+                              "mt-1 shrink-0 transition-opacity",
+                              state.checked || state.indeterminate
+                                ? "opacity-100"
+                                : "opacity-0 group-hover/row:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
+                            )}
+                          />
+                        )
+                      })()}
                     />
                   </th>
                 )}
@@ -1222,6 +1403,7 @@ function PriceGrid({
           })}
         </tbody>
       </table>
+      <LoadMore query={more} className="py-3" />
     </div>
   )
 }
@@ -1238,6 +1420,7 @@ function ArticleCell({
   open,
   onToggle,
   onOpen,
+  pick,
 }: {
   row: ArticlePriceRow
   /// Rows that would appear if this opened. Zero means the fleet agrees and
@@ -1247,6 +1430,8 @@ function ArticleCell({
   onToggle: () => void
   /// Open the style across every shop — UI-001 §4's "klik Article".
   onOpen: () => void
+  /// The box that ticks this style at every shop, at the row's far edge.
+  pick: React.ReactNode
 }) {
   // Two controls, not one. The chevron asks "what did these prices beat" and
   // the name asks "what does this style cost everywhere" — they were one
@@ -1319,6 +1504,7 @@ function ArticleCell({
         </button>
       )}
       {name}
+      <span className="ml-auto flex shrink-0">{pick}</span>
     </span>
   )
 }
@@ -1421,6 +1607,8 @@ function PriceCell({
     later !== null &&
     rule !== undefined &&
     later.min_unit_price_minor !== rule.min_unit_price_minor
+  /// Said as a pill only where the row's own label does not already name it.
+  const sale = rule?.source === "MARKDOWN" && label === null
 
   // A repriced cell is drawn even when this shop has no price at all: a
   // company-wide book reaches a shop that was selling nothing, and "nothing is
@@ -1447,7 +1635,7 @@ function PriceCell({
     rule === undefined
       ? null
       : rule.source === "MARKDOWN"
-        ? "markdown"
+        ? "sale price"
         : describeSource(rule.source),
     charging ? "charged at the till" : "beaten",
     spread > 1 && rule !== undefined
@@ -1456,7 +1644,7 @@ function PriceCell({
     rule !== undefined && point !== undefined && point.in_force_for > 0
       ? `in force for ${point.in_force_for} of ${rule.sku_count}`
       : null,
-    behind ? "from an older book than the other shops" : null,
+    behind ? "from an older price change than the other shops" : null,
     changing ? `${amounts(later!)} from ${day(later!.effective_from)}` : null,
     pending !== null ? "edited, not published" : null,
     repriced ? "a new price for this style is waiting to be published" : null,
@@ -1546,6 +1734,23 @@ function PriceCell({
             label squeezed "Rp 449.000" down to "Rp 449.0…" — and a truncated
             amount is worse than no label at all. Below it, the money keeps
             both its edge and its digits. */}
+        {/* What used to live only in the tooltip, as words a collapsed cell
+            can show: a sale price, and a price from an older change than the
+            other shops'. Under the figure, so the money keeps its edge. */}
+        {(sale || behind) && (
+          <span aria-hidden className="flex w-full justify-end gap-1">
+            {sale && (
+              <Pill tone="neutral" className="h-[1.125rem] px-1.5">
+                Sale
+              </Pill>
+            )}
+            {behind && (
+              <Pill tone="warn" className="h-[1.125rem] px-1.5">
+                Behind
+              </Pill>
+            )}
+          </span>
+        )}
         {label !== null && (
           <span className="w-full truncate text-id text-mute">{label}</span>
         )}
@@ -1556,7 +1761,8 @@ function PriceCell({
   )
 }
 
-/// The pick control, revealed on hover and permanent once ticked.
+/// The pick control, revealed on hover — always drawn under a finger — and
+/// permanent once ticked.
 ///
 /// A checkbox rather than a pencil because what it does is *choose*, and the
 /// writing happens in the bar above the grid where the selection can be seen
@@ -1569,7 +1775,10 @@ function Pick({ picked, onPick }: { picked: boolean; onPick: () => void }) {
       label={<span className="sr-only">Select this cell to price</span>}
       className={cn(
         "absolute top-1/2 left-2 -translate-y-1/2 transition-opacity",
-        picked ? "opacity-100" : "opacity-0 group-hover/cell:opacity-100"
+        // Hover is not a thing a finger does, so on touch the box stays.
+        picked
+          ? "opacity-100"
+          : "opacity-0 group-hover/cell:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
       )}
     />
   )
@@ -1588,6 +1797,7 @@ function CellSheet({
   row,
   channel,
   at,
+  asOf,
   bookNames,
   onClose,
 }: {
@@ -1595,6 +1805,9 @@ function CellSheet({
   row: ArticlePriceRow | null
   channel: CommercialChannel
   at: string | null
+  /// When the grid this cell came from was priced — the real instant behind
+  /// "Checked", which `at` (null for "now") cannot say.
+  asOf: string | null
   /// Publication version to the book's name. The sheet says which book a
   /// price came from, and a version number is not an answer to that.
   bookNames: ReadonlyMap<number, string>
@@ -1643,8 +1856,12 @@ function CellSheet({
       {cell === null ? null : (
         <div className="flex flex-col gap-5">
           <div className="flex flex-wrap items-center gap-2">
-            <Pill tone={top?.source === "MARKDOWN" ? "warn" : "neutral"}>
-              {top === undefined ? "No price" : describeSource(top.source)}
+            <Pill tone={top?.source === "MARKDOWN" ? "accent" : "neutral"}>
+              {top === undefined
+                ? "No price"
+                : top.source === "MARKDOWN"
+                  ? "Sale price"
+                  : describeSource(top.source)}
             </Pill>
             {row?.division_code && <Tag>{row.division_code}</Tag>}
             {row?.tags.map((tag) => (
@@ -1656,17 +1873,17 @@ function CellSheet({
 
           <Facts>
             <Fact term="Shop">{shop?.label ?? cell.siteId}</Fact>
-            <Fact term="Sold through">{channel}</Fact>
+            <Fact term="Sold through">{channelName(channel)}</Fact>
             <Fact term="Price now">
               {top === undefined ? "—" : amounts(top)}
             </Fact>
-            <Fact term="Price book">
+            <Fact term="Price change">
               {top === undefined
                 ? "—"
                 : (bookNames.get(top.publication_version) ?? "—")}
             </Fact>
             <Fact term="Products">{count(row?.sku_count)}</Fact>
-            <Fact term="Checked">{at === null ? "Just now" : moment(at)}</Fact>
+            <Fact term="Checked">{moment(at ?? asOf)}</Fact>
           </Facts>
 
           {shop === undefined || shop.stack.length === 0 ? (
@@ -1745,7 +1962,7 @@ function CellSheet({
               </MiniTable>
               <p className="mt-2 text-[0.875rem] leading-relaxed text-body">
                 The top row is what the till charges. The rows under it are
-                prices that lost — the newest book wins, then the most specific
+                prices that lost — the newest change wins, then the most specific
                 price, then the one that started last. They are shown because
                 “why is it this price” is only answerable against the price it
                 replaced.
@@ -1849,11 +2066,11 @@ function InService({ version }: { version: number }) {
     <div>
       <SubHead aside={book.name}>In service at</SubHead>
       {detail.data === undefined ? (
-        <Quiet>Asking which shops took this book…</Quiet>
+        <Quiet>Asking which shops took this price change…</Quiet>
       ) : detail.data.activated_by.length === 0 ? (
         <Quiet>
-          No shop has reported putting {book.name} into service. Published and
-          in force are different things, and this book is only the first.
+          No shop has reported putting {book.name} into service yet. It is
+          published, but not yet in force at any till.
         </Quiet>
       ) : (
         <MiniTable
@@ -1927,7 +2144,7 @@ function ProductLine({ line, scope }: { line: ShelfPrice; scope: PriceScope }) {
           {money(line.unit_price_minor)}
         </span>
         {isMarkedDown(line) && (
-          <Tag tone="warn">{percent(markdownDepthBps(line))} off</Tag>
+          <Tag tone="accent">{percent(markdownDepthBps(line))} off</Tag>
         )}
       </button>
 
@@ -1947,14 +2164,18 @@ function ProductLine({ line, scope }: { line: ShelfPrice; scope: PriceScope }) {
                 )}
                 <Facts>
                   <Fact term="Charged">{money(answer.unit_price_minor)}</Fact>
-                  <Fact term="Before markdown">
+                  <Fact term="Before sale">
                     {money(answer.base_unit_price_minor)}
                   </Fact>
                   <Fact term="Priced by">
                     {describeSource(answer.price_source)}
                   </Fact>
                   <Fact term="Tax class">{answer.tax_category}</Fact>
-                  <Fact term="Markdown">{answer.markdown_id ?? "—"}</Fact>
+                  {/* Yes or no — the sale's internal id means nothing on a
+                      shop floor. */}
+                  <Fact term="On sale">
+                    {answer.markdown_id === null ? "No" : "Yes"}
+                  </Fact>
                 </Facts>
               </div>
             ),
@@ -2009,14 +2230,14 @@ function PriceHistorySection({
         How it got here
       </SubHead>
       {queryState(history, {
-        loading: "Replaying the price books…",
+        loading: "Replaying past price changes…",
         render: (data) =>
           data.never_priced || periods.length === 0 ? (
-            <Quiet>No book has ever named this product at this shop.</Quiet>
+            <Quiet>No price change has ever named this product at this shop.</Quiet>
           ) : periods.length === 1 ? (
             <Quiet>
-              This price has not moved since it was set. One book has ever had
-              an opinion about it.
+              This price has not moved since it was set. Only one price change
+              has ever named it.
             </Quiet>
           ) : (
             <MiniTable
@@ -2077,6 +2298,11 @@ function PriceHistorySection({
   )
 }
 
+/// A channel as a person says it — "Store", not the wire's `STORE`.
+function channelName(channel: CommercialChannel): string {
+  return channel.charAt(0) + channel.slice(1).toLowerCase()
+}
+
 /// What the column heading says when somebody hovers it.
 ///
 /// Three different facts and they must not blur: which version this shop is
@@ -2087,12 +2313,12 @@ function activationTitle(shop: PricelistShop): string {
   const who = shop.label ?? shop.site_id
   const active =
     shop.active_version === null
-      ? "no book confirmed active — prices are not available for this shop"
-      : `running v${shop.active_version}`
+      ? "no price change confirmed in service — prices are not available for this shop"
+      : `running price change v${shop.active_version}`
   const pending =
     shop.pending_publication === null
       ? ""
-      : ` · head office has published v${shop.pending_publication.version} "${shop.pending_publication.name}", not yet activated here`
+      : ` · head office has published "${shop.pending_publication.name}", not yet in service here`
   return `${who}: ${active}${pending}`
 }
 
@@ -2207,8 +2433,8 @@ function ArticleSheet({
               head={[
                 "Store",
                 { label: "Regular", align: "right" },
-                { label: "Markdown", align: "right" },
-                { label: "Harga sebelum promo", align: "right" },
+                { label: "Sale price", align: "right" },
+                { label: "Charged", align: "right" },
               ]}
             >
               {lines.map(({ column, charged: top, markdown, regular }) => (
@@ -2228,7 +2454,7 @@ function ArticleSheet({
                     </button>
                     {column.active_version === null && (
                       <span className="block text-[0.875rem] text-mute">
-                        belum terkonfirmasi
+                        not confirmed
                       </span>
                     )}
                   </MiniCell>
@@ -2245,7 +2471,7 @@ function ArticleSheet({
                     {markdown === undefined ? (
                       <span className="text-faint">—</span>
                     ) : (
-                      <span className="text-bad tabular-nums">
+                      <span className="text-accent tabular-nums">
                         {amounts(markdown)}
                       </span>
                     )}
@@ -2389,7 +2615,7 @@ function StoreSheet({
           <span className="flex flex-wrap items-center gap-1.5">
             <Pill tone="neutral">{count(styles.length)} styles</Pill>
             {markedDown > 0 && (
-              <Pill tone="warn">{count(markedDown)} marked down</Pill>
+              <Pill tone="accent">{count(markedDown)} on sale</Pill>
             )}
           </span>
         )
@@ -2400,9 +2626,9 @@ function StoreSheet({
         render: (data) =>
           data.items.length === 0 ? (
             <EmptyState>
-              This shop is charging nothing. No book it has put into service
-              prices anything — which is not the same as its prices being zero,
-              and not something head office&apos;s own book can stand in for.
+              This shop is charging nothing. No price change it has put into
+              service prices anything — which is not the same as its prices
+              being zero.
             </EmptyState>
           ) : (
             <div className="flex flex-col gap-5">
@@ -2419,8 +2645,8 @@ function StoreSheet({
                   head={[
                     "Article",
                     { label: "Regular", align: "right" },
-                    { label: "Markdown", align: "right" },
-                    { label: "Harga sebelum promo", align: "right" },
+                    { label: "On sale", align: "right" },
+                    { label: "Charged", align: "right" },
                   ]}
                 >
                   {styles.map((style) => (
@@ -2448,7 +2674,7 @@ function StoreSheet({
                         {style.markdowns === 0 ? (
                           <span className="text-faint">—</span>
                         ) : (
-                          <span className="text-bad tabular-nums">
+                          <span className="text-accent tabular-nums">
                             {count(style.markdowns)} of {count(style.skus)}
                           </span>
                         )}

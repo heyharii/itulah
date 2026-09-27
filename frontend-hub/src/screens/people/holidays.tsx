@@ -187,13 +187,13 @@ function HolidayFields({
   const regional = draft.kind === "REGIONAL"
   return (
     <>
-      <Field label="Date">
+      <Field label="Date" required>
         <Day
           value={draft.date}
           onChange={(next) => onChange({ ...draft, date: next })}
         />
       </Field>
-      <Field label="Name">
+      <Field label="Name" required>
         <Input
           value={draft.name}
           onChange={(event) => onChange({ ...draft, name: event.target.value })}
@@ -224,6 +224,7 @@ function HolidayFields({
       {regional && (
         <Field
           label="Observed at"
+          required
           hint="Comma-separated place ids. A regional day that names nowhere is not a holiday, and is refused."
         >
           <Input
@@ -612,7 +613,7 @@ function PublishYear({ year }: { year: number }) {
           </Button>
         </div>
 
-        <Field label="Why" hint="Recorded against the publication.">
+        <Field label="Why" hint="Recorded against the publication." required>
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -622,9 +623,8 @@ function PublishYear({ year }: { year: number }) {
         <div>
           <Button
             variant="primary"
-            disabled={
-              holidays.length === 0 || reason.trim() === "" || publish.isPending
-            }
+            pending={publish.isPending}
+            disabled={holidays.length === 0 || reason.trim() === ""}
             onClick={() => publish.mutate()}
           >
             Publish {year}
@@ -676,7 +676,7 @@ function AmendYear({ year }: { year: number }) {
             national holiday while believing they had removed a regional one.
             So the same fields, both ways. */}
         <HolidayFields draft={draft} onChange={setDraft} />
-        <Field label="Why" hint="Recorded against the amendment.">
+        <Field label="Why" hint="Recorded against the amendment." required>
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -686,7 +686,8 @@ function AmendYear({ year }: { year: number }) {
         <div>
           <Button
             variant="primary"
-            disabled={!ready || amend.isPending}
+            pending={amend.isPending}
+            disabled={!ready}
             onClick={() => amend.mutate()}
           >
             {change === "ADDED" ? "Add it" : "Withdraw it"}

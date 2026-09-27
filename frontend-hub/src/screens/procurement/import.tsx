@@ -513,7 +513,7 @@ function PickFiles({
           <div className="flex justify-end">
             <Button
               variant="primary"
-              disabled={ingest.isPending}
+              pending={ingest.isPending}
               onClick={() => ingest.mutate({})}
             >
               {ingest.isPending ? (
@@ -923,7 +923,8 @@ function SummaryStep({
           )}
           <Button
             variant="primary"
-            disabled={ready.length === 0 || create.isPending}
+            pending={create.isPending}
+            disabled={ready.length === 0}
             onClick={() =>
               ready.forEach((draft) =>
                 create.mutate({

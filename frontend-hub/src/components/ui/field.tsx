@@ -1,8 +1,13 @@
 import { Checkbox as BaseCheckbox } from "@base-ui/react/checkbox"
 import { Select as BaseSelect } from "@base-ui/react/select"
-import { Check, ChevronDown } from "lucide-react"
+import { Check, ChevronDown, Minus } from "lucide-react"
 import * as React from "react"
 
+import {
+  FieldContext,
+  INVALID,
+  useFieldAria,
+} from "@/components/ui/field-state"
 import { PickerSheet } from "@/components/ui/picker-sheet"
 import { usePickerSheet } from "@/lib/layout"
 import { ITEM, PANEL } from "@/lib/filter-chrome"
@@ -13,11 +18,17 @@ import { cn } from "@/lib/utils"
 /// Inputs are pills like everything else interactive, `{soft-2}` filled, and
 /// they take the indigo focus ring the base layer authors — so a form does not
 /// have to restate any of it.
+///
+/// **It also tells the control inside it what state it is in.** A `problem`
+/// makes the box red and `aria-invalid`, `required` makes it `aria-required`,
+/// and the sentence under it is wired to it with `aria-describedby` — through
+/// `FieldContext`, so no form writes any of that by hand again.
 export function Field({
   label,
   hint,
   problem,
   aside,
+  required,
   children,
   className,
 }: {
@@ -34,15 +45,50 @@ export function Field({
   /// a figure the reader is meant to compare against.
   aside?: React.ReactNode
   /// The server's sentence, or a validator's. Never a code.
+  ///
+  /// Present — anything but `null`, `undefined`, `false` or `""` — means the
+  /// answer is refused, and the control inside is drawn and announced so.
   problem?: React.ReactNode
+  /// The form cannot be sent without an answer here.
+  ///
+  /// A star after the label, in `{bad}`, because that is the mark the owner
+  /// already reads as "wajib" — and only the star: a form that also writes
+  /// "(optional)" on every other field is marking the same thing twice. So an
+  /// unmarked field is optional, and a form that marks its required fields
+  /// has to mark ALL of them, or the unmarked one reads as skippable.
+  ///
+  /// Deliberately `aria-required`, not the native `required` attribute: the
+  /// native one makes the browser throw its own bubble on submit, in the
+  /// browser's language, over a form that already says what is missing.
+  required?: boolean
   children: React.ReactNode
   className?: string
 }) {
+  const id = React.useId()
+  const invalid =
+    problem !== undefined &&
+    problem !== null &&
+    problem !== false &&
+    problem !== ""
+  const under = invalid ? `${id}-problem` : hint ? `${id}-hint` : undefined
+  const state = React.useMemo(
+    () => ({ invalid, required: required === true, describedBy: under }),
+    [invalid, required, under]
+  )
+
   return (
     <label className={cn("flex flex-col gap-[0.4375rem]", className)}>
       <span className="flex items-baseline justify-between gap-2">
         <span className="min-w-0 text-[0.875rem] font-medium text-text">
           {label}
+          {required === true && (
+            <>
+              <span aria-hidden className="ml-0.5 text-bad">
+                *
+              </span>
+              <span className="sr-only"> (required)</span>
+            </>
+          )}
         </span>
         {aside && (
           <span className="shrink-0 truncate rounded-inner bg-soft-2 px-[0.375rem] text-[0.875rem] text-body">
@@ -50,11 +96,15 @@ export function Field({
           </span>
         )}
       </span>
-      {children}
-      {problem ? (
-        <span className="text-[0.875rem] text-bad">{problem}</span>
+      <FieldContext.Provider value={state}>{children}</FieldContext.Provider>
+      {invalid ? (
+        <span id={under} className="text-[0.875rem] text-bad">
+          {problem}
+        </span>
       ) : hint ? (
-        <span className="text-[0.875rem] text-mute">{hint}</span>
+        <span id={under} className="text-[0.875rem] text-mute">
+          {hint}
+        </span>
       ) : null}
     </label>
   )
@@ -65,14 +115,31 @@ export function Field({
 /// after it has regrouped the digits.
 export function Input({
   className,
+  invalid,
+  required,
   ...props
-}: React.ComponentPropsWithRef<"input">) {
+}: React.ComponentPropsWithRef<"input"> & {
+  /// Refused, outside a `<Field>` — a cell in a table. Inside one, the
+  /// field's `problem` says it and this is left alone.
+  invalid?: boolean
+}) {
+  const aria = useFieldAria({
+    invalid: invalid ?? ariaFlag(props["aria-invalid"]),
+    required,
+    describedBy: props["aria-describedby"],
+  })
   return (
     <input
+      {...props}
+      {...aria}
       className={cn(
         "h-10 w-full rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.875rem] text-ink transition-colors outline-none",
         "placeholder:text-mute hover:border-hairline-strong focus:border-accent",
         "disabled:opacity-50",
+        // Read, not typed — a record open for reading shows its answers in
+        // the same boxes, without the hover that invites a click.
+        "read-only:hover:border-hairline-2",
+        INVALID,
         // No spinner on a number box. The little stepper is the operating
         // system's drawing, in the operating system's grey, and it lands on
         // top of the figure in a right-aligned cell — a quantity of 2 read as
@@ -81,25 +148,46 @@ export function Input({
         "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
         className
       )}
-      {...props}
     />
   )
+}
+
+/// `aria-invalid` as a caller may have written it — `true`, `"true"`, or a
+/// `false` that must not be mistaken for "no opinion".
+function ariaFlag(
+  value: React.AriaAttributes["aria-invalid"]
+): boolean | undefined {
+  if (value === undefined) return undefined
+  return value === true || value === "true"
 }
 
 /// Multi-line input. The one control that is not a pill — a rounded rectangle,
 /// because a pill with three lines of text in it reads as a mistake.
 export function Textarea({
   className,
+  invalid,
+  required,
   ...props
-}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+}: React.ComponentPropsWithRef<"textarea"> & { invalid?: boolean }) {
+  const aria = useFieldAria({
+    invalid: invalid ?? ariaFlag(props["aria-invalid"]),
+    required,
+    describedBy: props["aria-describedby"],
+  })
   return (
     <textarea
+      {...props}
+      {...aria}
       className={cn(
         "w-full rounded-inner border border-hairline-2 bg-canvas px-3 py-2.5 text-[0.875rem] leading-[1.375rem] text-ink transition-colors outline-none",
         "placeholder:text-mute hover:border-hairline-strong focus:border-accent",
+        // It had none, so a locked note read exactly like one waiting to be
+        // written in — the one control on a locked record that looked open.
+        "disabled:opacity-50",
+        "read-only:hover:border-hairline-2",
+        INVALID,
         className
       )}
-      {...props}
     />
   )
 }
@@ -125,8 +213,11 @@ export function Checkbox({
   label,
   hint,
   checked,
+  indeterminate,
   onChange,
   disabled,
+  invalid,
+  required,
   className,
 }: {
   /// Beside the box, and part of its hit area. A cell that has no room for
@@ -136,10 +227,17 @@ export function Checkbox({
   /// so ON the page — a tooltip is not an explanation to somebody reading.
   hint?: React.ReactNode
   checked: boolean
+  /// Some of the rows under it, not all and not none — the "select all" box
+  /// at the head of a table. Drawn as a dash; a press on it ticks everything.
+  indeterminate?: boolean
   onChange: (checked: boolean) => void
   disabled?: boolean
+  /// A box that must be ticked and was not — "I have counted the cash".
+  invalid?: boolean
+  required?: boolean
   className?: string
 }) {
+  const aria = useFieldAria({ invalid, required })
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
       {/* One `<label>` over both, so the words are part of the hit area: a
@@ -153,17 +251,26 @@ export function Checkbox({
       >
         <BaseCheckbox.Root
           checked={checked}
+          indeterminate={indeterminate}
           onCheckedChange={onChange}
           disabled={disabled}
+          {...aria}
           className={cn(
             "grid size-3.5 shrink-0 place-items-center rounded-[0.25rem] border border-hairline-strong bg-canvas transition-colors outline-none",
             "hover:border-line",
+            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
             "data-checked:border-accent data-checked:bg-accent",
+            "data-indeterminate:border-accent data-indeterminate:bg-accent",
+            "aria-[invalid=true]:border-bad aria-[invalid=true]:hover:border-bad",
             "data-disabled:cursor-default"
           )}
         >
           <BaseCheckbox.Indicator className="flex text-white">
-            <Check className="size-2.5" strokeWidth={3} />
+            {indeterminate === true ? (
+              <Minus className="size-2.5" strokeWidth={3} />
+            ) : (
+              <Check className="size-2.5" strokeWidth={3} />
+            )}
           </BaseCheckbox.Indicator>
         </BaseCheckbox.Root>
         {label}
@@ -238,6 +345,7 @@ export function Money({
   label,
   disabled,
   autoFocus,
+  invalid,
   className,
 }: {
   /// Digits, as `onChange` last gave them. `""` is empty, and what empty MEANS
@@ -258,6 +366,8 @@ export function Money({
   label?: string
   disabled?: boolean
   autoFocus?: boolean
+  /// Refused, outside a `<Field>`. Inside one the field says it.
+  invalid?: boolean
   className?: string
 }) {
   const box = React.useRef<HTMLInputElement>(null)
@@ -305,6 +415,7 @@ export function Money({
         placeholder={placeholder}
         disabled={disabled}
         autoFocus={autoFocus}
+        invalid={invalid}
         onBlur={onBlur}
         onChange={(event) =>
           commit(event.target.value, event.target.selectionStart ?? 0)
@@ -407,6 +518,9 @@ export function Select({
   value,
   onChange,
   disabled,
+  placeholder = "Choose…",
+  invalid,
+  required,
   "aria-label": label,
 }: {
   /// The chosen `<option value>`. Controlled, because every call site in this
@@ -419,12 +533,23 @@ export function Select({
   children: React.ReactNode
   className?: string
   disabled?: boolean
+  /// Drawn, muted, while nothing is chosen — `value` is `""` and no option
+  /// carries `""`. The trigger was blank there before, and a blank box reads
+  /// as a control that failed to load rather than a question not yet answered.
+  /// An `<option value="">` still wins: that is a caller who has a word for
+  /// "none" and wants it chosen like any other.
+  placeholder?: string
+  /// Refused, outside a `<Field>`. Inside one the field says it.
+  invalid?: boolean
+  required?: boolean
   /// When the visible label is a table header rather than a `<Field>`.
   "aria-label"?: string
 }) {
   const items = choices(children)
   const sheet = usePickerSheet()
   const [open, setOpen] = React.useState(false)
+  const aria = useFieldAria({ invalid, required })
+  const unanswered = !items.some((one) => one.value === value)
 
   // A phone: the same sheet `<PickOne>` opens. The desk's panel overlaps the
   // trigger and its 30px rows were drawn for a pointer.
@@ -438,12 +563,18 @@ export function Select({
           aria-haspopup="dialog"
           disabled={disabled}
           onClick={() => setOpen(true)}
+          {...aria}
           className={cn(
             "flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas px-3 text-left text-[0.875rem] text-ink disabled:opacity-50",
+            INVALID,
             className
           )}
         >
-          <span className="min-w-0 flex-1 truncate">{chosen?.label}</span>
+          <span
+            className={cn("min-w-0 flex-1 truncate", unanswered && "text-mute")}
+          >
+            {chosen?.label ?? placeholder}
+          </span>
           <ChevronDown className="ml-2 size-3.5 shrink-0 text-line-ico" />
         </button>
         <PickerSheet
@@ -463,12 +594,15 @@ export function Select({
       // Given as data as well as as children, so the trigger can show the
       // chosen option's own node — "PKWT — fixed term", not "PKWT".
       items={items}
-      value={value}
+      // `null` is how Base UI spells "nothing chosen", and it is the only
+      // value that draws the placeholder.
+      value={unanswered ? null : value}
       onValueChange={(next) => onChange(String(next ?? ""))}
       disabled={disabled}
     >
       <BaseSelect.Trigger
         aria-label={label}
+        {...aria}
         className={cn(
           "flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas py-0 pr-3 pl-3 text-left text-[0.875rem] text-ink transition-colors outline-none",
           // The two states `<Input>` and `<PickOne>` already wear, because a
@@ -485,10 +619,14 @@ export function Select({
           // one field nobody could see they were on.
           "focus-visible:border-accent data-[popup-open]:border-accent",
           "data-disabled:opacity-50",
+          INVALID,
           className
         )}
       >
-        <BaseSelect.Value className="min-w-0 flex-1 truncate" />
+        <BaseSelect.Value
+          placeholder={placeholder}
+          className="min-w-0 flex-1 truncate data-[placeholder]:text-mute"
+        />
         <BaseSelect.Icon className="ml-2 shrink-0 text-line-ico">
           <ChevronDown className="size-3.5" />
         </BaseSelect.Icon>

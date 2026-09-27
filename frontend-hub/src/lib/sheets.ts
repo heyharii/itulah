@@ -234,11 +234,42 @@ export const SHEET_PARAMS = {
   /// One supplier payment, and what it settled.
   payment: id,
   asset: id,
+  /// Which reading of the asset register is on screen: one of the build views
+  /// (Property, Vehicles …) or one of the two groups that are not plant
+  /// (Software, Projects). The values are `BUILD_VIEWS` in `lib/builds.ts`,
+  /// which is typed against this list so the two cannot disagree.
+  ///
+  /// A chip on the one Assets row rather than nine routes of their own
+  /// (owner, 2026-09-27): the register is one place, and a reading of it is
+  /// a link somebody sends, not a destination the sidebar should list.
+  "asset-view": oneOf([
+    "property",
+    "technical",
+    "vehicles",
+    "ffe",
+    "it",
+    "audio",
+    "oe",
+    "software",
+    "projects",
+  ] as const),
   /// One contract: the deal behind the bills — the rent, the PLN account, the
   /// cleaning service. A record people send each other ("look at what the
   /// C007 unit is costing us"), and the Overview's expiring rows open it
   /// directly, so it lives here like every other record's key.
   contract: id,
+  /// Which group of contracts the register is narrowed to — the wire's
+  /// `group_code`. Six sidebar rows until 2026-09-27, when the owner asked
+  /// for a shorter menu: they were one table read through six doors, so they
+  /// are six chips over the one Contracts row now. Absent means every group.
+  "contract-group": oneOf([
+    "SEWA",
+    "JASA",
+    "ASURANSI",
+    "IZIN",
+    "LANGGANAN",
+    "DISEWAKAN",
+  ] as const),
   /// One repair — a breakdown someone filed, with its estimate, budget and
   /// stage. Its own key rather than a second meaning for `asset`, which names
   /// the register's record: a repair is worked in the Perbaikan screen, and
@@ -261,6 +292,13 @@ export const SHEET_PARAMS = {
   /// `site_id` because that is the word every other row already carries — a
   /// link to a location is a link to a shop somebody can type from a shelf.
   location: id,
+  /// Stores being opened, over Lokasi. A flag like `new-order`: the stores do
+  /// not exist until somebody presses Buka toko, so there is nothing to key
+  /// it by — what the URL buys is a reload that keeps the sheet open.
+  "new-stores": flag,
+  /// The company's own description — name, legal form, head-office address,
+  /// NPWP — over the home screen. A flag: there is one company.
+  company: flag,
   /// One supply request — what a place asked for, and how far it has got.
   /// Filed from the Supplies list and opened by the Overview's own rows, so
   /// the address is a thing people send each other.
@@ -289,6 +327,10 @@ export const SHEET_PARAMS = {
   // commercial
   book: id,
   price: id,
+  /// Which kind of event the price History is narrowed to. Its own key: it
+  /// borrowed packing's `slice`, whose validator drops these words, so the
+  /// History tabs never narrowed anything.
+  "log-kind": oneOf(["PUBLISHED", "ACTIVATED", "TROUBLE"] as const),
   /// One shop's whole shelf, opened from its column on the pricelist.
   ///
   /// UI-001 §4's first drill-down: the matrix answers "is this style priced
@@ -330,8 +372,14 @@ export const SHEET_PARAMS = {
   /// system, it is superseded, so what this opens onto is a *book being
   /// written* rather than a price being edited.
   "new-price": flag,
+  /// Also narrows Promotions to one campaign's rules, and preselects it in the
+  /// promotion form — the Campaign screen links to both.
   campaign: id,
   rule: id,
+  /// The promotion form, open. A flag like `new-price`; `1` is accepted too,
+  /// because that is how the Campaign screen writes the link.
+  "new-rule": (value: unknown): true | undefined =>
+    flag(value) ?? (value === 1 || value === "1" ? true : undefined),
   /// One voucher, keyed by the code printed on the card rather than by its
   /// uuid. The code is what exists outside this system — somebody reads it out
   /// over a telephone — so a link to a voucher is a thing that can be typed
@@ -443,6 +491,11 @@ export const SHEET_PARAMS = {
   /// sending. Anything but these two words is dropped.
   view: oneOf(["grid", "list"] as const),
   thread: id,
+  /// The record a Discussions board is narrowed to — its kind and its id. A
+  /// record sheet that says "3 discussions" links here, so the board opens on
+  /// exactly those three, and the link survives being sent to somebody.
+  about: id,
+  aboutId: id,
   /// Which letter is open. Not a sheet — a letter takes the whole screen,
   /// because it is a document somebody reads to the end and prints — but it
   /// belongs in this registry for the reason `report` does: a letter with a
@@ -579,6 +632,8 @@ export const SHEET_PARAMS = {
   // system
   user: id,
   origin: id,
+  /// One shop server on the Monitoring screen.
+  monitor: id,
   notifications: flag,
 } as const
 

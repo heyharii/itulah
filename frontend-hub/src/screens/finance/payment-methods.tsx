@@ -116,6 +116,7 @@ export function PaymentMethods() {
                         <Th>Bank</Th>
                         <Th>Settles</Th>
                         <Th align="right">MDR</Th>
+                        <Th align="right">Shops</Th>
                         <Th>Roles</Th>
                         <Th />
                       </tr>
@@ -157,6 +158,20 @@ export function PaymentMethods() {
                               <span className="text-faint">—</span>
                             ) : (
                               percentOfBps(row.mdr_bps)
+                            )}
+                          </Td>
+                          <Td align="right">
+                            {/* Which shops take it is set per shop, on Shop
+                                payment methods; none means no till offers it. */}
+                            {row.site_ids.length === 0 ? (
+                              <span
+                                className="text-faint"
+                                title="No shop takes this method yet"
+                              >
+                                0
+                              </span>
+                            ) : (
+                              count(row.site_ids.length)
                             )}
                           </Td>
                           <Td>
@@ -262,7 +277,11 @@ function MethodForm({
       onClose={onDone}
     >
       <Problem error={save.error} />
-      <Field label="Code" aside={method === null ? "Never changes" : undefined}>
+      <Field
+        label="Code"
+        required
+        aside={method === null ? "Never changes" : undefined}
+      >
         <Input
           value={code}
           disabled={method !== null}
@@ -270,7 +289,7 @@ function MethodForm({
           placeholder="QRIS_BCA"
         />
       </Field>
-      <Field label="Name">
+      <Field label="Name" required>
         <Input value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
       <Field label="Tender">
@@ -284,7 +303,8 @@ function MethodForm({
       </Field>
       <Field
         label="Bank, scheme or provider"
-        aside={NEEDS_BANK.has(tender) ? "Required" : "Not used"}
+        required={NEEDS_BANK.has(tender)}
+        aside={NEEDS_BANK.has(tender) ? undefined : "Not used"}
         hint="The qualifier its account links are narrowed by, e.g. BCA."
       >
         <Input
@@ -321,7 +341,7 @@ function MethodForm({
         </Field>
       )}
       <Checkbox label="Active" checked={active} onChange={setActive} />
-      <Field label="Note" aside="Optional">
+      <Field label="Note">
         <Input value={note} onChange={(event) => setNote(event.target.value)} />
       </Field>
       <div className="flex items-center justify-end gap-2">
@@ -334,12 +354,9 @@ function MethodForm({
         )}
         <Button
           variant="primary"
+          pending={save.isPending}
           disabled={
-            code.trim() === "" ||
-            name.trim() === "" ||
-            bankMissing ||
-            !mdrValid ||
-            save.isPending
+            code.trim() === "" || name.trim() === "" || bankMissing || !mdrValid
           }
           onClick={() => save.mutate()}
         >

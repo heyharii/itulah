@@ -1,5 +1,6 @@
 import { useForm } from "@tanstack/react-form"
 import {
+  useInfiniteQuery,
   useMutation,
   useQueries,
   useQuery,
@@ -30,7 +31,7 @@ import {
 } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, Truncated } from "@/components/ui/states"
+import { Banner, EmptyState, NoMatch } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, money } from "@/lib/format"
 import {
@@ -48,6 +49,7 @@ import { problemOf } from "@/lib/problem"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import {
   ASSET_CATEGORIES,
   CHARGE_KINDS,
@@ -191,11 +193,15 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     // It is still worth a question, and the chart above is why: a bar for
     // Kendaraan is a number somebody then wants the rows behind.
     meta: { priority: 2, filter: { kind: "option" } },
+    // The server orders by number, name, treatment, cost and book; see
+    // `SORTS`.
+    enableSorting: false,
   },
   {
     accessorKey: "site_id",
     header: "Location",
     size: 110,
+    enableSorting: false,
     // The client's own name for it. The id stays in `title`, because that is
     // what the account codes carry and what a support call will be about.
     cell: ({ row }) => <SiteName id={row.original.site_id} />,
@@ -236,6 +242,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     accessorFn: (row) => row.acquired_via ?? "",
     header: "Bought via",
     size: 150,
+    enableSorting: false,
     // Offered for its empty end and not for its values: "Bought via is empty"
     // beside "Treatment is Capitalised" is the control exception this column
     // draws in warn — something on the balance sheet whose cost never came in
@@ -265,6 +272,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     accessorKey: "last_depreciated_month",
     header: "Charged through",
     size: 145,
+    enableSorting: false,
     // A date, and the question is almost always "before": an asset the run has
     // been quietly skipping for four months looks exactly like one capitalised
     // last week until somebody asks which ones stopped. Empty is its own
@@ -299,6 +307,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     accessorKey: "accumulated_minor",
     header: "Accumulated",
     size: 130,
+    enableSorting: false,
     // Given up before anything else: it is cost less book value, and both of
     // those are still on the row.
     meta: { align: "right", priority: 3 },
@@ -333,6 +342,21 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
   },
 ]
 
+/// How many assets one page of the register asks for. A step, not a ceiling:
+/// the table asks for the next page as its last rows scroll into view.
+const PAGE = 100
+
+/// The columns the server can order by, and the word it knows each one as.
+/// Every other column carries `enableSorting: false`: sorting the pages in
+/// hand and calling it the register is the mistake infinite scroll invites.
+const SORTS: Record<string, string> = {
+  asset_number: "number",
+  name: "name",
+  treatment: "treatment",
+  capitalized_cost_minor: "cost",
+  book_value_minor: "book",
+}
+
 export function AssetRegister() {
   const [query, setQuery] = useState("")
   const [site, setSite] = useState("")
@@ -342,31 +366,48 @@ export function AssetRegister() {
     { id: "treatment", desc: false },
   ])
 
-  // The register, once per location asked for. `?unassessed=true` used to back
-  // a second tab here, and asking the server for a subset of a list already in
-  // memory is a second loading state and a second cache entry for a filter the
-  // sort below already applies — the not-assessed rows are at the top of this
-  // list by construction. The location is different: `GET /assets` takes a
-  // site, an asset belongs to exactly one, and narrowing on the wire is what
-  // keeps this list from being fourteen shops of shelving.
-  // The whole envelope, not just its rows. `GET /assets` was given a default
-  // limit while this screen was being written, and the `.then(page => page.rows)`
-  // that kept it compiling also threw away the one field that says whether the
-  // limit bit: `total` counts every asset the filters match, and the rows are
-  // one page of them. Keeping both is what lets the banner below be exact
-  // instead of a guess — see `<Truncated>`.
-  const assets = useQuery({
-    queryKey: financeKeys.assets(false, site || null),
-    queryFn: ({ signal }) => listAssets({ site: site || undefined }, signal),
+  /// Debounced, because every keystroke is a round trip over the register.
+  const needle = useDebounced(query.trim(), 400)
+  const by = sorting[0]
+  const scope = {
+    site: site || undefined,
+    q: needle === "" ? undefined : needle,
+    sort: by === undefined ? undefined : SORTS[by.id],
+    dir: by?.desc === true ? "desc" : undefined,
+    limit: PAGE,
+  }
+
+  // The register, a page at a time. The location, the search and the order
+  // are the server's — `treatment` included, so the not-assessed rows are
+  // still the first screenful — and the table reads on as somebody scrolls.
+  const assets = useInfiniteQuery({
+    queryKey: [...financeKeys.assets(false, site || null), "pages", scope],
+    queryFn: ({ pageParam, signal }) =>
+      listAssets({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched. Without
+    // it every keystroke empties the table to a loading line.
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => assets.data?.rows ?? [], [assets.data])
-  /// The server's own count of what it holds, against what it sent. Exact,
-  /// because it is the server's subtraction rather than the browser inferring
-  /// truncation from having received exactly as many rows as it asked for.
-  const held = assets.data?.total ?? rows.length
+  const rows = useMemo(
+    () => assets.data?.pages.flatMap((page) => page.rows) ?? [],
+    [assets.data]
+  )
+  /// Everything the first page says about the whole answer — the count, the
+  /// book value by family — rather than anything summed from the pages held.
+  const head = assets.data?.pages[0]
+  const held = head?.total ?? 0
 
   const filters = useFilters(columns)
+  /// Whether the search or a column clause is narrowing the register —
+  /// "nothing registered" and "nothing matches" have different fixes.
+  const narrowed = needle !== "" || filters.filters.length > 0
+  const clearNarrowing = () => {
+    setQuery("")
+    filters.clear()
+  }
 
   const table = useTable(
     useMemo(
@@ -377,17 +418,31 @@ export function AssetRegister() {
         getRowId: (row: AssetRow) => row.asset_id,
         state: {
           columnFilters: filters.columnFilters,
-          globalFilter: query,
           sorting,
         },
+        // The rows arrive in the order the request asked for, and the search
+        // box is the server's. Doing either again here would do it to the
+        // pages in hand and call it the register.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
-  const gap = rows.filter((row) => row.decision === null).length
+  /// The control gap at this location, counted by the server. Its own small
+  /// read because the register's facets count the searched set and ignore
+  /// the location, and counting the pages in hand would say "3" while the
+  /// fortieth unassessed asset had not loaded yet.
+  const unassessed = useQuery({
+    queryKey: [...financeKeys.assets(true, site || null), "count"],
+    queryFn: ({ signal }) =>
+      listAssets(
+        { site: site || undefined, decision: "UNASSESSED", limit: 1 },
+        signal
+      ),
+  })
+  const gap = unassessed.data?.total ?? 0
 
   /// What the business owns, by family, at what the books say it is worth.
   ///
@@ -399,24 +454,18 @@ export function AssetRegister() {
   ///
   /// Horizontal, because these are seven names rather than seven points on an
   /// axis: `<BarSeries>` would thin its own tick labels out and drop the very
-  /// family somebody was looking for. Nothing new is fetched — this is the
-  /// list the table is already built from.
-  const byCategory = useMemo(() => {
-    const sums = new Map<string, { name: string; value: number }>()
-    for (const row of rows) {
-      if (row.book_value_minor === null) continue
-      const seen = sums.get(row.category_code)
-      sums.set(row.category_code, {
-        name: row.category_name,
-        value: (seen?.value ?? 0) + row.book_value_minor,
-      })
-    }
-    return [...sums.entries()].map(([code, family]) => ({
-      key: code,
-      label: family.name,
-      value: family.value,
-    }))
-  }, [rows])
+  /// family somebody was looking for. Summed by the SERVER over every asset
+  /// the location and search match (`book_by_category`), not over the pages
+  /// loaded so far.
+  const byCategory = useMemo(
+    () =>
+      (head?.book_by_category ?? []).map((family) => ({
+        key: family.category_code,
+        label: family.category_name,
+        value: family.book_minor,
+      })),
+    [head]
+  )
 
   const booked = byCategory.reduce((sum, family) => sum + family.value, 0)
 
@@ -453,13 +502,13 @@ export function AssetRegister() {
             whatever it asked. */}
         <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
-        {/* The effective answer, in words. Which location, and what the rows
-            on screen are worth — the same figure the chart below totals, so
-            the two cannot disagree. */}
+        {/* The effective answer, in words. Which location, how many assets
+            the server found, and what they are worth — the same figure the
+            chart below totals, so the two cannot disagree. */}
         <span className="text-[0.875rem] text-mute">
           {site === "" ? "Every location" : <SiteName id={site} />}
           {" · "}
-          {count(rows.length)} registered ·{" "}
+          {count(held)} registered ·{" "}
           <span className="font-medium text-ink tabular-nums">
             {money(booked)}
           </span>{" "}
@@ -470,8 +519,8 @@ export function AssetRegister() {
       {/* The control gap, stated once and only when there is one. It used to be
           a second tab; a tab that is empty most days is a tab that gets clicked
           most days for nothing, and the rows it would have held are already the
-          first ones on this list. Counted from the list on screen, which is the
-          whole register — not from a second request. */}
+          first ones on this list. Counted by the server for this location —
+          the register pages now, so the rows on screen are not all of it. */}
       {gap > 0 && (
         <Banner tone="warn" className="mb-3">
           {count(gap)} assets have never been assessed — nobody has decided
@@ -499,16 +548,13 @@ export function AssetRegister() {
         </Card>
       )}
 
-      {/* Exact, and only when it is true: the server said how many assets match
-          and how many it sent, so this is a subtraction rather than the usual
-          inference from "we got exactly what we asked for". */}
-      {held > rows.length && <Truncated limit={rows.length} noun="assets" />}
-
       <Card className="overflow-hidden">
         {queryState(assets, {
           loading: "Loading the register…",
           render: () =>
-            rows.length === 0 ? (
+            rows.length === 0 && narrowed ? (
+              <NoMatch what="assets" onClear={clearNarrowing} />
+            ) : rows.length === 0 ? (
               <EmptyState>
                 {site === ""
                   ? "Nothing has been registered yet."
@@ -519,7 +565,11 @@ export function AssetRegister() {
                 table={table}
                 onRowClick={(row) => asset.open(row.asset_id)}
                 isSelected={(row) => row.asset_id === asset.value}
-                empty="No asset matches the search and filters in force."
+                // What the column clauses leave of the pages in hand. The
+                // table keeps asking for pages while this shows, so it is only
+                // final once the register has been read to its end.
+                empty={<NoMatch what="assets" onClear={clearNarrowing} />}
+                more={assets}
                 className={
                   booked > 0
                     ? "max-h-[calc(100vh-31rem)]"
@@ -699,7 +749,7 @@ function AcquisitionField({
           ? "Reading the posted expense bills…"
           : lines.length === 0
             ? "No posted expense bill has a line coded to 10215*. Record the purchase as an expense bill and post it, and it will appear here."
-            : "Optional. Capitalising posts nothing — the bill is the acquisition, and this is what says which one."
+            : "Capitalising posts nothing — the bill is the acquisition, and this is what says which one."
       }
     >
       <Select
@@ -1033,7 +1083,8 @@ function AssetSheet({
               {(ready) => (
                 <Button
                   variant="primary"
-                  disabled={!ready || assess.isPending}
+                  pending={assess.isPending}
+                  disabled={!ready}
                   onClick={() => form.handleSubmit()}
                 >
                   {assess.isPending ? "Saving…" : "Record assessment"}
@@ -1232,6 +1283,7 @@ function AssetSheet({
                             {(field) => (
                               <Field
                                 label="It became"
+                                required
                                 hint="The family this finished work now belongs to — it leaves Contract In Progress."
                               >
                                 <Select
@@ -1264,6 +1316,7 @@ function AssetSheet({
                             {(field) => (
                               <Field
                                 label="Capitalised cost"
+                                required
                                 problem={
                                   field.state.value.trim() !== "" &&
                                   parseMinor(field.state.value) === null
@@ -1282,7 +1335,7 @@ function AssetSheet({
                           </form.Field>
                           <form.Field name="salvage">
                             {(field) => (
-                              <Field label="Salvage value">
+                              <Field label="Salvage value" required>
                                 <Money
                                   value={field.state.value}
                                   onBlur={field.handleBlur}
@@ -1293,7 +1346,7 @@ function AssetSheet({
                           </form.Field>
                           <form.Field name="life">
                             {(field) => (
-                              <Field label="Useful life (months)">
+                              <Field label="Useful life (months)" required>
                                 <Input
                                   inputMode="numeric"
                                   value={field.state.value}
@@ -1423,6 +1476,7 @@ function AssetSheet({
                     {(field) => (
                       <Field
                         label="Reason"
+                        required
                         hint="An expensed asset with no reason is the one somebody queries a year later."
                       >
                         <Textarea
@@ -1498,7 +1552,7 @@ function TransferForm({ asset }: { asset: AssetRow }) {
       <Refusal error={move.error} />
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="To">
+        <Field label="To" required>
           <LocationSelect
             value={to}
             onChange={setTo}
@@ -1508,11 +1562,11 @@ function TransferForm({ asset }: { asset: AssetRow }) {
             exclude={[asset.site_id]}
           />
         </Field>
-        <Field label="Moved on">
+        <Field label="Moved on" required>
           <Day value={movedOn} onChange={setMovedOn} />
         </Field>
       </div>
-      <Field label="Memo" hint="Optional; why it moved.">
+      <Field label="Memo" hint="Why it moved.">
         <Input value={memo} onChange={(event) => setMemo(event.target.value)} />
       </Field>
 
@@ -1529,7 +1583,7 @@ function TransferForm({ asset }: { asset: AssetRow }) {
             </Button>
             <Button
               variant="primary"
-              disabled={move.isPending}
+              pending={move.isPending}
               onClick={() => move.mutate()}
             >
               {move.isPending ? "Moving…" : "Move"}
@@ -1641,7 +1695,7 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
       <Refusal error={dispose.error} />
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Left on">
+        <Field label="Left on" required>
           <Day value={disposedOn} onChange={setDisposedOn} />
         </Field>
         {/* Two different endings, and only one of them brings money in — the
@@ -1661,6 +1715,7 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
           <>
             <Field
               label="Proceeds"
+              required
               problem={
                 proceeds.trim() !== "" && proceedsMinor === null
                   ? "Not a number."
@@ -1671,6 +1726,7 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
             </Field>
             <Field
               label="Into"
+              required={needsAccount}
               hint={
                 accounts.length === 0
                   ? "No cash or bank meaning is mapped at this location."
@@ -1702,10 +1758,7 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
           </>
         )}
       </div>
-      <Field
-        label="Memo"
-        hint="Optional; the buyer, the condition, the reason."
-      >
+      <Field label="Memo" hint="The buyer, the condition, the reason.">
         <Input value={memo} onChange={(event) => setMemo(event.target.value)} />
       </Field>
 
@@ -1740,7 +1793,7 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
             </Button>
             <Button
               variant="danger"
-              disabled={dispose.isPending}
+              pending={dispose.isPending}
               onClick={() => dispose.mutate()}
             >
               {dispose.isPending ? "Disposing…" : "Dispose"}
@@ -1869,7 +1922,8 @@ function RegisterSheet({
             {(ready) => (
               <Button
                 variant="primary"
-                disabled={!ready || register.isPending}
+                pending={register.isPending}
+                disabled={!ready}
                 onClick={() => form.handleSubmit()}
               >
                 {register.isPending ? "Registering…" : "Register"}
@@ -1901,7 +1955,7 @@ function RegisterSheet({
         <div className="grid grid-cols-2 gap-3">
           <form.Field name="assetNumber">
             {(field) => (
-              <Field label="Asset number">
+              <Field label="Asset number" required>
                 <Input
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -1912,7 +1966,7 @@ function RegisterSheet({
           </form.Field>
           <form.Field name="siteId">
             {(field) => (
-              <Field label="Location">
+              <Field label="Location" required>
                 {/* Where the thing physically is. A typed id put an asset at a
                     location that does not exist, which the register then
                     happily listed. */}
@@ -1926,7 +1980,7 @@ function RegisterSheet({
           </form.Field>
           <form.Field name="name">
             {(field) => (
-              <Field label="Name" className="col-span-2">
+              <Field label="Name" required className="col-span-2">
                 <Input
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -1953,7 +2007,7 @@ function RegisterSheet({
           </form.Field>
           <form.Field name="acquired">
             {(field) => (
-              <Field label="Acquired on">
+              <Field label="Acquired on" required>
                 <Day
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -1964,7 +2018,7 @@ function RegisterSheet({
           </form.Field>
           <form.Field name="serial">
             {(field) => (
-              <Field label="Serial number" hint="Optional.">
+              <Field label="Serial number">
                 <Input
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -1995,7 +2049,7 @@ function RegisterSheet({
 
         <form.Field name="notes">
           {(field) => (
-            <Field label="Notes" hint="Optional.">
+            <Field label="Notes">
               <Textarea
                 rows={2}
                 value={field.state.value}

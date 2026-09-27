@@ -294,7 +294,33 @@ export type SaleTender = {
   readonly acquirer?: string | null
   /// `DEBIT` or `CREDIT`, on a card only.
   readonly card_kind?: "DEBIT" | "CREDIT" | null
+  /// The Finance master's Mode of Payment code (`DEBIT_BCA`…) the cashier
+  /// picked. The node re-derives method/acquirer/card_kind from it; those are
+  /// still sent for nodes that predate it. Null when the till fell back to its
+  /// built-in list because the master could not be read.
+  readonly payment_method_code?: string | null
 }
+
+/// One active Mode of Payment from the cloud master, as the node hands it down.
+export type PaymentMethod = {
+  readonly code: string
+  readonly name: string
+  readonly tender_type:
+    | "CASH"
+    | "DEBIT_CARD"
+    | "CREDIT_CARD"
+    | "QRIS"
+    | "EWALLET"
+    | "VOUCHER"
+    | "POINTS"
+  readonly bank_code?: string | null
+  readonly settlement_mode?: string | null
+}
+
+/// `GET /api/v1/store/payment-methods` — the active payment methods Finance
+/// keeps in the cloud master. Held by `payment-methods.ts`, not here.
+export const paymentMethods = () =>
+  edge<PaymentMethod[]>("GET", "/api/v1/store/payment-methods")
 
 export type SaleReply = {
   readonly sale_id?: string

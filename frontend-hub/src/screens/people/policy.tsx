@@ -1,6 +1,8 @@
+import { ScanFace, Timer } from "lucide-react"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { AppLink } from "@/components/ui/app-link"
 import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { AttendancePolicy } from "@/screens/people/attendance"
@@ -8,7 +10,19 @@ import { Holidays } from "@/screens/people/holidays"
 import { LeaveTypes } from "@/screens/people/leave-types"
 import { ShiftPatterns } from "@/screens/people/shifts"
 
-/// The rules every place is measured against, behind one door.
+/// HR's settings: the rules every place is measured against, behind one door.
+///
+/// # One Settings row (2026-09-27)
+///
+/// This was "Time policy", with Punch stations, Scheduler, Rule numbers and
+/// Salary structures as rows of their own beside it. The owner asked for a
+/// shorter menu, and all five are setup somebody opens a few times a year, so
+/// the sidebar has one Settings row: the four time rules are the tabs here,
+/// and the two heavier screens — the stations, with tabs of their own, and the
+/// scheduler's run ledger — open from the header rather than nesting a tab
+/// strip inside a tab. Rule numbers and Salary structures were removed: the
+/// first repeated numbers the policies below already hold, the second was a
+/// read-only seed the owner had dropped with the grade masters.
 ///
 /// # Why these four are one menu and not four
 ///
@@ -70,15 +84,30 @@ const SUB: Record<string, string> = {
     "Which days are red, and which of them come out of somebody's annual leave.",
 }
 
-export function TimePolicy() {
+export function PeopleSettings() {
   const [tab, setTab] = useState<string>("attendance")
 
   return (
     <PageContent>
       <PageHeader
-        crumb="People · Setup"
-        title="Time policy"
+        crumb="People"
+        title="Settings"
         sub={SUB[tab]}
+        actions={
+          // The two setup screens too big to be a tab: the stations (which
+          // have tabs of their own) and what the clock does with these rules
+          // when nobody is looking. Both were sidebar rows until 2026-09-27.
+          <>
+            <AppLink to="/people/terminals" variant="ghost">
+              <ScanFace />
+              Punch stations
+            </AppLink>
+            <AppLink to="/people/scheduler" variant="ghost">
+              <Timer />
+              Scheduler
+            </AppLink>
+          </>
+        }
       />
 
       <SubTabs tabs={TABS} value={tab} onChange={setTab} />

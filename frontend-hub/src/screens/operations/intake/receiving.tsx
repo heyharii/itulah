@@ -487,7 +487,8 @@ function CountSheet({
             <div className="flex-1" />
             <Button
               variant="primary"
-              disabled={entries.length === 0 || record.isPending}
+              pending={record.isPending}
+              disabled={entries.length === 0}
               onClick={() => record.mutate(entries)}
             >
               {record.isPending ? "Recording…" : "Record the count"}
@@ -750,7 +751,7 @@ function InvoiceBlock({
             </p>
             <form.Field name="number">
               {(field) => (
-                <Field label="Invoice number">
+                <Field label="Invoice number" required>
                   <Input
                     className="font-mono"
                     value={field.state.value}
@@ -788,7 +789,8 @@ function InvoiceBlock({
               <Button
                 variant="primary"
                 type="submit"
-                disabled={record.isPending || nothingAccepted}
+                pending={record.isPending}
+                disabled={nothingAccepted}
               >
                 {record.isPending ? "Recording…" : "Record the invoice"}
               </Button>
@@ -1193,12 +1195,8 @@ function VerifySheet({
             />
             <Button
               variant="soft"
-              disabled={
-                unnamed ||
-                decide.isPending ||
-                chosen.length === 0 ||
-                note.trim() === ""
-              }
+              pending={decide.isPending}
+              disabled={unnamed || chosen.length === 0 || note.trim() === ""}
               onClick={() =>
                 decide.mutate({ decision: "Recount", rows: chosen, note })
               }
@@ -1210,7 +1208,8 @@ function VerifySheet({
             {shortOnPicked > 0 && (
               <Button
                 variant="soft"
-                disabled={unnamed || decide.isPending || chosen.length === 0}
+                pending={decide.isPending}
+                disabled={unnamed || chosen.length === 0}
                 onClick={() =>
                   decide.mutate({
                     decision: "Accept",
@@ -1225,7 +1224,8 @@ function VerifySheet({
             )}
             <Button
               variant="primary"
-              disabled={unnamed || decide.isPending || chosen.length === 0}
+              pending={decide.isPending}
+              disabled={unnamed || chosen.length === 0}
               onClick={() =>
                 decide.mutate({ decision: "Accept", rows: chosen, note })
               }
@@ -1289,8 +1289,8 @@ function VerifySheet({
               {waiting.some(notMine) && (
                 <Banner tone="info">
                   Only the person who raised a purchase order verifies its
-                  counts. Lines on orders raised by somebody else are shown
-                  but cannot be decided here.
+                  counts. Lines on orders raised by somebody else are shown but
+                  cannot be decided here.
                 </Banner>
               )}
 
@@ -1385,7 +1385,8 @@ function VerifySheet({
                               <span className="block truncate font-mono text-[0.875rem] text-mute">
                                 {row.article_code}
                                 {mineToo(row) && " · your count"}
-                                {notMine(row) && ` · raised by ${row.raised_by}`}
+                                {notMine(row) &&
+                                  ` · raised by ${row.raised_by}`}
                               </span>
                             </td>
                             <td className={cn(CELL, NUM)}>
@@ -1575,7 +1576,12 @@ function InUnit({
   unit: string | null | undefined
   quantity: string | null | undefined
 }) {
-  if (unit === null || unit === undefined || quantity === null || quantity === undefined)
+  if (
+    unit === null ||
+    unit === undefined ||
+    quantity === null ||
+    quantity === undefined
+  )
     return <>{count(pieces)}</>
   return (
     <span className="flex flex-col items-end leading-tight">

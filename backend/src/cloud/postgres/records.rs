@@ -31,7 +31,7 @@
 //! and four of the kinds name records this schema does not hold at all.
 
 use super::audit::{list_audit, AuditEntry, AuditScope};
-use super::discussion::{list_threads, DiscussionThread, ThreadQuery};
+use super::discussion::{list_threads, DiscussionReader, DiscussionThread, ThreadQuery};
 use super::documents::{search_documents, Document, DocumentQuery};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::RecordKind;
@@ -385,12 +385,18 @@ pub async fn record_info(
     )
     .await?;
 
+    // Not as a moderator: the sheet shows which threads exist, and what the
+    // reader may do to one is decided on the thread's own page.
     let threads = list_threads(
         db,
-        viewer,
+        DiscussionReader {
+            username: viewer,
+            moderator: false,
+        },
         &ThreadQuery {
             subject_kind: Some(kind.as_str().to_owned()),
             subject_id: Some(subject_id.to_owned()),
+            limit: Some(200),
             ..ThreadQuery::default()
         },
     )

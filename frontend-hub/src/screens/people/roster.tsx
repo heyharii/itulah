@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight, Clock4 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
@@ -70,7 +71,8 @@ function addDays(iso: string, days: number): string {
 /// control because they are one question — *what is this person doing on
 /// Tuesday* — and splitting them into "plan kind" then "which shift" is what
 /// made the old form four fields long.
-type Brush = { kind: "SHIFT"; shiftId: string } | { kind: "REST" } | { kind: "HOLIDAY" }
+type Brush =
+  { kind: "SHIFT"; shiftId: string } | { kind: "REST" } | { kind: "HOLIDAY" }
 
 function brushKey(brush: Brush): string {
   return brush.kind === "SHIFT" ? `SHIFT:${brush.shiftId}` : brush.kind
@@ -81,7 +83,9 @@ function brushFromKey(key: string, shifts: readonly ShiftView[]): Brush | null {
   if (key === "HOLIDAY") return { kind: "HOLIDAY" }
   const id = key.startsWith("SHIFT:") ? key.slice("SHIFT:".length) : null
   if (id === null) return null
-  return shifts.some((one) => one.id === id) ? { kind: "SHIFT", shiftId: id } : null
+  return shifts.some((one) => one.id === id)
+    ? { kind: "SHIFT", shiftId: id }
+    : null
 }
 
 /// `Sen 07` — the weekday first, because a week is read by weekday.
@@ -156,7 +160,9 @@ export function Roster() {
   // The first pattern head office defined, until somebody picks another. A
   // palette with nothing selected is a grid where the first click does
   // nothing and says nothing about why.
-  const brush = brushFromKey(chosen ?? "", live) ?? (live[0] ? { kind: "SHIFT" as const, shiftId: live[0].id } : null)
+  const brush =
+    brushFromKey(chosen ?? "", live) ??
+    (live[0] ? { kind: "SHIFT" as const, shiftId: live[0].id } : null)
 
   // Keyed by person and date, so a cell is a lookup rather than a scan of the
   // whole week per square.
@@ -244,6 +250,13 @@ export function Roster() {
               onChange={(next) => setFrom(mondayOf(new Date(next)))}
               className="h-8 w-36"
             />
+            {/* Extra hours on a day of this plan — ordering them is a plan
+                act, like a shift. A sidebar row until 2026-09-27; the orders
+                nobody has answered are on the Overview. */}
+            <AppLink to="/people/overtime" variant="ghost">
+              <Clock4 />
+              Overtime
+            </AppLink>
           </>
         }
       />
@@ -309,6 +322,7 @@ export function Roster() {
                   : "Required — the grid stays locked until it is given."
               }
               className="w-60"
+              required
             >
               <Input
                 value={reason}

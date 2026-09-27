@@ -737,15 +737,19 @@ def main() -> int:
     # -- load ---------------------------------------------------------------
     api = Api(args.base, args.dry_run)
 
+    # One account link per (role, class, site) the old register agrees on
+    # (0460): the class narrows the company's link, the site scopes it.
     for (key, site, category), codes in sorted(mapping.items()):
         if len(codes) != 1:
             continue
         api.post(
-            "/api/v1/finance/account-map",
+            "/api/v1/finance/account-links",
             {
-                "semantic_key": key,
-                "site_id": site,
-                "qualifier": category,
+                "role": key,
+                "source_type": "COMPANY",
+                "source_id": category,
+                "scope_type": "SITE",
+                "scope_key": site,
                 "account_code": next(iter(codes)),
                 "note": "impor register aset lama",
             },

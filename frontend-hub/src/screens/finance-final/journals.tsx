@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -14,9 +19,9 @@ import { Fact, Facts } from "@/components/ui/sheet"
 import {
   Banner,
   EmptyState,
+  LoadMore,
   NoAccessState,
   NoMatch,
-  Truncated,
 } from "@/components/ui/states"
 import { count, day, label, money, moment } from "@/lib/format"
 import {
@@ -30,6 +35,7 @@ import {
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { useDebounced } from "@/lib/use-debounced"
 import {
   Code,
   DebitCredit,
@@ -102,10 +108,9 @@ import type { JournalEntryRow, JournalLineView } from "@itulah/contract"
 /// because "this never should have existed" and "this was right then and is
 /// wrong now" are different intents and only one of them is available.
 
-/// What this screen asks the register for. The server's ceiling, not a page
-/// size: nothing here pages, so this is also the number past which the register
-/// stops being able to answer the question it appears to answer.
-const CAP = 200
+/// One page of the register. The list scrolls on — this is the size of a
+/// step, not a ceiling.
+const PAGE = 100
 
 export function Journals() {
   const range = useWindow()
@@ -144,51 +149,47 @@ export function Journals() {
     }
   }, [template, categories.isPending, categories.families])
 
-  // Window, type and unit all go on the wire, and the key carries all three —
-  // a register narrowed in the browser is a slice of the newest 200 entries of
-  // every kind, which answers a different question and looks identical.
-  const entries = useQuery({
-    queryKey: financeKeys.journal(
-      range.from,
-      range.to,
-      kind || null,
-      site || null
-    ),
-    queryFn: ({ signal }) =>
+  // Window, type, unit and the search all go on the wire, and the key carries
+  // all four — a register narrowed in the browser is a slice of whatever pages
+  // it happens to hold, which answers a different question and looks
+  // identical.
+  const q = useDebounced(needle.trim(), 300)
+  const entries = useInfiniteQuery({
+    queryKey: [
+      ...financeKeys.journal(range.from, range.to, kind || null, site || null),
+      "pages",
+      q,
+    ],
+    queryFn: ({ pageParam, signal }) =>
       listJournal(
         {
           from: range.from,
           to: range.to,
           kind: kind || undefined,
           site: site || undefined,
-          limit: CAP,
+          q: q || undefined,
+          limit: PAGE,
+          cursor: pageParam,
         },
         signal
       ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => entries.data?.rows ?? [], [entries.data])
-  // The search box is the one narrowing that stays here. `financeKeys.journal`
-  // has no slot for a search term, so sending `q` on the wire would file two
-  // different searches under one cache entry — the second reader would get the
-  // first one's answer. It narrows what is drawn and says so.
-  const shown = useMemo(() => {
-    const text = needle.trim().toLowerCase()
-    if (text === "") return rows
-    return rows.filter(
-      (row) =>
-        row.entry_number.toLowerCase().includes(text) ||
-        (row.memo ?? "").toLowerCase().includes(text) ||
-        row.posted_by.toLowerCase().includes(text)
-    )
-  }, [rows, needle])
+  const rows = useMemo(
+    () => entries.data?.pages.flatMap((page) => page.rows) ?? [],
+    [entries.data]
+  )
+  const head = entries.data?.pages[0]
 
-  const matched = entries.data?.total ?? rows.length
+  const matched = head?.total ?? rows.length
   // The server's own counts per type, over the window. They deliberately
   // ignore the unit filter — the node counts each facet against the window
   // alone — so the strip is labelled as a fact about the window and not about
   // the list below it.
-  const kinds = entries.data?.facets.kinds ?? []
+  const kinds = head?.facets.kinds ?? []
 
   return (
     <PageContent>
@@ -201,7 +202,7 @@ export function Journals() {
             <Input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
-              placeholder="Search what is loaded"
+              placeholder="Number, memo or who posted"
               className="h-8 w-48"
             />
             <Button variant="primary" onClick={() => setComposing(true)}>
@@ -241,9 +242,7 @@ export function Journals() {
           {kind !== "" && ` · ${label(kind)}`}
           {site !== "" && " · "}
           {site !== "" && <SiteName id={site} />}
-          {matched > rows.length
-            ? ` · the newest ${CAP} of ${count(matched)} entries`
-            : ` · ${count(matched)} ${matched === 1 ? "entry" : "entries"}`}
+          {` · ${count(matched)} ${matched === 1 ? "entry" : "entries"}`}
         </span>
       </Toolbar>
 
@@ -271,12 +270,11 @@ export function Journals() {
             </button>
           ))}
           <span className="text-mute">
-            · counted over the window, whatever unit is chosen
+            · counted over the window
+            {q === "" ? "" : " and the search"}, whatever unit is chosen
           </span>
         </div>
       )}
-
-      {matched > rows.length && <Truncated limit={CAP} noun="entries" />}
 
       <div className="flex flex-col gap-4">
         {queryState(entries, {
@@ -291,100 +289,99 @@ export function Journals() {
             />
           ),
           render: () =>
-            rows.length === 0 ? (
+            rows.length === 0 && q === "" ? (
               <EmptyState>
                 Nothing posted between {day(range.from)} and {day(range.to)}
                 {kind === "" ? "" : ` by ${label(kind).toLowerCase()}`}. The
                 window is always set, so this is not a statement about the books
                 — widen it to tell the two apart.
               </EmptyState>
-            ) : shown.length === 0 ? (
-              <NoMatch
-                what="entries"
-                held={rows.length}
-                onClear={() => setNeedle("")}
-              />
+            ) : rows.length === 0 ? (
+              <NoMatch what="entries" onClear={() => setNeedle("")} />
             ) : (
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th width="6.5rem">Date</Th>
-                    <Th>Entry</Th>
-                    <Th width="11rem">Type</Th>
-                    <Th width="9rem">Posted by</Th>
-                    <Th align="right" width="5rem">
-                      Lines
-                    </Th>
-                    <Th align="right" width="9.5rem">
-                      Total debit
-                    </Th>
-                    <Th width="7rem">Answered</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shown.map((entry) => (
-                    <tr
-                      key={entry.entry_id}
-                      onClick={() => reading.open(entry.entry_id)}
-                      className="cursor-pointer hover:bg-soft"
-                    >
-                      <Td>{day(entry.posting_date)}</Td>
-                      <Td>
-                        <span className="block font-mono text-[0.875rem] text-ink">
-                          {entry.entry_number}
-                        </span>
-                        <span className="block truncate text-[0.875rem] text-mute">
-                          {entry.memo ?? "no memo"}
-                        </span>
-                      </Td>
-                      <Td>
-                        <Pill tone={toneOf(entry)}>
-                          {label(entry.source_kind)}
-                        </Pill>
-                        <span className="mt-0.5 block text-[0.875rem] text-mute">
-                          {byHand(entry) ? "written by hand" : "by the system"}
-                        </span>
-                      </Td>
-                      <Td>
-                        <span title={moment(entry.posted_at)}>
-                          {entry.posted_by}
-                        </span>
-                      </Td>
-                      <Td align="right">{count(entry.line_count)}</Td>
-                      <Td align="right">
-                        <span className="font-medium text-ink">
-                          {money(entry.total_minor)}
-                        </span>
-                      </Td>
-                      <Td>
-                        {entry.reversed_by !== null ? (
-                          <Pill tone="bad">Reversed</Pill>
-                        ) : entry.reversal_of !== null ? (
-                          <Pill tone="info">Reversal</Pill>
-                        ) : (
-                          <span className="text-faint">—</span>
-                        )}
-                      </Td>
+              <>
+                <Grid>
+                  <thead>
+                    <tr>
+                      <Th width="6.5rem">Date</Th>
+                      <Th>Entry</Th>
+                      <Th width="11rem">Type</Th>
+                      <Th width="9rem">Posted by</Th>
+                      <Th align="right" width="5rem">
+                        Lines
+                      </Th>
+                      <Th align="right" width="9.5rem">
+                        Total debit
+                      </Th>
+                      <Th width="7rem">Answered</Th>
                     </tr>
-                  ))}
-                  {/* The server's figure over everything the window and the
+                  </thead>
+                  <tbody>
+                    {rows.map((entry) => (
+                      <tr
+                        key={entry.entry_id}
+                        onClick={() => reading.open(entry.entry_id)}
+                        className="cursor-pointer hover:bg-soft"
+                      >
+                        <Td>{day(entry.posting_date)}</Td>
+                        <Td>
+                          <span className="block font-mono text-[0.875rem] text-ink">
+                            {entry.entry_number}
+                          </span>
+                          <span className="block truncate text-[0.875rem] text-mute">
+                            {entry.memo ?? "no memo"}
+                          </span>
+                        </Td>
+                        <Td>
+                          <Pill tone={toneOf(entry)}>
+                            {label(entry.source_kind)}
+                          </Pill>
+                          <span className="mt-0.5 block text-[0.875rem] text-mute">
+                            {byHand(entry)
+                              ? "written by hand"
+                              : "by the system"}
+                          </span>
+                        </Td>
+                        <Td>
+                          <span title={moment(entry.posted_at)}>
+                            {entry.posted_by}
+                          </span>
+                        </Td>
+                        <Td align="right">{count(entry.line_count)}</Td>
+                        <Td align="right">
+                          <span className="font-medium text-ink">
+                            {money(entry.total_minor)}
+                          </span>
+                        </Td>
+                        <Td>
+                          {entry.reversed_by !== null ? (
+                            <Pill tone="bad">Reversed</Pill>
+                          ) : entry.reversal_of !== null ? (
+                            <Pill tone="info">Reversal</Pill>
+                          ) : (
+                            <span className="text-faint">—</span>
+                          )}
+                        </Td>
+                      </tr>
+                    ))}
+                    {/* The server's figure over everything the window and the
                       filters match, not a sum of the rows above — which would
                       grow as somebody scrolled and shrink as they searched. */}
-                  <TotalRow>
-                    <Td />
-                    <Td>Total debit</Td>
-                    <Td className="font-normal text-mute" align="center">
-                      every entry the filters match
-                    </Td>
-                    <Td />
-                    <Td align="right">{count(matched)}</Td>
-                    <Td align="right">
-                      {money(entries.data?.total_minor ?? 0)}
-                    </Td>
-                    <Td />
-                  </TotalRow>
-                </tbody>
-              </Grid>
+                    <TotalRow>
+                      <Td />
+                      <Td>Total debit</Td>
+                      <Td className="font-normal text-mute" align="center">
+                        every entry the filters match
+                      </Td>
+                      <Td />
+                      <Td align="right">{count(matched)}</Td>
+                      <Td align="right">{money(head?.total_minor ?? null)}</Td>
+                      <Td />
+                    </TotalRow>
+                  </tbody>
+                </Grid>
+                <LoadMore query={entries} />
+              </>
             ),
         })}
 
@@ -714,7 +711,8 @@ function EntryPanel({
                       </span>
                       <Button
                         variant="danger"
-                        disabled={reason.trim() === "" || reverse.isPending}
+                        pending={reverse.isPending}
+                        disabled={reason.trim() === ""}
                         onClick={() => reverse.mutate()}
                       >
                         {reverse.isPending ? "Reversing…" : "Reverse"}
@@ -858,7 +856,7 @@ function ComposerPanel({
         )}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Posting date" hint="The month this lands in.">
+          <Field label="Posting date" required hint="The month this lands in.">
             <Day value={postingDate} onChange={setPostingDate} />
           </Field>
           <Field label="Memo" hint="What this entry is for.">
@@ -901,7 +899,8 @@ function ComposerPanel({
           </span>
           <Button
             variant="primary"
-            disabled={!totals.balanced || post.isPending}
+            pending={post.isPending}
+            disabled={!totals.balanced}
             onClick={() => post.mutate()}
           >
             {post.isPending ? "Posting…" : "Post entry"}

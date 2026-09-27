@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useId, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -28,7 +28,9 @@ export function ScanField({
   placeholder = "Scan",
   action = "Add",
   disabled = false,
+  pending = false,
   hint,
+  problem,
   autoFocus = true,
   onSubmit,
   className,
@@ -38,7 +40,15 @@ export function ScanField({
   /// without a working gun is typed into, and that has to be possible.
   action?: string
   disabled?: boolean
+  /// The last scan is being checked. The field stays live — the next tag is
+  /// already on its way from the gun, and a field that refused it would lose
+  /// it — only the button waits.
+  pending?: boolean
   hint?: React.ReactNode
+  /// Why the last scan was refused — an unknown tag, a piece already packed.
+  /// Said here, under the field, in `{bad}`, and the box turns red with it:
+  /// somebody scanning forty tags looks up at the colour, not the words.
+  problem?: React.ReactNode
   autoFocus?: boolean
   /// Called with the trimmed value. The field is cleared for you.
   onSubmit: (value: string) => void
@@ -46,6 +56,13 @@ export function ScanField({
 }) {
   const [value, setValue] = useState("")
   const input = useRef<HTMLInputElement>(null)
+  const id = useId()
+  const refused =
+    problem !== undefined &&
+    problem !== null &&
+    problem !== false &&
+    problem !== ""
+  const under = refused ? `${id}-problem` : hint ? `${id}-hint` : undefined
 
   return (
     <form
@@ -73,18 +90,37 @@ export function ScanField({
           autoCorrect="off"
           autoComplete="off"
           spellCheck={false}
+          aria-invalid={refused ? true : undefined}
+          aria-describedby={under}
           className={cn(
             "h-tap min-w-0 flex-1 rounded-full border border-transparent bg-soft-2 px-4",
             "font-mono text-[0.875rem] tracking-[0.02em] text-ink transition-colors outline-none",
             "placeholder:font-sans placeholder:tracking-normal placeholder:text-mute",
-            "hover:border-hairline-2 hover:bg-soft-3 disabled:opacity-50"
+            "hover:border-hairline-2 hover:bg-soft-3 disabled:opacity-50",
+            "aria-[invalid=true]:border-bad aria-[invalid=true]:bg-bad-bg aria-[invalid=true]:hover:border-bad"
           )}
         />
-        <Button type="submit" variant="soft" disabled={disabled}>
+        {/* Busy, never disabled: a form whose submit button is disabled
+            ignores Enter, and Enter is how the gun submits. */}
+        <Button
+          type="submit"
+          variant="soft"
+          disabled={disabled}
+          aria-busy={pending ? true : undefined}
+          className="aria-busy:opacity-75"
+        >
           {action}
         </Button>
       </div>
-      {hint && <p className="text-[0.875rem] text-mute">{hint}</p>}
+      {refused ? (
+        <p id={under} role="alert" className="text-[0.875rem] text-bad">
+          {problem}
+        </p>
+      ) : hint ? (
+        <p id={under} className="text-[0.875rem] text-mute">
+          {hint}
+        </p>
+      ) : null}
     </form>
   )
 }

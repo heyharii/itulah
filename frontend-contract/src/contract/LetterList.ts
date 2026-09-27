@@ -6,6 +6,15 @@ import type { LetterRow } from "./LetterRow";
  */
 export type LetterList = { rows: Array<LetterRow>, 
 /**
+ * Opaque. Pass it back as `cursor` for the next page; absent means this
+ * was the last one.
+ */
+next_cursor: string | null, 
+/**
+ * Every letter the kind, status and search match — not just this page.
+ */
+total: number, 
+/**
  * Drafts waiting to be issued, across every kind. The one number a person
  * coming to this screen wants before they have read a row.
  */

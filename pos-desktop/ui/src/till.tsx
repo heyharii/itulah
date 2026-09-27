@@ -16,6 +16,7 @@ import { useShortcuts } from "@/shortcuts"
 import { enqueue, flush, forget, useOutbox } from "@/outbox"
 import { authorizeVoucher, releaseVoucher } from "@/vouchers"
 import { useNodeConfig, useSession } from "@/session"
+import { refreshPaymentMethods, usePaymentMethods } from "@/payment-methods"
 import { readScan } from "@epc"
 import { money } from "@itulah/contract/money"
 
@@ -97,23 +98,10 @@ export type Sold = {
   readonly problem: string | null
 }
 
-/// The banks a counter settles non-cash through. Taken from the client's chart
-/// of accounts (`Laporan_Master_Account`): every unit, C001 to C013, keeps
-/// `Penjualan Debit Card Bank BCA / Mandiri / BRI / BNI` — so these four, and
-/// no bank the ledger has nowhere to post.
-const BANKS = ["BCA", "Mandiri", "BRI", "BNI"] as const
-
-/// How the shopper pays, as the cashier chooses it. `wire` is what the node
-/// accepts (`PaymentMethod`); debit and credit are both `CARD` there and are
-/// told apart by the tender's `card_kind`, with the bank in `acquirer` — the
-/// two fields the centre reconciles a wrong-EDC swipe with.
-const METHODS = [
-  { value: "CASH", wire: "CASH", label: "Tunai", icon: "cash", tag: null },
-  { value: "DEBIT", wire: "CARD", label: "Debit", icon: "card", tag: "DEBIT" },
-  { value: "CREDIT", wire: "CARD", label: "Kredit", icon: "card", tag: "CREDIT" },
-  { value: "QRIS", wire: "QRIS", label: "QRIS", icon: "qr", tag: "QRIS" },
-  { value: "VOUCHER", wire: "VOUCHER", label: "Voucher", icon: "voucher", tag: null },
-] as const
+// How the shopper pays — the tiles and their banks — now comes from Finance's
+// cloud master (Mode of Payment) via `payment-methods.ts`, which also keeps the
+// old hard-coded list (cash, debit/credit/QRIS × BCA/Mandiri/BRI/BNI, voucher)
+// as the fallback when the master cannot be read.
 
 /// The basket's own id, for the one call that needs an identity before the sale
 /// has one.
@@ -255,6 +243,12 @@ export function Till({
   // Taking something back off the counter needs a second person: a unit
   // lifted out of the basket, or the whole basket abandoned.
   const approval = useApproval()
+
+  // Finance's payment methods, read once per sign-in (the till mounts after
+  // the shift gate) and again whenever a shift is opened (`screens/shift.tsx`).
+  useEffect(() => {
+    void refreshPaymentMethods()
+  }, [])
 
   // Load the resident book immediately so a basket can be drawn while the node
   // is busy. While a basket is open, the poll below refreshes this cached view
@@ -1551,7 +1545,9 @@ function Payment({
   onBack: () => void
   onSold: (sale: Sold) => void
 }) {
-  const [method, setMethod] = useState<string>("CASH")
+  const tiles = usePaymentMethods()
+  // The tile's key (a tender type, or the old tile value on the fallback list).
+  const [picked, setPicked] = useState<string>("CASH")
   const [typed, setTyped] = useState("")
   const [reference, setReference] = useState("")
   const [bank, setBank] = useState<string | null>(null)
@@ -1566,6 +1562,8 @@ function Payment({
       acquirer: string | null
       /// `DEBIT` or `CREDIT`, for a card only.
       cardKind: "DEBIT" | "CREDIT" | null
+      /// The master's Mode of Payment code; null on the fallback list.
+      code: string | null
       amountMinor: number
       tenderedMinor: number
       reference: string | null
@@ -1595,8 +1593,14 @@ function Payment({
   const offered = entered > 0 ? entered : outstanding
   const settled = outstanding === 0 && taken.length > 0
   const partial = !settled && entered > 0 && entered < outstanding
-  const chosen = METHODS.find((one) => one.value === method) ?? METHODS[0]
-  const needsBank = chosen.tag !== null
+  const chosen = tiles.find((one) => one.key === picked) ?? tiles[0]
+  // What the node calls it (`CASH`, `CARD`, `QRIS`, `EWALLET`, `VOUCHER`).
+  const method = chosen.wire
+  const needsBank = chosen.needsBank
+  // A tile with a single method needs no pick: that one is it.
+  const choice =
+    chosen.choices.find((one) => one.label === bank) ??
+    (chosen.choices.length === 1 ? chosen.choices[0] : null)
   const needsReference = method !== "CASH"
   // The node refuses a reference with twelve or more digits in it: a card
   // number that reaches a database is a card number that has to be erased from
@@ -1631,6 +1635,7 @@ function Payment({
         voucher_authorization_id: one.voucherAuthorizationId,
         acquirer: one.acquirer,
         card_kind: one.cardKind,
+        payment_method_code: one.code,
       })),
       actor_id: actorId,
       coupon_codes: coupons,
@@ -1695,7 +1700,7 @@ function Payment({
   useShortcuts({ Escape: () => !busy && void leavePayment() })
 
   async function takeIt() {
-    if (needsBank && bank === null) {
+    if (needsBank && choice === null) {
       setProblem("Pilih banknya.")
       return
     }
@@ -1743,21 +1748,28 @@ function Payment({
       ...was,
       {
         method: chosen.wire,
-        label: needsBank ? `${chosen.label} ${bank}` : chosen.label,
+        // A master method is named whole ("Debit BCA"); the fallback list
+        // names the tile and the bank apart.
+        label:
+          choice?.code != null
+            ? choice.label
+            : needsBank
+              ? `${chosen.label} ${choice?.label ?? ""}`
+              : chosen.label,
         shown: reference.trim() === "" ? null : reference.trim(),
         amountMinor: amount,
         tenderedMinor: offered,
         // The bank rides in the reference too, because the receipt prints the
         // reference and not the acquirer: "Kartu BCA · 884213" on paper.
         reference:
-          needsBank
-            ? `${(bank ?? "").toUpperCase()} · ${reference.trim()}`
+          choice?.acquirer != null
+            ? `${choice.acquirer} · ${reference.trim()}`
             : reference.trim() === ""
               ? null
               : reference.trim(),
-        acquirer: needsBank ? (bank ?? "").toUpperCase() : null,
-        cardKind:
-          chosen.tag === "DEBIT" || chosen.tag === "CREDIT" ? chosen.tag : null,
+        acquirer: choice?.acquirer ?? null,
+        cardKind: chosen.cardKind,
+        code: choice?.code ?? null,
         voucherAuthorizationId: hold?.id ?? null,
         voucherCheckoutId: hold?.checkout ?? null,
       },
@@ -1791,13 +1803,13 @@ function Payment({
                 <div>
                   <span className="label">Metode pembayaran</span>
                   <div className="method-grid" style={{ marginTop: 8 }}>
-                    {METHODS.map((one) => (
+                    {tiles.map((one) => (
                       <button
-                        key={one.value}
+                        key={one.key}
                         className="method"
-                        aria-pressed={method === one.value}
+                        aria-pressed={chosen.key === one.key}
                         onClick={() => {
-                          setMethod(one.value)
+                          setPicked(one.key)
                           setBank(null)
                           setProblem(null)
                         }}
@@ -1813,18 +1825,18 @@ function Payment({
                   <div role="radiogroup" aria-label="Bank">
                     <span className="label">Bank / mesin EDC</span>
                     <div className="bank-grid" style={{ marginTop: 8 }}>
-                      {BANKS.map((one) => (
+                      {chosen.choices.map((one) => (
                         <button
-                          key={one}
+                          key={one.code ?? one.label}
                           type="button"
                           role="radio"
-                          aria-checked={bank === one}
+                          aria-checked={choice === one}
                           onClick={() => {
-                            setBank(one)
+                            setBank(one.label)
                             setProblem(null)
                           }}
                         >
-                          {one}
+                          {one.label}
                         </button>
                       ))}
                     </div>
@@ -1837,7 +1849,9 @@ function Payment({
                       ? "Kode voucher"
                       : method === "QRIS"
                         ? "Nomor referensi QRIS"
-                        : "Kode approval EDC"}
+                        : method === "EWALLET"
+                          ? "Nomor referensi e-wallet"
+                          : "Kode approval EDC"}
                     <input
                       value={reference}
                       onChange={(event) => setReference(event.target.value)}

@@ -369,7 +369,7 @@ function ChargeSheet({
               {/* Not defaulted to the signed-in user: money leaves the business
                   on the strength of this row, and "the system" is not a name an
                   auditor accepts. */}
-              <Field label="Who answered for it">
+              <Field label="Who answered for it" required>
                 <Input
                   value={who}
                   onChange={(event) => setWho(event.target.value)}
@@ -387,7 +387,8 @@ function ChargeSheet({
               <Button
                 variant="primary"
                 onClick={() => answer.mutate()}
-                disabled={who.trim() === "" || answer.isPending}
+                pending={answer.isPending}
+                disabled={who.trim() === ""}
               >
                 {answer.isPending ? "Recording…" : "Close this case"}
               </Button>

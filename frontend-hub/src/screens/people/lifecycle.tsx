@@ -50,14 +50,19 @@ export function Lifecycle() {
 
   const team = useQuery({
     queryKey: peopleKeys.employees({ status: "ACTIVE", limit: 1000 }),
-    queryFn: ({ signal }) => listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
+    queryFn: ({ signal }) =>
+      listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
   })
   const tasks = useQuery({
     queryKey: nextKeys.tasks(kind),
     queryFn: ({ signal }) => listLifecycleTasks({ kind }, signal),
   })
-  const people = (team.data ?? []).map((person) => ({ id: person.employee_id, name: person.full_name ?? person.employee_code ?? person.employee_id }))
-  const nameOf = (id: string) => people.find((person) => person.id === id)?.name ?? id
+  const people = (team.data ?? []).map((person) => ({
+    id: person.employee_id,
+    name: person.full_name ?? person.employee_code ?? person.employee_id,
+  }))
+  const nameOf = (id: string) =>
+    people.find((person) => person.id === id)?.name ?? id
 
   const complete = useMutation({
     mutationFn: () => {
@@ -118,19 +123,32 @@ export function Lifecycle() {
             ) : (
               <div className="divide-y">
                 {[...byPerson.entries()].map(([employeeId, personTasks]) => {
-                  const done = personTasks.filter((t) => t.state === "DONE").length
+                  const done = personTasks.filter(
+                    (t) => t.state === "DONE"
+                  ).length
                   return (
                     <div key={employeeId} className="px-4 py-3">
                       <div className="flex items-baseline justify-between gap-3">
-                        <span className="font-medium text-ink">{nameOf(employeeId)}</span>
+                        <span className="font-medium text-ink">
+                          {nameOf(employeeId)}
+                        </span>
                         <span className="text-meta text-mute">
                           {done}/{personTasks.length}
                         </span>
                       </div>
                       <ul className="mt-1.5 space-y-1">
                         {personTasks.map((t) => (
-                          <li key={t.id} className="flex items-baseline justify-between gap-3">
-                            <span className={t.state === "DONE" ? "text-mute line-through" : "text-body"}>
+                          <li
+                            key={t.id}
+                            className="flex items-baseline justify-between gap-3"
+                          >
+                            <span
+                              className={
+                                t.state === "DONE"
+                                  ? "text-mute line-through"
+                                  : "text-body"
+                              }
+                            >
                               {t.label}
                               <span className="ml-2 text-meta text-mute">
                                 {OWNER_LABEL[t.owner]}
@@ -138,7 +156,9 @@ export function Lifecycle() {
                             </span>
                             {t.state === "DONE" ? (
                               <Pill tone="ok">Done</Pill>
-                            ) : mine && t.owner !== "EMPLOYEE" && t.owner !== "IT" ? (
+                            ) : mine &&
+                              t.owner !== "EMPLOYEE" &&
+                              t.owner !== "IT" ? (
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -150,7 +170,9 @@ export function Lifecycle() {
                                 Mark done
                               </Button>
                             ) : (
-                              <Pill tone="neutral">Waiting on {OWNER_LABEL[t.owner]}</Pill>
+                              <Pill tone="neutral">
+                                Waiting on {OWNER_LABEL[t.owner]}
+                              </Pill>
                             )}
                           </li>
                         ))}
@@ -169,8 +191,11 @@ export function Lifecycle() {
             <CardTitle>Mark done: {task.label}</CardTitle>
           </CardHeader>
           <div className="space-y-3">
-            <Field label="Why now">
-              <Input value={reason} onChange={(e) => setReason(e.target.value)} />
+            <Field label="Why now" required>
+              <Input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
             </Field>
             {failed ? <Banner tone="bad">{failed}</Banner> : null}
             <div className="flex justify-end gap-2">
@@ -179,7 +204,8 @@ export function Lifecycle() {
               </Button>
               <Button
                 variant="primary"
-                disabled={reason.trim() === "" || complete.isPending}
+                pending={complete.isPending}
+                disabled={reason.trim() === ""}
                 onClick={() => complete.mutate()}
               >
                 Record it

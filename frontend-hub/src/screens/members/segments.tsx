@@ -5,6 +5,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { ConfirmButton } from "@/components/ui/dialog"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
@@ -254,9 +255,18 @@ function WrittenCard({
             <Button variant="ghost" onClick={onEdit}>
               Edit
             </Button>
-            <Button variant="ghost" disabled={retiring} onClick={onRetire}>
-              {retiring ? "Cancelling…" : "Cancel"}
-            </Button>
+            {/* It was labelled "Cancel" and retired the segment on one click.
+                Retiring is its own word now, and it asks first. */}
+            <ConfirmButton
+              label={retiring ? "Retiring…" : "Retire segment"}
+              title={`Retire ${saved.name}?`}
+              description="It is removed from this screen, and there is no button to bring it back. Its members are not touched."
+              confirmLabel="Retire"
+              tone="danger"
+              variant="danger"
+              pending={retiring}
+              onConfirm={onRetire}
+            />
           </>
         )}
         <span className="ml-auto text-[0.875rem] text-mute tabular-nums">

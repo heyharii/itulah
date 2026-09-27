@@ -1,7 +1,12 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Day } from "@/components/ui/day"
@@ -12,7 +17,13 @@ import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { KeyValue, MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
+import {
+  KeyValue,
+  MiniCell,
+  MiniRow,
+  MiniTable,
+  SubHead,
+} from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -32,12 +43,13 @@ import {
   fnfKeys,
   fnfStateLabel,
   fnfStateTone,
-  listEmployees,
   listExitInterviews,
   listFnF,
   openFnFStatement,
   peopleKeys,
+  listWorkforce,
   settleFnF,
+  type EmployeeFilters,
   type ExitInterviewRow,
   type ExitStance,
   type FnFRow,
@@ -76,7 +88,8 @@ import { Quiet } from "@/screens/people/parts"
 const interviewColumns: ColumnDef<TableSetup, ExitInterviewRow>[] = [
   {
     id: "who",
-    accessorFn: (row) => row.employee_name ?? row.employee_code ?? row.employee_id,
+    accessorFn: (row) =>
+      row.employee_name ?? row.employee_code ?? row.employee_id,
     header: "Employee",
     size: 220,
     // No filter: this is a list of leavers, and narrowing it by one would
@@ -123,8 +136,7 @@ const interviewColumns: ColumnDef<TableSetup, ExitInterviewRow>[] = [
   },
   {
     id: "stance",
-    accessorFn: (row) =>
-      row.state === "COMPLETED" ? row.employee_stance : "",
+    accessorFn: (row) => (row.state === "COMPLETED" ? row.employee_stance : ""),
     header: "Said",
     size: 180,
     /// **Not filterable, and the empty accessor above is exactly why** — the
@@ -144,7 +156,8 @@ const interviewColumns: ColumnDef<TableSetup, ExitInterviewRow>[] = [
 const fnfColumns: ColumnDef<TableSetup, FnFRow>[] = [
   {
     id: "who",
-    accessorFn: (row) => row.employee_name ?? row.employee_code ?? row.employee_id,
+    accessorFn: (row) =>
+      row.employee_name ?? row.employee_code ?? row.employee_id,
     header: "Employee",
     size: 220,
     cell: ({ row }) => (
@@ -365,6 +378,48 @@ function ExitTable<TRow extends Record<string, any>>({
   )
 }
 
+/// Everybody whose employment has ended, however many that is.
+const LEAVERS: EmployeeFilters = {
+  status: "TERMINATED",
+  sort: "name",
+  limit: 1000,
+}
+
+/// Every leaver, for the two pickers below.
+///
+/// A picker has to hold the whole list — a leaver missing from the dropdown is
+/// a leaver nobody can open an interview or a statement for, and nothing on
+/// the screen would say so. Leavers only accumulate, so the old single read
+/// at the server's ceiling of a thousand would one day have started dropping
+/// people in silence. This walks the cursor to the end instead: one request
+/// for almost every company, and never a truncated list.
+///
+/// A page that fails stops the walk rather than retrying in a loop; the
+/// people already read stay offered.
+function useLeavers() {
+  const leavers = useInfiniteQuery({
+    queryKey: peopleKeys.workforce(LEAVERS),
+    queryFn: ({ pageParam, signal }) =>
+      listWorkforce({ ...LEAVERS, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+  const {
+    hasNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+    fetchNextPage,
+  } = leavers
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isFetchNextPageError)
+      void fetchNextPage()
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage])
+  return useMemo(
+    () => leavers.data?.pages.flatMap((page) => page.rows) ?? [],
+    [leavers.data]
+  )
+}
+
 /// The leavers whose employment ended before the hook existed.
 ///
 /// The interview is created automatically in the same transaction as the
@@ -377,13 +432,7 @@ function OpenInterview() {
   const [employeeId, setEmployeeId] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
 
-  const leavers = useQuery({
-    queryKey: peopleKeys.employees({ status: "TERMINATED", limit: 1000 }),
-    queryFn: ({ signal }) =>
-      listEmployees({ status: "TERMINATED", limit: 1000 }, signal),
-  })
-
-  const people = leavers.data ?? []
+  const people = useLeavers()
 
   const file = useMutation({
     mutationFn: () => fileExitInterview(employeeId),
@@ -404,6 +453,7 @@ function OpenInterview() {
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
         <Field
           label="Leaver"
+          required
           hint="A person who has left. Opening twice returns the one interview that exists."
         >
           <Select value={employeeId} onChange={(next) => setEmployeeId(next)}>
@@ -418,7 +468,8 @@ function OpenInterview() {
         <div>
           <Button
             variant="primary"
-            disabled={employeeId === "" || file.isPending}
+            pending={file.isPending}
+            disabled={employeeId === ""}
             onClick={() => file.mutate()}
           >
             Open it
@@ -472,7 +523,12 @@ function InterviewSheet({
   if (row === null) return null
 
   return (
-    <Sheet open onOpenChange={(next) => !next && onClose()} id={row.exit_id} title={row.employee_name ?? row.employee_id}>
+    <Sheet
+      open
+      onOpenChange={(next) => !next && onClose()}
+      id={row.exit_id}
+      title={row.employee_name ?? row.employee_id}
+    >
       <Pill tone={exitInterviewStateTone(row.state)}>
         {exitInterviewStateLabel(row.state)}
       </Pill>
@@ -505,7 +561,7 @@ function InterviewSheet({
       {row.interview_summary !== null && (
         <div className="mt-4">
           <SubHead>What they said</SubHead>
-          <p className="text-body whitespace-pre-wrap">
+          <p className="whitespace-pre-wrap text-body">
             {row.interview_summary}
           </p>
         </div>
@@ -516,6 +572,7 @@ function InterviewSheet({
           <SubHead>Conduct the interview</SubHead>
           <Field
             label="Their stance"
+            required
             hint="What the person themselves said, not what the company concluded."
           >
             <Select
@@ -529,7 +586,10 @@ function InterviewSheet({
               </option>
             </Select>
           </Field>
-          <Field label="Summary" hint="In their own terms, as close as notes allow.">
+          <Field
+            label="Summary"
+            hint="In their own terms, as close as notes allow."
+          >
             <Textarea
               rows={4}
               value={summary}
@@ -539,7 +599,8 @@ function InterviewSheet({
           <div>
             <Button
               variant="primary"
-              disabled={stance === "" || complete.isPending}
+              pending={complete.isPending}
+              disabled={stance === ""}
               onClick={() => complete.mutate()}
             >
               Complete the interview
@@ -572,13 +633,7 @@ function OpenStatement() {
   const [assets, setAssets] = useState<NewFnFAsset[]>([])
   const [failed, setFailed] = useState<string | null>(null)
 
-  const leavers = useQuery({
-    queryKey: peopleKeys.employees({ status: "TERMINATED", limit: 1000 }),
-    queryFn: ({ signal }) =>
-      listEmployees({ status: "TERMINATED", limit: 1000 }, signal),
-  })
-
-  const people = leavers.data ?? []
+  const people = useLeavers()
 
   const open = useMutation({
     mutationFn: () =>
@@ -602,7 +657,8 @@ function OpenStatement() {
   // Whole rupiah or nothing: a fraction of a rupiah is not a thing a
   // settlement carries, and the server refuses it — the form says so first.
   const finalPaySane =
-    finalPay === "" || (Number.isInteger(Number(finalPay)) && Number(finalPay) >= 0)
+    finalPay === "" ||
+    (Number.isInteger(Number(finalPay)) && Number(finalPay) >= 0)
   const assetsSane = assets.every(
     (asset) =>
       asset.assetId.trim() !== "" &&
@@ -620,7 +676,7 @@ function OpenStatement() {
       </CardHeader>
       <div className="flex flex-col gap-3 px-4 pb-4">
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
-        <Field label="Leaver">
+        <Field label="Leaver" required>
           <Select value={employeeId} onChange={(next) => setEmployeeId(next)}>
             <option value="">Choose…</option>
             {people.map((person) => (
@@ -632,6 +688,7 @@ function OpenStatement() {
         </Field>
         <Field
           label="Transaction on"
+          required
           hint="The day the leaving is settled on. One statement per leaver per day."
         >
           <Day value={transactionOn} onChange={setTransactionOn} />
@@ -732,7 +789,10 @@ function OpenStatement() {
             <Button
               variant="quiet"
               onClick={() =>
-                setAssets([...assets, { assetId: "", note: "", recoveryMinor: 0 }])
+                setAssets([
+                  ...assets,
+                  { assetId: "", note: "", recoveryMinor: 0 },
+                ])
               }
             >
               Add an asset row
@@ -743,7 +803,8 @@ function OpenStatement() {
         <div>
           <Button
             variant="primary"
-            disabled={!ready || open.isPending}
+            pending={open.isPending}
+            disabled={!ready}
             onClick={() => open.mutate()}
           >
             Open the statement
@@ -802,7 +863,12 @@ function StatementSheet({
   if (row === null) return null
 
   return (
-    <Sheet open onOpenChange={(next) => !next && onClose()} id={row.fnf_id} title={row.employee_name ?? row.employee_id}>
+    <Sheet
+      open
+      onOpenChange={(next) => !next && onClose()}
+      id={row.fnf_id}
+      title={row.employee_name ?? row.employee_id}
+    >
       <Pill tone={fnfStateTone(row.state)}>{fnfStateLabel(row.state)}</Pill>
 
       {row.state === "CANCELLED" && (
@@ -837,12 +903,7 @@ function StatementSheet({
 
       <div className="mt-4">
         <SubHead>Frozen at opening</SubHead>
-        <MiniTable
-          head={[
-            "Source",
-            { label: "Figure", align: "right" },
-          ]}
-        >
+        <MiniTable head={["Source", { label: "Figure", align: "right" }]}>
           <MiniRow>
             <MiniCell>Final pay</MiniCell>
             <MiniCell align="right">{money(row.final_pay_minor)}</MiniCell>
@@ -882,15 +943,15 @@ function StatementSheet({
       {row.state === "DRAFT" && (
         <div className="mt-4 flex flex-col gap-3">
           <Banner tone="info">
-            Settling re-reads the live sources and refuses — naming what moved
-            — if they have drifted from the frozen figures. It posts one
-            journal entry for the net; a statement whose net comes to zero is
-            refused too, because there is nothing to post.
+            Settling re-reads the live sources and refuses — naming what moved —
+            if they have drifted from the frozen figures. It posts one journal
+            entry for the net; a statement whose net comes to zero is refused
+            too, because there is nothing to post.
           </Banner>
           <div>
             <Button
               variant="primary"
-              disabled={settle.isPending}
+              pending={settle.isPending}
               onClick={() => settle.mutate()}
             >
               Settle it
@@ -898,6 +959,7 @@ function StatementSheet({
           </div>
           <Field
             label="Why cancelled"
+            required
             hint="Cancelling is for drafts, and the reason is required."
           >
             <Input
@@ -909,7 +971,8 @@ function StatementSheet({
           <div>
             <Button
               variant="danger"
-              disabled={reason.trim() === "" || cancel.isPending}
+              pending={cancel.isPending}
+              disabled={reason.trim() === ""}
               onClick={() => cancel.mutate()}
             >
               Cancel the statement
@@ -920,8 +983,8 @@ function StatementSheet({
 
       {row.state === "SETTLED" && (
         <p className="mt-4 text-meta text-mute">
-          Settled. The figures above are what Finance settled against, and
-          there is no way back from here, by design.
+          Settled. The figures above are what Finance settled against, and there
+          is no way back from here, by design.
         </p>
       )}
 

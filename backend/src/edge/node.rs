@@ -529,6 +529,11 @@ pub async fn run(
             previous,
             PreviousExit::Clean { .. } | PreviousExit::FirstStart
         );
+        // An update on trial that the last run did not survive is rolled back
+        // here, and the node restarts into the build it had before.
+        if crate::edge::update::settle(dir, journal, !healthy_before) {
+            return Ok(Exit::Restart);
+        }
         journal.record(&Incident::Started {
             at: now,
             version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -625,6 +630,7 @@ pub async fn run(
         spawn_watchdog(liveness.clone(), data_dir.clone(), journal.clone(), now);
     }
 
+    let sync_for_power = sync.clone();
     // What the console shows and the heartbeat sends: one collector.
     let source = Arc::new(StatusSource::new(
         inventory.connection(),
@@ -634,6 +640,22 @@ pub async fn run(
         now,
     ));
     heartbeat::spawn(source.clone());
+    crate::edge::ops::spawn_runner(source.clone(), data_dir.clone(), stop_tx.clone());
+    if let Some(dir) = &data_dir {
+        crate::edge::update::watch_trial(source.clone(), dir.clone());
+    }
+    crate::edge::pace::spawn_monitor();
+    crate::edge::power::spawn_monitor(sync_for_power, journal.clone());
+    if data_dir.is_some() && !bind.ip().is_loopback() {
+        crate::edge::discovery::advertise(
+            &std::env::var("INVENTORY_SITE_ID").unwrap_or_default(),
+            &std::env::var("INVENTORY_NODE_ID").unwrap_or_default(),
+            bind.port(),
+        );
+    }
+    if let Some(dir) = &data_dir {
+        crate::edge::backup::spawn(inventory.connection(), dir.clone());
+    }
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(%bind, "Store Edge running independently with SQLite");
@@ -723,8 +745,8 @@ async fn hold_with_an_explanation(
     let answer = move |uri: Uri| async move {
         let local = retry_at.with_timezone(&chrono::Local).format("%H:%M");
         let saying = format!(
-            "Server toko berhenti sementara karena gagal {starts} kali berturut-turut. \
-             Mencoba lagi otomatis pukul {local}. Kantor pusat sudah diberi tahu."
+            "The store server is paused after failing to start {starts} times in a row. \
+             It tries again by itself at {local}. Head office has been told."
         );
         let response: Response = if uri.path().starts_with("/api") {
             (
@@ -742,10 +764,10 @@ async fn hold_with_an_explanation(
                 StatusCode::SERVICE_UNAVAILABLE,
                 Html(format!(
                     "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>\
-                     <meta http-equiv=refresh content=30><title>Server toko</title>\
+                     <meta http-equiv=refresh content=30><title>Store server</title>\
                      <body style='font:16px system-ui;max-width:32rem;margin:15vh auto;padding:0 16px'>\
-                     <h1 style='font-size:20px'>Server toko sedang menahan diri</h1><p>{saying}</p>\
-                     <p style='color:#777'>Halaman ini memuat ulang sendiri.</p>"
+                     <h1 style='font-size:20px'>Store server paused</h1><p>{saying}</p>\
+                     <p style='color:#777'>This page refreshes itself.</p>"
                 )),
             )
                 .into_response()

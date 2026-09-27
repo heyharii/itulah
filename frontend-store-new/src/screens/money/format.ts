@@ -55,6 +55,11 @@ const TENDERS: Readonly<Record<string, TenderKind>> = {
     settles: "paid by the acquirer",
   },
   QRIS: { word: "QRIS", icon: QrCode, settles: "paid by the acquirer" },
+  EWALLET: {
+    word: "E-wallet",
+    icon: Wallet,
+    settles: "paid by the wallet provider",
+  },
   VOUCHER: {
     word: "Voucher",
     icon: Ticket,

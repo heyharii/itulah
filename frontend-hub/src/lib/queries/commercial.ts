@@ -1,4 +1,6 @@
 import type {
+  CampaignFacets,
+  PromotionFacets,
   CampaignActivityInput,
   CampaignActivityRow,
   CampaignBaselineView,
@@ -16,6 +18,7 @@ import type {
   CampaignTargetInput,
   CampaignTargetScore,
   CampaignWindowView,
+  ChangeKind,
   GuardrailCheckReport,
   PriceHistory,
   Rule,
@@ -87,7 +90,7 @@ export function describeSource(source: string): string {
     case "COMPANY_PRICE":
       return "Company"
     case "MARKDOWN":
-      return "Markdown"
+      return "Sale price"
     case "MANUAL_OVERRIDE":
       return "Typed in"
     default:
@@ -349,6 +352,10 @@ export interface CreatePriceBookRequest {
   readonly name: string
   readonly effective_from: string
   readonly effective_to: string | null
+  /// What kind of change this is. Markdown and Clearance look identical in
+  /// the data, so it is said at publish or not at all; left out, the server
+  /// files the book as Unclassified.
+  readonly change_type?: Exclude<ChangeKind, "UNCLASSIFIED">
   readonly tax_rules: readonly TaxRuleInput[]
   readonly offer_rules: readonly OfferRuleInput[]
   readonly markdowns: readonly MarkdownInput[]
@@ -733,6 +740,27 @@ export const commercialKeys = {
   /// `catalogue()`: that entry is four requests, and a caller that only needs
   /// this one should not pull three it will not read.
   campaigns: () => ["commercial", "campaigns"] as const,
+  /// The Promotions list, a page at a time. The search, the filters and the
+  /// sort are in the key because the SERVER applies them: two scopes are two
+  /// answers. Under `["commercial", "rules"]` so one invalidation reaches every
+  /// scope, the single-rule reads and the offer counts alike.
+  rules: (scope: PromotionListScope) =>
+    ["commercial", "rules", "pages", scope] as const,
+  /// One promotion, for a sheet opened on a rule the loaded pages do not hold.
+  rule: (ruleId: string) => ["commercial", "rules", "one", ruleId] as const,
+  /// The offers filed under each campaign, counted by the server — the
+  /// `campaign` facet of the rules list.
+  offerCounts: () => ["commercial", "rules", "counts"] as const,
+  /// Every promotion filed under one campaign, for that campaign's sheet.
+  campaignRules: (campaignId: string) =>
+    ["commercial", "rules", "campaign", campaignId] as const,
+  /// The Campaigns list, a page at a time. Under `campaigns()` so the
+  /// invalidation that refreshes the Overview's read refreshes this too.
+  campaignPages: (scope: CampaignListScope) =>
+    ["commercial", "campaigns", "pages", scope] as const,
+  /// One campaign, for a sheet or a chip naming one the pages do not hold.
+  campaign: (campaignId: string) =>
+    ["commercial", "campaigns", "one", campaignId] as const,
   /// Article-level prices. The channel and the moment are part of the key
   /// because a different question has a different answer.
   articlePrices: (
@@ -900,14 +928,14 @@ function carriedBy(row: CarriedRow): CarriedBy {
   }
 }
 
-/// How many rules and how many campaigns one catalogue read carries.
+/// How many rules and how many campaigns one catalogue read carries — the
+/// server's ceiling for one request (`MAX_LIMIT` in `postgres/catalogue.rs`).
 ///
-/// Exported rather than written into the two URLs below and forgotten, because
-/// the screens have to say it out loud: everything Promotions and Campaign
-/// draw — the clauses, the sort, the overspend banner — is computed over this
-/// many rows, and a list that came back exactly this long may be a list with
-/// rules missing. A number that lives in one place is a number the notice on
-/// those screens cannot drift from.
+/// The Promotions and Campaigns LISTS no longer read this way: they page with
+/// `promotionPage` / `campaignPage` and scroll. What still reads one capped
+/// request is a supporting lookup — the campaign picker, the Overview's
+/// posters, Vouchers' catalogue — where a list of campaigns is a menu rather
+/// than the thing being browsed.
 export const CATALOGUE_PAGE = 500
 
 /// Every promotion, coupon and campaign the fleet is actually carrying.
@@ -1015,7 +1043,15 @@ export async function campaignCatalogue(
     rows: (BookCampaign & CarriedRow)[]
     book_count: number
   }>(`/api/v1/commercial/campaigns?limit=${CATALOGUE_PAGE}`, { signal })
-  return body.rows.map((row) => ({
+  return body.rows.map(campaignRowOf)
+}
+
+/// One campaign row as the catalogue endpoints shape it, as the screens read
+/// it. Every field, for the reason `asInput` in the Campaigns screen gives: a
+/// campaign is restated from this row, and a field missing here is written as
+/// absent there.
+function campaignRowOf(row: BookCampaign & CarriedRow): CampaignRow {
+  return {
     campaign: {
       campaign_id: row.campaign_id,
       name: row.name,
@@ -1031,7 +1067,228 @@ export async function campaignCatalogue(
       site_ids: row.site_ids ?? null,
     },
     book: carriedBy(row),
-  }))
+  }
+}
+
+function promotionRowOf(row: BookRule & CarriedRow): PromotionRow {
+  return {
+    rule_id: row.rule_id,
+    name: row.name,
+    status: row.status,
+    priority: row.priority,
+    definition: row.definition,
+    book: carriedBy(row),
+  }
+}
+
+/// The number a new book has to carry to win: one past the highest ever
+/// written. Every write on the Promotions and Campaigns screens needs it.
+export function nextBookVersion(books: readonly PriceBook[]): number {
+  return books.reduce((highest, book) => Math.max(highest, book.version), 0) + 1
+}
+
+// ── the Promotions and Campaigns lists, a page at a time ───────────────────
+
+/// The orders `GET /commercial/rules` names. Anything else is the house order,
+/// by rule id — see `PromotionScope::sort` in `postgres/catalogue.rs`.
+export type PromotionSort =
+  | "rule_id"
+  | "name"
+  | "status"
+  | "priority"
+  | "campaign"
+  | "book"
+
+/// What the Promotions list is narrowed and ordered by — all of it applied by
+/// the server, so a search finds a promotion that is not on a loaded page.
+export interface PromotionListScope {
+  /// Rule id, name or coupon code.
+  readonly q?: string
+  /// Stored statuses to keep (`ACTIVE`, `PAUSED`, …). Empty is every status.
+  readonly statuses?: readonly string[]
+  /// Campaign ids to keep. Empty is every campaign, and no campaign.
+  readonly campaigns?: readonly string[]
+  readonly sort?: PromotionSort
+  readonly desc?: boolean
+}
+
+/// A page of promotions: the `GET /finance/money` envelope.
+export interface PromotionListPage {
+  readonly rows: readonly PromotionRow[]
+  /// Pass back as `cursor`; `null` on the last page.
+  readonly next_cursor: string | null
+  /// Every promotion the search and the filters match, not just this page.
+  readonly total: number
+  readonly book_count: number
+  /// Counted over what the SEARCH leaves, ignoring the filters — "Paused 4"
+  /// means there are four paused promotions, not four among those already
+  /// narrowed to paused.
+  readonly facets: PromotionFacets
+}
+
+/// The orders `GET /commercial/campaigns` names.
+export type CampaignSort =
+  | "campaign_id"
+  | "name"
+  | "status"
+  | "starts"
+  | "ends"
+  | "budget"
+  | "book"
+
+export interface CampaignListScope {
+  /// Campaign id or name.
+  readonly q?: string
+  readonly statuses?: readonly string[]
+  readonly sort?: CampaignSort
+  readonly desc?: boolean
+}
+
+export interface CampaignListPage {
+  readonly rows: readonly CampaignRow[]
+  readonly next_cursor: string | null
+  readonly total: number
+  readonly book_count: number
+  readonly facets: CampaignFacets
+}
+
+/// A page request: the scope, where the last page stopped, and how many.
+type Paged<T> = T & { readonly cursor?: string; readonly limit?: number }
+
+function listQuery(
+  scope: Paged<{
+    q?: string
+    statuses?: readonly string[]
+    campaigns?: readonly string[]
+    sort?: string
+    desc?: boolean
+  }>
+): string {
+  const params = new URLSearchParams()
+  const q = scope.q?.trim() ?? ""
+  if (q !== "") params.set("q", q)
+  // Repeated rather than comma-joined: the server takes both, and a campaign
+  // id is free text that may one day carry a comma.
+  for (const one of scope.statuses ?? []) params.append("status", one)
+  for (const one of scope.campaigns ?? []) params.append("campaign", one)
+  if (scope.sort !== undefined) params.set("sort", scope.sort)
+  if (scope.desc === true) params.set("dir", "desc")
+  if (scope.cursor !== undefined) params.set("cursor", scope.cursor)
+  if (scope.limit !== undefined) params.set("limit", String(scope.limit))
+  const text = params.toString()
+  return text === "" ? "" : `?${text}`
+}
+
+/// One page of promotions, searched, filtered and sorted by the server.
+export async function promotionPage(
+  scope: Paged<PromotionListScope>,
+  signal?: AbortSignal
+): Promise<PromotionListPage> {
+  const body = await node.get<{
+    rows: (BookRule & CarriedRow)[]
+    next_cursor?: string | null
+    total: number
+    book_count: number
+    facets: PromotionFacets
+  }>(`/api/v1/commercial/rules${listQuery(scope)}`, { signal })
+  return {
+    rows: body.rows.map(promotionRowOf),
+    next_cursor: body.next_cursor ?? null,
+    total: body.total,
+    book_count: body.book_count,
+    facets: body.facets,
+  }
+}
+
+/// One page of campaigns, searched, filtered and sorted by the server.
+export async function campaignPage(
+  scope: Paged<CampaignListScope>,
+  signal?: AbortSignal
+): Promise<CampaignListPage> {
+  const body = await node.get<{
+    rows: (BookCampaign & CarriedRow)[]
+    next_cursor?: string | null
+    total: number
+    book_count: number
+    facets: CampaignFacets
+  }>(`/api/v1/commercial/campaigns${listQuery(scope)}`, { signal })
+  return {
+    rows: body.rows.map(campaignRowOf),
+    next_cursor: body.next_cursor ?? null,
+    total: body.total,
+    book_count: body.book_count,
+    facets: body.facets,
+  }
+}
+
+/// One promotion by its rule id, or `null` when no published book declares it.
+///
+/// There is no `GET /commercial/rules/{id}`: this is the list's own search,
+/// asked for the id and matched exactly, paging on until it is found. The
+/// search is a substring match over id, name and coupon code, so the exact
+/// row is usually on the first page and the loop is a guard, not a crawl.
+export async function promotionById(
+  ruleId: string,
+  signal?: AbortSignal
+): Promise<PromotionRow | null> {
+  let cursor: string | undefined
+  do {
+    const page = await promotionPage(
+      { q: ruleId, sort: "rule_id", limit: CATALOGUE_PAGE, cursor },
+      signal
+    )
+    const found = page.rows.find((row) => row.rule_id === ruleId)
+    if (found !== undefined) return found
+    cursor = page.next_cursor ?? undefined
+  } while (cursor !== undefined)
+  return null
+}
+
+/// One campaign by its id, or `null`. The same bargain as `promotionById`.
+export async function campaignById(
+  campaignId: string,
+  signal?: AbortSignal
+): Promise<CampaignRow | null> {
+  let cursor: string | undefined
+  do {
+    const page = await campaignPage(
+      { q: campaignId, sort: "campaign_id", limit: CATALOGUE_PAGE, cursor },
+      signal
+    )
+    const found = page.rows.find((row) => row.campaign.campaign_id === campaignId)
+    if (found !== undefined) return found
+    cursor = page.next_cursor ?? undefined
+  } while (cursor !== undefined)
+  return null
+}
+
+/// Every promotion filed under one campaign — the Campaign sheet's Offers tab.
+/// Filtered by the server; paged to the end, because a campaign's offers are
+/// a handful and the sheet lists them all.
+export async function campaignOffers(
+  campaignId: string,
+  signal?: AbortSignal
+): Promise<readonly PromotionRow[]> {
+  const rows: PromotionRow[] = []
+  let cursor: string | undefined
+  do {
+    const page = await promotionPage(
+      { campaigns: [campaignId], limit: CATALOGUE_PAGE, cursor },
+      signal
+    )
+    rows.push(...page.rows)
+    cursor = page.next_cursor ?? undefined
+  } while (cursor !== undefined)
+  return rows
+}
+
+/// How many promotions each campaign holds, counted by the server over every
+/// promotion — one row's worth of request for the whole count.
+export async function offerCounts(
+  signal?: AbortSignal
+): Promise<ReadonlyMap<string, number>> {
+  const page = await promotionPage({ limit: 1 }, signal)
+  return new Map(page.facets.campaigns.map((one) => [one.value, one.count]))
 }
 
 // ── writes ─────────────────────────────────────────────────────────────────
@@ -1167,7 +1424,12 @@ export function setRuleStatus(
   },
   signal?: AbortSignal
 ): Promise<PublishReceipt> {
-  const verb = input.status === "ACTIVE" ? "Resume" : "Pause"
+  const verb =
+    input.status === "ACTIVE"
+      ? "Resume"
+      : input.status === "EXPIRED"
+        ? "End"
+        : "Pause"
   return writeAndPublish(
     {
       ...NOTHING_TO_PUBLISH,

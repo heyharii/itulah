@@ -11,3 +11,7 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 .DS_Store
+
+# Electron shell
+desktop/node_modules
+desktop/dist

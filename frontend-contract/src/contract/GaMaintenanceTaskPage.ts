@@ -5,4 +5,10 @@ import type { GaMaintenanceTaskRow } from "./GaMaintenanceTaskRow";
 /**
  * A page of the task list, and how big the whole answer is.
  */
-export type GaMaintenanceTaskPage = { rows: Array<GaMaintenanceTaskRow>, total: number, facets: GaMaintenanceTaskFacets, };
+export type GaMaintenanceTaskPage = { rows: Array<GaMaintenanceTaskRow>, 
+/**
+ * Opaque. Pass it back as `cursor` for the next page; absent means this
+ * was the last one.
+ */
+next_cursor: string | null, 
+total: number, facets: GaMaintenanceTaskFacets, };

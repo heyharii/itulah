@@ -49,6 +49,16 @@ pub enum Incident {
     AwaitingEnrolment { at: DateTime<Utc> },
     /// Enrolled; about to start as a node.
     Enrolled { at: DateTime<Utc>, site_id: String },
+    /// Mains power lost; the UPS carries the machine.
+    OnBattery {
+        at: DateTime<Utc>,
+        charge_percent: Option<u8>,
+    },
+    /// Mains power back after `on_battery_seconds`.
+    PowerRestored {
+        at: DateTime<Utc>,
+        on_battery_seconds: i64,
+    },
 }
 
 impl Incident {
@@ -59,7 +69,9 @@ impl Incident {
             | Self::Hung { at, .. }
             | Self::CrashLoop { at, .. }
             | Self::AwaitingEnrolment { at }
-            | Self::Enrolled { at, .. } => *at,
+            | Self::Enrolled { at, .. }
+            | Self::OnBattery { at, .. }
+            | Self::PowerRestored { at, .. } => *at,
         }
     }
 }
@@ -135,6 +147,33 @@ pub struct MachineFacts {
     /// Seconds this machine's clock is ahead of the cloud's, from the last
     /// heartbeat answer. Terminal signatures are refused past a skew.
     pub clock_skew_seconds: Option<i64>,
+    /// When the newest local backup was taken.
+    #[serde(default)]
+    pub last_backup_at: Option<DateTime<Utc>>,
+    /// How far background sync is stretched to spare a busy machine
+    /// (`edge/pace.rs`): 1 is full speed.
+    #[serde(default)]
+    pub sync_pace: Option<u32>,
+    /// The UPS, when there is one to read (`edge/power.rs`).
+    #[serde(default)]
+    pub power: Option<PowerFacts>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PowerSource {
+    Mains,
+    Battery,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PowerFacts {
+    pub source: PowerSource,
+    pub charge_percent: Option<u8>,
+    pub runtime_seconds: Option<i64>,
+    /// The UPS itself says the battery is low.
+    pub low: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -212,17 +251,19 @@ fn assessment(
     }
 }
 
-/// "1 jam 50 menit", "4 menit", "12 detik".
+/// "1 h 50 min", "4 min", "12 s", "2 days 3 h".
 pub fn span(duration: Duration) -> String {
     let seconds = duration.num_seconds().max(0);
     let (days, hours, minutes) = (seconds / 86_400, seconds % 86_400 / 3_600, seconds % 3_600 / 60);
     match (days, hours, minutes) {
-        (0, 0, 0) => format!("{seconds} detik"),
-        (0, 0, m) => format!("{m} menit"),
-        (0, h, 0) => format!("{h} jam"),
-        (0, h, m) => format!("{h} jam {m} menit"),
-        (d, 0, _) => format!("{d} hari"),
-        (d, h, _) => format!("{d} hari {h} jam"),
+        (0, 0, 0) => format!("{seconds} s"),
+        (0, 0, m) => format!("{m} min"),
+        (0, h, 0) => format!("{h} h"),
+        (0, h, m) => format!("{h} h {m} min"),
+        (1, 0, _) => "1 day".to_owned(),
+        (1, h, _) => format!("1 day {h} h"),
+        (d, 0, _) => format!("{d} days"),
+        (d, h, _) => format!("{d} days {h} h"),
     }
 }
 
@@ -259,9 +300,9 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
         return assessment(
             Tone::Bad,
             "REJECTED_FACTS",
-            "Ada data ditolak",
-            format!("{} catatan ditolak kantor pusat", sync.dead_lettered),
-            "Catatan itu tertahan di server ini dan tidak akan hilang. Penjualan tetap jalan. Developer perlu memeriksanya.".into(),
+            "Records refused",
+            format!("Head office refused {} records", sync.dead_lettered),
+            "They are held on this server and will not be lost. Sales carry on. A developer needs to look at them.".into(),
             None,
             Needs::Developer,
         );
@@ -274,9 +315,9 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
         return assessment(
             Tone::Bad,
             "KEY_REFUSED",
-            "Kunci ditolak",
-            "Kantor pusat menolak mesin ini".into(),
-            "Mesin ini sudah diganti atau dicabut dari kantor pusat, jadi datanya tidak lagi diterima. Kalau ini keliru, daftarkan ulang dari hub.".into(),
+            "Key refused",
+            "Head office refuses this machine".into(),
+            "This machine was replaced or revoked at head office, so its records are no longer accepted. If that is a mistake, enrol it again from the hub.".into(),
             sync.last_error_at,
             Needs::HeadOffice,
         );
@@ -288,9 +329,9 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
             return assessment(
                 Tone::Bad,
                 "DISK_CRITICAL",
-                "Disk hampir penuh",
-                format!("Disk tinggal {gigabytes:.1} GB ({percent} %)"),
-                "Log dan backup lama sudah dibersihkan otomatis. Kalau disk penuh, server berhenti menyimpan transaksi. Kosongkan atau ganti disk sekarang.".into(),
+                "Disk almost full",
+                format!("Only {gigabytes:.1} GB free on disk ({percent} %)"),
+                "Old logs and backups were already cleared automatically. If the disk fills up, the server stops saving sales. Free up or replace the disk now.".into(),
                 None,
                 Needs::Shop,
             );
@@ -299,21 +340,49 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
             return assessment(
                 Tone::Warn,
                 "DISK_LOW",
-                "Disk menipis",
-                format!("Disk tinggal {gigabytes:.1} GB ({percent} %)"),
-                "Server masih berjalan normal. Rencanakan pembersihan atau penggantian disk.".into(),
+                "Disk getting full",
+                format!("Only {gigabytes:.1} GB free on disk ({percent} %)"),
+                "The server is still running normally. Plan to free up or replace the disk.".into(),
                 None,
                 Needs::Shop,
             );
         }
     }
+    if let Some(power) = machine.power.as_ref().filter(|p| p.source == PowerSource::Battery) {
+        let left = power
+            .runtime_seconds
+            .map(|seconds| format!(", about {} left", span(Duration::seconds(seconds))))
+            .unwrap_or_default();
+        let charge = power.charge_percent.map(|c| format!(" (battery {c} %)")).unwrap_or_default();
+        return if power.low {
+            assessment(
+                Tone::Bad,
+                "UPS_LOW",
+                "UPS battery low",
+                format!("UPS battery almost empty{charge}"),
+                "Finish the sales in progress. The server will sync one last time, shut down cleanly, and start again by itself when the power is back.".into(),
+                None,
+                Needs::Shop,
+            )
+        } else {
+            assessment(
+                Tone::Warn,
+                "ON_BATTERY",
+                "On UPS",
+                format!("Power cut — running on the UPS{left}"),
+                format!("Everything keeps running{charge}. Waiting records were sent to head office and backups wait until the power is back."),
+                None,
+                Needs::Nobody,
+            )
+        };
+    }
     if let Some(skew) = machine.clock_skew_seconds.filter(|skew| skew.abs() > 30) {
         return assessment(
             Tone::Bad,
             "CLOCK_SKEW",
-            "Jam bergeser",
-            format!("Jam komputer selisih {} dari kantor pusat", span(Duration::seconds(skew.abs()))),
-            "Kasir bisa ditolak karena jamnya tidak cocok. Nyalakan sinkron jam otomatis di komputer ini.".into(),
+            "Clock off",
+            format!("This computer's clock is {} off from head office", span(Duration::seconds(skew.abs()))),
+            "Tills may be refused because the clocks do not match. Turn on automatic time sync on this computer.".into(),
             None,
             Needs::Shop,
         );
@@ -322,9 +391,9 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
         return assessment(
             Tone::Info,
             "NOT_CONNECTED",
-            "Belum terhubung",
-            "Server belum terhubung ke kantor pusat".into(),
-            "Penjualan tersimpan di server ini. Daftarkan mesin ini dari hub supaya datanya terkirim.".into(),
+            "Not connected",
+            "Server not connected to head office yet".into(),
+            "Sales are kept on this server. Enrol this machine from the hub so its records are sent.".into(),
             None,
             Needs::HeadOffice,
         );
@@ -334,13 +403,13 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
         return assessment(
             Tone::Warn,
             "OFFLINE",
-            "Internet putus",
+            "Internet down",
             format!(
-                "Kantor pusat tidak terjangkau sejak {}",
+                "Head office unreachable since {}",
                 silent_since.with_timezone(&chrono::Local).format("%H:%M")
             ),
             format!(
-                "Kasir tetap bisa berjualan. {} catatan disimpan di sini dan terkirim sendiri begitu internet kembali. Cek router kalau ini lebih dari 30 menit.",
+                "Tills can keep selling. {} records are kept here and go out by themselves once the internet is back. Check the router if this lasts over 30 minutes.",
                 sync.pending_facts
             ),
             Some(silent_since),
@@ -351,9 +420,9 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
         return assessment(
             Tone::Warn,
             "SYNC_BEHIND",
-            "Sinkron tertinggal",
-            format!("{} catatan belum terkirim, tertua {}", sync.pending_facts, span(now - oldest)),
-            "Server terus mencoba mengirim. Kalau angkanya terus bertambah, kabari kantor pusat.".into(),
+            "Sync behind",
+            format!("{} records not sent yet, oldest {}", sync.pending_facts, span(now - oldest)),
+            "The server keeps trying to send them. If the number keeps growing, tell head office.".into(),
             Some(oldest),
             Needs::Nobody,
         );
@@ -365,9 +434,9 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
         return assessment(
             Tone::Warn,
             "UNSTABLE",
-            "Sering terganggu",
-            format!("Server {disturbances} kali terganggu dalam 24 jam"),
-            "Setiap kali pulih sendiri dan penjualan tetap jalan, tetapi sesering ini ada penyebabnya. Developer perlu melihat laporan diagnosanya.".into(),
+            "Often disrupted",
+            format!("Server disrupted {disturbances} times in 24 hours"),
+            "It recovered by itself each time and sales carried on, but this often has a cause. A developer needs to read its diagnosis report.".into(),
             None,
             Needs::Developer,
         );
@@ -376,9 +445,9 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
         return assessment(
             Tone::Ok,
             "RECOVERED",
-            "Sehat · pulih sendiri",
-            format!("Server berjalan — sempat {disturbances} kali terganggu dalam 24 jam"),
-            "Semuanya sudah pulih otomatis. Kantor pusat melihat catatan yang sama. Kalau terjadi lebih dari 3 kali sehari, developer akan dilibatkan.".into(),
+            "Healthy · recovered",
+            format!("Server running — disrupted {disturbances} {} in 24 hours", if disturbances == 1 { "time" } else { "times" }),
+            "Everything recovered automatically. Head office sees the same record. If it happens more than 3 times a day, a developer is brought in.".into(),
             None,
             Needs::Nobody,
         );
@@ -386,9 +455,9 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
     assessment(
         Tone::Ok,
         "OK",
-        "Sehat",
-        "Server berjalan normal".into(),
-        "Semua transaksi sudah sampai ke kantor pusat. Tidak ada yang perlu dilakukan.".into(),
+        "Healthy",
+        "Server running normally".into(),
+        "All sales have reached head office. Nothing to do.".into(),
         None,
         Needs::Nobody,
     )
@@ -405,9 +474,9 @@ pub fn assess_from_afar(
         return assessment(
             Tone::Info,
             "NEVER_SEEN",
-            "Belum pernah terlihat",
-            "Server ini belum pernah mengirim kabar".into(),
-            "Terdaftar, tetapi belum menyala atau belum terhubung. Pastikan servernya menyala dan tersambung internet.".into(),
+            "Never seen",
+            "This server has never reported in".into(),
+            "Enrolled, but not switched on or not connected yet. Make sure the server is on and online.".into(),
             None,
             Needs::Shop,
         );
@@ -416,13 +485,13 @@ pub fn assess_from_afar(
         return assessment(
             Tone::Warn,
             "SILENT",
-            "Tidak terlihat",
+            "Silent",
             format!(
-                "Tidak ada kabar sejak {} ({})",
+                "No word since {} ({})",
                 heard.with_timezone(&chrono::Local).format("%H:%M"),
                 span(now - heard)
             ),
-            "Internet toko putus, listrik padam, atau servernya mati. Toko tetap bisa berjualan kalau server menyala; data terkirim saat tersambung lagi.".into(),
+            "The store's internet is down, there is a power cut, or the server is off. The store can keep selling while the server is on; records go out once it reconnects.".into(),
             Some(heard),
             if now - heard > Duration::minutes(10) { Needs::Shop } else { Needs::Nobody },
         );
@@ -432,9 +501,9 @@ pub fn assess_from_afar(
         None => assessment(
             Tone::Info,
             "UNKNOWN",
-            "Tidak diketahui",
-            "Server mengirim kabar tanpa status".into(),
-            "Versi server ini terlalu lama untuk melaporkan kondisinya. Perbarui servernya.".into(),
+            "Unknown",
+            "Server reported in without a status".into(),
+            "This server's version is too old to report its condition. Update the server.".into(),
             None,
             Needs::HeadOffice,
         ),
@@ -492,7 +561,7 @@ mod tests {
         let verdict = assess(&status, now);
         assert_eq!(verdict.code, "OFFLINE");
         assert_eq!(verdict.since, status.sync.last_success_at);
-        assert!(verdict.sentence.contains("37 catatan"));
+        assert!(verdict.sentence.contains("37 records"));
         assert_eq!(verdict.needs, Needs::Shop, "past 30 minutes somebody should look at the router");
     }
 
@@ -548,7 +617,7 @@ mod tests {
         ];
         let verdict = assess(&status, now);
         assert_eq!((verdict.tone, verdict.code.as_str()), (Tone::Ok, "RECOVERED"));
-        assert!(verdict.headline.contains("2 kali"), "{}", verdict.headline);
+        assert!(verdict.headline.contains("2 times"), "{}", verdict.headline);
 
         // Four in a day is a cause to find, even though each one healed.
         for hours in 6..8 {
@@ -570,9 +639,10 @@ mod tests {
 
     #[test]
     fn spans_read_like_a_person_says_them() {
-        assert_eq!(span(Duration::seconds(12)), "12 detik");
-        assert_eq!(span(Duration::minutes(4)), "4 menit");
-        assert_eq!(span(Duration::minutes(110)), "1 jam 50 menit");
-        assert_eq!(span(Duration::hours(27)), "1 hari 3 jam");
+        assert_eq!(span(Duration::seconds(12)), "12 s");
+        assert_eq!(span(Duration::minutes(4)), "4 min");
+        assert_eq!(span(Duration::minutes(110)), "1 h 50 min");
+        assert_eq!(span(Duration::hours(27)), "1 day 3 h");
+        assert_eq!(span(Duration::hours(51)), "2 days 3 h");
     }
 }

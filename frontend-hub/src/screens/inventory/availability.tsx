@@ -1,15 +1,14 @@
-import { useQuery } from "@tanstack/react-query"
-import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { Button } from "@/components/ui/button"
 import { Card, CardStrip } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
+import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count } from "@/lib/format"
@@ -21,6 +20,7 @@ import {
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import { Choice, Metric, MetricRow } from "@/screens/inventory/parts"
 import { placements } from "@/screens/inventory/shared"
 
@@ -32,10 +32,11 @@ import { placements } from "@/screens/inventory/shared"
 /// a pool is allowed to find out it has promised more than it holds. A negative
 /// row here is the same fact the allotments screen calls a shortage.
 ///
-/// Paging is the server's cursor, one page at a time, and deliberately not an
-/// accumulating "load more": the cursor is a SKU code, so page two is exactly
-/// the rows after the last one read, and stepping back is exact too. Nothing is
-/// sliced client-side.
+/// Paging is the server's SKU-code cursor, walked as the table scrolls. The
+/// rows come in SKU-code order and the table does not re-sort them: sorting
+/// the loaded pages by On hand would put "the worst of these" where "the
+/// worst" belongs. The over-promised question goes to the server instead, as
+/// the Over-promised view (`shortfall=true`), which is every such SKU.
 ///
 /// # Why there is no filter panel here
 ///
@@ -44,7 +45,7 @@ import { placements } from "@/screens/inventory/shared"
 /// SERVER, twice over: the pool and the needle go on the wire as
 /// `source_pool_id` and `q`, and the answer is one cursor page of 200 SKUs out
 /// of a pool that holds thousands. A clause evaluated in the browser would
-/// narrow THAT PAGE — "on hand below zero" over two hundred rows, while Next
+/// narrow THAT PAGE — "on hand below zero" over two hundred rows, while the scroll
 /// walks on through pages it never saw — and the reader would have no way to
 /// tell the difference between "three SKUs are oversold" and "three of these
 /// two hundred are".
@@ -163,27 +164,34 @@ const columns: ColumnDef<TableSetup, AvailabilityItem>[] = [
 
 export function Availability() {
   const [pool, setPool] = useState("dc.warehouse")
-  const [needle, setNeedle] = useState("")
-  // The cursor stack, so Back is exact rather than a re-fetch of page one.
-  const [trail, setTrail] = useState<readonly string[]>([""])
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "on_hand_qty", desc: false },
-  ])
+  const [text, setText] = useState("")
+  const [view, setView] = useState<"all" | "short">("all")
 
-  const cursor = trail[trail.length - 1]
+  // Debounced: every keystroke folds the pool's ledger again.
+  const needle = useDebounced(text.trim(), 400)
+  const shortfall = view === "short"
 
   const pools = useQuery({
     queryKey: inventoryKeys.fleet(),
     queryFn: ({ signal }) => fleetPools(signal),
   })
 
-  const page = useQuery({
-    queryKey: inventoryKeys.availability(pool, needle, cursor),
-    queryFn: ({ signal }) => availability(pool, needle, cursor, signal),
+  const page = useInfiniteQuery({
+    queryKey: inventoryKeys.availability(pool, needle, shortfall),
+    queryFn: ({ pageParam, signal }) =>
+      availability(
+        { sourcePoolId: pool, query: needle, shortfall, cursor: pageParam },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
   const rows = useMemo(
-    () => (page.data?.items ?? []) as AvailabilityItem[],
+    () =>
+      (page.data?.pages.flatMap((one) => one.items) ??
+        []) as AvailabilityItem[],
     [page.data]
   )
 
@@ -194,10 +202,10 @@ export function Availability() {
         data: rows,
         columns,
         getRowId: (row: AvailabilityItem) => row.sku_id,
-        state: { sorting },
-        onSortingChange: setSorting,
+        // The server orders by SKU code and nothing else; see above.
+        enableSorting: false,
       }),
-      [rows, sorting]
+      [rows]
     )
   )
 
@@ -210,11 +218,6 @@ export function Availability() {
     [pools.data]
   )
 
-  const restart = (next: () => void) => {
-    setTrail([""])
-    next()
-  }
-
   return (
     <PageContent>
       <PageHeader
@@ -226,104 +229,88 @@ export function Availability() {
       <Toolbar>
         <Choice
           value={pool}
-          onChange={(value) => restart(() => setPool(value))}
+          onChange={setPool}
           options={poolOptions}
           className="max-w-72"
         />
         <Input
-          value={needle}
-          onChange={(event) => restart(() => setNeedle(event.target.value))}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
           placeholder="SKU, article code or name"
           className="h-8 w-64"
         />
         <Toolbar.Spacer />
-        <ButtonGroup>
-          <Button
-            variant="ghost"
-            className="rounded-none border-0"
-            disabled={trail.length === 1}
-            onClick={() => setTrail((stack) => stack.slice(0, -1))}
-          >
-            Back
-          </Button>
-          <Button
-            variant="ghost"
-            className="rounded-none border-0"
-            disabled={!page.data?.next_cursor}
-            onClick={() =>
-              setTrail((stack) =>
-                page.data?.next_cursor
-                  ? [...stack, page.data.next_cursor]
-                  : stack
-              )
-            }
-          >
-            Next
-          </Button>
-        </ButtonGroup>
+        <Segmented
+          options={[
+            { value: "all", label: "Every SKU" },
+            { value: "short", label: "Over-promised" },
+          ]}
+          value={view}
+          onChange={setView}
+        />
       </Toolbar>
 
       <Card className="overflow-hidden">
         {queryState(page, {
           loading: "Reading the pool…",
-          render: (data) => (
-            <>
-              <CardStrip className="justify-between">
-                <span className="text-meta font-medium text-ink">
-                  {data.source_pool_label}
-                  <span className="ml-2 font-mono text-id text-mute">
-                    {data.source_place_id}
+          render: (answer) => {
+            // The pool's own figures are over the whole matching set and
+            // arrive on every page; the first page's are the ones to show.
+            const data = answer.pages[0]
+            return (
+              <>
+                <CardStrip className="justify-between">
+                  <span className="text-meta font-medium text-ink">
+                    {data.source_pool_label}
+                    <span className="ml-2 font-mono text-id text-mute">
+                      {data.source_place_id}
+                    </span>
                   </span>
-                </span>
-                <span className="text-[0.875rem] text-mute">
-                  {data.inventory_equation}
-                </span>
-              </CardStrip>
+                  <span className="text-[0.875rem] text-mute">
+                    {data.inventory_equation}
+                  </span>
+                </CardStrip>
 
-              <div className="border-b border-hairline px-4 py-3.5">
-                <MetricRow>
-                  <Metric label="Stock" value={count(data.stock_qty)} />
-                  <Metric label="Allotted" value={count(data.allotted_qty)} />
-                  <Metric
-                    label="On hand"
-                    value={count(data.on_hand_qty)}
-                    tone={data.on_hand_qty < 0 ? "bad" : "ink"}
-                  />
-                  <Metric
-                    label="Missing"
-                    value={count(data.missing_qty)}
-                    tone={data.missing_qty > 0 ? "warn" : "ink"}
-                  />
-                </MetricRow>
-              </div>
+                <div className="border-b border-hairline px-4 py-3.5">
+                  <MetricRow>
+                    <Metric label="Stock" value={count(data.stock_qty)} />
+                    <Metric label="Allotted" value={count(data.allotted_qty)} />
+                    <Metric
+                      label="On hand"
+                      value={count(data.on_hand_qty)}
+                      tone={data.on_hand_qty < 0 ? "bad" : "ink"}
+                    />
+                    <Metric
+                      label="Missing"
+                      value={count(data.missing_qty)}
+                      tone={data.missing_qty > 0 ? "warn" : "ink"}
+                    />
+                  </MetricRow>
+                </div>
 
-              {rows.length === 0 ? (
-                <EmptyState>
-                  {needle === ""
-                    ? "This pool holds no SKU the catalogue still lists as active."
-                    : `Nothing in this pool matches “${needle}”.`}
-                </EmptyState>
-              ) : (
-                <>
-                  <DataTable<AvailabilityItem>
-                    table={table}
-                    className="max-h-[calc(100vh-26rem)]"
-                  />
-                  <div className="flex items-center justify-between border-t border-hairline px-4 py-2.5 text-[0.875rem] text-mute">
-                    <span className="tabular-nums">
-                      Page {count(trail.length)} · {count(rows.length)} of{" "}
+                {rows.length === 0 ? (
+                  <EmptyState>
+                    {needle !== ""
+                      ? `Nothing in this pool matches “${needle}”.`
+                      : shortfall
+                        ? "Nothing in this pool is promised beyond what it holds."
+                        : "This pool holds no SKU the catalogue still lists as active."}
+                  </EmptyState>
+                ) : (
+                  <>
+                    <DataTable<AvailabilityItem>
+                      table={table}
+                      more={page}
+                      className="max-h-[calc(100vh-26rem)]"
+                    />
+                    <div className="border-t border-hairline px-4 py-2.5 text-[0.875rem] text-mute tabular-nums">
                       {count(data.total_items)} SKUs
-                    </span>
-                    <span>
-                      {data.next_cursor === null
-                        ? "End of the pool."
-                        : `Next page starts after ${data.next_cursor}.`}
-                    </span>
-                  </div>
-                </>
-              )}
-            </>
-          ),
+                    </div>
+                  </>
+                )}
+              </>
+            )
+          },
         })}
       </Card>
     </PageContent>

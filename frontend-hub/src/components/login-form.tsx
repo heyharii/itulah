@@ -136,7 +136,7 @@ export function LoginForm({
         <Button
           variant="primary"
           className="mt-5 h-9 w-full"
-          disabled={signIn.isPending}
+          pending={signIn.isPending}
           onClick={() => form.handleSubmit()}
         >
           {signIn.isPending ? "Signing in…" : "Sign in"}

@@ -613,7 +613,7 @@ function WhatIfTab() {
               className="h-9 w-full max-w-none"
             />
           </Field>
-          <Field label="Subject">
+          <Field label="Subject" required>
             <Input
               value={subject}
               onChange={(event) => setSubject(event.target.value)}
@@ -621,7 +621,7 @@ function WhatIfTab() {
               placeholder="Subject uuid from a divergence"
             />
           </Field>
-          <Field label="Place">
+          <Field label="Place" required>
             <Input
               value={place}
               onChange={(event) => setPlace(event.target.value)}
@@ -638,9 +638,8 @@ function WhatIfTab() {
           </Field>
           <Button
             variant="primary"
-            disabled={
-              subject.trim() === "" || place.trim() === "" || evaluate.isPending
-            }
+            pending={evaluate.isPending}
+            disabled={subject.trim() === "" || place.trim() === ""}
             onClick={() => evaluate.mutate()}
           >
             {evaluate.isPending ? "Evaluating…" : "Evaluate — writes nothing"}

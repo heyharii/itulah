@@ -69,7 +69,7 @@ export function Account() {
             <div className="border-t border-hairline px-4 py-3">
               <Button
                 variant="ghost"
-                disabled={signOut.isPending}
+                pending={signOut.isPending}
                 onClick={() => signOut.mutate()}
               >
                 <LogOut />
@@ -235,7 +235,7 @@ function ChangePassword({ disabled }: { disabled: boolean }) {
 
           <Problem error={change.error} />
 
-          <Button variant="primary" type="submit" disabled={change.isPending}>
+          <Button variant="primary" type="submit" pending={change.isPending}>
             {change.isPending ? "Changing…" : "Change it and sign out"}
           </Button>
         </form>

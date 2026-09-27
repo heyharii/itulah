@@ -20,10 +20,10 @@ import type { AppModule } from "@/lib/navigation"
 /// `/procurement/suppliers`. Three departments, one table — see migration 0212.
 export const vendorsNav: AppModule = {
   id: "vendors",
-  label: "Vendor",
+  label: "Vendors",
   icon: Plug,
   home: "/vendors",
   // Where it answered for the hour it lived under Finance.
   moved: ["/finance/vendors"],
-  sections: [{ items: [{ path: "/vendors", label: "Vendor", icon: Plug }] }],
+  sections: [{ items: [{ path: "/vendors", label: "Vendors", icon: Plug }] }],
 }

@@ -76,10 +76,15 @@ export function Changes() {
   })
   const team = useQuery({
     queryKey: peopleKeys.employees({ status: "ACTIVE", limit: 1000 }),
-    queryFn: ({ signal }) => listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
+    queryFn: ({ signal }) =>
+      listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
   })
-  const people = (team.data ?? []).map((person) => ({ id: person.employee_id, name: person.full_name ?? person.employee_code ?? person.employee_id }))
-  const nameOf = (id: string) => people.find((person) => person.id === id)?.name ?? id
+  const people = (team.data ?? []).map((person) => ({
+    id: person.employee_id,
+    name: person.full_name ?? person.employee_code ?? person.employee_id,
+  }))
+  const nameOf = (id: string) =>
+    people.find((person) => person.id === id)?.name ?? id
 
   const decided = (all.data ?? []).filter((row) => row.state !== "PENDING")
   const rows = tab === "pending" ? (pending.data ?? []) : decided
@@ -114,7 +119,9 @@ export function Changes() {
       <Card className="overflow-hidden">
         <CardHeader>
           <CardTitle>
-            {tab === "pending" ? "Proposals waiting on head office" : "Decided proposals"}
+            {tab === "pending"
+              ? "Proposals waiting on head office"
+              : "Decided proposals"}
           </CardTitle>
         </CardHeader>
         {queryState(shown, {
@@ -129,10 +136,15 @@ export function Changes() {
             ) : (
               <div className="divide-y">
                 {rows.map((row) => (
-                  <div key={row.id} className="flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3">
+                  <div
+                    key={row.id}
+                    className="flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3"
+                  >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-2">
-                        <Pill tone={STATE_TONE[row.state]}>{STATE_LABEL[row.state]}</Pill>
+                        <Pill tone={STATE_TONE[row.state]}>
+                          {STATE_LABEL[row.state]}
+                        </Pill>
                         <span className="font-medium text-ink">
                           {nameOf(row.employee_id)}
                         </span>
@@ -149,14 +161,18 @@ export function Changes() {
                       )}
                       <p className="text-meta text-mute">
                         {row.reason} — filed by {row.filed_by}
-                        {row.decided_by ? ` · decided by ${row.decided_by}` : ""}
+                        {row.decided_by
+                          ? ` · decided by ${row.decided_by}`
+                          : ""}
                       </p>
                     </div>
                     {tab === "pending" && employer ? (
                       <DecideControls
                         id={row.id}
                         onDone={() =>
-                          client.invalidateQueries({ queryKey: nextKeys.changes() })
+                          client.invalidateQueries({
+                            queryKey: nextKeys.changes(),
+                          })
                         }
                       />
                     ) : null}
@@ -177,7 +193,8 @@ function DecideControls({ id, onDone }: { id: string; onDone: () => void }) {
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
   const decide = useMutation({
-    mutationFn: (approved: boolean) => decideChangeProposal(id, { approved, reason }),
+    mutationFn: (approved: boolean) =>
+      decideChangeProposal(id, { approved, reason }),
     onSuccess: () => {
       setDeciding(null)
       setReason("")
@@ -189,10 +206,18 @@ function DecideControls({ id, onDone }: { id: string; onDone: () => void }) {
   if (deciding === null) {
     return (
       <div className="flex shrink-0 gap-2">
-        <Button size="sm" variant="primary" onClick={() => setDeciding("approve")}>
+        <Button
+          size="sm"
+          variant="primary"
+          onClick={() => setDeciding("approve")}
+        >
           Approve
         </Button>
-        <Button size="sm" variant="danger" onClick={() => setDeciding("reject")}>
+        <Button
+          size="sm"
+          variant="danger"
+          onClick={() => setDeciding("reject")}
+        >
           Refuse
         </Button>
       </div>
@@ -200,7 +225,12 @@ function DecideControls({ id, onDone }: { id: string; onDone: () => void }) {
   }
   return (
     <div className="w-full space-y-2">
-      <Field label={deciding === "approve" ? "Why it is approved" : "Why it is refused"}>
+      <Field
+        label={
+          deciding === "approve" ? "Why it is approved" : "Why it is refused"
+        }
+        required
+      >
         <Input value={reason} onChange={(e) => setReason(e.target.value)} />
       </Field>
       {failed ? <Banner tone="bad">{failed}</Banner> : null}
@@ -208,7 +238,8 @@ function DecideControls({ id, onDone }: { id: string; onDone: () => void }) {
         <Button
           size="sm"
           variant="primary"
-          disabled={reason.trim() === "" || decide.isPending}
+          pending={decide.isPending}
+          disabled={reason.trim() === ""}
           onClick={() => decide.mutate(deciding === "approve")}
         >
           Record the decision
@@ -234,7 +265,8 @@ function FileSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 
   const team = useQuery({
     queryKey: peopleKeys.employees({ status: "ACTIVE", limit: 1000 }),
-    queryFn: ({ signal }) => listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
+    queryFn: ({ signal }) =>
+      listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
   })
   const people = (team.data ?? []).map((person) => ({
     id: person.employee_id,
@@ -270,7 +302,7 @@ function FileSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
       caption="Head office decides; nothing moves until it does."
     >
       <div className="space-y-3">
-        <Field label="Who">
+        <Field label="Who" required>
           <Select value={employeeId} onChange={setEmployeeId}>
             <option value="">Choose a person…</option>
             {people.map((person) => (
@@ -281,7 +313,10 @@ function FileSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
           </Select>
         </Field>
         <Field label="What kind">
-          <Select value={kind} onChange={(value) => setKind(value as (typeof KINDS)[number])}>
+          <Select
+            value={kind}
+            onChange={(value) => setKind(value as (typeof KINDS)[number])}
+          >
             {KINDS.map((k) => (
               <option key={k} value={k}>
                 {KIND_LABEL[k]}
@@ -290,7 +325,7 @@ function FileSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
           </Select>
         </Field>
         {kind === "SALARY" ? (
-          <Field label="New base, whole rupiah">
+          <Field label="New base, whole rupiah" required>
             <Input
               inputMode="numeric"
               value={toMinor}
@@ -298,7 +333,11 @@ function FileSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
             />
           </Field>
         ) : kind === "TRANSFER" ? (
-          <Field label="Moving to place" hint="The place id, e.g. store-04">
+          <Field
+            label="Moving to place"
+            hint="The place id, e.g. store-04"
+            required
+          >
             <Input value={toText} onChange={(e) => setToText(e.target.value)} />
           </Field>
         ) : (
@@ -309,15 +348,22 @@ function FileSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
                 <option value="grade">Grade</option>
               </Select>
             </Field>
-            <Field label="Becomes">
-              <Input value={toText} onChange={(e) => setToText(e.target.value)} />
+            <Field label="Becomes" required>
+              <Input
+                value={toText}
+                onChange={(e) => setToText(e.target.value)}
+              />
             </Field>
           </>
         )}
-        <Field label="Takes effect on">
-          <Input type="date" value={effectiveOn} onChange={(e) => setEffectiveOn(e.target.value)} />
+        <Field label="Takes effect on" required>
+          <Input
+            type="date"
+            value={effectiveOn}
+            onChange={(e) => setEffectiveOn(e.target.value)}
+          />
         </Field>
-        <Field label="Why">
+        <Field label="Why" required>
           <Input value={reason} onChange={(e) => setReason(e.target.value)} />
         </Field>
         {failed ? <Banner tone="bad">{failed}</Banner> : null}
@@ -327,12 +373,12 @@ function FileSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
           </Button>
           <Button
             variant="primary"
+            pending={file.isPending}
             disabled={
               employeeId === "" ||
               effectiveOn === "" ||
               reason.trim() === "" ||
-              (kind === "SALARY" ? toMinor === "" : toText.trim() === "") ||
-              file.isPending
+              (kind === "SALARY" ? toMinor === "" : toText.trim() === "")
             }
             onClick={() => file.mutate()}
           >

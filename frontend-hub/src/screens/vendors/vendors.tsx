@@ -1,4 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
@@ -14,7 +18,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { count } from "@/lib/format"
 import { queryState } from "@/lib/query-state"
@@ -27,6 +31,7 @@ import {
   type SupplierCategory,
 } from "@/lib/queries/procurement"
 import { useSheet } from "@/lib/sheets"
+import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
 import type { Supplier } from "@itulah/contract"
 
@@ -91,10 +96,13 @@ const DEFAULT_ACCOUNTS: readonly { code: string; label: string }[] = [
 ]
 
 const CATEGORY_WORDS: Record<SupplierCategory, string> = {
-  EXPENSE: "Operasional",
-  AFFILIATE: "Afiliasi",
-  MERCHANDISE: "Dagangan",
+  EXPENSE: "Operating",
+  AFFILIATE: "Affiliate",
+  MERCHANDISE: "Merchandise",
 }
+
+/// How many vendors one page of the book asks for.
+const PAGE = 100
 
 export function Vendors() {
   const editing = useSheet("supplier")
@@ -102,36 +110,52 @@ export function Vendors() {
   const [search, setSearch] = useState("")
   const [adding, setAdding] = useState(false)
 
+  // The search is the server's, so it waits for the typing to stop.
+  const needle = useDebounced(search.trim(), 300)
+
   const scope = useMemo(
-    () => ({ category: book, q: search.trim() === "" ? undefined : search }),
-    [book, search]
+    () => ({ category: book, q: needle === "" ? undefined : needle }),
+    [book, needle]
   )
 
-  const vendors = useQuery({
-    queryKey: [...procurementKeys.suppliers(), "book", book, search],
-    queryFn: ({ signal }) => supplierPage(scope, signal),
+  /// The book, a page at a time as its foot nears view — the same read and
+  /// the same key shape the supplier book uses, under the book's prefix so
+  /// `suppliers()` invalidation still reaches it. It used to be the first
+  /// page alone, with a count of what had loaded beside it.
+  const vendors = useInfiniteQuery({
+    queryKey: [...procurementKeys.suppliers(scope), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      supplierPage({ ...scope, limit: PAGE, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
   })
 
-  const open =
-    vendors.data?.rows.find((row) => row.supplier_id === editing.value) ?? null
+  const rows = useMemo(
+    () => vendors.data?.pages.flatMap((page) => page.rows) ?? [],
+    [vendors.data]
+  )
+  const head = vendors.data?.pages[0]
+
+  const open = rows.find((row) => row.supplier_id === editing.value) ?? null
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Vendor"
-        title="Vendor"
-        sub="Kelola pihak penyedia listrik, sewa tempat, perbaikan, dan layanan lainnya."
+        crumb="GA"
+        title="Vendors"
+        sub="Manage the providers of electricity, rented premises, repairs and other services."
         actions={
           <>
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Kode, nama, atau kontak"
+              placeholder="Code, name or contact"
               className="h-8 w-56"
             />
             <Button variant="primary" onClick={() => setAdding(true)}>
               <Plus />
-              Tambah vendor
+              Add vendor
             </Button>
           </>
         }
@@ -143,56 +167,56 @@ export function Vendors() {
             this screen exists instead of. */}
         <Segmented
           options={[
-            { value: "EXPENSE" as const, label: "Operasional" },
-            { value: "AFFILIATE" as const, label: "Afiliasi" },
+            { value: "EXPENSE" as const, label: "Operating" },
+            { value: "AFFILIATE" as const, label: "Affiliate" },
           ]}
           value={book}
           onChange={setBook}
         />
         <Toolbar.Spacer />
-        {vendors.data !== undefined && (
+        {head !== undefined && (
           <span className="text-meta text-body">
-            <b className="font-medium text-ink">
-              {count(vendors.data.rows.length)}
-            </b>{" "}
-            vendor
+            <b className="font-medium text-ink">{count(head.total)}</b>{" "}
+            {head.total === 1 ? "vendor" : "vendors"}
           </span>
         )}
       </Toolbar>
 
       {queryState(vendors, {
-        loading: "Memuat daftar vendor…",
-        render: (page) =>
-          page.rows.length === 0 ? (
+        loading: "Loading vendors…",
+        render: () =>
+          rows.length === 0 ? (
             <Card>
               <EmptyState
                 action={
                   <Button variant="ghost" onClick={() => setAdding(true)}>
-                    Tambah vendor pertama
+                    Add first vendor
                   </Button>
                 }
               >
                 {book === "EXPENSE"
-                  ? "Belum ada vendor operasional. Tambahkan penyedia layanan atau pihak yang mengirim tagihan."
-                  : "Belum ada vendor afiliasi. Tambahkan unit lain dalam grup perusahaan yang bertransaksi dengan perusahaan ini."}
+                  ? "No operating vendors yet. Add a service provider or a party that sends bills."
+                  : "No affiliate vendors yet. Add another unit in the company group that transacts with this company."}
               </EmptyState>
             </Card>
           ) : (
             <Card className="overflow-hidden">
               <div className="grid h-10 grid-cols-[7rem_minmax(0,1fr)_11rem_9rem_6rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-                <span>Kode</span>
+                <span>Code</span>
                 <span>Vendor</span>
-                <span>Akun beban</span>
-                <span>Kontak</span>
+                <span>Expense account</span>
+                <span>Contact</span>
                 <span>Status</span>
               </div>
-              {page.rows.map((row) => (
+              {rows.map((row) => (
                 <VendorRow
                   key={row.supplier_id}
                   vendor={row}
                   onOpen={() => editing.open(row.supplier_id)}
                 />
               ))}
+              {/* The page scrolls, not this card — see `<LoadMore>`. */}
+              <LoadMore query={vendors} />
             </Card>
           ),
       })}
@@ -246,7 +270,7 @@ function VendorRow({
       </span>
       <span>
         <Pill tone={vendor.status === "ACTIVE" ? "ok" : "neutral"}>
-          {vendor.status === "ACTIVE" ? "Aktif" : "Nonaktif"}
+          {vendor.status === "ACTIVE" ? "Active" : "Inactive"}
         </Pill>
       </span>
     </div>
@@ -352,7 +376,7 @@ function VendorSheet({
       key={vendor?.supplier_id ?? "new"}
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      title={vendor === null ? "Tambah vendor" : vendor.name}
+      title={vendor === null ? "Add vendor" : vendor.name}
       footer={
         // Save and Retire are the DETAILS' acts — the form's. The bank and
         // contact panels write as they go, each request carrying its own
@@ -364,28 +388,29 @@ function VendorSheet({
               <Button
                 variant="ghost"
                 onClick={() => retire.mutate()}
-                disabled={retire.isPending}
+                pending={retire.isPending}
               >
                 {vendor.status === "ACTIVE"
-                  ? "Nonaktifkan"
-                  : "Aktifkan kembali"}
+                  ? "Deactivate"
+                  : "Reactivate"}
               </Button>
             ) : (
               <span className="text-pill text-mute">
-                Lengkapi data vendor untuk membuatnya.
+                Fill in the vendor details to create it.
               </span>
             )}
             <Button
               variant="primary"
-              disabled={!ready || save.isPending}
+              pending={save.isPending}
+              disabled={!ready}
               onClick={() => save.mutate()}
             >
-              {save.isPending ? "Menyimpan…" : "Simpan"}
+              {save.isPending ? "Saving…" : "Save"}
             </Button>
           </div>
         ) : (
           <span className="text-pill text-mute">
-            Perubahan di bagian ini tersimpan otomatis.
+            Changes in this section are saved automatically.
           </span>
         )
       }
@@ -399,9 +424,9 @@ function VendorSheet({
           <SubTabs
             className="mb-0"
             tabs={[
-              { value: "details", label: "Detail" },
-              { value: "bank", label: "Rekening" },
-              { value: "contacts", label: "Kontak" },
+              { value: "details", label: "Details" },
+              { value: "bank", label: "Bank accounts" },
+              { value: "contacts", label: "Contacts" },
             ]}
             value={tab}
             onChange={setTab}
@@ -419,7 +444,7 @@ function VendorSheet({
         {(vendor === null || tab === "details") && (
           <>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Kode">
+              <Field label="Code" required>
                 <Input
                   value={value("supplier_code")}
                   onChange={(event) =>
@@ -431,7 +456,7 @@ function VendorSheet({
                   placeholder="PLN-01"
                 />
               </Field>
-              <Field label="Jenis">
+              <Field label="Type">
                 <Select
                   value={form.category ?? vendor?.category ?? book}
                   onChange={(next) =>
@@ -440,20 +465,19 @@ function VendorSheet({
                   aria-label="Kind"
                 >
                   <option value="EXPENSE">
-                    {CATEGORY_WORDS.EXPENSE} — penyedia yang mengirim tagihan
+                    {CATEGORY_WORDS.EXPENSE} — a provider that sends bills
                   </option>
                   <option value="AFFILIATE">
-                    {CATEGORY_WORDS.AFFILIATE} — unit lain dalam grup
+                    {CATEGORY_WORDS.AFFILIATE} — another unit in the group
                   </option>
                   <option value="MERCHANDISE">
-                    {CATEGORY_WORDS.MERCHANDISE} — memasok barang untuk dijual
-                    kembali
+                    {CATEGORY_WORDS.MERCHANDISE} — supplies goods for resale
                   </option>
                 </Select>
               </Field>
             </div>
 
-            <Field label="Nama">
+            <Field label="Name" required>
               <Input
                 value={value("name")}
                 onChange={(event) =>
@@ -464,23 +488,23 @@ function VendorSheet({
             </Field>
 
             <Field
-              label="Akun beban bawaan"
-              hint="Akun ini terisi otomatis pada tagihan vendor dan masih dapat diubah saat tagihan ditinjau."
+              label="Default expense account"
+              hint="This account fills in automatically on the vendor's bills and can still be changed when the bill is reviewed."
             >
               <Select
                 value={value("expense_account_code")}
                 onChange={(next) =>
                   setForm((f) => ({ ...f, expense_account_code: next }))
                 }
-                aria-label="Akun beban bawaan"
+                aria-label="Default expense account"
               >
-                <option value="">Belum dipilih</option>
+                <option value="">Not selected</option>
                 {/* A value set before the picker existed — free text accepted
                     the whole chart — stays visible and saveable rather than
                     silently reading as empty. */}
                 {currentAccount !== "" && !currentIsListed && (
                   <option value={currentAccount}>
-                    {currentAccount} (saat ini)
+                    {currentAccount} (current)
                   </option>
                 )}
                 {DEFAULT_ACCOUNTS.map((one) => (
@@ -492,7 +516,7 @@ function VendorSheet({
             </Field>
 
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Kontak">
+              <Field label="Contact">
                 <Input
                   value={value("contact_name")}
                   onChange={(event) =>
@@ -500,7 +524,7 @@ function VendorSheet({
                   }
                 />
               </Field>
-              <Field label="Telepon">
+              <Field label="Phone">
                 <Input
                   value={value("phone")}
                   onChange={(event) =>
@@ -510,7 +534,7 @@ function VendorSheet({
               </Field>
             </div>
 
-            <Field label="Alamat">
+            <Field label="Address">
               <Input
                 value={value("address")}
                 onChange={(event) =>

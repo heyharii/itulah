@@ -692,6 +692,26 @@ pub async fn run_journal_repeats(
     ))
 }
 
+/// A shop's payment-method setup (0474).
+pub async fn site_payment_methods(
+    State(state): State<AppState>,
+    Path(site): Path<String>,
+) -> Result<Json<Vec<infrastructure::SitePaymentMethod>>, AppError> {
+    Ok(Json(infrastructure::site_payment_methods(&state.db, &site).await?))
+}
+
+pub async fn set_site_payment_methods(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(site): Path<String>,
+    Json(request): Json<infrastructure::SetSitePaymentMethodsRequest>,
+) -> Result<Json<Vec<infrastructure::SitePaymentMethod>>, AppError> {
+    Ok(Json(
+        infrastructure::set_site_payment_methods(&state.db, &site, &request, &principal.username)
+            .await?,
+    ))
+}
+
 /// What Finance is wearing on the sidebar, as three integers.
 ///
 /// The month is the caller's: a browser in WIB and a node in UTC disagree
@@ -841,7 +861,7 @@ pub async fn close_period(
 /// `site` filter and each repeats: `kind` is a `source_kind`, and `site` asks
 /// whether ANY line of the entry touched that location — an entry has no
 /// location of its own, and a payment can settle two shops' bills at once.
-/// `sort` is one of `number`, `total`, `lines`, `kind`, with `dir=desc`;
+/// `sort` is one of `date`, `number`, `total`, `kind`, with `dir=desc`;
 /// anything else is the house order, newest first. `cursor` and `limit` page.
 ///
 /// The four parameters this endpoint has always taken — `from`, `to`, `kind`,
@@ -1185,6 +1205,9 @@ pub async fn bills(
                 // question about a population and not about a page already in
                 // hand.
                 draft_from: single_value(&params, "draft_from"),
+                // `MERCHANDISE` or `EXPENSE`, repeatable. The bills screen
+                // pages each tab on its own rather than splitting one page.
+                kinds: facet_values(&params, "kind"),
             },
         )
         .await?,
@@ -1327,12 +1350,26 @@ pub async fn bill_warnings(
 ///
 /// The books cannot carry this — the client has no goods-received-not-invoiced
 /// account — so it is reported as an operational exposure and labelled as one.
+///
+/// Two answers from one route. Asked plainly it is the bare array it has always
+/// been — the oldest 200, which every existing caller reads. `paged=true` (or
+/// a `cursor`) asks for the envelope instead: a keyset page, `limit` at most
+/// 200, with `next_cursor` and the count and value of EVERY unbilled delivery,
+/// so a screen that scrolls the list can total it honestly.
 pub async fn unbilled(
     State(state): State<AppState>,
-) -> Result<Json<Vec<UnbilledReceipt>>, AppError> {
-    Ok(Json(
-        infrastructure::unbilled_receipts(&state.db, 200).await?,
-    ))
+    Query(params): Query<Vec<(String, String)>>,
+) -> Result<Json<Value>, AppError> {
+    refuse_unknown_parameters(&params, &["paged", "cursor", "limit"])?;
+    let cursor = single_value(&params, "cursor");
+    if single_value(&params, "paged").as_deref() == Some("true") || cursor.is_some() {
+        let page =
+            infrastructure::unbilled_page(&state.db, cursor.as_deref(), limit_value(&params)?)
+                .await?;
+        return Ok(Json(serde_json::to_value(page)?));
+    }
+    let rows: Vec<UnbilledReceipt> = infrastructure::unbilled_receipts(&state.db, 200).await?;
+    Ok(Json(serde_json::to_value(rows)?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1372,10 +1409,12 @@ pub async fn payables_aging(
 ///
 /// # Query parameters
 ///
-/// `q` searches the payment number and the bank reference. `status`, `site`
-/// and `supplier` filter, each repeatable. `sort` is one of `date`, `total`,
+/// `q` searches the payment number, the bank reference and the names of the
+/// suppliers it was allocated to. `status`, `site` and `supplier` filter, each
+/// repeatable. `sort` is one of `date`, `total`,
 /// `number`, with `dir=desc`; anything else is the house order, most recent
-/// first. `cursor` and `limit` page.
+/// first. `from` and `to` bound the payment date, both inclusive. `cursor` and
+/// `limit` page.
 ///
 /// `supplier` still narrows on the ALLOCATIONS rather than on the payment: one
 /// bank line settling two suppliers is an ordinary Friday, so a payment has no
@@ -1385,6 +1424,16 @@ pub async fn payments(
     State(state): State<AppState>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<PaymentPage>, AppError> {
+    // `from` and `to` bound the payment date, both inclusive — the journal's
+    // spelling, so the register's window control means the same on both.
+    let date = |key: &str| -> Result<Option<NaiveDate>, AppError> {
+        match single_value(&params, key) {
+            Some(raw) => Ok(Some(raw.parse::<NaiveDate>().map_err(|_| {
+                AppError::Validation(format!("{key} {raw:?} is not a date"))
+            })?)),
+            None => Ok(None),
+        }
+    };
     Ok(Json(
         infrastructure::payment_page(
             &state.db,
@@ -1397,6 +1446,8 @@ pub async fn payments(
                 desc: single_value(&params, "dir").as_deref() == Some("desc"),
                 cursor: single_value(&params, "cursor"),
                 limit: limit_value(&params)?,
+                from: date("from")?,
+                to: date("to")?,
             },
         )
         .await?,
@@ -1460,7 +1511,7 @@ pub async fn post_payment(
 /// and nothing else. `site`, `category`, `decision` and `status` filter, each
 /// repeatable. `group` reads one of the register's three GA views —
 /// `register`, `software`, `projects` — see [`AssetScope::group`]. `sort` is
-/// one of `name`, `acquired`, `cost`, `book`, with `dir=desc`; anything else
+/// one of `name`, `acquired`, `cost`, `book`, `treatment`, with `dir=desc`; anything else
 /// is the house order, by asset number. `cursor` and `limit` page.
 ///
 /// `unassessed=true` is kept because the sidebar sends it, and it is exactly

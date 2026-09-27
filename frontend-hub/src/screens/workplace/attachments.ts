@@ -19,9 +19,20 @@ import type { PendingAttachment } from "@/screens/workplace/parts"
 export function useAttachments() {
   const [pending, setPending] = useState<readonly PendingAttachment[]>([])
   const [problem, setProblem] = useState<string | null>(null)
+  /// How many uploads are still on their way. Counted rather than read off the
+  /// mutation, whose `isPending` follows only the LAST call — three files
+  /// dropped at once used to say "done" the moment the third finished, while
+  /// the first was still uploading.
+  const [inFlight, setInFlight] = useState(0)
 
   const upload = useMutation({
     mutationFn: (file: File) => uploadAttachment(file),
+    onMutate: () => {
+      setInFlight((count) => count + 1)
+    },
+    onSettled: () => {
+      setInFlight((count) => Math.max(0, count - 1))
+    },
     onSuccess: (file) => {
       setProblem(null)
       setPending((previous) => [
@@ -51,7 +62,7 @@ export function useAttachments() {
     pending,
     ids: pending.map((file) => file.file_id),
     problem,
-    uploading: upload.isPending,
+    uploading: inFlight > 0,
     add: upload.mutate,
     remove,
     clear,

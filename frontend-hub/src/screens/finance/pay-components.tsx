@@ -227,7 +227,8 @@ function ComponentForm({
           />
           <Button
             variant="primary"
-            disabled={!changed || save.isPending}
+            pending={save.isPending}
+            disabled={!changed}
             onClick={() => save.mutate()}
           >
             {save.isPending ? "Saving…" : "Save"}

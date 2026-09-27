@@ -66,6 +66,9 @@ interface Metric {
   readonly read: (one: PromotionTotals) => number
   readonly point: (one: PerformancePoint) => number
   readonly draw: (value: number) => string
+  /// A rise is bad news — margin let go of. The Overview's strip reads it the
+  /// same way.
+  readonly lowerIsBetter?: boolean
 }
 
 const METRICS: readonly Metric[] = [
@@ -88,6 +91,7 @@ const METRICS: readonly Metric[] = [
     read: (one) => one.benefit_minor,
     point: (one) => one.benefit_minor,
     draw: money,
+    lowerIsBetter: true,
   },
   {
     id: "profit",
@@ -489,7 +493,9 @@ function Tile({
           <span
             className={cn(
               "font-semibold",
-              change >= 0 ? "text-ok-fg" : "text-bad-fg"
+              (metric.lowerIsBetter === true ? change <= 0 : change >= 0)
+                ? "text-ok-fg"
+                : "text-bad-fg"
             )}
           >
             {change >= 0 ? "↑" : "↓"} {Math.abs(change)}%

@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
+import { useMemo } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
@@ -7,7 +8,7 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
 import { count, moment } from "@/lib/format"
 import { listPointsAccounts, pointsKeys } from "@/lib/queries/points"
 import { queryState } from "@/lib/query-state"
@@ -35,12 +36,23 @@ import { queryState } from "@/lib/query-state"
 const PAGE = 200
 
 export function Points() {
-  const list = useQuery({
-    queryKey: pointsKeys.accounts(PAGE),
-    queryFn: ({ signal }) => listPointsAccounts(PAGE, signal),
+  /// The account book a page at a time, largest balance first, the next page
+  /// asked for as the foot of the list comes into view.
+  const list = useInfiniteQuery({
+    queryKey: pointsKeys.accounts(),
+    queryFn: ({ pageParam, signal }) =>
+      listPointsAccounts({ cursor: pageParam, limit: PAGE }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   })
 
-  const drifted = list.data?.accounts_not_reconciling ?? 0
+  const accounts = useMemo(
+    () => list.data?.pages.flatMap((page) => page.items) ?? [],
+    [list.data]
+  )
+  /// The book-wide figures ride on every page; the first one is enough.
+  const head = list.data?.pages[0]
+  const drifted = head?.accounts_not_reconciling ?? 0
 
   return (
     <PageContent>
@@ -51,23 +63,13 @@ export function Points() {
       />
 
       <KpiStrip>
-        <Kpi
-          label="Accounts"
-          value={count(list.data?.items.length ?? 0)}
-          // `delta` is the tile's second line, and it is used here to say the
-          // figure is a PAGE rather than a book. A count that came back exactly
-          // at the cap is a count that may be hiding accounts, and a tile is
-          // the one place a qualification like that cannot be scrolled past.
-          delta={
-            (list.data?.items.length ?? 0) >= PAGE
-              ? `first ${count(PAGE)}`
-              : undefined
-          }
-        />
+        {/* All three are the server's counts over the whole book, not sums
+            of the rows loaded so far — they are true before the list below
+            has been scrolled to its end. */}
+        <Kpi label="Accounts" value={count(head?.account_count ?? 0)} />
         <Kpi
           label="Points outstanding"
-          value={count(list.data?.outstanding_points_on_this_page ?? 0)}
-          delta="over the accounts listed"
+          value={count(head?.outstanding_points ?? 0)}
         />
         <Kpi
           label="Not reconciling"
@@ -90,74 +92,82 @@ export function Points() {
       <Card className="overflow-hidden">
         {queryState(list, {
           loading: "Reading the points accounts…",
-          render: (data) =>
-            data.items.length === 0 ? (
+          render: () =>
+            accounts.length === 0 ? (
               <EmptyState>
                 No member holds any points. The account and ledger tables exist
                 and are empty — nothing has been earned, which is not the same
                 as loyalty being switched off.
               </EmptyState>
             ) : (
-              <MiniTable
-                head={[
-                  "Member",
-                  { label: "Balance", align: "right" },
-                  { label: "From entries", align: "right" },
-                  { label: "Entries", align: "right" },
-                  { label: "Last movement", align: "right" },
-                ]}
-              >
-                {data.items.map((account) => (
-                  <MiniRow key={account.customer_id}>
-                    <MiniCell>
-                      {/* Straight into that member's own entries. No dead
+              <>
+                <MiniTable
+                  head={[
+                    "Member",
+                    { label: "Balance", align: "right" },
+                    { label: "From entries", align: "right" },
+                    { label: "Entries", align: "right" },
+                    { label: "Last movement", align: "right" },
+                  ]}
+                >
+                  {accounts.map((account) => (
+                    <MiniRow key={account.customer_id}>
+                      <MiniCell>
+                        {/* Straight into that member's own entries. No dead
                           ends: the balance and the movements behind it are one
                           click apart in both directions. */}
-                      <AppLink
-                        to="/members/points-ledger"
-                        sheet={{ key: "customer", value: account.customer_id }}
-                        className="text-ink underline-offset-2 hover:underline"
-                      >
-                        {account.display_name ?? account.customer_id}
-                      </AppLink>
-                      <span className="block font-mono text-[0.875rem] text-mute">
-                        {account.customer_id}
-                      </span>
-                    </MiniCell>
-                    <MiniCell align="right">
-                      <span className="font-medium text-ink tabular-nums">
-                        {count(account.balance_points)}
-                      </span>
-                    </MiniCell>
-                    <MiniCell align="right">
-                      {account.reconciles ? (
-                        <span className="text-mute tabular-nums">
-                          {count(account.ledger_sum)}
+                        <AppLink
+                          to="/members/points-ledger"
+                          sheet={{
+                            key: "customer",
+                            value: account.customer_id,
+                          }}
+                          className="text-ink underline-offset-2 hover:underline"
+                        >
+                          {account.display_name ?? account.customer_id}
+                        </AppLink>
+                        <span className="block font-mono text-[0.875rem] text-mute">
+                          {account.customer_id}
                         </span>
-                      ) : (
-                        <span className="flex items-center justify-end gap-1.5">
-                          <span className="text-bad tabular-nums">
+                      </MiniCell>
+                      <MiniCell align="right">
+                        <span className="font-medium text-ink tabular-nums">
+                          {count(account.balance_points)}
+                        </span>
+                      </MiniCell>
+                      <MiniCell align="right">
+                        {account.reconciles ? (
+                          <span className="text-mute tabular-nums">
                             {count(account.ledger_sum)}
                           </span>
-                          <Pill tone="bad">does not match</Pill>
+                        ) : (
+                          <span className="flex items-center justify-end gap-1.5">
+                            <span className="text-bad tabular-nums">
+                              {count(account.ledger_sum)}
+                            </span>
+                            <Pill tone="bad">does not match</Pill>
+                          </span>
+                        )}
+                      </MiniCell>
+                      <MiniCell align="right">
+                        <span className="tabular-nums">
+                          {count(account.entries)}
                         </span>
-                      )}
-                    </MiniCell>
-                    <MiniCell align="right">
-                      <span className="tabular-nums">
-                        {count(account.entries)}
-                      </span>
-                    </MiniCell>
-                    <MiniCell align="right">
-                      <span className="text-[0.875rem] text-mute">
-                        {account.last_movement === null
-                          ? "never"
-                          : moment(account.last_movement)}
-                      </span>
-                    </MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
+                      </MiniCell>
+                      <MiniCell align="right">
+                        <span className="text-[0.875rem] text-mute">
+                          {account.last_movement === null
+                            ? "never"
+                            : moment(account.last_movement)}
+                        </span>
+                      </MiniCell>
+                    </MiniRow>
+                  ))}
+                </MiniTable>
+                {/* Inside the card, which scrolls with the page — see
+                  `<LoadMore>`. */}
+                <LoadMore query={list} className="py-3" />
+              </>
             ),
         })}
       </Card>

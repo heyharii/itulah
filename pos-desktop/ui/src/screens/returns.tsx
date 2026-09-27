@@ -79,9 +79,9 @@ const DISPOSITIONS = [
 
 /// How the money goes back.
 ///
-/// The node checks this with `PaymentMethod::from_str`, which knows five, and
-/// all five are offered here — including `OTHER`, which the counter itself does
-/// not take. A refund that was neither cash nor a reversal has to be able to
+/// The node checks this with `PaymentMethod::from_str`, and refuses a voucher
+/// (paying one back out would be issuing one), so the other five are offered
+/// here — including `OTHER`, which the counter itself does not take. A refund that was neither cash nor a reversal has to be able to
 /// say so: the shift report buckets `refund_method='CASH'` against the drawer,
 /// so a transfer booked as cash is a drawer that comes up short at close with
 /// nobody able to say why.
@@ -93,7 +93,7 @@ const REFUNDS = [
   { value: "CASH", label: "Tunai" },
   { value: "CARD", label: "Kartu" },
   { value: "QRIS", label: "QRIS" },
-  { value: "VOUCHER", label: "Voucher" },
+  { value: "EWALLET", label: "E-Wallet" },
   { value: "OTHER", label: "Lainnya" },
 ] as const
 

@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
@@ -14,14 +14,16 @@ import { PageHeader } from "@/components/ui/page-header"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, Truncated } from "@/components/ui/states"
+import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { useFilters } from "@/lib/filters"
+import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, money, moment } from "@/lib/format"
 import {
+  customerSummary,
   customerTransaction,
   customerTransactions,
   storeopsKeys,
+  type CustomerHistoryScope,
 } from "@/lib/queries/storeops"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
@@ -46,26 +48,30 @@ import type { CustomerTransaction } from "@itulah/contract"
 ///
 /// Paged by cursor rather than by offset, because history grows at the newest
 /// end and an offset would show somebody a purchase twice.
+///
+/// **The narrowing goes to the server.** The date and amount chips are
+/// parameters of the history endpoint, so a filtered list is the member's
+/// whole matching history walked page by page — not a narrowing of whatever
+/// had been scrolled in, which is what this screen used to say under a banner.
+/// The order is newest first and is not offered as a choice: the endpoint's
+/// cursor is built on it, and sorting the pages in hand would call a screenful
+/// the history.
 
 const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
   {
     accessorKey: "occurred_at",
     header: "When",
     size: 170,
-    /// "Between August and September" is what somebody asks a member's history
-    /// — the only question on this screen that is not answered by reading down
-    /// the first page.
-    meta: { filter: { kind: "date" } },
+    enableSorting: false,
     cell: ({ row }) => moment(row.original.occurred_at),
   },
   {
     accessorKey: "site_id",
     header: "Store",
     size: 140,
-    /// The shops THIS member has used, faceted off their own rows — these are
-    /// the shops' own sale records, and the ids they carry are the ones the
-    /// shops report, not the ones the centre spells.
-    meta: { filter: { kind: "option" } },
+    enableSorting: false,
+    /// The shop's own id, as the shops report it — not the one the centre
+    /// spells.
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.site_id}</span>
     ),
@@ -74,27 +80,18 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     accessorKey: "item_count",
     header: "Items",
     size: 100,
+    enableSorting: false,
     meta: { align: "right" },
     // Units, not lines: two of the same shirt reads as two items on a receipt
-    // and should read as two here. Not filtered: basket size is read down the
-    // column, never asked as a question.
+    // and should read as two here.
     cell: ({ row }) => count(row.original.item_count),
   },
   {
     accessorKey: "discount_total_minor",
     header: "Saved",
     size: 140,
-    /// "Saved at least something" is the promotions question, and it is the
-    /// one this column exists for.
-    ///
-    /// **No `scale`, despite the `_minor` in the name.** `lib/format.ts` says
-    /// it plainly — IDR has no minor unit in practice, so the server's "minor"
-    /// is already whole rupiah and `money()` prints it undivided. A
-    /// `scale: 100` would multiply every bound typed here by a hundred.
-    meta: {
-      align: "right",
-      filter: { kind: "number", unit: "Rp" },
-    },
+    enableSorting: false,
+    meta: { align: "right" },
     cell: ({ row }) =>
       row.original.discount_total_minor > 0 ? (
         <span className="text-ok-fg">
@@ -108,8 +105,7 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     accessorKey: "points_earned",
     header: "Points",
     size: 100,
-    // Not filtered: points are earned in proportion to what was charged, so a
-    // clause here is the Charged clause said less clearly.
+    enableSorting: false,
     meta: { align: "right" },
     cell: ({ row }) => count(row.original.points_earned),
   },
@@ -117,10 +113,8 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     accessorKey: "total_minor",
     header: "Charged",
     size: 150,
-    meta: {
-      align: "right",
-      filter: { kind: "number", unit: "Rp" },
-    },
+    enableSorting: false,
+    meta: { align: "right" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         {money(row.original.total_minor)}
@@ -129,25 +123,124 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
   },
 ]
 
+/// The chips this history can carry — each a parameter the endpoint answers,
+/// with its operators cut to what the request can hold.
+///
+/// **No `scale` on the money fields, despite the `_minor` in the names.**
+/// `lib/format.ts` says it plainly — IDR has no minor unit in practice, so the
+/// server's "minor" is already whole rupiah and a bound goes on the wire as
+/// typed.
+///
+/// There is no Store chip: the server does not count a member's shops, and a
+/// picker filled from the rows scrolled in so far would offer only those. The
+/// Store column still reads it.
+const MONEY_OPERATORS = ["gte", "lte", "between"] as const
+const FIELDS: readonly FilterField[] = [
+  {
+    column: "occurred_at",
+    label: "When",
+    /// "Between August and September" is what somebody asks a member's
+    /// history. Local business days — the server's boundary (WIB).
+    spec: {
+      kind: "date",
+      single: true,
+      operators: ["is", "onOrAfter", "onOrBefore", "between"],
+    },
+  },
+  {
+    column: "discount_total_minor",
+    label: "Saved",
+    /// "Saved at least something" is the promotions question.
+    spec: {
+      kind: "number",
+      unit: "Rp",
+      single: true,
+      operators: MONEY_OPERATORS,
+    },
+  },
+  {
+    column: "total_minor",
+    label: "Charged",
+    spec: {
+      kind: "number",
+      unit: "Rp",
+      single: true,
+      operators: MONEY_OPERATORS,
+    },
+  },
+]
+
+/// The chips as the parameters the endpoint answers.
+function scopeFromFilters(filters: readonly Filter[]): CustomerHistoryScope {
+  const scope: {
+    -readonly [K in keyof CustomerHistoryScope]: CustomerHistoryScope[K]
+  } = {}
+  const amount = (raw: string | undefined) => {
+    const parsed = Number(raw)
+    return raw === undefined || raw === "" || !Number.isFinite(parsed)
+      ? undefined
+      : Math.round(parsed)
+  }
+  /// A money clause as its two bounds, either of which may be absent.
+  const bounds = (
+    operator: string,
+    values: readonly string[]
+  ): { low?: number; high?: number } => {
+    if (operator === "gte") return { low: amount(values[0]) }
+    if (operator === "lte") return { high: amount(values[0]) }
+    if (operator === "between") {
+      const [a, b] = [amount(values[0]), amount(values[1])]
+      if (a === undefined || b === undefined) return {}
+      return { low: Math.min(a, b), high: Math.max(a, b) }
+    }
+    return {}
+  }
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0) continue
+    const [first, second] = values
+    if (column === "occurred_at") {
+      if (operator === "is") {
+        scope.from = first
+        scope.to = first
+      } else if (operator === "onOrAfter") scope.from = first
+      else if (operator === "onOrBefore") scope.to = first
+      else if (operator === "between" && second !== undefined) {
+        scope.from = first <= second ? first : second
+        scope.to = first <= second ? second : first
+      }
+    } else if (column === "total_minor") {
+      const { low, high } = bounds(operator, values)
+      scope.minTotal = low
+      scope.maxTotal = high
+    } else if (column === "discount_total_minor") {
+      const { low, high } = bounds(operator, values)
+      scope.minSaved = low
+      scope.maxSaved = high
+    }
+  }
+  return scope
+}
+
 export function Member() {
   const member = useSheet("member")
   const receipt = useSheet("sale")
   const [typed, setTyped] = useState("")
-  // Newest first is the server's own order and the one a counter reads in;
-  // sorting is still offered because "what did they spend most on" is the other
-  // question this list is opened for.
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "occurred_at", desc: true },
-  ])
 
   const customerId = member.value ?? ""
 
+  const filters = useFilterState(FIELDS)
+  const scope = useMemo(
+    () => scopeFromFilters(filters.filters),
+    [filters.filters]
+  )
+
   const history = useInfiniteQuery({
-    queryKey: storeopsKeys.customerHistory(customerId),
+    queryKey: storeopsKeys.customerHistory(customerId, scope),
     queryFn: ({ pageParam, signal }) =>
       customerTransactions(
         customerId,
         {
+          ...scope,
           limit: 25,
           beforeOccurredAt: pageParam?.at,
           beforeSaleId: pageParam?.id,
@@ -160,6 +253,16 @@ export function Member() {
         ? { at: last.next_before_occurred_at, id: last.next_before_sale_id }
         : undefined,
     enabled: customerId !== "",
+    // The previous answer stays while a changed chip is asked about.
+    placeholderData: (previous) => previous,
+  })
+
+  /// The member's whole custom, added up by the server — voided sales left
+  /// out. The tiles quote these, never a sum of the pages scrolled in.
+  const summary = useQuery({
+    queryKey: storeopsKeys.customerSummary(customerId),
+    queryFn: ({ signal }) => customerSummary(customerId, signal),
+    enabled: customerId !== "",
   })
 
   const rows = useMemo(
@@ -167,35 +270,23 @@ export function Member() {
     [history.data]
   )
 
-  const filters = useFilters(columns)
+  const narrowed = filters.filters.length > 0
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: filters.columns,
+        columns,
         getRowId: (row: CustomerTransaction) => row.sale_id,
-        state: { columnFilters: filters.columnFilters, sorting },
-        onSortingChange: setSorting,
+        // The rows arrive in the server's order, newest first.
+        manualSorting: true,
       }),
-      [rows, filters.columns, filters.columnFilters, sorting]
+      [rows]
     )
   )
 
-  // Over what has been loaded, and labelled as such. The endpoint that adds a
-  // member's whole custom up (`/customer/{id}/summary`) is not this module's,
-  // so quoting these as lifetime totals would be a number that changes every
-  // time somebody presses "Older".
-  const loaded = rows.reduce(
-    (sum, row) => ({
-      spent: sum.spent + row.total_minor,
-      saved: sum.saved + row.discount_total_minor,
-      points: sum.points + row.points_earned,
-      items: sum.items + row.item_count,
-    }),
-    { spent: 0, saved: 0, points: 0, items: 0 }
-  )
+  const totals = summary.data
 
   return (
     <PageContent>
@@ -243,37 +334,44 @@ export function Member() {
             redemption happens at a till and the centre cannot see it yet.
           </Banner>
 
+          {/* All time, from the server — the chips below narrow the list and
+              not these, which is why they sit above the chips. */}
           <KpiStrip>
-            <Kpi label="Purchases loaded" value={count(rows.length)} />
-            <Kpi label="Items" value={count(loaded.items)} />
-            <Kpi label="Charged" value={money(loaded.spent)} />
-            <Kpi label="Promotions took off" value={money(loaded.saved)} />
-            <Kpi label="Points earned" value={count(loaded.points)} />
+            <Kpi
+              label="Purchases, all time"
+              value={
+                totals === undefined ? "—" : count(totals.transaction_count)
+              }
+            />
+            <Kpi
+              label="Charged"
+              value={totals === undefined ? "—" : money(totals.spent_minor)}
+            />
+            <Kpi
+              label="Promotions took off"
+              value={totals === undefined ? "—" : money(totals.saved_minor)}
+            />
+            <Kpi
+              label="Points earned"
+              value={
+                totals === undefined ? "—" : count(totals.points_earned_total)
+              }
+            />
             <Kpi
               label="Average basket"
               value={
-                rows.length === 0
+                totals === undefined || totals.transaction_count === 0
                   ? "—"
-                  : money(Math.round(loaded.spent / rows.length))
+                  : money(
+                      Math.round(totals.spent_minor / totals.transaction_count)
+                    )
               }
             />
           </KpiStrip>
 
-          {/* Below the tiles rather than beside the title, deliberately: the
-              six figures above are the fold of everything loaded and the
-              clauses do not touch them, so the chips belong on the list's side
-              of that line. */}
           <Toolbar>
-            <FilterPanel model={filters} table={table} />
+            <FilterPanel model={filters} />
           </Toolbar>
-
-          {/* A history is read a page at a time, and the filters — like the
-              sort — only ever see the pages already fetched. While the server
-              still has older purchases to give, a narrowed list here is a
-              narrowing of what arrived, which is not the same answer. */}
-          {history.hasNextPage && (
-            <Truncated limit={rows.length} noun="purchases" />
-          )}
 
           <Card className="overflow-hidden">
             {queryState(history, {
@@ -281,37 +379,21 @@ export function Member() {
               render: () =>
                 rows.length === 0 ? (
                   <EmptyState>
-                    That member holds a card and has not used it yet — no shop
-                    has reported a purchase against this id.
+                    {narrowed
+                      ? "None of this member's purchases match the filters in force."
+                      : "That member holds a card and has not used it yet — no shop has reported a purchase against this id."}
                   </EmptyState>
                 ) : (
                   <DataTable<CustomerTransaction>
                     table={table}
                     onRowClick={(row) => receipt.open(row.sale_id)}
                     isSelected={(row) => row.sale_id === receipt.value}
-                    empty={
-                      <>
-                        None of the {count(rows.length)} purchases loaded match
-                        the filters in force.
-                      </>
-                    }
+                    more={history}
                     className="max-h-[calc(100vh-22rem)]"
                   />
                 ),
             })}
           </Card>
-
-          {history.hasNextPage && (
-            <div className="mt-3 flex justify-center">
-              <Button
-                variant="ghost"
-                disabled={history.isFetchingNextPage}
-                onClick={() => history.fetchNextPage()}
-              >
-                {history.isFetchingNextPage ? "Reading…" : "Older purchases"}
-              </Button>
-            </div>
-          )}
         </>
       )}
 

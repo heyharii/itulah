@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
@@ -11,18 +11,20 @@ import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { EmptyState, Truncated } from "@/components/ui/states"
+import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { useFilters } from "@/lib/filters"
-import { moment } from "@/lib/format"
+import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
+import { count, moment } from "@/lib/format"
 import { queryState } from "@/lib/query-state"
 import {
   auditKeys,
+  auditPage,
   readAction,
-  recentAudit,
   type AuditEntry,
+  type AuditScope,
 } from "@/lib/queries/audit"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 
 /// Everything anybody did, newest first.
 ///
@@ -34,21 +36,33 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 /// answer "what changed" and quietly lose "who kept trying", which is the more
 /// interesting half on a console with roles.
 ///
-/// **Every count on this screen is a count of rows that are here.** The facets
-/// in the filter panel are computed over the page in the browser, not over the
-/// log, and the page is capped — so the banner above the table says how many
-/// arrived. On an audit surface an approximate figure is worse than none: "12
-/// refusals" read as the week's total, when it is the number of refusals among
-/// the newest five hundred actions, is how somebody closes an investigation
-/// early. The server counts the whole feed exactly in `facets.outcomes`; when
-/// this screen starts narrowing at the server, those are the numbers to show.
+/// **The question goes to the server.** The search, who acted, the method, the
+/// refused/ok split and the order are all parameters `GET /api/v1/audit`
+/// answers, and the log is walked with `next_cursor` as the table scrolls. It
+/// used to ask for the newest five hundred actions and narrow them in the
+/// browser under a banner; every count here is now the server's exact
+/// `COUNT(*)` over the whole log — on an audit surface an approximate figure
+/// is worse than none.
+///
+/// What the server cannot narrow is not offered: the "Did" wording is read out
+/// of the path in the browser, and a chip on it would narrow only the loaded
+/// rows.
+
+/// Which column means which of the four orders the endpoint names. A column
+/// not in here cannot be sorted — sorting it would sort the loaded pages and
+/// call that the log.
+const SORTS: Record<string, AuditScope["sort"]> = {
+  at: "at",
+  display_name: "actor",
+  status: "status",
+  path: "path",
+}
 
 const columns: ColumnDef<TableSetup, AuditEntry>[] = [
   {
     accessorKey: "at",
     header: "When",
     size: 150,
-    meta: { filter: { kind: "date" } },
     cell: ({ row }) => (
       <span className="text-body tabular-nums">{moment(row.original.at)}</span>
     ),
@@ -57,11 +71,6 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     accessorKey: "display_name",
     header: "Who",
     size: 170,
-    // A console has a dozen accounts, not a thousand, so the set of people who
-    // appear here is a set somebody can read down — which is what makes "what
-    // did this person do" a pick rather than a typed name they might spell the
-    // way the roster does and not the way the log does.
-    meta: { filter: { kind: "option", label: "Who" } },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.display_name}</span>
     ),
@@ -71,7 +80,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     accessorFn: (row) => readAction(row),
     header: "Did",
     size: 130,
-    meta: { filter: { kind: "option", label: "Did" } },
+    enableSorting: false,
     cell: ({ row }) => readAction(row.original),
   },
   {
@@ -79,10 +88,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     accessorFn: (row) => row.subject_kind ?? "",
     header: "To",
     size: 240,
-    // Empty is a real answer here rather than a missing one: a sign-in changes
-    // nothing and names no record, so `is empty` is how somebody separates
-    // sessions from edits.
-    meta: { filter: { kind: "option", label: "Record kind" } },
+    enableSorting: false,
     cell: ({ row }) =>
       row.original.subject_kind === null ? (
         <span className="text-mute">—</span>
@@ -102,7 +108,6 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     // The code itself, not a word for it. "Refused" is the segment above; this
     // is the column that tells a 403 from a 409 — somebody who may not do a
     // thing from somebody who may and was too late.
-    meta: { filter: { kind: "option", label: "Answer" } },
     cell: ({ row }) => (
       <Pill tone={row.original.status >= 400 ? "bad" : "ok"}>
         {row.original.status}
@@ -121,10 +126,20 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
   },
 ]
 
-/// What the feed is asked for. `FEED_MAX_LIMIT` at the server, so this is the
-/// most the log will ever hand over in one answer and there is no second page
-/// to ask for.
-const CAP = 500
+/// The chips as the parameters the endpoint answers. One value each: the route
+/// compares one column to one value, and both fields are `single`.
+function scopeFromFilters(filters: readonly Filter[]): {
+  actor?: string
+  method?: string
+} {
+  const scope: { actor?: string; method?: string } = {}
+  for (const { column, operator, values } of filters) {
+    if (values.length === 0 || operator !== "isAnyOf") continue
+    if (column === "actor") scope.actor = values[0]
+    else if (column === "method") scope.method = values[0]
+  }
+  return scope
+}
 
 export function ActivityLog() {
   const [query, setQuery] = useState("")
@@ -133,49 +148,103 @@ export function ActivityLog() {
     { id: "at", desc: true },
   ])
 
-  const feed = useQuery({
-    queryKey: auditKeys.feed(null),
-    queryFn: ({ signal }) => recentAudit(null, CAP, signal),
+  const fields = useMemo<FilterField[]>(
+    () => [
+      {
+        column: "actor",
+        label: "Who",
+        // A console has a dozen accounts, not a thousand, so the people who
+        // appear here are a set somebody can read down — a pick rather than a
+        // typed name they might spell the way the roster does.
+        spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+      },
+      {
+        column: "method",
+        label: "Method",
+        spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+      },
+    ],
+    []
+  )
+  const filters = useFilterState(fields)
+
+  // Debounced, because every keystroke is a query over the whole log.
+  const needle = useDebounced(query.trim(), 400)
+  const scope = useMemo<AuditScope>(() => {
+    const by = sorting[0]
+    const sort = by === undefined ? undefined : SORTS[by.id]
+    return {
+      ...scopeFromFilters(filters.filters),
+      ...(needle === "" ? {} : { q: needle }),
+      ...(only === "refused" ? { outcome: "REFUSED" as const } : {}),
+      ...(sort === undefined ? {} : { sort, desc: by?.desc !== false }),
+    }
+  }, [filters.filters, needle, only, sorting])
+
+  const feed = useInfiniteQuery({
+    queryKey: auditKeys.feed(scope),
+    queryFn: ({ pageParam, signal }) =>
+      auditPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
     // Short, because this is the one screen somebody watches while something
     // is happening.
     staleTime: 5_000,
   })
 
-  // The server answers an envelope now — rows, an exact total and exact facet
-  // counts. The screen still narrows "refused" over the page it holds, which is
-  // the smallest change that keeps it working; `feed.data.total` and
-  // `facets.outcomes` are there when somebody comes to make it a server filter.
-  const rows = useMemo(() => {
-    const all = feed.data?.rows ?? []
-    return only === "refused" ? all.filter((row) => row.status >= 400) : all
-  }, [feed.data, only])
+  const rows = useMemo(
+    () => feed.data?.pages.flatMap((page) => page.rows) ?? [],
+    [feed.data]
+  )
+  /// The first page carries the exact total and facet counts; the pages after
+  /// it are asked not to count.
+  const head = feed.data?.pages[0]
 
-  /// How long the answer was, before the segment narrowed it.
-  ///
-  /// The truncation notice has to be asked of the FEED and not of `rows`:
-  /// picking "Refused" throws most of the page away, and testing the remainder
-  /// would take the notice down exactly when the reader is looking at a
-  /// fraction of a capped page.
-  const arrived = feed.data?.rows.length ?? 0
+  /// The same fields, carrying the server's exact tally over everything the
+  /// search matches — not a count of the rows that happen to be loaded.
+  const counted = useMemo<FilterField[]>(() => {
+    const facets = head?.facets
+    if (!facets) return fields
+    const names = new Map<string, string>(
+      facets.actors.map((one) => [one.value, one.label ?? one.value] as const)
+    )
+    return fields.map((field) =>
+      field.column === "actor"
+        ? {
+            ...field,
+            spec: {
+              ...field.spec,
+              counted: facets.actors,
+              format: (value: string) => names.get(value) ?? value,
+            },
+          }
+        : field.column === "method"
+          ? { ...field, spec: { ...field.spec, counted: facets.methods } }
+          : field
+    )
+  }, [fields, head])
 
-  const filters = useFilters(columns)
+  const refused = head?.facets?.outcomes.find(
+    (one) => one.value === "REFUSED"
+  )?.count
+
+  const narrowed =
+    needle !== "" || filters.filters.length > 0 || only === "refused"
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: filters.columns,
+        columns,
         getRowId: (row: AuditEntry) => String(row.audit_id),
-        state: {
-          columnFilters: filters.columnFilters,
-          globalFilter: query,
-          sorting,
-        },
+        state: { sorting },
+        // The rows arrive in the order the request asked for.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, sorting]
     )
   )
 
@@ -191,13 +260,24 @@ export function ActivityLog() {
         <Segmented
           options={[
             { value: "all", label: "Everything" },
-            { value: "refused", label: "Refused" },
+            {
+              value: "refused",
+              label:
+                refused === undefined
+                  ? "Refused"
+                  : `Refused · ${count(refused)}`,
+            },
           ]}
           value={only}
           onChange={setOnly}
         />
-        <FilterPanel model={filters} table={table} />
+        <FilterPanel model={{ ...filters, fields: counted }} />
         <Toolbar.Spacer />
+        {head?.total !== undefined && head.total !== null && (
+          <span className="text-meta text-mute tabular-nums">
+            {count(head.total)} actions
+          </span>
+        )}
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -206,25 +286,24 @@ export function ActivityLog() {
         />
       </Toolbar>
 
-      {/* Only when the answer came back exactly as long as the question. A
-          shorter one proves the log had no more to give; this length proves
-          nothing either way — and every clause above narrows these rows and no
-          others. */}
-      {arrived >= CAP && <Truncated limit={CAP} noun="actions" />}
-
       <Card className="overflow-hidden">
         {queryState(feed, {
           loading: "Reading the log…",
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                {only === "refused"
+                {only === "refused" &&
+                filters.filters.length === 0 &&
+                needle === ""
                   ? "Nothing has been refused."
-                  : "Nothing has been done yet."}
+                  : narrowed
+                    ? "No action matches what you asked for."
+                    : "Nothing has been done yet."}
               </EmptyState>
             ) : (
               <DataTable<AuditEntry>
                 table={table}
+                more={feed}
                 className="max-h-[calc(100vh-15rem)]"
               />
             ),

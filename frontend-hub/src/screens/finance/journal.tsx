@@ -1,5 +1,10 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { Plus, Trash2 } from "lucide-react"
@@ -23,7 +28,6 @@ import {
   EmptyState,
   NoAccessState,
   NoMatch,
-  Truncated,
 } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, money, moment } from "@/lib/format"
@@ -38,6 +42,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
 import { useWindow } from "@/screens/finance/hooks"
 import {
   AccountAndCategory,
@@ -123,6 +128,7 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
     accessorKey: "memo",
     header: "Memo",
     size: 300,
+    enableSorting: false,
     cell: ({ row }) => (
       <span className="text-text">{row.original.memo ?? "—"}</span>
     ),
@@ -133,6 +139,7 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
       row.reversed_by !== null ? 2 : row.reversal_of !== null ? 1 : 0,
     header: "Answered",
     size: 130,
+    enableSorting: false,
     // The decision metric, and why the list leads with it: an entry that has
     // been reversed, or that is itself a reversal, is the one somebody is
     // looking for when they open this screen.
@@ -163,6 +170,7 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
     accessorKey: "line_count",
     header: "Lines",
     size: 90,
+    enableSorting: false,
     meta: { align: "right" },
     cell: ({ row }) => count(row.original.line_count),
   },
@@ -186,12 +194,19 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
   },
 ]
 
-/// What this screen asks the register for, named once so the banner and the
-/// request cannot disagree. It is the server's ceiling and not a page size:
-/// the search box and every column heading below narrow what is already here,
-/// so this is also the number past which the register stops being able to
-/// answer the question it appears to answer.
-const CAP = 200
+/// How many entries one page of the register asks for. A step, not a
+/// ceiling: the table asks for the next page as its last rows scroll into view.
+const PAGE = 100
+
+/// The columns the server can order by, and the word it knows each one as.
+/// Every other column carries `enableSorting: false`: sorting the pages in
+/// hand and calling it the register is the mistake infinite scroll invites.
+const SORTS: Record<string, string> = {
+  entry_number: "number",
+  posting_date: "date",
+  source_kind: "kind",
+  total_minor: "total",
+}
 
 export function Journal() {
   const [query, setQuery] = useState("")
@@ -204,38 +219,54 @@ export function Journal() {
     { id: "posting_date", desc: true },
   ])
 
-  // Both filters go on the wire and neither is applied here. A register
-  // narrowed in the browser is a slice of the newest CAP entries of *every*
-  // kind, which answers a different question than the newest CAP payments —
-  // and the difference is invisible until somebody trusts it.
-  const entries = useQuery({
-    queryKey: financeKeys.journal(
-      range.from,
-      range.to,
-      kind || null,
-      site || null
-    ),
-    queryFn: ({ signal }) =>
-      listJournal(
-        {
-          from: range.from,
-          to: range.to,
-          kind: kind || undefined,
-          site: site || undefined,
-          limit: CAP,
-        },
-        signal
-      ),
+  /// Debounced, because every keystroke is a round trip over the register.
+  const needle = useDebounced(query.trim(), 400)
+  const by = sorting[0]
+  const scope = {
+    from: range.from,
+    to: range.to,
+    kind: kind || undefined,
+    site: site || undefined,
+    q: needle === "" ? undefined : needle,
+    sort: by === undefined ? undefined : SORTS[by.id],
+    dir: by?.desc === true ? "desc" : undefined,
+    limit: PAGE,
+  }
+
+  // The window, the source, the location, the search and the order all go on
+  // the wire, and none is applied here — so every page is a page of the
+  // answer, and the register reads on to its end as somebody scrolls.
+  const entries = useInfiniteQuery({
+    queryKey: [
+      ...financeKeys.journal(range.from, range.to, kind || null, site || null),
+      "pages",
+      scope,
+    ],
+    queryFn: ({ pageParam, signal }) =>
+      listJournal({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched. Without
+    // it every keystroke empties the table to a loading line.
+    placeholderData: (previous) => previous,
   })
 
-  const rows = useMemo(() => entries.data?.rows ?? [], [entries.data])
-  // How many entries the window and the filters actually match, from the
-  // server. The table below still narrows what is on screen in the browser,
-  // and that is fine for a page — what was not fine was having no way to know
-  // the page was one.
-  const matched = entries.data?.total ?? rows.length
+  const rows = useMemo(
+    () => entries.data?.pages.flatMap((page) => page.rows) ?? [],
+    [entries.data]
+  )
+  // How many entries the window, the search and the filters match, from the
+  // server — never the length of the pages loaded so far.
+  const matched = entries.data?.pages[0]?.total ?? 0
 
   const filters = useFilters(columns)
+  /// Whether the search or a column clause is narrowing the register —
+  /// "nothing was posted" and "nothing matches" have different fixes.
+  const narrowed = needle !== "" || filters.filters.length > 0
+  const clearNarrowing = () => {
+    setQuery("")
+    filters.clear()
+  }
 
   const table = useTable(
     useMemo(
@@ -246,13 +277,15 @@ export function Journal() {
         getRowId: (row: JournalEntryRow) => row.entry_id,
         state: {
           columnFilters: filters.columnFilters,
-          globalFilter: query,
           sorting,
         },
+        // The rows arrive in the order the request asked for, and the search
+        // box is the server's. Doing either again here would do it to the
+        // pages in hand and call it the register.
+        manualSorting: true,
         onSortingChange: setSorting,
-        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting]
     )
   )
 
@@ -303,35 +336,25 @@ export function Journal() {
           aria-label="Location"
         />
         {/* Only two columns are offered here, and the three controls to the
-            left are the reason: window, source and location all go on the wire,
-            so a second copy of any of them in the panel would narrow the
-            browser's slice of a list the server had already narrowed
-            differently — two answers to one question. What is left is what the
-            wire cannot carry. */}
+            left are the reason: window, source and location all go on the
+            wire, so a second copy of any of them in the panel would be two
+            answers to one question. What is left is what the wire cannot
+            carry, and it narrows the pages loaded — the table keeps reading
+            while a clause leaves its end in view. */}
         <FilterPanel model={filters} table={table} />
         <Toolbar.Spacer />
         {/* The window is stated rather than implied, and so is everything else
-            narrowing the list. The cap is not the window's: it is the
-            server's, and a reader who has narrowed to a fortnight should still
-            be told what was asked for. */}
+            narrowing the list, and how many entries the server found. */}
         <span className="text-[0.875rem] text-mute">
           {range.chip}
           {kind !== "" &&
             ` · ${SOURCE_KINDS.find((row) => row.value === kind)?.label}`}
           {site !== "" && " · "}
           {site !== "" && <SiteName id={site} />}
-          {matched > rows.length
-            ? ` · the newest ${CAP} of ${count(matched)} entries in it`
-            : ` · ${count(matched)} ${matched === 1 ? "entry" : "entries"} in it`}
+          {entries.data !== undefined &&
+            ` · ${count(matched)} ${matched === 1 ? "entry" : "entries"} in it`}
         </span>
       </Toolbar>
-
-      {/* The chip above says what was asked for; this says the answer came
-          back exactly that long, which is the only case where the register
-          cannot tell a complete fortnight from a truncated one. Outside the
-          card, because it is a statement about the list rather than a row in
-          it. */}
-      {matched > rows.length && <Truncated limit={CAP} noun="entries" />}
 
       <Card className="overflow-hidden">
         {queryState(entries, {
@@ -347,7 +370,9 @@ export function Journal() {
             />
           ),
           render: () =>
-            rows.length === 0 ? (
+            rows.length === 0 && narrowed ? (
+              <NoMatch what="entries" onClear={clearNarrowing} />
+            ) : rows.length === 0 ? (
               <EmptyState>
                 No entry was posted between {day(range.from)} and{" "}
                 {day(range.to)}
@@ -360,16 +385,11 @@ export function Journal() {
                 table={table}
                 onRowClick={(row) => entry.open(row.entry_id)}
                 isSelected={(row) => row.entry_id === entry.value}
-                // The count is what separates "nothing was posted in this
-                // window" — the sentence above — from "something was, and none
-                // of it matches what you typed".
-                empty={
-                  <NoMatch
-                    what="entries"
-                    held={rows.length}
-                    onClear={() => setQuery("")}
-                  />
-                }
+                // What the column clauses leave of the pages in hand. The
+                // table keeps asking for pages while this shows, so it is only
+                // final once the register has been read to its end.
+                empty={<NoMatch what="entries" onClear={clearNarrowing} />}
+                more={entries}
                 className="max-h-[calc(100vh-17rem)]"
               />
             ),
@@ -438,7 +458,8 @@ function EntrySheet({
               </span>
               <Button
                 variant="danger"
-                disabled={reason.trim() === "" || reverse.isPending}
+                pending={reverse.isPending}
+                disabled={reason.trim() === ""}
                 onClick={() => reverse.mutate()}
               >
                 {reverse.isPending ? "Reversing…" : "Reverse"}
@@ -764,7 +785,8 @@ function ComposerSheet({
               </span>
               <Button
                 variant="primary"
-                disabled={!totals.balanced || post.isPending}
+                pending={post.isPending}
+                disabled={!totals.balanced}
                 onClick={() => form.handleSubmit()}
               >
                 {post.isPending ? "Posting…" : "Post entry"}
@@ -802,7 +824,7 @@ function ComposerSheet({
         <div className="grid grid-cols-2 gap-3">
           <form.Field name="postingDate">
             {(field) => (
-              <Field label="Posting date">
+              <Field label="Posting date" required>
                 <Day
                   value={field.state.value}
                   onBlur={field.handleBlur}

@@ -268,7 +268,8 @@ export function Claims() {
         ? "Claims waiting on a decision, across every place."
         : `Claims waiting on a decision at ${bounded}.`,
     all: "Every claim the caller may see, decided or not.",
-    types: "The kinds of expense a claim may be filed against. Head office names them; a place picks from them.",
+    types:
+      "The kinds of expense a claim may be filed against. Head office names them; a place picks from them.",
   }
 
   return (
@@ -441,7 +442,11 @@ function FileClaim() {
   // Exactly one person to file for is not a choice, so it is made for the
   // caller — and the field says whose claim this is rather than hiding it.
   const who =
-    employeeId !== "" ? employeeId : people.length === 1 ? people[0]!.employee_id : ""
+    employeeId !== ""
+      ? employeeId
+      : people.length === 1
+        ? people[0]!.employee_id
+        : ""
 
   const file = useMutation({
     mutationFn: () => {
@@ -492,7 +497,7 @@ function FileClaim() {
           </Banner>
         )}
 
-        <Field label="For">
+        <Field label="For" required>
           <Select value={who} onChange={(next) => setEmployeeId(next)}>
             <option value="">Choose…</option>
             {people.map((person) => (
@@ -502,7 +507,7 @@ function FileClaim() {
             ))}
           </Select>
         </Field>
-        <Field label="Kind of expense">
+        <Field label="Kind of expense" required>
           <Select value={typeCode} onChange={(next) => setTypeCode(next)}>
             <option value="">Choose…</option>
             {kinds.map((kind) => (
@@ -514,11 +519,16 @@ function FileClaim() {
         </Field>
         <Field
           label="Spent on"
+          required
           hint="The day the money went out, not the day the claim is filed."
         >
           <Day value={spentOn} onChange={setSpentOn} />
         </Field>
-        <Field label="Amount" hint="Whole rupiah, as the receipt shows it.">
+        <Field
+          label="Amount"
+          hint="Whole rupiah, as the receipt shows it."
+          required
+        >
           <Input
             type="number"
             min={1}
@@ -526,7 +536,11 @@ function FileClaim() {
             onChange={(event) => setAmount(event.target.value)}
           />
         </Field>
-        <Field label="What for" hint="Said the way the receipt would say it.">
+        <Field
+          label="What for"
+          hint="Said the way the receipt would say it."
+          required
+        >
           <Input
             value={description}
             onChange={(event) => setDescription(event.target.value)}
@@ -535,6 +549,7 @@ function FileClaim() {
         </Field>
         <Field
           label="Why this claim"
+          required
           hint="Recorded against the filing and the submission, and required."
         >
           <Input
@@ -546,7 +561,8 @@ function FileClaim() {
         <div>
           <Button
             variant="primary"
-            disabled={!ready || file.isPending}
+            pending={file.isPending}
+            disabled={!ready}
             onClick={() => file.mutate()}
           >
             File and send it
@@ -617,7 +633,12 @@ function ClaimSheet({
   if (row === null) return null
 
   return (
-    <Sheet open onOpenChange={(next) => !next && onClose()} id={row.claim_id} title={row.claim_number}>
+    <Sheet
+      open
+      onOpenChange={(next) => !next && onClose()}
+      id={row.claim_id}
+      title={row.claim_number}
+    >
       <Pill tone={claimStateTone(row.state)}>{claimStateLabel(row.state)}</Pill>
 
       {/* A claim that came back says so before anything else on the sheet —
@@ -698,7 +719,7 @@ function ClaimSheet({
           <div>
             <Button
               variant="primary"
-              disabled={pay.isPending}
+              pending={pay.isPending}
               onClick={() => pay.mutate()}
             >
               Pay from petty cash
@@ -713,7 +734,8 @@ function ClaimSheet({
             <div>
               <Button
                 variant="primary"
-                disabled={reason.trim() === "" || send.isPending}
+                pending={send.isPending}
+                disabled={reason.trim() === ""}
                 onClick={() => send.mutate()}
               >
                 Send it in
@@ -726,6 +748,7 @@ function ClaimSheet({
           <Field
             label="Why"
             hint="Recorded against the submission or withdrawal, and required."
+            required
           >
             <Input
               value={reason}
@@ -736,7 +759,8 @@ function ClaimSheet({
           <div>
             <Button
               variant="danger"
-              disabled={reason.trim() === "" || takeBack.isPending}
+              pending={takeBack.isPending}
+              disabled={reason.trim() === ""}
               onClick={() => takeBack.mutate()}
             >
               Take it back
@@ -838,7 +862,13 @@ function DecidePanel({ row }: { row: ClaimRow }) {
     <div className="mt-4 flex flex-col gap-3">
       <SubHead>Decide</SubHead>
       {failed !== null && <Banner tone="bad">{failed}</Banner>}
-      <MiniTable head={["Kind", { label: "Claimed", align: "right" }, { label: "Sanction", align: "right" }]}>
+      <MiniTable
+        head={[
+          "Kind",
+          { label: "Claimed", align: "right" },
+          { label: "Sanction", align: "right" },
+        ]}
+      >
         {row.lines.map((line) => (
           <MiniRow key={line.line_id}>
             <MiniCell>
@@ -867,7 +897,11 @@ function DecidePanel({ row }: { row: ClaimRow }) {
           </MiniRow>
         ))}
       </MiniTable>
-      <Field label="Why" hint="Recorded against the decision, and required.">
+      <Field
+        label="Why"
+        hint="Recorded against the decision, and required."
+        required
+      >
         <Input
           value={reason}
           onChange={(event) => setReason(event.target.value)}
@@ -877,21 +911,24 @@ function DecidePanel({ row }: { row: ClaimRow }) {
       <ButtonGroup>
         <Button
           variant="primary"
-          disabled={!ready || decide.isPending}
+          pending={decide.isPending}
+          disabled={!ready}
           onClick={() => decide.mutate(true)}
         >
           Approve
         </Button>
         <Button
           variant="danger"
-          disabled={!ready || decide.isPending}
+          pending={decide.isPending}
+          disabled={!ready}
           onClick={() => decide.mutate(false)}
         >
           Refuse
         </Button>
         <Button
           variant="quiet"
-          disabled={reason.trim() === "" || sendBack.isPending}
+          pending={sendBack.isPending}
+          disabled={reason.trim() === ""}
           onClick={() => sendBack.mutate()}
         >
           Send back
@@ -1009,14 +1046,14 @@ function ClaimTypes() {
             <CardTitle>Define a kind</CardTitle>
           </CardHeader>
           <div className="flex flex-col gap-3 px-4 pb-4">
-            <Field label="Code" hint="Upper-cased, and never changes.">
+            <Field label="Code" hint="Upper-cased, and never changes." required>
               <Input
                 value={code}
                 onChange={(event) => setCode(event.target.value)}
                 placeholder="SUPPLIES"
               />
             </Field>
-            <Field label="Name">
+            <Field label="Name" required>
               <Input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
@@ -1025,6 +1062,7 @@ function ClaimTypes() {
             </Field>
             <Field
               label="Expense category"
+              required
               hint={
                 categories.isSuccess && claimCategories.length === 0
                   ? "Finance has no expense category open to claims yet — one is needed before a kind can be defined."
@@ -1045,11 +1083,9 @@ function ClaimTypes() {
             <div>
               <Button
                 variant="primary"
+                pending={define.isPending}
                 disabled={
-                  code.trim() === "" ||
-                  name.trim() === "" ||
-                  category === "" ||
-                  define.isPending
+                  code.trim() === "" || name.trim() === "" || category === ""
                 }
                 onClick={() => define.mutate()}
               >
@@ -1068,7 +1104,7 @@ function ClaimTypes() {
               <Quiet>Nothing left to retire.</Quiet>
             ) : (
               <>
-                <Field label="Kind">
+                <Field label="Kind" required>
                   <Select
                     value={retireCode}
                     onChange={(next) => setRetireCode(next)}
@@ -1084,6 +1120,7 @@ function ClaimTypes() {
                 <Field
                   label="Why"
                   hint="Recorded against the cancellation, and required."
+                  required
                 >
                   <Input
                     value={retireWhy}
@@ -1094,11 +1131,8 @@ function ClaimTypes() {
                 <div>
                   <Button
                     variant="danger"
-                    disabled={
-                      retireCode === "" ||
-                      retireWhy.trim() === "" ||
-                      retire.isPending
-                    }
+                    pending={retire.isPending}
+                    disabled={retireCode === "" || retireWhy.trim() === ""}
                     onClick={() => retire.mutate()}
                   >
                     Cancel it

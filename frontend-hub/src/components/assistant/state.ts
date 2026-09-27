@@ -1,6 +1,6 @@
 import { createContext, use } from "react"
 
-import type { StoredMessage, ToolRun } from "@/lib/queries/assistant"
+import type { StoredMessage, ToolRun, Verdict } from "@/lib/queries/assistant"
 
 /// The conversation, held in one place because three things draw it.
 ///
@@ -37,6 +37,15 @@ export interface Exchange {
   /// Set when the turn ended badly. The exchange stays on screen: a question
   /// that failed is still a question that was asked.
   readonly error?: string
+  /// The answer's own id on the node — what a verdict is filed against.
+  /// Absent while it is being written, and on an answer that was not kept.
+  readonly answerId?: string
+  /// Which model answered and what the turn cost, in US dollars.
+  readonly model?: string
+  readonly costUsd?: number
+  /// Whether the person judged it right, and what was wrong if not.
+  readonly verdict?: Verdict
+  readonly verdictNote?: string
 }
 
 export interface Session {
@@ -57,6 +66,9 @@ export interface Session {
   start: () => void
   /// Open a kept chat and adopt its turns.
   resume: (id: string) => void
+  /// Say whether one answer was right — `null` takes it back — with a line
+  /// on what was wrong. Shown at once, and put back if the node refuses it.
+  judge: (exchangeId: string, verdict: Verdict | null, note?: string) => void
 }
 
 export const AssistantContext = createContext<Session | null>(null)
@@ -101,6 +113,15 @@ export function asExchanges(
       runs: message.runs ?? [],
       streaming: false,
       error: message.error ?? undefined,
+      answerId: message.id,
+      model: message.model ?? undefined,
+      costUsd:
+        message.cost_usd_micros === null ||
+        message.cost_usd_micros === undefined
+          ? undefined
+          : message.cost_usd_micros / 1_000_000,
+      verdict: message.verdict ?? undefined,
+      verdictNote: message.verdict_note ?? undefined,
     }
     if (open && open.answer === "" && !open.error) {
       exchanges[exchanges.length - 1] = answered

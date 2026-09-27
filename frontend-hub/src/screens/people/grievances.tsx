@@ -155,8 +155,7 @@ const listColumns: ColumnDef<TableSetup, GrievanceRow>[] = [
     accessorFn: (row) => row.raised_by_name ?? row.raised_by,
     header: "Raised by",
     size: 180,
-    cell: ({ row }) =>
-      row.original.raised_by_name ?? row.original.raised_by,
+    cell: ({ row }) => row.original.raised_by_name ?? row.original.raised_by,
   },
   {
     id: "against",
@@ -490,9 +489,7 @@ function FileGrievance() {
   })
 
   const ready =
-    typeCode !== "" &&
-    subject.trim() !== "" &&
-    description.trim() !== ""
+    typeCode !== "" && subject.trim() !== "" && description.trim() !== ""
 
   return (
     <Card className="mt-4 overflow-hidden">
@@ -521,7 +518,7 @@ function FileGrievance() {
             ))}
           </Select>
         </Field>
-        <Field label="Kind">
+        <Field label="Kind" required>
           <Select value={typeCode} onChange={(next) => setTypeCode(next)}>
             <option value="">Choose…</option>
             {kinds.map((kind) => (
@@ -546,7 +543,7 @@ function FileGrievance() {
               ))}
           </Select>
         </Field>
-        <Field label="Subject">
+        <Field label="Subject" required>
           <Input
             value={subject}
             onChange={(event) => setSubject(event.target.value)}
@@ -555,6 +552,7 @@ function FileGrievance() {
         </Field>
         <Field
           label="What happened"
+          required
           hint="Said plainly. This is read at head office, by somebody who was not there."
         >
           <Textarea
@@ -573,7 +571,8 @@ function FileGrievance() {
         <div>
           <Button
             variant="primary"
-            disabled={!ready || file.isPending}
+            pending={file.isPending}
+            disabled={!ready}
             onClick={() => file.mutate()}
           >
             File it
@@ -648,19 +647,23 @@ function GrievanceSheet({
   const live = row.state === "OPEN" || row.state === "INVESTIGATED"
 
   return (
-    <Sheet open onOpenChange={(next) => !next && onClose()} id={row.grievance_id} title={row.subject}>
+    <Sheet
+      open
+      onOpenChange={(next) => !next && onClose()}
+      id={row.grievance_id}
+      title={row.subject}
+    >
       <Pill tone={grievanceStateTone(row.state)}>
         {grievanceStateLabel(row.state)}
       </Pill>
 
       <Facts>
-        <Fact term="Raised by">
-          {row.raised_by_name ?? row.raised_by}
-        </Fact>
+        <Fact term="Raised by">{row.raised_by_name ?? row.raised_by}</Fact>
         <Fact term="Filed by">{row.filed_by}</Fact>
         <Fact term="Against">
-          {row.against_name ??
-            row.against_employee ?? <span className="text-mute">—</span>}
+          {row.against_name ?? row.against_employee ?? (
+            <span className="text-mute">—</span>
+          )}
         </Fact>
         <Fact term="Place">{row.place_name ?? row.place_id}</Fact>
         <Fact term="Kind">{row.type_name}</Fact>
@@ -686,13 +689,13 @@ function GrievanceSheet({
 
       <div className="mt-4">
         <SubHead>What happened</SubHead>
-        <p className="text-body whitespace-pre-wrap">{row.description}</p>
+        <p className="whitespace-pre-wrap text-body">{row.description}</p>
       </div>
 
       {row.investigation_note !== null && (
         <div className="mt-4">
           <SubHead>Investigation</SubHead>
-          <p className="text-body whitespace-pre-wrap">
+          <p className="whitespace-pre-wrap text-body">
             {row.investigation_note}
           </p>
         </div>
@@ -701,7 +704,7 @@ function GrievanceSheet({
       {row.resolution_detail !== null && (
         <div className="mt-4">
           <SubHead>Decision</SubHead>
-          <p className="text-body whitespace-pre-wrap">
+          <p className="whitespace-pre-wrap text-body">
             {row.resolution_detail}
           </p>
         </div>
@@ -712,6 +715,7 @@ function GrievanceSheet({
           <SubHead>Investigate</SubHead>
           <Field
             label="What was found"
+            required
             hint="Recorded against the investigation, and required. It decides nothing — the decision is the next signature."
           >
             <Textarea
@@ -723,7 +727,8 @@ function GrievanceSheet({
           <div>
             <Button
               variant="primary"
-              disabled={note.trim() === "" || investigate.isPending}
+              pending={investigate.isPending}
+              disabled={note.trim() === ""}
               onClick={() => investigate.mutate()}
             >
               Record the investigation
@@ -737,6 +742,7 @@ function GrievanceSheet({
           <SubHead>Decide</SubHead>
           <Field
             label="Decision detail"
+            required
             hint="Recorded against the decision, and required."
           >
             <Textarea
@@ -748,14 +754,16 @@ function GrievanceSheet({
           <ButtonGroup>
             <Button
               variant="primary"
-              disabled={detail.trim() === "" || resolve.isPending}
+              pending={resolve.isPending}
+              disabled={detail.trim() === ""}
               onClick={() => resolve.mutate(true)}
             >
               Uphold
             </Button>
             <Button
               variant="danger"
-              disabled={detail.trim() === "" || resolve.isPending}
+              pending={resolve.isPending}
+              disabled={detail.trim() === ""}
               onClick={() => resolve.mutate(false)}
             >
               Not uphold
@@ -768,6 +776,7 @@ function GrievanceSheet({
         <div className="mt-4 flex flex-col gap-3">
           <Field
             label="Why withdrawn"
+            required
             hint="The filer's own act, offered to whoever is looking and refused by the server for anybody else. Required."
           >
             <Input
@@ -779,7 +788,8 @@ function GrievanceSheet({
           <div>
             <Button
               variant="danger"
-              disabled={reason.trim() === "" || withdraw.isPending}
+              pending={withdraw.isPending}
+              disabled={reason.trim() === ""}
               onClick={() => withdraw.mutate()}
             >
               Withdraw
@@ -916,14 +926,14 @@ function GrievanceTypes() {
             <CardTitle>Define a kind</CardTitle>
           </CardHeader>
           <div className="flex flex-col gap-3 px-4 pb-4">
-            <Field label="Code" hint="Upper-cased, and never changes.">
+            <Field label="Code" hint="Upper-cased, and never changes." required>
               <Input
                 value={code}
                 onChange={(event) => setCode(event.target.value)}
                 placeholder="SCHEDULE"
               />
             </Field>
-            <Field label="Name">
+            <Field label="Name" required>
               <Input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
@@ -933,9 +943,8 @@ function GrievanceTypes() {
             <div>
               <Button
                 variant="primary"
-                disabled={
-                  code.trim() === "" || name.trim() === "" || define.isPending
-                }
+                pending={define.isPending}
+                disabled={code.trim() === "" || name.trim() === ""}
                 onClick={() => define.mutate()}
               >
                 Define it
@@ -953,7 +962,7 @@ function GrievanceTypes() {
               <Quiet>Nothing left to retire.</Quiet>
             ) : (
               <>
-                <Field label="Kind">
+                <Field label="Kind" required>
                   <Select
                     value={retireCode}
                     onChange={(next) => setRetireCode(next)}
@@ -969,6 +978,7 @@ function GrievanceTypes() {
                 <Field
                   label="Why"
                   hint="Recorded against the cancellation, and required."
+                  required
                 >
                   <Input
                     value={retireWhy}
@@ -979,11 +989,8 @@ function GrievanceTypes() {
                 <div>
                   <Button
                     variant="danger"
-                    disabled={
-                      retireCode === "" ||
-                      retireWhy.trim() === "" ||
-                      retire.isPending
-                    }
+                    pending={retire.isPending}
+                    disabled={retireCode === "" || retireWhy.trim() === ""}
                     onClick={() => retire.mutate()}
                   >
                     Cancel it

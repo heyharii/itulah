@@ -403,6 +403,21 @@ fn the_wire_types_are_written_for_the_browser() {
         CreateUnitConversionRequest,
         UpdateUnitConversionRequest,
     );
+    // Setting the company up from the hub: the wizard's three answers, the
+    // stores it opens, and what is still to do before they trade.
+    for_contract!(
+        &config,
+        SetupStatus,
+        SetupCompany,
+        SetupStore,
+        SetupBooks,
+        SetupTask,
+        SaveSetupCompanyRequest,
+        NewStore,
+        OpenStoresRequest,
+        OpenStoresAnswer,
+        StartBooksRequest,
+    );
     // Where the words go on a bank's own giro leaf.
     inventory_backend::cloud::postgres::GiroPrintTemplate::export_all(&config)
         .unwrap_or_else(|e| panic!("GiroPrintTemplate: {e}"));
@@ -499,6 +514,22 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SendMessageRequest: {e}"));
     inventory_backend::cloud::postgres::MarkReadRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("MarkReadRequest: {e}"));
+    // Since `0476`: a message can be answered, edited, deleted, reacted to and
+    // pinned, and a group has admins and a life after it is made.
+    for_contract!(
+        &config,
+        ChatMember,
+        ChatReplyPreview,
+        ChatReaction,
+        ChatSearchHit,
+        EditMessageRequest,
+        ReactRequest,
+        PinMessageRequest,
+        RenameConversationRequest,
+        ConversationPreferencesRequest,
+        AddParticipantsRequest,
+        SetAdminRequest,
+    );
     inventory_backend::cloud::postgres::CollaborationEvent::export_all(&config)
         .unwrap_or_else(|e| panic!("CollaborationEvent: {e}"));
 
@@ -518,6 +549,25 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SetThreadStatusRequest: {e}"));
     inventory_backend::cloud::http::discussion::SetBookmarkRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("SetBookmarkRequest: {e}"));
+    inventory_backend::cloud::http::discussion::SetSubscriptionRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetSubscriptionRequest: {e}"));
+    inventory_backend::cloud::http::discussion::SetPinRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetPinRequest: {e}"));
+    // What 0490 added: corrections and their history, reactions, the post a
+    // reply answers, and the board's tags and kinds.
+    for_contract!(
+        &config,
+        PostReference,
+        PostReaction,
+        PostRevision,
+        EditThreadRequest,
+        EditPostRequest,
+        ReactToPostRequest,
+        TagCount,
+        SubjectKindOption,
+        DiscussionPerson,
+        DismissedUnread,
+    );
 
     // Work that found a person. The read state is per reader, which is why
     // `read_at` sits on the notification a reader is handed rather than on the
@@ -763,6 +813,14 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SaveJournalRepeatRequest: {e}"));
     inventory_backend::cloud::postgres::JournalRepeatSweep::export_all(&config)
         .unwrap_or_else(|e| panic!("JournalRepeatSweep: {e}"));
+    inventory_backend::cloud::postgres::SitePaymentMethod::export_all(&config)
+        .unwrap_or_else(|e| panic!("SitePaymentMethod: {e}"));
+    inventory_backend::cloud::postgres::SetSitePaymentMethodsRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetSitePaymentMethodsRequest: {e}"));
+    inventory_backend::cloud::domain::TillPaymentMethod::export_all(&config)
+        .unwrap_or_else(|e| panic!("TillPaymentMethod: {e}"));
+    inventory_backend::cloud::domain::PaymentMethodBook::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentMethodBook: {e}"));
     inventory_backend::cloud::postgres::PeriodClosingRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("PeriodClosingRequest: {e}"));
     inventory_backend::cloud::postgres::PeriodClosingVoucher::export_all(&config)
@@ -877,6 +935,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SupplierBillLine: {e}"));
     inventory_backend::cloud::postgres::UnbilledReceipt::export_all(&config)
         .unwrap_or_else(|e| panic!("UnbilledReceipt: {e}"));
+    inventory_backend::cloud::postgres::UnbilledPage::export_all(&config)
+        .unwrap_or_else(|e| panic!("UnbilledPage: {e}"));
     // What `GET /finance/bills` actually answers: a page of bills in an
     // envelope, not a bare array. The envelope is `MoneyOverview`'s — rows, a
     // cursor, the count of everything that matched, and the facet counts — so

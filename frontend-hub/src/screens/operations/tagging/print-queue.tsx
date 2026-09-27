@@ -255,7 +255,7 @@ function PrintAction({
         {done && (
           <Button
             variant="soft"
-            disabled={reprint.isPending || confirm.isPending}
+            pending={reprint.isPending || confirm.isPending}
             onClick={() => reprint.mutate()}
           >
             <RotateCcw />
@@ -282,7 +282,7 @@ function PrintAction({
         ) : (
           <Button
             variant="primary"
-            disabled={print.isPending || existing.isPending}
+            pending={print.isPending || existing.isPending}
             onClick={() => print.mutate()}
           >
             <PrinterIcon />
@@ -528,7 +528,8 @@ function ConnectionTest() {
     <div className="flex flex-col gap-2">
       <Button
         variant="soft"
-        disabled={test.isPending || printer.host.trim() === ""}
+        pending={test.isPending}
+        disabled={printer.host.trim() === ""}
         onClick={() => test.mutate()}
       >
         {test.isPending ? "Knocking…" : "Test connection"}
@@ -665,7 +666,12 @@ function PrinterCard() {
                 onChange={(event) =>
                   savePrinter({
                     ...printer,
-                    darkness: clampTo(event.target.value, 0, 30, printer.darkness),
+                    darkness: clampTo(
+                      event.target.value,
+                      0,
+                      30,
+                      printer.darkness
+                    ),
                   })
                 }
               />
@@ -678,7 +684,12 @@ function PrinterCard() {
                 onChange={(event) =>
                   savePrinter({
                     ...printer,
-                    speedIps: clampTo(event.target.value, 1, 12, printer.speedIps),
+                    speedIps: clampTo(
+                      event.target.value,
+                      1,
+                      12,
+                      printer.speedIps
+                    ),
                   })
                 }
               />

@@ -217,10 +217,14 @@ one page:
 - **Log tail**, filterable.
 - **Actions**: Sync sekarang · Backup sekarang · Restart · Buat paket diagnosa.
 
-A **tray light** (`itulah-store-tray.exe`, a few MB of Rust) sits beside the
-clock for whoever uses the PC: green/amber/red, *Buka konsol*, *Salin info
-dukungan*. A service cannot draw a tray icon; this is why it is a second,
-tiny process and not a feature of the service.
+A **tray light** (`deploy/windows/store-tray.ps1`) sits beside the clock for
+whoever uses the PC: green/amber/red, plus grey while the machine waits to be
+enrolled. Its menu has *Open status page* and *Check now*, and a balloon
+appears when the colour changes. A service cannot draw a tray icon, so the
+light is a second, tiny process rather than a feature of the service. It is a
+PowerShell 5.1 script, not a Rust binary: nothing to compile or sign
+separately, it only reads the loopback console and the service state, and the
+MSI starts it at every sign-in (HKLM Run).
 
 ### Every state, and what each screen says about it
 
@@ -510,3 +514,83 @@ setup page, and uninstalls.
 4. Default maintenance window — opening hours differ per shop?
 5. A Windows machine or VM to test the service and MSI on. CI can build it;
    someone has to install it.
+
+## 9d. Phase 3 and 4 — status (2026-09-27)
+
+Built:
+
+- **Console** `localhost:8082/console` (`edge/console.rs`, `console.html`), in the
+  hub's design tokens; loopback only; Sinkron sekarang, Diagnosa, Backup,
+  Restart (refuses with open drawers unless forced). Opened from disk or with
+  `?demo=…` it is its own prototype.
+- **Heartbeat** every minute (`edge/heartbeat.rs`, 15 s retry after a failure),
+  carrying the snapshot in `sync/node_status.rs`; the answer measures clock
+  skew; a successful heartbeat closes an open sync breaker.
+- **Judgement** `sync::node_status::assess`, one function for the console and
+  the hub: OK, RECOVERED, UNSTABLE (> 3 disturbances a day), OFFLINE,
+  SYNC_BEHIND, DISK_LOW/CRITICAL, CLOCK_SKEW, KEY_REFUSED, REJECTED_FACTS, and
+  from afar SILENT / NEVER_SEEN.
+- **Cloud** (migration 0463): `node_heartbeat`, `node_incident`,
+  `node_health_sample`; alerts `node.attention` / `node.recovered` to Admins,
+  once per condition; a silence sweep every minute (10 min threshold).
+- **Uptime, UptimeRobot-shaped** (`node_uptime`): state and since, last check,
+  1/7/30/90-day uptime, 90 daily bars, outages with cause. A deliberate stop is
+  maintenance and does not count.
+- **Hub**: System → **Monitoring** (headline, Total/Up/Down/Maintenance, a row
+  per shop with 90 bars) with a detail sheet (24 h bar, windows, incidents,
+  remote actions with a required reason, latest diagnosis); **Incidents**;
+  Nodes gained Condition / What is happening / Last 4 hours / Version.
+- **Public status page** `/status/{STATUS_PAGE_TOKEN}`: no login, no script,
+  phone-first, refreshes itself.
+- **Remote operations** (`sync/node_ops.rs`, `edge/ops.rs`, migration 0475):
+  `node.restart` (waits for drawers, 12 h at most, unless forced),
+  `node.backup`, `node.diagnose` (report uploaded to `node_diagnostic`), and
+  re-sending the initial data — all on the signed command lane, expiring in
+  an hour.
+- **Backups** daily `VACUUM INTO`, seven kept, postponed while busy.
+- **Adaptive sync** (`edge/pace.rs`): interval ×2 when busy, ×6 when short of
+  CPU or memory, three calm readings to relax; tills are never slowed.
+  `OOMScoreAdjust=-500` on the unit.
+- **Desktop hub** `frontend-hub/desktop` (Electron): hosted hub in its own
+  window, tray, start at login, native notifications from the stream,
+  electron-updater.
+
+Tested end to end in a Lima Ubuntu VM (systemd 255): silent install by code,
+approval, sync, heartbeat; crash → back in 6 s; hang → own watchdog (exit 70);
+frozen process → systemd watchdog (SIGABRT); crash loop → 503 with the reason,
+clean stop while holding; offline → OFFLINE / SILENT, back in 45 s instead of
+the breaker's 118 s; clean reboot → CLEAN; hard power-off → UNCLEAN with
+`machine_restarted: true`, database intact; upgrade in place; uninstall keeps
+the data; reinstall resumes as the same node.
+
+Also built since (written, not yet compiled — the user asked for code first,
+builds later):
+
+- **Updater** (`edge/update.rs`, `node.update`): signed with Ed25519 over the
+  digest (`deploy/release/sign-release.sh`), public key compiled in via
+  `ITULAH_RELEASE_PUBLIC_KEY`; installs in the window (default 23:00-05:00)
+  with every drawer closed; database backed up first; new executable in
+  `<data>/bin`, the installed one hands over to it by `exec`; committed after
+  it syncs within 3 minutes, rolled back (executable and database) if it falls
+  over within 10. Windows: fetched, verified and staged; the MSI installs it.
+- **UPS** (`edge/power.rs`): NUT on Linux, the battery a USB UPS presents on
+  Windows; on battery the backlog goes up at once and backups wait; the
+  console, the Fleet and the incident history say so (`ON_BATTERY`,
+  `UPS_LOW`, `OnBattery`, `PowerRestored`).
+- **mDNS** (`edge/discovery.rs`): `_itulah-store._tcp` with site, origin and
+  version.
+- **Bootstrap complete**: open purchase orders and tagging jobs re-issued in
+  their original order, and today's attendance book.
+- **DPAPI** (`edge/secret.rs`): the sync key in `node.env` is sealed to the
+  machine on Windows.
+
+Not yet: real Windows and real UPS hardware. Since built:
+- the Windows tray light (`deploy/windows/store-tray.ps1`, in the MSI);
+- the hub's Update form;
+- the server status banner in the store app;
+- `install-store.sh --ups`;
+- `tests/node_health_integration.rs` (written, not run).
+
+A new store from the hub now belongs to the onboarding and unit/site lanes: a
+unit plus sites from a template. That lane pairs the store server with this
+lane's enrolment codes.

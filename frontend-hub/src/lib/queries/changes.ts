@@ -129,6 +129,11 @@ export const eventKeys = {
   all: ["commercial", "price-events"] as const,
   list: (version: number | null, siteId: string | null) =>
     ["commercial", "price-events", version, siteId] as const,
+  /// The paged log, under the same prefix so an invalidation of `all` still
+  /// reaches it, and with its own tail so no plain `useQuery` of one scope
+  /// reads a paged answer as a list.
+  pages: (siteId: string | null, kinds: readonly string[]) =>
+    ["commercial", "price-events", "pages", siteId, kinds.join(",")] as const,
 }
 
 export function listPriceEvents(
@@ -146,6 +151,46 @@ export function listPriceEvents(
       { signal }
     )
     .then((body) => body.rows)
+}
+
+/// One page of the log, and where the next starts.
+///
+/// `rows` is the name the unpaged log answered with — `listPriceEvents` above
+/// reads the first page and is still exactly what it was.
+export interface PriceEventPage {
+  readonly rows: PriceEvent[]
+  /// Opaque. Absent means this was the last page.
+  readonly next_cursor: string | null
+}
+
+export interface PriceEventScope {
+  readonly version?: number | null
+  readonly siteId?: string | null
+  /// Kinds to keep; empty or absent is every kind. Narrowed by the server, so
+  /// a lens over a paged log is a lens over the whole log.
+  readonly kinds?: readonly PriceEventKind[]
+  readonly cursor?: string
+  readonly limit?: number
+}
+
+/// The log a page at a time, for an infinite list. Newest first, on a keyset
+/// the server issues — the cursor is passed back verbatim.
+export function priceEventPage(
+  scope: PriceEventScope,
+  signal?: AbortSignal
+): Promise<PriceEventPage> {
+  const params = new URLSearchParams({ limit: String(scope.limit ?? 100) })
+  if (scope.version !== undefined && scope.version !== null)
+    params.set("version", String(scope.version))
+  if (scope.siteId !== undefined && scope.siteId !== null)
+    params.set("site_id", scope.siteId)
+  if (scope.kinds !== undefined && scope.kinds.length > 0)
+    params.set("kind", scope.kinds.join(","))
+  if (scope.cursor !== undefined) params.set("cursor", scope.cursor)
+  return node.get<PriceEventPage>(
+    `/api/v1/commercial/price-events?${params.toString()}`,
+    { signal }
+  )
 }
 
 /// What each kind says, in the fewest words that keep the five apart.

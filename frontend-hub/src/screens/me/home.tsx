@@ -113,7 +113,7 @@ export function Home() {
           against reach and the record anyway. */}
       {isManager && (
         <Link
-          to={"/people/requests" as string}
+          to={"/people/overview" as string}
           className={button({
             size: "tap",
             className: "w-full justify-between md:h-control",

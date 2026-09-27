@@ -6,7 +6,6 @@ import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
-import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import {
@@ -553,25 +552,15 @@ export function Movements() {
                     /// being dropped to pay for it. Virtualised, every cell is
                     /// `flex: 0 0 <size>px` and the truncation inside it
                     /// happens. Without this the first page would be laid out
-                    /// one way and the second, once Show more crosses 150
+                    /// one way and the second, once the scroll crosses 150
                     /// rows, another.
                     virtualizeAbove={0}
+                    more={ledger}
                     className="max-h-[calc(100vh-14rem)]"
                   />
                 ),
             })}
           </Card>
-
-          {ledger.hasNextPage && (
-            <div className="mt-4 flex justify-center">
-              <Button
-                onClick={() => void ledger.fetchNextPage()}
-                disabled={ledger.isFetchingNextPage}
-              >
-                {ledger.isFetchingNextPage ? "Fetching…" : "Show more"}
-              </Button>
-            </div>
-          )}
         </div>
 
         <DockedFilters

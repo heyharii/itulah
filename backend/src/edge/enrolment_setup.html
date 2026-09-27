@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="id">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pasang Server Toko</title>
+<title>Install Store Server</title>
 <style>
   :root {
     --bg: #f6f6f4; --card: #ffffff; --text: #1b1b19; --muted: #6b6b66;
@@ -56,30 +56,30 @@
 <body>
 <main>
   <section id="idle" hidden>
-    <h1>Pasang server toko</h1>
-    <p>Masukkan kode aktivasi dari kantor pusat (Hub → System → Nodes → Install server).</p>
+    <h1>Install store server</h1>
+    <p>Enter the activation code from head office (Hub → System → Nodes → Install server).</p>
     <form id="form">
-      <label for="code">Kode aktivasi</label>
+      <label for="code">Activation code</label>
       <input id="code" autocomplete="off" spellcheck="false" placeholder="XXXXX-XXXXX" maxlength="13" required autofocus>
-      <label for="cloud">Alamat cloud</label>
+      <label for="cloud">Cloud address</label>
       <input id="cloud" type="url" placeholder="https://…" required>
-      <button id="submit" type="submit">Hubungkan</button>
+      <button id="submit" type="submit">Connect</button>
       <div class="error" id="idle-error" role="alert"></div>
     </form>
   </section>
 
   <section id="waiting" hidden>
-    <h1>Menunggu persetujuan</h1>
-    <p>Sebutkan angka ini ke kantor pusat. Mereka akan mencocokkannya sebelum menyetujui mesin ini sebagai server <strong id="site"></strong>.</p>
+    <h1>Waiting for approval</h1>
+    <p>Read this number to head office. They match it before approving this machine as the server for <strong id="site"></strong>.</p>
     <div class="number" id="number" aria-live="polite"></div>
-    <div class="meta"><span class="dot live"></span><span id="waiting-note">Memeriksa setiap beberapa detik. Halaman ini boleh ditutup — server tetap menunggu.</span></div>
+    <div class="meta"><span class="dot live"></span><span id="waiting-note">Checking every few seconds. You can close this page — the server keeps waiting.</span></div>
     <div class="error" id="waiting-error" role="alert"></div>
   </section>
 
   <section id="enrolled" hidden>
-    <h1>Terhubung</h1>
-    <p>Mesin ini sekarang server <strong id="enrolled-site"></strong>. Data awal sedang dikirim dari cloud.</p>
-    <div class="meta"><span class="dot ok"></span><span>Server toko sedang dimulai…</span></div>
+    <h1>Connected</h1>
+    <p>This machine is now the server for <strong id="enrolled-site"></strong>. Initial data is coming from the cloud.</p>
+    <div class="meta"><span class="dot ok"></span><span>Store server starting…</span></div>
   </section>
 </main>
 <script>
@@ -131,10 +131,10 @@
         body: JSON.stringify({ code: $("code").value, cloud_url: $("cloud").value }),
       });
       const body = await response.json();
-      if (!response.ok) $("idle-error").textContent = body.error || "Gagal.";
+      if (!response.ok) $("idle-error").textContent = body.error || "Failed.";
       else render(body);
     } catch (error) {
-      $("idle-error").textContent = "Server lokal tidak menjawab: " + error;
+      $("idle-error").textContent = "The local server is not answering: " + error;
     } finally {
       $("submit").disabled = false;
     }

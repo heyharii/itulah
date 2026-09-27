@@ -1,5 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -9,11 +13,11 @@ import { Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
 import { moment } from "@/lib/format"
 import {
-  listSchedulerRuns,
   runSchedulerNow,
+  schedulerRunsPage,
   schedulerKeys,
   type SchedulerJobResult,
   type SchedulerRunRow,
@@ -40,10 +44,18 @@ export function Scheduler() {
   const [asOf, setAsOf] = useState("")
   const [reason, setReason] = useState("")
 
-  const runs = useQuery({
+  // The ledger a page at a time, newest first; the next page is asked for as
+  // the foot of the list nears view.
+  const runs = useInfiniteQuery({
     queryKey: schedulerKeys.runs(),
-    queryFn: ({ signal }) => listSchedulerRuns(signal),
+    queryFn: ({ pageParam, signal }) => schedulerRunsPage(pageParam, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   })
+  const ledger = useMemo(
+    () => runs.data?.pages.flatMap((page) => page.rows) ?? [],
+    [runs.data]
+  )
 
   const run = useMutation({
     mutationFn: () => runSchedulerNow({ asOf, reason: reason.trim() }),
@@ -58,7 +70,7 @@ export function Scheduler() {
   return (
     <PageContent>
       <PageHeader
-        crumb="People · Setup"
+        crumb="People · Settings"
         title="Scheduler"
         sub="Akrual cuti, expiry carry-forward, roster minggu depan, dan pengingat — dijalankan oleh clock, bukan oleh orang."
       />
@@ -78,7 +90,7 @@ export function Scheduler() {
             <Field label="Business day" hint="Optional: defaults to today.">
               <Day value={asOf} onChange={setAsOf} />
             </Field>
-            <Field label="Why now" hint="Required, and recorded.">
+            <Field label="Why now" hint="Required, and recorded." required>
               <Input
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
@@ -89,14 +101,17 @@ export function Scheduler() {
           <div>
             <Button
               variant="primary"
-              disabled={reason.trim() === "" || run.isPending}
+              pending={run.isPending}
+              disabled={reason.trim() === ""}
               onClick={() => run.mutate()}
             >
               Run the schedule
             </Button>
           </div>
 
-          {run.error !== null && <Banner tone="bad">{run.error.message}</Banner>}
+          {run.error !== null && (
+            <Banner tone="bad">{run.error.message}</Banner>
+          )}
           {results.length > 0 && (
             <div>
               <SubHead>What this pass did</SubHead>
@@ -113,23 +128,30 @@ export function Scheduler() {
       <Card className="overflow-hidden">
         <CardHeader>
           <CardTitle>Recent runs</CardTitle>
-          <span className="text-meta text-mute">Newest first, one row per worked period.</span>
+          <span className="text-meta text-mute">
+            Newest first, one row per worked period.
+          </span>
         </CardHeader>
         {queryState(runs, {
           loading: "Reading the run ledger…",
-          render: (rows) =>
-            rows.length === 0 ? (
+          render: () =>
+            ledger.length === 0 ? (
               <EmptyState>
                 Nothing has run yet. The worker ticks hourly; a month with no
                 row here has not accrued, and a roster with no carry has not
                 been planned.
               </EmptyState>
             ) : (
-              <div className="divide-y">
-                {(runs.data ?? []).map((row) => (
-                  <RunRow key={`${row.job}:${row.run_key}`} row={row} />
-                ))}
-              </div>
+              <>
+                <div className="divide-y">
+                  {ledger.map((row) => (
+                    <RunRow key={`${row.job}:${row.run_key}`} row={row} />
+                  ))}
+                </div>
+                {/* The page scrolls, not the card, so the marker sits at the
+                    foot of the list in the page's flow. */}
+                <LoadMore query={runs} />
+              </>
             ),
         })}
       </Card>
@@ -151,7 +173,9 @@ function outcomeTone(outcome: string) {
 function RunRow({ row }: { row: SchedulerRunRow }) {
   return (
     <div className="flex flex-wrap items-baseline gap-3 px-4 py-2.5">
-      <span className="w-56 shrink-0 font-mono text-id text-body">{row.job}</span>
+      <span className="w-56 shrink-0 font-mono text-id text-body">
+        {row.job}
+      </span>
       <span className="min-w-0 flex-1 truncate font-mono text-meta text-mute">
         {row.run_key}
       </span>
@@ -170,7 +194,9 @@ function RunRow({ row }: { row: SchedulerRunRow }) {
 function JobResult({ result }: { result: SchedulerJobResult }) {
   return (
     <div className="flex flex-wrap items-baseline gap-3 py-2">
-      <span className="w-56 shrink-0 font-mono text-id text-body">{result.job}</span>
+      <span className="w-56 shrink-0 font-mono text-id text-body">
+        {result.job}
+      </span>
       <Pill tone={outcomeTone(result.status)}>{result.status}</Pill>
       <span className="min-w-0 flex-1 truncate font-mono text-meta text-mute">
         {summarise(result.detail)}
@@ -185,7 +211,9 @@ function summarise(detail: unknown): string {
   if (typeof detail === "string") return detail
   if (typeof detail === "object") {
     const parts = Object.entries(detail as Record<string, unknown>)
-      .filter(([, value]) => value !== null && value !== undefined && value !== "")
+      .filter(
+        ([, value]) => value !== null && value !== undefined && value !== ""
+      )
       .map(([key, value]) => `${key}: ${String(value)}`)
     return parts.length === 0 ? "—" : parts.join(" · ")
   }

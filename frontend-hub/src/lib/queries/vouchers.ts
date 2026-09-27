@@ -1,4 +1,5 @@
 import { node } from "@/lib/api"
+import type { Filter } from "@/lib/filters"
 
 /// Vouchers — value a customer already holds and can pay with.
 ///
@@ -157,6 +158,19 @@ export interface VoucherQuery {
   /// `asc` or `desc`. Absent means each key's own natural direction — newest
   /// card first, biggest amount first, but a code and an expiry forwards.
   readonly dir?: string
+  /// The Status column's reading, which `status` cannot ask for: `EXPIRED` is
+  /// a live card past its date — the clock, not a stored status. ANDed with
+  /// `status`.
+  readonly state?: VoucherStatus | "EXPIRED"
+  /// Inclusive bounds on the face value and on what is left, in the same
+  /// units as the row (whole rupiah — see `lib/format`'s `money`).
+  readonly face_min?: number
+  readonly face_max?: number
+  readonly balance_min?: number
+  readonly balance_max?: number
+  /// Issued at or after this instant (ISO), and strictly before this one.
+  readonly issued_from?: string
+  readonly issued_before?: string
   /// A `next_cursor` from the previous page, verbatim.
   readonly cursor?: string
   readonly limit?: number
@@ -204,6 +218,13 @@ export const voucherKeys = {
       query.q ?? "",
       query.sort ?? "",
       query.dir ?? "",
+      query.state ?? "",
+      query.face_min ?? "",
+      query.face_max ?? "",
+      query.balance_min ?? "",
+      query.balance_max ?? "",
+      query.issued_from ?? "",
+      query.issued_before ?? "",
       query.cursor ?? "",
       query.limit ?? "default",
     ] as const,
@@ -218,10 +239,147 @@ function search(query: VoucherQuery): string {
   if (query.q) params.set("q", query.q)
   if (query.sort) params.set("sort", query.sort)
   if (query.dir) params.set("dir", query.dir)
+  if (query.state) params.set("state", query.state)
+  // Numbers by `!== undefined`: a bound of 0 is a question — "nothing left on
+  // it" — and a truthiness test would drop it.
+  if (query.face_min !== undefined)
+    params.set("face_min", String(query.face_min))
+  if (query.face_max !== undefined)
+    params.set("face_max", String(query.face_max))
+  if (query.balance_min !== undefined)
+    params.set("balance_min", String(query.balance_min))
+  if (query.balance_max !== undefined)
+    params.set("balance_max", String(query.balance_max))
+  if (query.issued_from) params.set("issued_from", query.issued_from)
+  if (query.issued_before) params.set("issued_before", query.issued_before)
   if (query.cursor) params.set("cursor", query.cursor)
   if (query.limit !== undefined) params.set("limit", String(query.limit))
   const encoded = params.toString()
   return encoded === "" ? "" : `?${encoded}`
+}
+
+/// The operators each docked field offers — exactly the questions the request
+/// can carry, so no chip narrows nothing.
+export const VOUCHER_NUMBER_OPERATORS = [
+  "is",
+  "gte",
+  "gt",
+  "lte",
+  "lt",
+  "between",
+] as const
+export const VOUCHER_DATE_OPERATORS = [
+  "is",
+  "onOrAfter",
+  "after",
+  "onOrBefore",
+  "before",
+  "between",
+] as const
+
+/// Local midnight of a `YYYY-MM-DD`, `days` later, as an instant. Local
+/// because "issued on the 3rd" means the shop's 3rd, not Greenwich's.
+function midnight(date: string, days = 0): string | undefined {
+  const at = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(at.getTime())) return undefined
+  at.setDate(at.getDate() + days)
+  return at.toISOString()
+}
+
+/// Whole units, or nothing. A bound that does not parse narrows nothing
+/// rather than everything.
+function whole(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === "") return undefined
+  const value = Number(raw)
+  return Number.isFinite(value) ? Math.round(value) : undefined
+}
+
+/// The docked filter clauses as request fields — the voucher list's filters
+/// are the SERVER's, so they see every card and not only the pages loaded.
+///
+/// Each field is `single` on the screen, so one clause per column; bounds are
+/// inclusive integers, which is why `gt 5` is sent as `min 6`.
+export function voucherScopeFromFilters(
+  filters: readonly Filter[]
+): Partial<VoucherQuery> {
+  const out: {
+    -readonly [K in keyof VoucherQuery]?: VoucherQuery[K]
+  } = {}
+  for (const { column, operator, values } of filters) {
+    if (column === "status") {
+      if (operator === "is" && values[0])
+        out.state = values[0] as VoucherStatus | "EXPIRED"
+      continue
+    }
+    if (column === "face" || column === "balance") {
+      const first = whole(values[0])
+      const second = whole(values[1])
+      let min: number | undefined
+      let max: number | undefined
+      switch (operator) {
+        case "is":
+          min = first
+          max = first
+          break
+        case "gte":
+          min = first
+          break
+        case "gt":
+          min = first === undefined ? undefined : first + 1
+          break
+        case "lte":
+          max = first
+          break
+        case "lt":
+          max = first === undefined ? undefined : first - 1
+          break
+        case "between":
+          if (first === undefined || second === undefined) break
+          min = Math.min(first, second)
+          max = Math.max(first, second)
+          break
+      }
+      if (column === "face") {
+        out.face_min = min
+        out.face_max = max
+      } else {
+        out.balance_min = min
+        out.balance_max = max
+      }
+      continue
+    }
+    if (column === "issued") {
+      const [first, second] = values
+      if (!first) continue
+      switch (operator) {
+        case "is":
+          out.issued_from = midnight(first)
+          out.issued_before = midnight(first, 1)
+          break
+        case "onOrAfter":
+          out.issued_from = midnight(first)
+          break
+        case "after":
+          out.issued_from = midnight(first, 1)
+          break
+        case "onOrBefore":
+          out.issued_before = midnight(first, 1)
+          break
+        case "before":
+          out.issued_before = midnight(first)
+          break
+        case "between": {
+          if (!second) break
+          const low = first <= second ? first : second
+          const high = first <= second ? second : first
+          out.issued_from = midnight(low)
+          out.issued_before = midnight(high, 1)
+          break
+        }
+      }
+    }
+  }
+  return out
 }
 
 export function listVouchers(
