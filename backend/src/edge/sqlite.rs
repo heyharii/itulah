@@ -215,6 +215,13 @@ pub(crate) const PURCHASE_UNIT_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0048_a_dc_counts_in_any_unit.sql"
 ));
 
+/// What head office says about this node's site and the others (`0049`):
+/// kind, display code, time zone. See `edge::site_profile`.
+pub(crate) const SITE_DIRECTORY_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0049_a_node_learns_its_site_from_head_office.sql"
+));
+
 /// How a sale was paid for, and not only how much.
 pub(crate) const SALE_TENDER_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -1160,6 +1167,11 @@ impl SqliteEdge {
                 .execute_batch(PURCHASE_UNIT_SCHEMA)
                 .map_err(db)?;
         }
+        // The site directory (`0049`): one table and one index, both
+        // `IF NOT EXISTS`, so no probe.
+        connection
+            .execute_batch(SITE_DIRECTORY_SCHEMA)
+            .map_err(db)?;
         if a_stream_says_whose_seqs_it_writes == 0 {
             connection
                 .execute_batch(SYNC_HANDSHAKE_SCHEMA)

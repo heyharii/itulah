@@ -29,6 +29,9 @@ pub mod pricing;
 pub mod printing;
 pub mod reports;
 pub mod rfid;
+/// What head office says about this node's site and the others — kind,
+/// display code, clock — so nothing here reads them off an id.
+pub mod site_profile;
 pub mod sqlite;
 pub mod sync;
 pub mod till;

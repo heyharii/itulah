@@ -1518,6 +1518,49 @@ pub struct AuthPolicySnapshot {
     pub sso_public_key: Option<String>,
     pub users: Vec<AuthPolicyUser>,
     pub devices: Vec<AuthPolicyDevice>,
+    /// The site this node stands in, as head office's `site` row says it:
+    /// its kind, the code printed on paper, and the clock its day is cut by.
+    ///
+    /// A node has no `site` table, and until this rode here it could only
+    /// guess those three from how its own id was spelled. It rides the auth
+    /// policy because that is the one command every node receives, renewed
+    /// every twelve hours, so a changed code or time zone reaches the node
+    /// without a new command type — which an older node would refuse, and
+    /// refusing blocks its whole command stream.
+    ///
+    /// Deliberately OUTSIDE `content_hash`. An older node recomputes the hash
+    /// from the fields it knows; putting this inside would make every policy
+    /// it receives fail verification and lock its users out when their leases
+    /// ran down. The command lane that carries it is already signed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site: Option<SiteProfile>,
+    /// Every site head office holds, the node's own included, so a node can
+    /// print a destination's code rather than its id, and tell a shop from
+    /// head office by the row rather than the spelling. Outside the hash for
+    /// the same reason as `site`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sites: Vec<SiteProfile>,
+}
+
+/// What head office says about one site, for a node that keeps no `site`
+/// table of its own.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SiteProfile {
+    pub site_id: String,
+    /// `site.kind` as stored: `HO` or `STORE`. Kept as text so a kind this
+    /// build does not know yet travels intact rather than failing the policy.
+    pub kind: String,
+    /// The display code (`HO-GUDANG`, `C001-TOKO`). Absent for a site nobody
+    /// has given one; printers then fall back to the id.
+    #[serde(default)]
+    pub code: Option<String>,
+    pub name: String,
+    /// IANA name, as `site.timezone` stores it.
+    pub timezone: String,
+    /// Minutes east of UTC in that zone when the policy was issued. Worked
+    /// out by head office, which has a tz database; a node has none, and every
+    /// zone the company trades in keeps one offset all year.
+    pub utc_offset_minutes: i32,
 }
 
 pub fn auth_policy_content_hash(snapshot: &AuthPolicySnapshot) -> String {

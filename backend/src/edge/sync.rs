@@ -1998,6 +1998,19 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
         params![snapshot.version],
     )
     .map_err(err)?;
+    // What head office says about this node's site and the others (0049).
+    // Only when it said something: a policy from an older centre carries
+    // neither, and must not wipe what a newer one sent.
+    if snapshot.site.is_some() || !snapshot.sites.is_empty() {
+        crate::edge::site_profile::replace(
+            tx,
+            snapshot.site.as_ref(),
+            &snapshot.sites,
+            snapshot.version,
+            &now_text(),
+        )
+        .map_err(err)?;
+    }
     tx.execute(
         "INSERT INTO edge_auth_policy_state
              (singleton,snapshot_id,version,origin_id,site_id,node_role,issued_at,
@@ -3868,6 +3881,8 @@ mod tests {
                 pools: vec!["store-07.floor".into()],
                 valid_until: now + chrono::Duration::days(7),
             }],
+            site: None,
+            sites: Vec::new(),
         };
         snapshot.content_hash = auth_policy_content_hash(&snapshot);
         let version_one = snapshot.clone();

@@ -13,7 +13,7 @@ use crate::{
         },
         domain::{
             auth_policy_content_hash, AuthPolicyDevice, AuthPolicySnapshot, AuthPolicyUser, Role,
-            COMMAND_AUTH_POLICY_REPLACE,
+            SiteProfile, COMMAND_AUTH_POLICY_REPLACE,
         },
     },
     edge::{EdgeRole, NodeContext, OperationalPool, SiteId},
@@ -1014,6 +1014,58 @@ pub async fn list_rfid_devices(
     })
 }
 
+/// What a node is told about its own site and every other, from `site` (0474).
+///
+/// Its own is the row it was enrolled at. A warehouse node may be enrolled
+/// under a site id the centre does not hold as a row (`dc-01` beside the
+/// centre's `dc`); its site is then head office's, because the Gudang is head
+/// office's — decided by the ROLE it was enrolled with, never by the spelling
+/// of its id. A shop node with no row is told nothing, and keeps its defaults.
+async fn site_profiles(
+    tx: &mut Transaction<'_, Postgres>,
+    node: &NodeContext,
+    at: DateTime<Utc>,
+) -> Result<(Option<SiteProfile>, Vec<SiteProfile>), AppError> {
+    let rows = sqlx::query(
+        "SELECT id, kind, code, name, timezone,
+                (EXTRACT(EPOCH FROM ($1::timestamptz AT TIME ZONE timezone)
+                                  - ($1::timestamptz AT TIME ZONE 'UTC')) / 60)::int
+                    AS utc_offset_minutes,
+                id IS NOT DISTINCT FROM head_office_site_id() AS is_head_office
+           FROM site
+          ORDER BY id",
+    )
+    .bind(at)
+    .fetch_all(&mut **tx)
+    .await?;
+    let mut own = None;
+    let mut head_office = None;
+    let mut sites = Vec::with_capacity(rows.len());
+    for row in rows {
+        let profile = SiteProfile {
+            site_id: row.try_get("id")?,
+            kind: row.try_get("kind")?,
+            code: row.try_get("code")?,
+            name: row.try_get("name")?,
+            timezone: row.try_get("timezone")?,
+            utc_offset_minutes: row.try_get("utc_offset_minutes")?,
+        };
+        if profile.site_id == node.site_id.as_str() {
+            own = Some(profile.clone());
+        }
+        if row.try_get::<bool, _>("is_head_office")? {
+            head_office = Some(profile.clone());
+        }
+        sites.push(profile);
+    }
+    let own = match (own, node.role) {
+        (Some(own), _) => Some(own),
+        (None, EdgeRole::Dc) => head_office,
+        (None, EdgeRole::Store) => None,
+    };
+    Ok((own, sites))
+}
+
 async fn allocate_policy_version(
     tx: &mut Transaction<'_, Postgres>,
     origin_id: &str,
@@ -1104,6 +1156,7 @@ pub async fn publish_auth_policy(
             valid_until: expiry,
         });
     }
+    let (site, sites) = site_profiles(&mut tx, &node, issued_at).await?;
     tx.commit().await?;
 
     let mut snapshot = AuthPolicySnapshot {
@@ -1122,6 +1175,8 @@ pub async fn publish_auth_policy(
         },
         users,
         devices,
+        site,
+        sites,
     };
     snapshot.content_hash = auth_policy_content_hash(&snapshot);
     let payload = serde_json::to_value(&snapshot)?;
