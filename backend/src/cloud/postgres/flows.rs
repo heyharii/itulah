@@ -52,7 +52,7 @@ use crate::cloud::domain::flow::{
     ProofRecord, RouteEnd, SourceKind, StageKind, StageRuntime, StageSide, StageStatus,
     TemplateProblem, TemplateStage,
 };
-use crate::cloud::domain::{DestinationType, Role};
+use crate::cloud::domain::{DestinationType, Posting, Reach, Role, UnitId, UnitKind};
 use crate::ids::SiteKind;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -1790,17 +1790,24 @@ pub struct FlowPreviewView {
 }
 
 /// Replay the document and the new actions in memory. Writes nothing.
+///
+/// Refused the way the confirm would be, reach included, so a person who
+/// cannot do the stage hears it before they press anything.
 pub async fn preview_flow_actions(
     pool: &PgPool,
     document_id: Uuid,
     actions: &[FlowActionInput],
     actor: &Actor,
+    reach: &Reach,
 ) -> Result<FlowPreviewView, AppError> {
     let mut connection = pool.acquire().await?;
     let row = load_document(&mut connection, document_id, false).await?;
     let state = load_state(&mut connection, &row).await?;
     let times = load_stage_times(&mut connection, document_id).await?;
-    flow::single_stage(actions).map_err(flow_error)?;
+    let stage_index = flow::single_stage(actions).map_err(flow_error)?;
+    if let Some(stage) = state.stages.get(stage_index) {
+        check_reach(&mut connection, &row, stage.kind(), actions, actor, reach).await?;
+    }
     let preview = flow::preview(&state, actions, actor).map_err(flow_error)?;
     Ok(FlowPreviewView {
         document: document_view(&row, &preview.state, &times, actor),
@@ -1832,14 +1839,97 @@ pub struct ResumeFlowRequest {
     pub idempotency_key: String,
 }
 
+/// Where a person may perform a stage, read for goods flows.
+///
+/// `domain::employment::Reach` answers it — their open posting's unit, and
+/// every unit for an Admin — with one widening that is the flows' own: head
+/// office runs the goods flows, so a person posted to the head-office unit
+/// reaches every site a flow touches (a head-office driver collecting a
+/// shop's return, a Gudang supervisor finishing a shop's receipt from the
+/// hub). A call a store's node relayed stays bounded to that node's unit
+/// whoever it is relayed for (`Reach::bounded_to`), exactly as HR's is.
+pub fn stage_reach(rung: Role, posting: Option<&Posting>, bound: Option<&UnitId>) -> Reach {
+    let head_office = posting.is_some_and(|posting| posting.kind() == UnitKind::HeadOffice);
+    let reach = if head_office {
+        Reach::Everywhere
+    } else {
+        Reach::resolve(rung, posting)
+    };
+    match bound {
+        Some(unit) => reach.bounded_to(unit),
+        None => reach,
+    }
+}
+
+/// The unit whose site a stage happens at: the origin's or the destination's,
+/// and head office's for a stage that happens there whatever the route (an
+/// approval). `None` for the side that is an outside party.
+async fn stage_unit(
+    connection: &mut PgConnection,
+    row: &DocumentRow,
+    kind: StageKind,
+) -> Result<Option<String>, AppError> {
+    Ok(match kind.spec().side {
+        StageSide::Origin => row.origin_unit_id.clone(),
+        StageSide::Destination => row.destination_unit_id.clone(),
+        StageSide::HeadOffice => Some(super::sites::head_office_unit_id(&mut *connection).await?),
+    })
+}
+
+/// A stage is performed where it happens: the rung the template asks for is
+/// the flow's own check (`domain::flow`), and this is the other half — the
+/// person's reach has to cover the unit of the site the stage is at. A store's
+/// staff receive at their own store and nowhere else.
+///
+/// Cancelling a document is not performing a stage; who may cancel is the
+/// flow's rule (the person who asked, or an Admin).
+async fn check_reach(
+    connection: &mut PgConnection,
+    row: &DocumentRow,
+    kind: StageKind,
+    actions: &[FlowActionInput],
+    actor: &Actor,
+    reach: &Reach,
+) -> Result<(), AppError> {
+    if actions
+        .iter()
+        .all(|action| action.action_type.trim() == flow::FLOW_ACTION_CANCEL_FLOW)
+    {
+        return Ok(());
+    }
+    let unit = stage_unit(&mut *connection, row, kind).await?;
+    if reach.covers(unit.as_deref()) {
+        return Ok(());
+    }
+    let place = match kind.spec().side {
+        StageSide::Origin => row.origin_site_id.clone(),
+        StageSide::Destination => row.destination_site_id.clone(),
+        StageSide::HeadOffice => None,
+    }
+    .or(unit)
+    .unwrap_or_else(|| "an outside party".into());
+    Err(AppError::Forbidden(format!(
+        "{} on {} happens at {place}; {} is not posted where that unit is reached",
+        kind.spec().label,
+        row.number,
+        actor.id
+    )))
+}
+
 /// Apply actions for one stage and write everything they produced, in the
 /// caller's transaction.
+///
+/// `reach` is where the actor may perform a stage ([`stage_reach`] for a
+/// person, the node's own unit for a node's fact): refused before anything is
+/// written when it does not cover the stage's unit.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn apply_stage_tx(
     tx: &mut Transaction<'_, Postgres>,
     document_id: Uuid,
     actions: &[FlowActionInput],
     expected_seq: Option<i32>,
     actor: &Actor,
+    reach: &Reach,
     request_key: &str,
     at: DateTime<Utc>,
 ) -> Result<Vec<Effect>, AppError> {
@@ -1866,6 +1956,7 @@ pub(super) async fn apply_stage_tx(
         .ok_or_else(|| {
             AppError::Validation(format!("stage #{} does not exist", stage_index + 1))
         })?;
+    check_reach(&mut **tx, &row, named_kind, actions, actor, reach).await?;
 
     let mut effects = Vec::new();
     for input in actions {
@@ -2138,6 +2229,7 @@ pub async fn confirm_flow_actions(
     document_id: Uuid,
     request: &ConfirmFlowRequest,
     actor: &Actor,
+    reach: &Reach,
     at: DateTime<Utc>,
 ) -> Result<Value, AppError> {
     let digest = payload_digest(&(document_id, &request.actions, request.expected_seq))?;
@@ -2154,6 +2246,7 @@ pub async fn confirm_flow_actions(
         &request.actions,
         request.expected_seq,
         actor,
+        reach,
         request.idempotency_key.trim(),
         at,
     )
@@ -2168,14 +2261,17 @@ pub async fn confirm_flow_actions(
 /// Resume a parked stage by its key, inside the caller's transaction. A stage
 /// already done or skipped is answered as it stands: twice is once.
 ///
-/// This is the door a node's fact comes through (`flow_stages`): a pick, a
-/// pack, a departure or a receipt a node wrote in its own transaction resumes
-/// the stage that was waiting for it.
+/// The hub's door for a parked stage: a person finishing, by its key, the
+/// scan, decision or signature it waited for. A node's facts come through
+/// `flow_stages::sync_from_nodes_tx` instead, which reads what the node's
+/// ledger says rather than taking a list of actions.
+#[allow(clippy::too_many_arguments)]
 pub async fn resume_parked_stage_tx(
     tx: &mut Transaction<'_, Postgres>,
     stage_key: &str,
     actions: &[FlowActionInput],
     actor: &Actor,
+    reach: &Reach,
     request_key: &str,
     at: DateTime<Utc>,
 ) -> Result<(Uuid, Vec<Effect>), AppError> {
@@ -2208,7 +2304,17 @@ pub async fn resume_parked_stage_tx(
             action
         })
         .collect();
-    let effects = apply_stage_tx(tx, document_id, &actions, None, actor, request_key, at).await?;
+    let effects = apply_stage_tx(
+        tx,
+        document_id,
+        &actions,
+        None,
+        actor,
+        reach,
+        request_key,
+        at,
+    )
+    .await?;
     Ok((document_id, effects))
 }
 
@@ -2216,6 +2322,7 @@ pub async fn resume_parked_stage(
     pool: &PgPool,
     request: &ResumeFlowRequest,
     actor: &Actor,
+    reach: &Reach,
     at: DateTime<Utc>,
 ) -> Result<Value, AppError> {
     let digest = payload_digest(&(&request.stage_key, &request.actions))?;
@@ -2231,6 +2338,7 @@ pub async fn resume_parked_stage(
         &request.stage_key,
         &request.actions,
         actor,
+        reach,
         request.idempotency_key.trim(),
         at,
     )

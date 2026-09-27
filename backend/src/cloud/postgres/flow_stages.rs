@@ -34,6 +34,7 @@ use crate::cloud::domain::flow::{
     Actor, CountRule, Effect, FlowActionInput, FlowSource, FlowState, ProofRecord, StageKind,
     FLOW_ACTION_COMPLETE_STAGE, FLOW_ACTION_CONFIRM_RECEIVE, FLOW_ACTION_RECORD_COUNT,
 };
+use crate::cloud::domain::Reach;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::json;
@@ -250,7 +251,10 @@ pub fn actions_for_node_fact(
             ),
             action(FLOW_ACTION_COMPLETE_STAGE, json!({})),
         ],
-        _ => vec![action(FLOW_ACTION_COMPLETE_STAGE, json!({ "proof": proof }))],
+        _ => vec![action(
+            FLOW_ACTION_COMPLETE_STAGE,
+            json!({ "proof": proof }),
+        )],
     }
 }
 
@@ -275,6 +279,7 @@ pub async fn resume_from_node_fact_tx(
     proof: &[ProofRecord],
     delivery_number: Option<&str>,
     actor: &Actor,
+    reach: &Reach,
     fact_key: &str,
     at: DateTime<Utc>,
 ) -> Result<Option<Uuid>, AppError> {
@@ -307,6 +312,6 @@ pub async fn resume_from_node_fact_tx(
             action
         })
         .collect();
-    flows::apply_stage_tx(tx, document_id, &actions, None, actor, fact_key, at).await?;
+    flows::apply_stage_tx(tx, document_id, &actions, None, actor, reach, fact_key, at).await?;
     Ok(Some(document_id))
 }
