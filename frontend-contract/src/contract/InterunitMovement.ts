@@ -12,7 +12,11 @@ source_kind: string, source_id: string | null,
 /**
  * Which step of that document, from migration 0140. `MAIN` for nearly all.
  */
-purpose: string, site_id: string, counter_site_id: string, 
+purpose: string, 
+/**
+ * Whose books the line is in, and the unit on the other side.
+ */
+unit_id: string, counter_unit_id: string, 
 /**
  * `BARANG` or `PEMBIAYAAN`, from the account the leg landed in. Absent for
  * a line in an affiliate account that the map does not claim — a

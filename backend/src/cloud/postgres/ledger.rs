@@ -73,7 +73,8 @@ pub struct TrialBalanceRow {
     pub root_class: String,
     /// Tree depth from the root, independent of the account number.
     pub depth: i32,
-    pub site_id: Option<String>,
+    /// Whose books the line is in (0605).
+    pub unit_id: Option<String>,
     pub debit_minor: i64,
     pub credit_minor: i64,
 }
@@ -83,7 +84,8 @@ pub struct TrialBalanceRow {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct TrialBalance {
     pub as_of: NaiveDate,
-    pub site_id: Option<String>,
+    /// One unit's books, or the company's when absent.
+    pub unit_id: Option<String>,
     pub rows: Vec<TrialBalanceRow>,
     /// **Over the whole ledger at `as_of`, never over the page and never
     /// narrowed by the search.** The thing this screen exists to prove is
@@ -237,15 +239,16 @@ pub async fn finance_attention_counts(
         .into_iter()
         .map(|doc| doc.key)
         .collect();
-    let site_count: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM site")
+    // Books are kept per unit (0605), so a meaning is set once per unit.
+    let unit_count: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM unit")
         .fetch_one(pool)
         .await?;
-    // A pair is set when the meaning has any account at that site; the
-    // qualifier splits one meaning across banks and does not make a second
-    // pair, which is why it is not counted here.
+    // A pair is set when the meaning has any account in that unit's books;
+    // the qualifier splits one meaning across banks and does not make a
+    // second pair, which is why it is not counted here.
     let mapped_pairs: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM (
-             SELECT DISTINCT r.role, r.site_id
+             SELECT DISTINCT r.role, r.unit_id
                FROM account_resolution r
               WHERE r.role = ANY($1)
          ) pair",
@@ -263,7 +266,7 @@ pub async fn finance_attention_counts(
     .fetch_one(pool)
     .await?;
 
-    let unmapped_pairs = (required.len() as i64 * site_count - mapped_pairs).max(0);
+    let unmapped_pairs = (required.len() as i64 * unit_count - mapped_pairs).max(0);
     Ok(serde_json::json!({
         "overdue_bills": overdue,
         "unmapped_pairs": unmapped_pairs,
@@ -288,13 +291,15 @@ pub async fn finance_attention_counts(
     }))
 }
 
-/// A location the books are kept for.
+/// A unit the books are kept for (0605): head office or a store.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct BookLocation {
-    pub site_id: String,
+    pub unit_id: String,
+    /// The client's code: `HO`, `C001` … — what a person reads.
+    pub code: String,
     pub name: String,
-    /// `DC` or `STORE`.
+    /// `HO`, `STORE` or `ONLINE`.
     pub kind: String,
     /// How many accounts in the chart are scoped to it. A location with none
     /// is one the import did not reach, which is worth seeing on the screen
@@ -302,52 +307,37 @@ pub struct BookLocation {
     pub account_count: i64,
 }
 
-/// The locations finance keeps books for.
+/// The units finance keeps books for: head office first, then the stores.
 ///
-/// Head office first, then the shops. Not a cosmetic ordering: the DC is HO,
-/// which is suffix `00` in the client's own codes and the location most
-/// mappings are set for, so a screen that listed it fourteenth would hide the
-/// one people open it to reach.
+/// Not a cosmetic ordering: head office is suffix `00` in the client's own
+/// codes and the book most links are set for, so a screen that listed it
+/// fourteenth would hide the one people open it to reach. Found by its kind,
+/// never by its id.
 ///
-/// Derived from the chart rather than from the list of places a delivery can be
-/// sent to. They happen to be the same fourteen today, and they are not the same
-/// question: a shop that stops receiving stock still has a ledger, and a chart
-/// imported for thirteen locations out of fourteen should say so here rather
-/// than look complete.
+/// Since 0605 this is simply the `unit` table. It used to be the list of
+/// sites, renamed through each site's unit, because the ledger was keyed by
+/// premises and head office's books were "the Gudang's"; a unit that opens a
+/// second premises no longer shows up twice.
 ///
-/// The NAME comes from the site's `unit`, not from `site`, and that is the
-/// whole of the unit-domain decision taken on 2026-09-13 and made a table on
-/// 2026-09-27 (0600): the books belong to units, and a site belongs to one. Accounting's fourteen units
-/// are head office and thirteen shops — suffix `00` is HO in the client's own
-/// codes — while `site` is the fourteen places STOCK sits. The two lists
-/// coincide because head office has one site, the Gudang, and `site.unit_id`
-/// records that (`dc → ho`). It is a column rather than a join on equal ids,
-/// because the day head office opens a second premises is one row to add.
-///
-/// Reading `site.name` here is what made every finance screen print "DC" where
-/// the books, the chart and this function's own comment all mean head office.
-/// Since 0256 the row says `ho`/`HO` itself and the two names agree, which is
-/// also why the ordering sorts on kind `HO`: there is no longer a `DC` row to
-/// put first, and sorting on one would have quietly filed head office
-/// fourteenth — between `store-13` and nothing.
-/// `COALESCE` over a left join for the same reason it always was: a site whose
-/// unit cannot be read is a fault worth seeing as itself, not as a missing row.
+/// `account_count` still counts the legacy per-premises accounts of the old
+/// chart (`ledger_account.site_id`, retired by 0243), gathered through the
+/// sites the unit owns.
 pub async fn book_locations(pool: &PgPool) -> Result<Vec<BookLocation>, AppError> {
     let rows = sqlx::query(
-        "SELECT s.id AS site_id,
-                COALESCE(p.name, s.name) AS name,
-                COALESCE(p.kind, s.kind) AS kind,
-                (SELECT COUNT(*) FROM ledger_account a WHERE a.site_id = s.id)::bigint AS account_count
-           FROM site s
-           LEFT JOIN unit p ON p.id = s.unit_id
-          ORDER BY (s.kind <> 'HO'), s.id",
+        "SELECT u.id AS unit_id, u.code, u.name, u.kind,
+                (SELECT COUNT(*) FROM ledger_account a
+                   JOIN site s ON s.id = a.site_id
+                  WHERE s.unit_id = u.id)::bigint AS account_count
+           FROM unit u
+          ORDER BY (u.kind <> 'HO'), u.code",
     )
     .fetch_all(pool)
     .await?;
     rows.iter()
         .map(|row| {
             Ok(BookLocation {
-                site_id: row.try_get("site_id")?,
+                unit_id: row.try_get("unit_id")?,
+                code: row.try_get("code")?,
                 name: row.try_get("name")?,
                 kind: row.try_get("kind")?,
                 account_count: row.try_get("account_count")?,
@@ -679,7 +669,7 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
         //
         // Unqualified, because the location IS the narrowing: the client has a
         // leaf per shop under this heading — `101110200200` at head office
-        // through `101110200213` — and `account_map` is already keyed by site.
+        // through `101110200213` — and the links already resolve per unit.
         key(
             "store_manager_receivable",
             "Store manager float",
@@ -1737,7 +1727,7 @@ pub async fn account_with_path(
 pub async fn account_balance(
     pool: &PgPool,
     code: &str,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     as_of: Option<NaiveDate>,
 ) -> Result<AccountBalance, AppError> {
     let row = sqlx::query(
@@ -1749,11 +1739,11 @@ pub async fn account_balance(
            JOIN journal_line l ON l.account_code = descendant.account_code
            JOIN journal_entry e USING (entry_id)
           WHERE selected.account_code = $1
-            AND ($2::text IS NULL OR l.site_id = $2)
+            AND ($2::text IS NULL OR l.unit_id = $2)
             AND ($3::date IS NULL OR e.posting_date <= $3)",
     )
     .bind(code)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(as_of)
     .fetch_one(pool)
     .await?;
@@ -1776,7 +1766,7 @@ pub async fn account_balance(
 // about page one.
 //
 // So `total_debit_minor`, `total_credit_minor` and `balanced` are computed
-// over everything `as_of` and `site_id` leave, in SQL, before any search or
+// over everything `as_of` and `unit_id` leave, in SQL, before any search or
 // filter. Only `rows`, `total` and the facet counts narrow.
 //
 // # What the cursor does and does not buy
@@ -1809,10 +1799,10 @@ pub struct TrialBalanceScope {
     /// The date the books are proved at. **Part of the ledger being proved**,
     /// not a filter: it decides what the totals are about.
     pub as_of: Option<NaiveDate>,
-    /// One location, or all of them. Also part of the ledger being proved —
-    /// "the Cikupa books balance" is a different statement from "the company's
-    /// books balance", and both are ones somebody makes.
-    pub site_id: Option<String>,
+    /// One unit's books, or all of them. Also part of the ledger being proved
+    /// — "the Cikupa books balance" is a different statement from "the
+    /// company's books balance", and both are ones somebody makes.
+    pub unit_id: Option<String>,
     /// Free text over the account code and the client's own name for it.
     ///
     /// Narrows the ROWS and nothing else. See the note above.
@@ -1848,13 +1838,13 @@ pub struct TrialBalanceFacets {
 
 /// Where the previous page stopped — as a ROW, not as a position.
 ///
-/// The account code and the location, which together are what makes a trial
-/// balance line unique: one account moves at fourteen shops and that is
+/// The account code and the unit, which together are what makes a trial
+/// balance line unique: one account moves in fourteen units' books and that is
 /// fourteen lines.
 #[derive(Serialize, Deserialize)]
 struct TrialCursor {
     account_code: String,
-    site_id: String,
+    unit_id: String,
 }
 
 impl TrialCursor {
@@ -1874,14 +1864,14 @@ impl TrialCursor {
 /// The balance of every account that moved, defined once — the LEDGER, before
 /// anybody narrows it.
 ///
-/// Binds: `$1` as_of, `$2` the site or NULL.
+/// Binds: `$1` as_of, `$2` the unit or NULL.
 ///
 /// `net` is materialised because the keyset has to compare the sort value in a
 /// `WHERE`, and a sort expression that is not also a column is one a `WHERE`
 /// cannot see.
 const TRIAL_LEDGER: &str = "
     SELECT l.account_code, a.name, a.root_class::text AS root_class,
-           a.depth::int AS depth, l.site_id,
+           a.depth::int AS depth, l.unit_id,
            SUM(l.debit_minor)::bigint AS debit,
            SUM(l.credit_minor)::bigint AS credit,
            (SUM(l.debit_minor) - SUM(l.credit_minor))::bigint AS net
@@ -1889,8 +1879,8 @@ const TRIAL_LEDGER: &str = "
       JOIN journal_entry e USING (entry_id)
       JOIN ledger_account a ON a.account_code = l.account_code
      WHERE e.posting_date <= $1
-       AND ($2::text IS NULL OR l.site_id = $2)
-     GROUP BY l.account_code, a.name, a.root_class, a.depth, l.site_id
+       AND ($2::text IS NULL OR l.unit_id = $2)
+     GROUP BY l.account_code, a.name, a.root_class, a.depth, l.unit_id
     HAVING SUM(l.debit_minor) <> 0 OR SUM(l.credit_minor) <> 0
 ";
 
@@ -1922,7 +1912,7 @@ pub async fn trial_balance(
     let classes = (!scope.classes.is_empty()).then(|| scope.classes.clone());
 
     // The sort, and the tie-break that makes it total. Every order ends in the
-    // account code and the location, which together are unique per line.
+    // account code and the unit, which together are unique per line.
     //
     // TWO spellings of the same thing, and they are not interchangeable:
     // `ORDER BY` takes directions, a ROW EXPRESSION does not.
@@ -1939,9 +1929,9 @@ pub async fn trial_balance(
         // first is an ordinary thing to want.
         _ => ("account_code", scope.desc),
     };
-    let cols = format!("{lead}, account_code, site_id");
+    let cols = format!("{lead}, account_code, unit_id");
     let dir = if descending { "DESC" } else { "ASC" };
-    let order = format!("{lead} {dir}, account_code {dir}, site_id {dir}");
+    let order = format!("{lead} {dir}, account_code {dir}, unit_id {dir}");
     let seek = if descending { "<" } else { ">" };
 
     let cursor = scope
@@ -1966,17 +1956,17 @@ pub async fn trial_balance(
          SELECT * FROM kept
           WHERE $5::text IS NULL
              OR ({cols}) {seek} (SELECT {cols} FROM kept
-                                  WHERE account_code = $5 AND site_id = $6)
+                                  WHERE account_code = $5 AND unit_id = $6)
           ORDER BY {order}
           LIMIT $7"
     );
     let rows = sqlx::query(&sql)
         .bind(as_of)
-        .bind(scope.site_id.as_deref())
+        .bind(scope.unit_id.as_deref())
         .bind(&needle)
         .bind(&classes)
         .bind(cursor.as_ref().map(|c| c.account_code.clone()))
-        .bind(cursor.as_ref().map(|c| c.site_id.clone()))
+        .bind(cursor.as_ref().map(|c| c.unit_id.clone()))
         .bind(limit)
         .fetch_all(pool)
         .await?;
@@ -1985,7 +1975,7 @@ pub async fn trial_balance(
         Some(row) if rows.len() as i64 == limit => Some(
             TrialCursor {
                 account_code: row.try_get("account_code")?,
-                site_id: row.try_get("site_id")?,
+                unit_id: row.try_get("unit_id")?,
             }
             .encode()?,
         ),
@@ -1999,7 +1989,7 @@ pub async fn trial_balance(
             name: row.try_get("name")?,
             root_class: row.try_get("root_class")?,
             depth: row.try_get("depth")?,
-            site_id: row.try_get("site_id")?,
+            unit_id: row.try_get("unit_id")?,
             debit_minor: row.try_get("debit")?,
             credit_minor: row.try_get("credit")?,
         });
@@ -2008,7 +1998,7 @@ pub async fn trial_balance(
     let proof = trial_proof(pool, &scope, as_of, needle.as_deref(), classes.as_deref()).await?;
     Ok(TrialBalance {
         as_of,
-        site_id: scope.site_id.clone(),
+        unit_id: scope.unit_id.clone(),
         rows: out,
         total_debit_minor: proof.total_debit,
         total_credit_minor: proof.total_credit,
@@ -2068,7 +2058,7 @@ async fn trial_proof(
     );
     let rows = sqlx::query(&sql)
         .bind(as_of)
-        .bind(scope.site_id.as_deref())
+        .bind(scope.unit_id.as_deref())
         .bind(needle)
         .bind(classes)
         .fetch_all(pool)
@@ -2204,7 +2194,7 @@ pub async fn assert_postable(
 // profit and loss, and nothing else. Which bank, which rack, which PPh article,
 // electricity or water — every one of those used to be its own account code,
 // and all of them are now keys on the journal line. Most already had somewhere
-// to live: `bank_account_id`, `asset_id`, `supplier_id`, `counter_site_id`, a
+// to live: `bank_account_id`, `asset_id`, `supplier_id`, `counter_unit_id`, a
 // tax type, a facility, a principal. What was left over became one table,
 // `line_category`, with a `family` column saying which kind of distinction each
 // value is.
@@ -2449,8 +2439,10 @@ pub async fn assert_category_for_account(
 pub struct PostingFacts<'a> {
     /// The `journal_entry.source_kind` the whole entry will carry.
     pub source_kind: &'a str,
-    pub site_id: &'a str,
-    pub counter_site_id: Option<&'a str>,
+    /// Whose books the line is in (0605).
+    pub unit_id: &'a str,
+    /// The unit on the other side of an inter-unit line.
+    pub counter_unit_id: Option<&'a str>,
     /// The `line_category` the line will carry, resolved from the map or named
     /// by the person writing the entry.
     ///
@@ -2581,7 +2573,7 @@ const CORRECTION_KINDS: [&str; 3] = ["RECLASS", "ADJUSTMENT", "WRITE_OFF"];
 /// The account, its policy, its bank accounts and the category the line names —
 /// everything [`validate_account_posting`] decides on, in one read.
 const POLICY_SELECT: &str = "
-    SELECT head_office_site_id() AS head_office,
+    SELECT head_office_unit_id() AS head_office,
            a.name, a.posting_mode, a.manual_je_policy, a.dimension,
            a.requires_counter_site, a.category_family,
            cat.family AS given_family, cat.is_active AS given_active,
@@ -2635,14 +2627,14 @@ const POLICY_SELECT: &str = "
       -- rather than three correlated subqueries so the whole of this check
       -- stays ONE round trip, which is what made it affordable in the
       -- posting path to begin with.
-      -- Whether the map says this account holds money at a bank, at this
-      -- place. The declaration of intent, and the only one needed: an
+      -- Whether the map says this account holds money at a bank, in this
+      -- unit's books. The declaration of intent, and the only one needed: an
       -- account nobody has pointed a bank meaning at is not a bank account
       -- as far as this estate is concerned, and posts as it always did.
       LEFT JOIN LATERAL (
           SELECT COUNT(*) > 0 AS is_bank
             FROM account_resolution r
-           WHERE r.account_code = a.account_code AND r.site_id = $2
+           WHERE r.account_code = a.account_code AND r.unit_id = $2
              AND r.role = ANY($3)
       ) meant ON true
       LEFT JOIN LATERAL (
@@ -2673,7 +2665,7 @@ const POLICY_SELECT: &str = "
            -- binding, so without the flag the join drags in supplier accounts
            -- whose `ledger_account_code` is null.
            WHERE c.is_company_account
-             AND c.ledger_account_code = a.account_code AND c.site_id = $2
+             AND c.ledger_account_code = a.account_code AND c.unit_id = $2
       ) held ON true";
 
 /// The tail of that read. Everything the aggregate above does not group by
@@ -2714,7 +2706,7 @@ pub async fn validate_account_posting(
         .filter(|value| !value.is_empty() && bank_kind.is_some());
     let row = sqlx::query(&sql)
         .bind(code)
-        .bind(facts.site_id)
+        .bind(facts.unit_id)
         .bind(BANK_MEANINGS.as_slice())
         .bind(given_category)
         .bind(bank_code)
@@ -2725,8 +2717,9 @@ pub async fn validate_account_posting(
     // already said "no account {code} in the chart" in the poster's own words.
     let Some(row) = row else { return Ok(None) };
 
-    // Head office by its kind, in the same round trip (0603). `None` only on a
-    // database with no HO site, where a company account has nowhere to post.
+    // Head office's books by the unit's kind, in the same round trip (0605).
+    // `None` only on a database with no HO unit, where a company account has
+    // nowhere to post.
     let head_office: Option<String> = row.try_get("head_office")?;
     let name: String = row.try_get("name")?;
     let account_mode: String = row.try_get("posting_mode")?;
@@ -2878,19 +2871,20 @@ pub async fn validate_account_posting(
         )));
     }
 
-    // `dimension = 'unit'` needs no check: `journal_line.site_id` is NOT NULL,
-    // so a line always carries one. `company` is the one that can be wrong.
-    if dimension.as_deref() == Some("company") && head_office.as_deref() != Some(facts.site_id) {
+    // `dimension = 'unit'` needs no check: `journal_line.unit_id` is NOT NULL,
+    // so a line always carries one. `company` is the one that can be wrong:
+    // such an account sits in head office's books alone (I4).
+    if dimension.as_deref() == Some("company") && head_office.as_deref() != Some(facts.unit_id) {
         return Err(AppError::Validation(format!(
-            "{code} {name} belongs to the company and not to a shop; it posts at {}, and this line is at {}.",
+            "{code} {name} belongs to the company and not to a store; it posts in the books of {}, and this line is in the books of {}.",
             head_office.as_deref().unwrap_or("head office"),
-            facts.site_id
+            facts.unit_id
         )));
     }
-    if requires_counter_site && facts.counter_site_id.is_none() {
+    if requires_counter_site && facts.counter_unit_id.is_none() {
         return Err(AppError::Validation(format!(
             "{code} {name} is a balance between two units and the line names only {}; say which unit is on the other side.",
-            facts.site_id
+            facts.unit_id
         )));
     }
 
@@ -2915,9 +2909,9 @@ pub async fn validate_account_posting(
     if let Some(named) = facts.bank_account_id {
         let Some(at) = bank_ids.iter().position(|id| *id == named) else {
             return Err(AppError::Validation(format!(
-                "the bank account this line names is not one of {code} {name}'s at {}. \
-                 A bank account belongs to one ledger account at one place, and this one belongs elsewhere.",
-                facts.site_id
+                "the bank account this line names is not one of {code} {name}'s in the books of {}. \
+                 A bank account belongs to one ledger account in one unit's books, and this one belongs elsewhere.",
+                facts.unit_id
             )));
         };
         // Closed takes new money only through a document somebody approved. The
@@ -2978,9 +2972,9 @@ pub async fn validate_account_posting(
         [] if row.try_get::<bool, _>("is_bank").unwrap_or(false) && !opening => {
             Err(AppError::Validation(format!(
                 "banking setup is incomplete: {code} {name} is mapped as money we hold at a bank, \
-                 and no bank account of ours is registered against it at {}. Describe the account \
-                 under Bank Accounts — its bank, number and holder — and this posts.",
-                facts.site_id
+                 and no bank account of ours is registered against it in the books of {}. Describe \
+                 the account under Bank Accounts — its bank, number and holder — and this posts.",
+                facts.unit_id
             )))
         }
         [] => Ok(None),
@@ -3001,10 +2995,10 @@ pub async fn validate_account_posting(
         // document rather than in the entry.
         _ if opening => Ok(None),
         _ => Err(AppError::Validation(format!(
-            "name the bank account: {} of our accounts answer to {code} {name} at {}, and this \
-             entry does not say which one it moved. Choose one of {}.",
+            "name the bank account: {} of our accounts answer to {code} {name} in the books of {}, \
+             and this entry does not say which one it moved. Choose one of {}.",
             live.len(),
-            facts.site_id,
+            facts.unit_id,
             live.iter()
                 .map(|at| bank_labels[*at].as_str())
                 .collect::<Vec<_>>()
@@ -3037,28 +3031,28 @@ pub struct Resolved {
 pub async fn resolve_account(
     executor: impl sqlx::PgExecutor<'_>,
     role: &str,
-    site_id: &str,
+    unit_id: &str,
     source_id: &str,
 ) -> Result<Resolved, AppError> {
-    resolve_account_from(executor, role, site_id, "COMPANY", source_id).await
+    resolve_account_from(executor, role, unit_id, "COMPANY", source_id).await
 }
 
-/// The account a role resolves to from one source at one site, if any link
-/// answers. Reads `account_resolution`, where the most specific scope has
-/// already won (0460).
+/// The account a role resolves to from one source in one unit's books, if any
+/// link answers. Reads `account_resolution`, where the most specific scope has
+/// already won (0460; per unit since 0606).
 pub async fn resolve_linked(
     executor: impl sqlx::PgExecutor<'_>,
     role: &str,
-    site_id: &str,
+    unit_id: &str,
     source_type: &str,
     source_id: &str,
 ) -> Result<Option<Resolved>, AppError> {
     let row = sqlx::query(
         "SELECT account_code, category_code FROM account_resolution
-          WHERE role = $1 AND site_id = $2 AND source_type = $3 AND source_id = $4",
+          WHERE role = $1 AND unit_id = $2 AND source_type = $3 AND source_id = $4",
     )
     .bind(role)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(source_type)
     .bind(source_id)
     .fetch_optional(executor)
@@ -3073,25 +3067,25 @@ pub async fn resolve_linked(
 /// (expense category, pay component, payment method, …) — refusing rather
 /// than guessing.
 ///
-/// The refusal names the role, the source and the site, says which scopes
-/// were looked at, and lists the records the role IS linked under at that
-/// site, because that is exactly what somebody has to go and fill in. An error
-/// saying "posting failed" would send them to read code.
+/// The refusal names the role, the source and the unit, says which scopes
+/// were looked at, and lists the records the role IS linked under in that
+/// unit's books, because that is exactly what somebody has to go and fill in.
+/// An error saying "posting failed" would send them to read code.
 pub async fn resolve_account_from(
     executor: impl sqlx::PgExecutor<'_>,
     role: &str,
-    site_id: &str,
+    unit_id: &str,
     source_type: &str,
     source_id: &str,
 ) -> Result<Resolved, AppError> {
     let rows = sqlx::query(
         "SELECT r.source_id, r.account_code, r.category_code
            FROM account_resolution r
-          WHERE r.role = $1 AND r.site_id = $2 AND r.source_type = $3
+          WHERE r.role = $1 AND r.unit_id = $2 AND r.source_type = $3
           ORDER BY r.source_id",
     )
     .bind(role)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(source_type)
     .fetch_all(executor)
     .await?;
@@ -3126,8 +3120,8 @@ pub async fn resolve_account_from(
         format!(" — it is linked under {}", known.join(", "))
     };
     Err(AppError::Validation(format!(
-        "no account is linked for '{role}'{from} at {site_id} (looked for a link for \
-         {site_id}, for its kind of site, and for every site){hint}; link it on the \
+        "no account is linked for '{role}'{from} in the books of {unit_id} (looked for a link \
+         for {unit_id}, for its kind of unit, and for every unit){hint}; link it on the \
          Account Links screen before posting"
     )))
 }
@@ -3148,10 +3142,10 @@ pub async fn resolve_account_from(
 pub async fn resolve_account_code(
     executor: impl sqlx::PgExecutor<'_>,
     semantic_key: &str,
-    site_id: &str,
+    unit_id: &str,
     qualifier: &str,
 ) -> Result<String, AppError> {
-    resolve_account(executor, semantic_key, site_id, qualifier)
+    resolve_account(executor, semantic_key, unit_id, qualifier)
         .await
         .map(|resolved| resolved.account_code)
 }

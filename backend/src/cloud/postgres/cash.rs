@@ -46,8 +46,8 @@ use uuid::Uuid;
 
 /// One side of a document, as a caller says it.
 ///
-/// Either a meaning resolved through `account_resolution` for that location, or a
-/// client account code a person chose — the same choice `poster::LineAccount`
+/// Either a meaning resolved through `account_resolution` in that unit's books, or
+/// a client account code a person chose — the same choice `poster::LineAccount`
 /// models, for the same reason. The money side always has a meaning; the other
 /// side, when it is a bank charge or a donation, usually has none.
 #[derive(Clone, Debug, Deserialize)]
@@ -66,7 +66,8 @@ pub struct CashSide {
     /// pair and a second answer could only disagree with it.
     #[serde(default)]
     pub category_code: Option<String>,
-    pub site_id: String,
+    /// Whose books this side is in: a unit (0608).
+    pub unit_id: String,
 }
 
 /// One side, after it has been made sense of.
@@ -80,7 +81,7 @@ pub(super) struct ResolvedSide {
     /// either way, so that posting it a second time — a reversal, a re-post
     /// after a correction — files it exactly where the first one did.
     pub category_code: Option<String>,
-    pub site_id: String,
+    pub unit_id: String,
     /// Whether this side is one of the seven meanings that hold money.
     pub money: bool,
     /// The client code this resolves to today, for the slip.
@@ -127,12 +128,14 @@ pub struct CashDocumentRow {
     /// decided, and a category worked out afresh months later could file a
     /// reversal somewhere the original never went.
     pub from_category_code: Option<String>,
-    pub from_site: String,
+    /// Whose books the money leaves (0608).
+    pub from_unit: String,
     pub to_key: Option<String>,
     pub to_qualifier: String,
     pub to_account_code: Option<String>,
     pub to_category_code: Option<String>,
-    pub to_site: String,
+    /// Whose books the money enters (0608).
+    pub to_unit: String,
 
     pub amount_minor: i64,
     pub currency: String,
@@ -159,8 +162,8 @@ pub struct CashDocumentRow {
 }
 
 const DOCUMENT_COLUMNS: &str = "d.document_id, d.kind, d.number, d.doc_date,
-     d.from_key, d.from_qualifier, d.from_account_code, d.from_category_code, d.from_site,
-     d.to_key, d.to_qualifier, d.to_account_code, d.to_category_code, d.to_site,
+     d.from_key, d.from_qualifier, d.from_account_code, d.from_category_code, d.from_unit,
+     d.to_key, d.to_qualifier, d.to_account_code, d.to_category_code, d.to_unit,
      d.amount_minor, d.currency, d.party_type, d.supplier_id, d.employee_id,
      d.party_name, d.memo, d.attachment_file_id, d.statement_line_id,
      d.status, d.journal_entry_id, d.reversal_entry_id,
@@ -179,12 +182,12 @@ fn to_document(row: &sqlx::postgres::PgRow) -> Result<CashDocumentRow, AppError>
         from_qualifier: row.try_get("from_qualifier")?,
         from_account_code: row.try_get("from_account_code")?,
         from_category_code: row.try_get("from_category_code")?,
-        from_site: row.try_get("from_site")?,
+        from_unit: row.try_get("from_unit")?,
         to_key: row.try_get("to_key")?,
         to_qualifier: row.try_get("to_qualifier")?,
         to_account_code: row.try_get("to_account_code")?,
         to_category_code: row.try_get("to_category_code")?,
-        to_site: row.try_get("to_site")?,
+        to_unit: row.try_get("to_unit")?,
         amount_minor: row.try_get("amount_minor")?,
         currency: row.try_get("currency")?,
         party_type: row.try_get("party_type")?,
@@ -211,21 +214,21 @@ pub async fn cash_document_list(
     pool: &PgPool,
     status: Option<&str>,
     kind: Option<&str>,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     limit: i64,
 ) -> Result<Vec<CashDocumentRow>, AppError> {
     let sql = format!(
         "SELECT {DOCUMENT_COLUMNS} FROM cash_document d
           WHERE ($1::text IS NULL OR d.status = $1)
             AND ($2::text IS NULL OR d.kind = $2)
-            AND ($3::text IS NULL OR d.from_site = $3 OR d.to_site = $3)
+            AND ($3::text IS NULL OR d.from_unit = $3 OR d.to_unit = $3)
           ORDER BY d.doc_date DESC, d.created_at DESC
           LIMIT $4"
     );
     let rows = sqlx::query(&sql)
         .bind(status)
         .bind(kind)
-        .bind(site_id)
+        .bind(unit_id)
         .bind(limit.clamp(1, 500))
         .fetch_all(pool)
         .await?;
@@ -249,25 +252,25 @@ pub async fn cash_document_read(
 // Making sense of a side
 // ---------------------------------------------------------------------------
 
-/// Which money meaning carries this account here, if any.
+/// Which money meaning carries this account in this unit's books, if any.
 ///
 /// Asked of an account code a person chose, because the direction rule reads
 /// meanings and a person who types the BCA giro's own code would otherwise
 /// produce a "payment" out of the bank into the bank. Two meanings on one
-/// account at one location is a mistake on the Account Links and is refused
+/// account in one unit is a mistake on the Account Links and is refused
 /// rather than guessed at — the same refusal `banking::statement_meaning`
 /// makes, for the same reason.
 async fn money_meaning_of(
     executor: impl sqlx::PgExecutor<'_>,
     account_code: &str,
-    site_id: &str,
+    unit_id: &str,
 ) -> Result<Option<String>, AppError> {
     let rows = sqlx::query(
         "SELECT role AS semantic_key FROM account_resolution
-          WHERE account_code = $1 AND site_id = $2 AND role = ANY($3)",
+          WHERE account_code = $1 AND unit_id = $2 AND role = ANY($3)",
     )
     .bind(account_code)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(&MONEY_MEANINGS[..])
     .fetch_all(executor)
     .await?;
@@ -292,10 +295,10 @@ async fn resolve_side(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let site = side.site_id.trim();
-    if site.is_empty() {
+    let unit = side.unit_id.trim();
+    if unit.is_empty() {
         return Err(AppError::Validation(format!(
-            "the {which} side needs a location; every posting belongs somewhere"
+            "the {which} side needs a unit; every posting is in somebody's books"
         )));
     }
 
@@ -315,14 +318,14 @@ async fn resolve_side(
                      code and a category."
                 )));
             }
-            let resolved = resolve_account(pool, key, site, side.qualifier.trim()).await?;
+            let resolved = resolve_account(pool, key, unit, side.qualifier.trim()).await?;
             assert_postable(pool, &resolved.account_code, Intent::Post).await?;
             Ok(ResolvedSide {
                 key: Some(key.to_string()),
                 qualifier: side.qualifier.trim().to_string(),
                 account_code: None,
                 category_code: resolved.category_code,
-                site_id: site.to_string(),
+                unit_id: unit.to_string(),
                 money: holds_money(key),
                 resolved_code: resolved.account_code,
             })
@@ -339,9 +342,9 @@ async fn resolve_side(
             // the refusal says which word to use instead — the alternative is a
             // slip headed BUKTI KAS KELUAR over an entry that only moved money
             // between two of our own pots.
-            if let Some(meaning) = money_meaning_of(pool, code, site).await? {
+            if let Some(meaning) = money_meaning_of(pool, code, unit).await? {
                 return Err(AppError::Validation(format!(
-                    "{code} is this location's '{meaning}' account; name the meaning on the \
+                    "{code} is this unit's '{meaning}' account; name the meaning on the \
                      {which} side rather than the code, so the document knows it is moving \
                      money between two accounts we hold"
                 )));
@@ -351,7 +354,7 @@ async fn resolve_side(
                 qualifier: String::new(),
                 account_code: Some(code.to_string()),
                 category_code: named_category.map(str::to_string),
-                site_id: site.to_string(),
+                unit_id: unit.to_string(),
                 money: false,
                 resolved_code: code.to_string(),
             })
@@ -375,7 +378,7 @@ async fn resolve_side(
 pub(super) fn side_from_meaning(
     semantic_key: &str,
     qualifier: &str,
-    site_id: &str,
+    unit_id: &str,
     resolved_code: String,
     category_code: Option<String>,
 ) -> ResolvedSide {
@@ -384,7 +387,7 @@ pub(super) fn side_from_meaning(
         qualifier: qualifier.to_string(),
         account_code: None,
         category_code,
-        site_id: site_id.to_string(),
+        unit_id: unit_id.to_string(),
         money: holds_money(semantic_key),
         resolved_code,
     }
@@ -399,7 +402,7 @@ pub(super) fn side_from_meaning(
 /// the ledger will refuse.
 pub(super) fn side_from_account(
     account_code: &str,
-    site_id: &str,
+    unit_id: &str,
     category_code: Option<String>,
 ) -> ResolvedSide {
     ResolvedSide {
@@ -407,7 +410,7 @@ pub(super) fn side_from_account(
         qualifier: String::new(),
         account_code: Some(account_code.to_string()),
         category_code,
-        site_id: site_id.to_string(),
+        unit_id: unit_id.to_string(),
         money: false,
         resolved_code: account_code.to_string(),
     }
@@ -484,10 +487,10 @@ pub(super) async fn cash_draft_from(
 
     let from = resolve_side(pool, &request.from, "from").await?;
     let to = resolve_side(pool, &request.to, "to").await?;
-    if from.resolved_code == to.resolved_code && from.site_id == to.site_id {
+    if from.resolved_code == to.resolved_code && from.unit_id == to.unit_id {
         return Err(AppError::Validation(format!(
-            "both sides resolve to {} at {}; money cannot arrive where it left from",
-            from.resolved_code, from.site_id
+            "both sides resolve to {} in the books of {}; money cannot arrive where it left from",
+            from.resolved_code, from.unit_id
         )));
     }
 
@@ -584,8 +587,8 @@ pub(super) async fn cash_document_insert(
     sqlx::query(
         "INSERT INTO cash_document
            (document_id, kind, doc_date,
-            from_key, from_qualifier, from_account_code, from_category_code, from_site,
-            to_key, to_qualifier, to_account_code, to_category_code, to_site,
+            from_key, from_qualifier, from_account_code, from_category_code, from_unit,
+            to_key, to_qualifier, to_account_code, to_category_code, to_unit,
             amount_minor, currency, party_type, supplier_id, employee_id, party_name,
             memo, attachment_file_id, statement_line_id, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'IDR',
@@ -598,12 +601,12 @@ pub(super) async fn cash_document_insert(
     .bind(&draft.from.qualifier)
     .bind(draft.from.account_code.as_deref())
     .bind(draft.from.category_code.as_deref())
-    .bind(&draft.from.site_id)
+    .bind(&draft.from.unit_id)
     .bind(draft.to.key.as_deref())
     .bind(&draft.to.qualifier)
     .bind(draft.to.account_code.as_deref())
     .bind(draft.to.category_code.as_deref())
-    .bind(&draft.to.site_id)
+    .bind(&draft.to.unit_id)
     .bind(draft.amount_minor)
     .bind(&draft.party_type)
     .bind(draft.supplier_id.as_deref())
@@ -728,7 +731,7 @@ fn side_line(
     qualifier: &str,
     account_code: Option<&str>,
     category_code: Option<&str>,
-    site_id: &str,
+    unit_id: &str,
     debit: i64,
     credit: i64,
     memo: &str,
@@ -756,10 +759,12 @@ fn side_line(
     PostingLine {
         dimensions: Vec::new(),
         account,
-        site_id: site_id.to_string(),
+        unit_id: unit_id.to_string(),
         // A cash document names both of its own sides, so there is no
-        // counterparty for the balancer to infer.
-        counter_site_id: None,
+        // counterparty for the balancer to infer. When the two are different
+        // units the balancer adds the affiliate legs, and names each other
+        // unit on them itself.
+        counter_unit_id: None,
         debit_minor: debit,
         credit_minor: credit,
         party_type: None,
@@ -785,8 +790,8 @@ pub(super) async fn cash_document_post_in(
     let row = sqlx::query(
         "SELECT kind, number, status, doc_date, amount_minor, currency, memo,
                 party_name, party_type, supplier_id,
-                from_key, from_qualifier, from_account_code, from_category_code, from_site,
-                to_key, to_qualifier, to_account_code, to_category_code, to_site
+                from_key, from_qualifier, from_account_code, from_category_code, from_unit,
+                to_key, to_qualifier, to_account_code, to_category_code, to_unit
            FROM cash_document WHERE document_id = $1 FOR UPDATE",
     )
     .bind(document_id)
@@ -822,7 +827,7 @@ pub(super) async fn cash_document_post_in(
                 .as_deref(),
             row.try_get::<Option<String>, _>("to_category_code")?
                 .as_deref(),
-            &row.try_get::<String, _>("to_site")?,
+            &row.try_get::<String, _>("to_unit")?,
             amount,
             0,
             &memo,
@@ -834,7 +839,7 @@ pub(super) async fn cash_document_post_in(
                 .as_deref(),
             row.try_get::<Option<String>, _>("from_category_code")?
                 .as_deref(),
-            &row.try_get::<String, _>("from_site")?,
+            &row.try_get::<String, _>("from_unit")?,
             0,
             amount,
             &memo,
@@ -876,7 +881,7 @@ pub(super) async fn cash_document_post_in(
         // document only settles a debt when that is where it landed.
         row.try_get::<Option<String>, _>("to_key")?.as_deref(),
         &row.try_get::<String, _>("to_qualifier")?,
-        &row.try_get::<String, _>("to_site")?,
+        &row.try_get::<String, _>("to_unit")?,
         amount,
         intent.posting_date,
         posted.entry_id,
@@ -940,7 +945,7 @@ async fn cash_document_settle_payment_ledger(
     supplier_id: Option<&str>,
     to_key: Option<&str>,
     to_qualifier: &str,
-    to_site: &str,
+    to_unit: &str,
     amount_minor: i64,
     posting_date: NaiveDate,
     journal_entry_id: Uuid,
@@ -960,7 +965,7 @@ async fn cash_document_settle_payment_ledger(
         &super::payment_ledger::PaymentLedgerClaim {
             account_key: key,
             qualifier: to_qualifier,
-            site_id: to_site,
+            unit_id: to_unit,
             party_type: super::payment_ledger::PaymentLedgerPartyType::Supplier,
             party_id: supplier_id,
             // No bill: see the note above. A slip that names one is keyed on
@@ -1076,7 +1081,8 @@ pub struct SlipAccount {
     /// to know which slip they are holding.
     pub category_code: Option<String>,
     pub category_name: Option<String>,
-    pub site_id: String,
+    /// Whose books this side is in.
+    pub unit_id: String,
 }
 
 /// Everything printed on one piece of paper.
@@ -1151,7 +1157,7 @@ async fn slip_side(
     qualifier: &str,
     account_code: Option<&str>,
     category_code: Option<&str>,
-    site_id: &str,
+    unit_id: &str,
 ) -> Result<SlipAccount, AppError> {
     // Resolved through the map on every read rather than remembered, so the
     // slip follows a remapping instead of printing where the account used to
@@ -1160,7 +1166,7 @@ async fn slip_side(
     // posting makes, so the paper and the entry cannot say different things.
     let (code, category) = match (key, account_code) {
         (Some(key), _) => {
-            let resolved = resolve_account(pool, key, site_id, qualifier).await?;
+            let resolved = resolve_account(pool, key, unit_id, qualifier).await?;
             (resolved.account_code, resolved.category_code)
         }
         (None, Some(code)) => (code.to_string(), category_code.map(str::to_string)),
@@ -1176,7 +1182,7 @@ async fn slip_side(
         account_name,
         category_code: category,
         category_name,
-        site_id: site_id.to_string(),
+        unit_id: unit_id.to_string(),
     })
 }
 
@@ -1209,7 +1215,7 @@ pub async fn cash_document_slip(
         &document.from_qualifier,
         document.from_account_code.as_deref(),
         document.from_category_code.as_deref(),
-        &document.from_site,
+        &document.from_unit,
     )
     .await?;
     let to = slip_side(
@@ -1218,7 +1224,7 @@ pub async fn cash_document_slip(
         &document.to_qualifier,
         document.to_account_code.as_deref(),
         document.to_category_code.as_deref(),
-        &document.to_site,
+        &document.to_unit,
     )
     .await?;
 

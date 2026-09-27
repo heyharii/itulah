@@ -86,8 +86,10 @@ pub struct BankRuleRow {
     /// Ignored when `category_code` is set.
     pub semantic_key: Option<String>,
     pub qualifier: String,
-    pub site_id: String,
-    /// What that meaning resolves to at that location today, so a screen can
+    /// The book whose statements the rule reads, and where its meaning
+    /// resolves (0609). Head office's unless the rule says otherwise.
+    pub unit_id: String,
+    /// What that meaning resolves to in that unit's books today, so a screen can
     /// show the account without a second round trip. Read through the map on
     /// every read, so it follows a remapping instead of remembering where the
     /// account used to be.
@@ -119,7 +121,8 @@ pub struct RecordBankRuleRequest {
     pub semantic_key: Option<String>,
     #[serde(default)]
     pub qualifier: String,
-    pub site_id: Option<String>,
+    /// The unit whose books the meaning resolves in. Head office's when absent.
+    pub unit_id: Option<String>,
     pub party: Option<String>,
     pub active: Option<bool>,
     pub note: Option<String>,
@@ -132,7 +135,7 @@ pub struct RecordBankRuleRequest {
 const RULE_COLUMNS: &str = "r.rule_id, r.priority, r.match_kind, r.pattern, r.direction,
      r.category_code, c.display_name AS category_name,
      COALESCE(NOT c.bank_postable, false) AS category_refuses,
-     r.semantic_key, r.qualifier, r.site_id, r.party, r.active, r.note,
+     r.semantic_key, r.qualifier, r.unit_id, r.party, r.active, r.note,
      r.created_by, r.created_at,
      m.account_code, a.name AS account_name,
      (SELECT COUNT(*) FROM bank_rule_proposal p WHERE p.rule_id = r.rule_id)::bigint
@@ -146,7 +149,7 @@ const RULE_COLUMNS: &str = "r.rule_id, r.priority, r.match_kind, r.pattern, r.di
 const RULE_FROM: &str = "FROM bank_rule r
      LEFT JOIN transaction_category c ON c.code = r.category_code
      LEFT JOIN account_resolution m ON m.role = COALESCE(c.semantic_key, r.semantic_key)
-                                   AND m.site_id = r.site_id
+                                   AND m.unit_id = r.unit_id
                                    AND m.source_type = 'COMPANY'
                                    AND m.source_id = COALESCE(c.qualifier, r.qualifier)
      LEFT JOIN ledger_account a ON a.account_code = m.account_code";
@@ -163,7 +166,7 @@ fn to_rule(row: &sqlx::postgres::PgRow) -> Result<BankRuleRow, AppError> {
         category_refuses: row.try_get("category_refuses")?,
         semantic_key: row.try_get("semantic_key")?,
         qualifier: row.try_get("qualifier")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         account_code: row.try_get("account_code")?,
         account_name: row.try_get("account_name")?,
         party: row.try_get("party")?,
@@ -213,7 +216,7 @@ struct CheckedRule {
     category_code: Option<String>,
     semantic_key: Option<String>,
     qualifier: String,
-    site_id: String,
+    unit_id: String,
     party: Option<String>,
     active: bool,
     note: Option<String>,
@@ -294,16 +297,16 @@ async fn check_rule(
             )));
         }
     }
-    // No site named means head office, which keeps the bank accounts — found
-    // by its kind, never spelled (0603).
-    let site_id = match request
-        .site_id
+    // No unit named means head office's books, which keep the bank accounts —
+    // found by its kind, never spelled (0609).
+    let unit_id = match request
+        .unit_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        Some(site) => site.to_string(),
-        None => super::sites::head_office_site_id(pool).await?,
+        Some(unit) => unit.to_string(),
+        None => super::sites::head_office_unit_id(pool).await?,
     };
 
     // Compiled once, here, rather than discovered during a run. Postgres
@@ -333,7 +336,7 @@ async fn check_rule(
         category_code,
         semantic_key,
         qualifier: request.qualifier.trim().to_string(),
-        site_id,
+        unit_id,
         party: request
             .party
             .as_deref()
@@ -355,7 +358,7 @@ pub async fn bank_rule_record(
     sqlx::query(
         "INSERT INTO bank_rule
            (rule_id, priority, match_kind, pattern, direction, category_code, semantic_key,
-            qualifier, site_id, party, active, note, created_by)
+            qualifier, unit_id, party, active, note, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(rule_id)
@@ -366,7 +369,7 @@ pub async fn bank_rule_record(
     .bind(checked.category_code.as_deref())
     .bind(checked.semantic_key.as_deref())
     .bind(&checked.qualifier)
-    .bind(&checked.site_id)
+    .bind(&checked.unit_id)
     .bind(checked.party.as_deref())
     .bind(checked.active)
     .bind(checked.note.as_deref())
@@ -387,7 +390,7 @@ pub async fn bank_rule_update(
         "UPDATE bank_rule
             SET priority=$2, match_kind=$3, pattern=$4, direction=$5,
                 category_code=$6, semantic_key=$7,
-                qualifier=$8, site_id=$9, party=$10, active=$11, note=$12,
+                qualifier=$8, unit_id=$9, party=$10, active=$11, note=$12,
                 updated_by=$13, updated_at=now()
           WHERE rule_id=$1",
     )
@@ -399,7 +402,7 @@ pub async fn bank_rule_update(
     .bind(checked.category_code.as_deref())
     .bind(checked.semantic_key.as_deref())
     .bind(&checked.qualifier)
-    .bind(&checked.site_id)
+    .bind(&checked.unit_id)
     .bind(checked.party.as_deref())
     .bind(checked.active)
     .bind(checked.note.as_deref())
@@ -461,7 +464,8 @@ pub struct BankRuleProposalRow {
     pub category_refusal: Option<String>,
     pub semantic_key: Option<String>,
     pub qualifier: String,
-    pub site_id: String,
+    /// Whose books the proposed meaning resolves in (0609).
+    pub unit_id: String,
     pub account_code: Option<String>,
     pub account_name: Option<String>,
     pub status: String,
@@ -476,7 +480,8 @@ pub struct BankRuleProposalRow {
     pub debit_minor: i64,
     pub credit_minor: i64,
     pub statement_account_code: String,
-    pub statement_site_id: String,
+    /// Whose bank account the statement is of (0605).
+    pub statement_unit_id: String,
 
     pub proposed_at: DateTime<Utc>,
     pub decided_by: Option<String>,
@@ -486,10 +491,10 @@ pub struct BankRuleProposalRow {
 
 const PROPOSAL_COLUMNS: &str = "p.proposal_id, p.line_id, p.rule_id, r.pattern AS rule_pattern,
      p.category_code, c.display_name AS category_name, c.refusal AS category_refusal,
-     p.semantic_key, p.qualifier, p.site_id, p.status, p.cash_document_id,
+     p.semantic_key, p.qualifier, p.unit_id, p.status, p.cash_document_id,
      d.number AS cash_document_number,
      l.value_date, l.description, l.reference, l.debit_minor, l.credit_minor,
-     l.account_code AS statement_account_code, s.site_id AS statement_site_id,
+     l.account_code AS statement_account_code, s.unit_id AS statement_unit_id,
      p.proposed_at, p.decided_by, p.decided_at, p.reason,
      m.account_code, a.name AS account_name";
 
@@ -500,7 +505,7 @@ const PROPOSAL_FROM: &str = "FROM bank_rule_proposal p
      LEFT JOIN cash_document d ON d.document_id = p.cash_document_id
      LEFT JOIN transaction_category c ON c.code = p.category_code
      LEFT JOIN account_resolution m ON m.role = COALESCE(c.semantic_key, p.semantic_key)
-                                   AND m.site_id = p.site_id
+                                   AND m.unit_id = p.unit_id
                                    AND m.source_type = 'COMPANY'
                                    AND m.source_id = COALESCE(c.qualifier, p.qualifier)
      LEFT JOIN ledger_account a ON a.account_code = m.account_code";
@@ -516,7 +521,7 @@ fn to_proposal(row: &sqlx::postgres::PgRow) -> Result<BankRuleProposalRow, AppEr
         category_refusal: row.try_get("category_refusal")?,
         semantic_key: row.try_get("semantic_key")?,
         qualifier: row.try_get("qualifier")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         account_code: row.try_get("account_code")?,
         account_name: row.try_get("account_name")?,
         status: row.try_get("status")?,
@@ -528,7 +533,7 @@ fn to_proposal(row: &sqlx::postgres::PgRow) -> Result<BankRuleProposalRow, AppEr
         debit_minor: row.try_get("debit_minor")?,
         credit_minor: row.try_get("credit_minor")?,
         statement_account_code: row.try_get("statement_account_code")?,
-        statement_site_id: row.try_get("statement_site_id")?,
+        statement_unit_id: row.try_get("statement_unit_id")?,
         proposed_at: row.try_get("proposed_at")?,
         decided_by: row.try_get("decided_by")?,
         decided_at: row.try_get("decided_at")?,
@@ -596,7 +601,7 @@ pub async fn bank_rule_evaluate(
         "SELECT l.line_id, l.value_date, l.description, l.reference,
                 l.debit_minor, l.credit_minor,
                 r.rule_id, r.priority, r.direction, r.match_kind, r.pattern,
-                r.category_code, r.semantic_key, r.qualifier, r.site_id,
+                r.category_code, r.semantic_key, r.qualifier, r.unit_id,
                 CASE WHEN r.match_kind = 'REGEX'
                      THEN (l.description ~* r.pattern)
                      ELSE false END AS regex_hit
@@ -622,7 +627,7 @@ pub async fn bank_rule_evaluate(
         category_code: Option<String>,
         semantic_key: Option<String>,
         qualifier: String,
-        site_id: String,
+        unit_id: String,
     }
     struct Open {
         line: BankLine,
@@ -678,7 +683,7 @@ pub async fn bank_rule_evaluate(
                 category_code: row.try_get("category_code")?,
                 semantic_key: row.try_get("semantic_key")?,
                 qualifier: row.try_get("qualifier")?,
-                site_id: row.try_get("site_id")?,
+                unit_id: row.try_get("unit_id")?,
             },
         );
     }
@@ -707,7 +712,7 @@ pub async fn bank_rule_evaluate(
         let done = sqlx::query(
             "INSERT INTO bank_rule_proposal
                (proposal_id, line_id, rule_id, category_code, semantic_key, qualifier,
-                site_id, reason)
+                unit_id, reason)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
              ON CONFLICT (line_id) WHERE status = 'PROPOSED' DO NOTHING",
         )
@@ -717,7 +722,7 @@ pub async fn bank_rule_evaluate(
         .bind(proposes.category_code.as_deref())
         .bind(proposes.semantic_key.as_deref())
         .bind(&proposes.qualifier)
-        .bind(&proposes.site_id)
+        .bind(&proposes.unit_id)
         .bind(&hit.reason)
         .execute(pool)
         .await?
@@ -811,7 +816,7 @@ pub async fn bank_proposal_accept(
     // ── the fallback: a rule that names a meaning directly ──────────────
     let mut tx = pool.begin().await?;
     let row = sqlx::query(
-        "SELECT p.line_id, p.status, p.semantic_key, p.qualifier, p.site_id, p.reason,
+        "SELECT p.line_id, p.status, p.semantic_key, p.qualifier, p.unit_id, p.reason,
                 r.pattern, r.party, l.description
            FROM bank_rule_proposal p
            JOIN bank_rule r USING (rule_id)
@@ -843,7 +848,7 @@ pub async fn bank_proposal_accept(
         )
         })?;
     let qualifier: String = row.try_get("qualifier")?;
-    let site_id: String = row.try_get("site_id")?;
+    let unit_id: String = row.try_get("unit_id")?;
     let pattern: String = row.try_get("pattern")?;
     let party: Option<String> = row.try_get("party")?;
     let reason: Option<String> = row.try_get("reason")?;
@@ -855,7 +860,7 @@ pub async fn bank_proposal_accept(
         &OtherSide::Meaning {
             semantic_key: semantic_key.clone(),
             qualifier,
-            site_id,
+            unit_id,
         },
         party.as_deref().unwrap_or("Bank"),
         &memo,

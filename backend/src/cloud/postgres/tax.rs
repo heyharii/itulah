@@ -82,7 +82,8 @@ pub struct TaxPeriod {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct TaxLedgerItem {
     pub item_id: Uuid,
-    pub site_id: String,
+    /// Whose books the item is in: head office or a store (0608).
+    pub unit_id: String,
     pub kind: String,
     pub amount_minor: i64,
     pub source_kind: String,
@@ -108,7 +109,8 @@ pub struct RecordTaxItemRequest {
     pub tax_type_code: String,
     pub year: i32,
     pub month: u32,
-    pub site_id: String,
+    /// Whose books the document that caused it posted to.
+    pub unit_id: String,
     /// `OBLIGATION` or `CREDIT`. A settlement is made by paying, not by saying.
     pub kind: String,
     pub amount_minor: i64,
@@ -126,7 +128,9 @@ pub struct SettleTaxRequest {
     pub tax_type_code: String,
     pub year: i32,
     pub month: u32,
-    pub site_id: String,
+    /// Whose books pay it: the payable is discharged, and the bank credited,
+    /// in this unit.
+    pub unit_id: String,
     pub amount_minor: i64,
     pub posting_date: NaiveDate,
     /// Which of our bank meanings paid it, and at which bank.
@@ -273,7 +277,7 @@ pub async fn tax_period_detail(
     let period = to_period(&row)?;
 
     let rows = sqlx::query(
-        "SELECT i.item_id, i.site_id, i.kind, i.amount_minor, i.source_kind, i.source_id,
+        "SELECT i.item_id, i.unit_id, i.kind, i.amount_minor, i.source_kind, i.source_id,
                 i.entry_id, e.entry_number, i.evidence, i.note, i.created_by, i.created_at
            FROM tax_ledger_item i
            LEFT JOIN journal_entry e ON e.entry_id = i.entry_id
@@ -288,7 +292,7 @@ pub async fn tax_period_detail(
         .map(|row| {
             Ok(TaxLedgerItem {
                 item_id: row.try_get("item_id")?,
-                site_id: row.try_get("site_id")?,
+                unit_id: row.try_get("unit_id")?,
                 kind: row.try_get("kind")?,
                 amount_minor: row.try_get("amount_minor")?,
                 source_kind: row.try_get("source_kind")?,
@@ -415,14 +419,14 @@ pub async fn tax_item_record(
 
     sqlx::query(
         "INSERT INTO tax_ledger_item
-           (item_id, period_id, site_id, kind, amount_minor, source_kind, source_id,
+           (item_id, period_id, unit_id, kind, amount_minor, source_kind, source_id,
             entry_id, evidence, note, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (period_id, kind, source_kind, source_id) DO NOTHING",
     )
     .bind(Uuid::new_v4())
     .bind(period_id)
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .bind(&request.kind)
     .bind(request.amount_minor)
     .bind(request.source_kind.trim())
@@ -471,8 +475,8 @@ pub async fn tax_settle(
         currency: "IDR".into(),
         memo: Some(format!("{name} {}-{:02}", request.year, request.month)),
         lines: vec![
-            PostingLine::debit(&semantic_key, &request.site_id, request.amount_minor),
-            PostingLine::credit(&request.bank_key, &request.site_id, request.amount_minor)
+            PostingLine::debit(&semantic_key, &request.unit_id, request.amount_minor),
+            PostingLine::credit(&request.bank_key, &request.unit_id, request.amount_minor)
                 .with_qualifier(&request.bank_qualifier),
         ],
     };
@@ -480,13 +484,13 @@ pub async fn tax_settle(
     let posted = post(&mut tx, &intent, Some(&purpose), actor).await?;
     sqlx::query(
         "INSERT INTO tax_ledger_item
-           (item_id, period_id, site_id, kind, amount_minor, source_kind, source_id,
+           (item_id, period_id, unit_id, kind, amount_minor, source_kind, source_id,
             entry_id, evidence, created_by)
          VALUES ($1,$2,$3,'SETTLEMENT',$4,$5,$6,$7,$8,$9)",
     )
     .bind(settlement_id)
     .bind(period_id)
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .bind(request.amount_minor)
     .bind(SOURCE_KIND)
     .bind(settlement_id.to_string())

@@ -8,9 +8,11 @@
 //!   HO     Dr 1059 Piutang Affiliasi …    / Cr 4016 Management Fee
 //!
 //! The two affiliate lines are the poster's balancer at work — the rule writes
-//! the expense at the unit and the income at head office, `kind_for_source`
-//! classes this kind as Lain-lain, and the account map resolves Lain-lain to
-//! 2030 at the unit and 1059 at head office (owner decision 25 Sep, 0380).
+//! the expense in the unit's books and the income in head office's,
+//! `kind_for_source` classes this kind as Lain-lain, and the account links
+//! resolve Lain-lain to 2030 at a store and 1059 at head office (owner
+//! decision 25 Sep, 0380; per unit since 0606). Head office is the unit of
+//! kind HO, found by its kind.
 
 use super::poster::{post, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
@@ -24,10 +26,10 @@ pub struct ManagementFee {
     pub total_minor: i64,
 }
 
-/// Post one management fee against a unit.
+/// Post one management fee against a unit (a unit id, 0605).
 pub async fn management_fee_post(
     pool: &PgPool,
-    unit_site_id: &str,
+    unit_id: &str,
     amount_minor: i64,
     effective_date: NaiveDate,
     memo: Option<&str>,
@@ -39,11 +41,14 @@ pub async fn management_fee_post(
         ));
     }
     let mut tx = pool.begin().await?;
-    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
-    if unit_site_id == head_office {
+    let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
+    if unit_id == head_office {
         return Err(AppError::Validation(
             "a management fee charges a unit, not head office".into(),
         ));
+    }
+    if !super::sites::unit_exists(&mut *tx, unit_id).await? {
+        return Err(AppError::NotFound(format!("unit {unit_id}")));
     }
     let intent = PostingIntent {
         posting_date: effective_date,
@@ -53,7 +58,7 @@ pub async fn management_fee_post(
         currency: "IDR".into(),
         memo: memo.map(str::to_string),
         lines: vec![
-            PostingLine::debit("management_fee_expense", unit_site_id, amount_minor),
+            PostingLine::debit("management_fee_expense", unit_id, amount_minor),
             PostingLine::credit("management_fee_income", &head_office, amount_minor),
         ],
     };

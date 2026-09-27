@@ -715,28 +715,31 @@ fn outflow_posting(event_kind: &str) -> Option<(&'static str, &'static str, &'st
 
 /// The entry a supplier return makes.
 ///
-/// The payable is head office's (owner rule, 25 Sep) and the stock is wherever
-/// the goods were returned from. When those are the same place the entry is the
-/// two lines it always was; when the goods sat in a shop, the shop's side goes
-/// through Atas Barang — Dr 2029 / Cr 1029 — and head office's side is
-/// Dr 2002 / Cr 1058. The balancer cannot be left to add these itself: a credit
-/// at the shop reads as value it GAVE head office (a receivable), where the
-/// whole point of a return is that the shop owes head office LESS.
-fn supplier_return_lines(site_id: &str, value: i64, ho: &str) -> Vec<PostingLine> {
+/// The payable is in head office's books (owner rule, 25 Sep) and the stock is
+/// in the books of the unit owning the site the goods were returned from. When
+/// those are the same unit the entry is the two lines it always was; when the
+/// goods sat in a store's shop, the store's side goes through Atas Barang —
+/// Dr 2029 / Cr 1029 — and head office's side is Dr 2002 / Cr 1058. The
+/// balancer cannot be left to add these itself: a credit in the store's books
+/// reads as value it GAVE head office (a receivable), where the whole point of
+/// a return is that the store owes head office LESS.
+///
+/// Both arguments are units: `unit_id` the stock's, `ho` head office's.
+fn supplier_return_lines(unit_id: &str, value: i64, ho: &str) -> Vec<PostingLine> {
     let mut lines = vec![
         PostingLine::debit("trade_payable", ho, value),
-        PostingLine::credit("inventory", site_id, value),
+        PostingLine::credit("inventory", unit_id, value),
     ];
-    if site_id != ho {
+    if unit_id != ho {
         lines.push(
-            PostingLine::debit("affiliate_payable", site_id, value)
+            PostingLine::debit("affiliate_payable", unit_id, value)
                 .with_qualifier("BARANG")
-                .with_counter_site(ho),
+                .with_counter_unit(ho),
         );
         lines.push(
             PostingLine::credit("affiliate_receivable", ho, value)
                 .with_qualifier("BARANG")
-                .with_counter_site(site_id),
+                .with_counter_unit(unit_id),
         );
     }
     lines
@@ -833,6 +836,9 @@ pub async fn stock_ledger_consume(
     // that exists without its posting is the state this ordering makes
     // impossible.
     let posted = if total > 0 {
+        // The goods left a site; their cost leaves the books of the unit that
+        // owns it.
+        let unit = super::sites::unit_of_site(&mut **tx, &request.site_id).await?;
         Some(
             post(
                 tx,
@@ -844,14 +850,15 @@ pub async fn stock_ledger_consume(
                     currency: "IDR".into(),
                     memo: request.memo.clone(),
                     lines: vec![
-                        // No `counter_site_id` on either line. A cost of sales
-                        // and the stock it came out of are both the selling
-                        // site's, so there is no other unit in this entry — and
-                        // where there is one, Lane D's balancer adds the
-                        // affiliate legs itself. A rule that wrote them by hand
-                        // would be a second author of the same fact.
-                        PostingLine::debit(expense_key, &request.site_id, total),
-                        PostingLine::credit(stock_key, &request.site_id, total),
+                        // No `counter_unit_id` on either line. A cost of sales
+                        // and the stock it came out of are both in the books of
+                        // the unit owning the selling site, so there is no
+                        // other unit in this entry — and where there is one,
+                        // Lane D's balancer adds the affiliate legs itself. A
+                        // rule that wrote them by hand would be a second author
+                        // of the same fact.
+                        PostingLine::debit(expense_key, &unit, total),
+                        PostingLine::credit(stock_key, &unit, total),
                     ],
                 },
                 Some(&posting_purpose(purpose_step, request.article_id)),
@@ -1089,7 +1096,10 @@ pub async fn stock_ledger_return_to_supplier(
             as i64
     };
 
-    let head_office = super::sites::head_office_site_id(&mut **tx).await?;
+    // Head office's books carry the payable; the stock is in the books of the
+    // unit owning the site the goods leave from.
+    let head_office = super::sites::head_office_unit_id(&mut **tx).await?;
+    let stock_unit = super::sites::unit_of_site(&mut **tx, &request.site_id).await?;
     let posted = if value > 0 {
         Some(
             post(
@@ -1101,7 +1111,7 @@ pub async fn stock_ledger_return_to_supplier(
                     rule_version: "supplier_return/1".into(),
                     currency: "IDR".into(),
                     memo: request.memo.clone(),
-                    lines: supplier_return_lines(&request.site_id, value, &head_office),
+                    lines: supplier_return_lines(&stock_unit, value, &head_office),
                 },
                 // Keyed on the layer and not the article: one credit note can
                 // send back goods from two receipts of the same article, and
@@ -1272,28 +1282,30 @@ pub async fn stock_ledger_record_transfer(
 pub struct PriceCorrectionOutcome {
     pub inventory_minor: i64,
     pub cogs_minor: i64,
-    /// The Atas Barang pair, when the goods are in a shop and the caller is
-    /// making its own journal. Empty at head office.
+    /// The Atas Barang pair, when the goods are in a store's books and the
+    /// caller is making its own journal. Empty when they are head office's.
+    /// Its lines name units, like every `PostingLine`.
     pub affiliate_lines: Vec<PostingLine>,
     pub posting: StockLedgerPosting,
 }
 
-/// The Atas Barang pair a price correction makes when the goods are in a shop.
+/// The Atas Barang pair a price correction makes when the goods are in a
+/// store's books.
 ///
-/// Built for the credit-note direction (shop owes less): Dr 2029 at the shop,
-/// Cr 1058 at head office. A debit note (shop owes more) is the same pair with
-/// the sides swapped.
-fn price_correction_affiliate_lines(site: &str, amount_minor: i64, ho: &str) -> Vec<PostingLine> {
-    if site == ho {
+/// Built for the credit-note direction (store owes less): Dr 2029 in the
+/// store's books, Cr 1058 in head office's. A debit note (store owes more) is
+/// the same pair with the sides swapped. Both arguments are units.
+fn price_correction_affiliate_lines(unit: &str, amount_minor: i64, ho: &str) -> Vec<PostingLine> {
+    if unit == ho {
         return Vec::new();
     }
     let magnitude = amount_minor.abs();
-    let mut store_leg = PostingLine::debit("affiliate_payable", site, magnitude)
+    let mut store_leg = PostingLine::debit("affiliate_payable", unit, magnitude)
         .with_qualifier("BARANG")
-        .with_counter_site(ho);
+        .with_counter_unit(ho);
     let mut ho_leg = PostingLine::credit("affiliate_receivable", ho, magnitude)
         .with_qualifier("BARANG")
-        .with_counter_site(site);
+        .with_counter_unit(unit);
     if amount_minor > 0 {
         store_leg.debit_minor = 0;
         store_leg.credit_minor = magnitude;
@@ -1348,7 +1360,7 @@ async fn price_correction(
         "PRICE_CORRECTION|{}|{}|{}",
         request.source_id, request.layer_id, request.amount_minor
     );
-    let head_office = super::sites::head_office_site_id(&mut **tx).await?;
+    let head_office = super::sites::head_office_unit_id(&mut **tx).await?;
     if let Some(existing) = replay(tx, &key).await? {
         let row = sqlx::query(
             "SELECT inventory_portion_minor, cogs_portion_minor
@@ -1366,13 +1378,16 @@ async fn price_correction(
             ),
             None => (0, 0),
         };
-        let site: Option<String> =
-            sqlx::query_scalar("SELECT site_id FROM cost_layer WHERE layer_id = $1")
-                .bind(request.layer_id)
-                .fetch_optional(&mut **tx)
-                .await?;
+        // The books of the unit owning the layer's site, as on the first call.
+        let unit: Option<String> = sqlx::query_scalar(
+            "SELECT s.unit_id FROM cost_layer l JOIN site s ON s.id = l.site_id
+              WHERE l.layer_id = $1",
+        )
+        .bind(request.layer_id)
+        .fetch_optional(&mut **tx)
+        .await?;
         let affiliate_lines = price_correction_affiliate_lines(
-            site.as_deref().unwrap_or_default(),
+            unit.as_deref().unwrap_or_default(),
             request.amount_minor,
             &head_office,
         );
@@ -1417,38 +1432,39 @@ async fn price_correction(
     })
     .map_err(|refusal| AppError::Validation(refusal.message().to_string()))?;
 
-    // Every line sits at the layer's own location, which is where the goods
-    // arrived and where the bill is. Splitting the cost-of-sales half across the
-    // sites those particular pieces were sold at would need a per-site
-    // consumption breakdown the company-wide queue deliberately does not keep —
-    // and 0098 refuses a cross-location line anyway, because the honest credit
-    // is an inter-unit balance no rule writes yet.
+    // Every stock line sits in the books of the unit owning the layer's own
+    // location, which is where the goods arrived and where the bill is.
+    // Splitting the cost-of-sales half across the units whose shops those
+    // particular pieces were sold at would need a per-site consumption
+    // breakdown the company-wide queue deliberately does not keep.
+    let unit = super::sites::unit_of_site(&mut **tx, &site).await?;
     let ho = head_office.as_str();
     // The stock adjustment stays where the goods are: on hand → inventory,
     // already sold → cost of sales (the split `split_price_correction` made).
     let mut stock_lines = Vec::with_capacity(2);
     let mut push_stock = |key: &str, amount: i64| {
         if amount > 0 {
-            stock_lines.push(PostingLine::debit(key, &site, amount));
+            stock_lines.push(PostingLine::debit(key, &unit, amount));
         } else if amount < 0 {
-            stock_lines.push(PostingLine::credit(key, &site, -amount));
+            stock_lines.push(PostingLine::credit(key, &unit, -amount));
         }
     };
     push_stock("inventory", split.inventory_minor);
     push_stock("cogs", split.cogs_minor);
     // The supplier is head office's counterparty (owner rule, 25 Sep), so the
-    // payable sits at dc. When the goods are in a shop the two are joined
-    // through Atas Barang explicitly: the shop's debt to head office moves by
-    // the correction, and head office's receivable from the shop moves with it.
-    // The balancer cannot do this — it reads a credit at the shop as a
-    // receivable, and a correction changes what the shop already owes.
+    // payable sits in head office's books. When the goods are in a store's
+    // books the two are joined through Atas Barang explicitly: the store's
+    // debt to head office moves by the correction, and head office's
+    // receivable from the store moves with it. The balancer cannot do this —
+    // it reads a credit in the store's books as a receivable, and a correction
+    // changes what the store already owes.
     let payable_line = if request.amount_minor > 0 {
         // The supplier billed more: head office owes more.
         PostingLine::credit("trade_payable", ho, request.amount_minor)
     } else {
         PostingLine::debit("trade_payable", ho, -request.amount_minor)
     };
-    let affiliate_lines = price_correction_affiliate_lines(&site, request.amount_minor, ho);
+    let affiliate_lines = price_correction_affiliate_lines(&unit, request.amount_minor, ho);
 
     // When this makes its own journal it posts the payable and the legs; when it
     // is journal-less the caller's document already credits the payable, so it
@@ -1613,6 +1629,8 @@ pub async fn cost_pending_post(
     };
     let flag_id = Uuid::new_v4();
     let entry_id = if provisional > 0 {
+        // The flag stays at the selling site; the cost is booked to its unit.
+        let books = super::sites::unit_of_site(&mut **tx, site_id).await?;
         Some(
             post(
                 tx,
@@ -1624,8 +1642,8 @@ pub async fn cost_pending_post(
                     currency: "IDR".into(),
                     memo: Some(format!("HPP menunggu biaya: {quantity} x {unit}")),
                     lines: vec![
-                        PostingLine::debit(expense_key, site_id, provisional),
-                        PostingLine::credit(stock_key, site_id, provisional),
+                        PostingLine::debit(expense_key, &books, provisional),
+                        PostingLine::credit(stock_key, &books, provisional),
                     ],
                 },
                 Some(&format!("PENDING_{}", article_id.simple())),
@@ -1717,6 +1735,9 @@ pub async fn cost_pending_true_up(
         .await;
         let Ok(consumed) = consumed else { break };
         let reversal = if provisional > 0 {
+            // Reversed in the books the provisional cost was booked to: the
+            // unit owning the site the flag names.
+            let books = super::sites::unit_of_site(&mut **tx, &site_id).await?;
             Some(
                 post(
                     tx,
@@ -1728,8 +1749,8 @@ pub async fn cost_pending_true_up(
                         currency: "IDR".into(),
                         memo: Some("HPP sementara dibalik".into()),
                         lines: vec![
-                            PostingLine::debit(stock_key, &site_id, provisional),
-                            PostingLine::credit(expense_key, &site_id, provisional),
+                            PostingLine::debit(stock_key, &books, provisional),
+                            PostingLine::credit(expense_key, &books, provisional),
                         ],
                     },
                     Some("TRUE_UP"),
@@ -1765,13 +1786,18 @@ pub async fn cost_pending_true_up(
 ///   the unit) / Cr 1031; the unit Dr 1029 / Cr 1031.
 ///
 /// Values at the article's provenance cost (its remaining layers; the last
-/// receipt cost when none remain). Bags use 1030/1032 the same way. Each
-/// site's lines balance on their own, so the poster adds no legs. A move
-/// between two units (which the accountant routes through head office) is not
-/// booked here yet and is left for Finance.
+/// receipt cost when none remain). Bags use 1030/1032 the same way. The goods
+/// move between sites; the books they move between are the units owning those
+/// sites (`sites::unit_of_site`). Each unit's lines balance on their own, so
+/// the poster adds no legs. A move between two sites of one unit changes
+/// custody and not whose books the goods are in, so it books nothing. A move
+/// between two stores (which the accountant routes through head office) is
+/// not booked here yet and is left for Finance.
 pub async fn stock_transfer_post_pending(pool: &PgPool, actor: &str) -> Result<i64, AppError> {
     let lines = sqlx::query(
         "SELECT l.id, l.source_site_id, l.destination_id, sk.article_id,
+                unit_of_site(l.source_site_id) AS source_unit,
+                unit_of_site(l.destination_id) AS destination_unit,
                 a.created_at::date AS allotted_on,
                 COALESCE(p.dispatched_quantity, l.dispatched_quantity)::bigint AS dispatched,
                 COALESCE(p.received_quantity, l.received_quantity)::bigint AS received,
@@ -1792,12 +1818,24 @@ pub async fn stock_transfer_post_pending(pool: &PgPool, actor: &str) -> Result<i
     .await?;
     let mut booked = 0i64;
     let today = chrono::Utc::now().date_naive();
-    let head_office = super::sites::head_office_site_id(pool).await?;
+    let head_office = super::sites::head_office_unit_id(pool).await?;
     for row in &lines {
         let line_id: Uuid = row.try_get("id")?;
-        let source: String = row.try_get("source_site_id")?;
-        let destination: String = row.try_get("destination_id")?;
+        let source_site: String = row.try_get("source_site_id")?;
+        let destination_site: String = row.try_get("destination_id")?;
         let article_id: Uuid = row.try_get("article_id")?;
+        // The books on each side of the journey, read with the lines rather
+        // than one lookup per line. A site the centre does not hold is refused
+        // by name, as `sites::unit_of_site` would.
+        let source: String = row
+            .try_get::<Option<String>, _>("source_unit")?
+            .ok_or_else(|| AppError::NotFound(format!("site {source_site}")))?;
+        let destination: String = row
+            .try_get::<Option<String>, _>("destination_unit")?
+            .ok_or_else(|| AppError::NotFound(format!("site {destination_site}")))?;
+        if source == destination {
+            continue;
+        }
         if source != head_office && destination != head_office {
             continue;
         }
@@ -1825,28 +1863,26 @@ pub async fn stock_transfer_post_pending(pool: &PgPool, actor: &str) -> Result<i
             .await?
             .unwrap_or(last_known_unit_cost(&mut tx, article_id).await?);
             let value = unit.saturating_mul(delta);
-            let affiliate = |key: &str, site: &str, counter: &str, debit: bool| {
-                let mut leg = if debit {
-                    PostingLine::debit(key, site, value)
+            let affiliate = |key: &str, unit: &str, counter: &str, debit: bool| {
+                if debit {
+                    PostingLine::debit(key, unit, value)
                 } else {
-                    PostingLine::credit(key, site, value)
+                    PostingLine::credit(key, unit, value)
                 }
-                .with_qualifier("BARANG");
-                leg.counter_site_id = Some(counter.to_string());
-                leg
+                .with_qualifier("BARANG")
+                .with_counter_unit(counter)
             };
             // Goods in transit (1031) is a balance between two units, so each
             // leg names the unit on the other side of the journey — the poster
-            // refuses a line on it that names only its own site.
-            let in_transit = |site: &str, counter: &str, debit: bool| {
-                let mut leg = if debit {
-                    PostingLine::debit(transit, site, value)
+            // refuses a line on it that names only its own unit.
+            let in_transit = |unit: &str, counter: &str, debit: bool| {
+                if debit {
+                    PostingLine::debit(transit, unit, value)
                 } else {
-                    PostingLine::credit(transit, site, value)
+                    PostingLine::credit(transit, unit, value)
                 }
-                .with_qualifier(transit_q);
-                leg.counter_site_id = Some(counter.to_string());
-                leg
+                .with_qualifier(transit_q)
+                .with_counter_unit(counter)
             };
             let entry = if value > 0 {
                 let lines = match stage {
@@ -1872,7 +1908,9 @@ pub async fn stock_transfer_post_pending(pool: &PgPool, actor: &str) -> Result<i
                             source_id: Some(line_id.to_string()),
                             rule_version: "sjd_transfer/1".into(),
                             currency: "IDR".into(),
-                            memo: Some(format!("{stage} {delta} unit {source} -> {destination}")),
+                            memo: Some(format!(
+                                "{stage} {delta} unit {source_site} -> {destination_site}"
+                            )),
                             lines,
                         },
                         Some(&format!("{stage}_{}_{}", already, done)),
@@ -2364,7 +2402,8 @@ pub async fn cost_layer_article_for_sku(pool: &PgPool, sku_id: Uuid) -> Result<U
         .map_err(AppError::from)
 }
 
-/// Which client account a meaning resolves to at a location.
+/// Which client account a meaning resolves to for the goods at a location:
+/// in the books of the unit that owns it.
 ///
 /// Re-exported for the integrity screen, which shows the codes it summed so a
 /// difference can be chased without guessing.
@@ -2372,5 +2411,6 @@ pub async fn stock_ledger_control_account(
     pool: &PgPool,
     site_id: &str,
 ) -> Result<String, AppError> {
-    resolve_account_code(pool, "inventory", site_id, "").await
+    let unit = super::sites::unit_of_site(pool, site_id).await?;
+    resolve_account_code(pool, "inventory", &unit, "").await
 }

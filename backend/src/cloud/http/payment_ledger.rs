@@ -47,7 +47,8 @@ pub struct PaymentLedgerQuery {
     /// `card_receivable_debit`, `store_manager_receivable`.
     pub account: Option<String>,
     pub qualifier: Option<String>,
-    pub site: Option<String>,
+    /// Whose books: a unit id (0608).
+    pub unit: Option<String>,
     pub party_type: Option<String>,
     pub party: Option<String>,
     pub voucher_kind: Option<String>,
@@ -66,7 +67,7 @@ impl PaymentLedgerQuery {
         Ok(PaymentLedgerFilter {
             account_key: self.account.clone(),
             qualifier: self.qualifier.clone(),
-            site_id: self.site.clone(),
+            unit_id: self.unit.clone(),
             party_type: self
                 .party_type
                 .as_deref()
@@ -144,7 +145,8 @@ pub async fn aging(
 
 #[derive(Debug, Deserialize)]
 pub struct IntegrityQuery {
-    pub site: Option<String>,
+    /// Whose books: a unit id (0608).
+    pub unit: Option<String>,
     pub as_of: Option<NaiveDate>,
 }
 
@@ -152,14 +154,14 @@ pub struct IntegrityQuery {
 ///
 /// The one read this lane exists for. A row whose `difference_minor` is not
 /// zero is a sub-ledger and a general ledger disagreeing about the same money,
-/// and the row names the account and the location so the disagreement can be
+/// and the row names the account and the unit so the disagreement can be
 /// gone and looked at rather than announced.
 pub async fn integrity(
     State(state): State<AppState>,
     Query(query): Query<IntegrityQuery>,
 ) -> Result<Json<PaymentLedgerIntegrity>, AppError> {
     Ok(Json(
-        infrastructure::payment_ledger_integrity(&state.db, query.as_of, query.site.as_deref())
+        infrastructure::payment_ledger_integrity(&state.db, query.as_of, query.unit.as_deref())
             .await?,
     ))
 }

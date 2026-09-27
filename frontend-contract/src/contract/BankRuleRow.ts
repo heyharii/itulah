@@ -29,9 +29,14 @@ category_refuses: boolean,
  * A meaning named directly, for a narration no category covers yet.
  * Ignored when `category_code` is set.
  */
-semantic_key: string | null, qualifier: string, site_id: string, 
+semantic_key: string | null, qualifier: string, 
 /**
- * What that meaning resolves to at that location today, so a screen can
+ * The book whose statements the rule reads, and where its meaning
+ * resolves (0609). Head office's unless the rule says otherwise.
+ */
+unit_id: string, 
+/**
+ * What that meaning resolves to in that unit's books today, so a screen can
  * show the account without a second round trip. Read through the map on
  * every read, so it follows a remapping instead of remembering where the
  * account used to be.

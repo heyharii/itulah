@@ -39,14 +39,15 @@ pub struct JournalLineView {
     pub account_code: String,
     /// The client's own name, never translated.
     pub account_name: String,
-    pub site_id: String,
+    /// Whose books the line is in (0605).
+    pub unit_id: String,
     /// The unit on the other side, on an inter-unit line and nowhere else.
     ///
     /// Present on the affiliate legs `poster.rs` adds, which is the only place
     /// it is ever written. Without it the entry that funded store 03's
     /// electricity shows two lines called "Hutang Affiliasi Pembiayaan" and a
     /// reader has to decode a twelve-digit code to find out which is whose.
-    pub counter_site_id: Option<String>,
+    pub counter_unit_id: Option<String>,
     pub debit_minor: i64,
     pub credit_minor: i64,
     pub party_type: Option<String>,
@@ -145,10 +146,10 @@ pub struct JournalScope {
     /// panel spells itself, and a caller sending exactly one — as every
     /// existing caller does — is unaffected.
     pub kinds: Vec<String>,
-    /// Locations. An entry has no location of its own — its LINES do, and a
-    /// payment can settle two shops' bills at once — so this asks whether any
-    /// line of the entry touched one of these.
-    pub sites: Vec<String>,
+    /// Units, by id. An entry has no book of its own — its LINES do, and a
+    /// payment can settle two stores' bills at once — so this asks whether any
+    /// line of the entry is in one of these units' books.
+    pub units: Vec<String>,
     /// `number`, `total` or `kind`. Anything else is the house order, newest
     /// first — see [`journal_page`].
     ///
@@ -178,8 +179,8 @@ pub struct JournalFacet {
     ///
     /// Absent for a source kind, whose words belong to the screen —
     /// "Hand-written" is the hub's phrasing of `MANUAL`, not the server's.
-    /// Present for a location, because `store-01` is an id this system files
-    /// it under and the panel beside the column shows `Store 01`.
+    /// Present for a unit, because `store-01` is an id this system files it
+    /// under and the panel beside the column shows the unit's name.
     pub label: Option<String>,
     pub count: i64,
 }
@@ -190,12 +191,12 @@ pub struct JournalFacet {
 pub struct JournalFacets {
     pub kinds: Vec<JournalFacet>,
     /// **These do not add up to `total`, and that is not a fault.** An entry
-    /// with lines at two locations is counted under both, because it genuinely
-    /// touched both — a payment settling Bandung's and Cikupa's bills is one
-    /// entry and two shops' business. A panel whose numbers summed to the total
-    /// would have to pick one location per entry, and there is no honest way to
-    /// pick.
-    pub sites: Vec<JournalFacet>,
+    /// with lines in two units' books is counted under both, because it
+    /// genuinely touched both — a payment settling Bandung's and Cikupa's bills
+    /// is one entry and two stores' business. A panel whose numbers summed to
+    /// the total would have to pick one unit per entry, and there is no honest
+    /// way to pick.
+    pub units: Vec<JournalFacet>,
 }
 
 /// A page of the register, and the shape of everything it was drawn from.
@@ -262,12 +263,12 @@ impl JournalCursor {
 ///
 /// # What is NOT here, and why
 ///
-/// `reversed_by`, `line_count` and the entry's locations are all per-row
+/// `reversed_by`, `line_count` and the entry's units are all per-row
 /// lookups, and a CTE is materialised before the `LIMIT` — so putting them
 /// here would run three subqueries for every entry the window matches in order
 /// to draw two hundred. With 97 entries that is free; this table gains a row
 /// every time a till closes, and the version of this query that computed
-/// `site_ids` for a million entries to show a page of them is the version
+/// `unit_ids` for a million entries to show a page of them is the version
 /// nobody could explain afterwards.
 ///
 /// So they are added in the outer `SELECT`, which runs after the keyset and
@@ -277,7 +278,7 @@ impl JournalCursor {
 /// mean counting the lines of every entry in the window, which is the whole
 /// journal, to put the fourteen-line correction at the top.
 ///
-/// It stops at the WINDOW and the SEARCH. The kind and site filters are
+/// It stops at the WINDOW and the SEARCH. The kind and unit filters are
 /// applied outside it by each caller, which is what lets one definition answer
 /// two different questions from the same rows: the page wants what the filters
 /// leave, while the filter panel's counts want what the search alone leaves —
@@ -302,9 +303,9 @@ const ENTRY_ROWS: &str = "
 
 /// The filters, spelled once so the page and the counts narrow identically.
 ///
-/// Binds from `$4`: the kinds or NULL, the sites or NULL.
+/// Binds from `$4`: the kinds or NULL, the units or NULL.
 ///
-/// The site test is an `EXISTS` against `journal_line` rather than an array
+/// The unit test is an `EXISTS` against `journal_line` rather than an array
 /// built per entry, for the reason `ENTRY_ROWS` gives and for one more: an
 /// `EXISTS` can stop at the first matching line and rides
 /// `ix_journal_line_entry`, while an array has to read every line of every
@@ -313,7 +314,7 @@ const ENTRY_FILTERS: &str = "
     ($4::text[] IS NULL OR s.source_kind = ANY($4))
     AND ($5::text[] IS NULL OR EXISTS (
             SELECT 1 FROM journal_line l
-             WHERE l.entry_id = s.entry_id AND l.site_id = ANY($5)))
+             WHERE l.entry_id = s.entry_id AND l.unit_id = ANY($5)))
 ";
 
 /// The per-row lookups, added to the PAGE and to nothing else.
@@ -326,9 +327,9 @@ const ENTRY_DECORATIONS: &str = "
 
 /// The register, one page at a time, beside how big the whole answer is.
 ///
-/// `sites` asks whether ANY line of the entry touched one of those locations,
+/// `units` asks whether ANY line of the entry is in one of those units' books,
 /// and deliberately not whether the entry "belongs" to one — an entry has no
-/// location, only its lines do.
+/// book, only its lines do.
 pub async fn journal_page(pool: &PgPool, scope: JournalScope) -> Result<JournalPage, AppError> {
     // A blank search is not a search. `Some("")` would compile to `ILIKE '%%'`,
     // which matches everything and costs a scan to say so.
@@ -339,7 +340,7 @@ pub async fn journal_page(pool: &PgPool, scope: JournalScope) -> Result<JournalP
         .filter(|text| !text.is_empty())
         .map(|text| format!("%{text}%"));
     let kinds = (!scope.kinds.is_empty()).then(|| scope.kinds.clone());
-    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let units = (!scope.units.is_empty()).then(|| scope.units.clone());
 
     // The sort, and the tie-break that makes it total. Every order ends in the
     // entry id, which is the primary key, so no two rows can compare equal —
@@ -411,7 +412,7 @@ pub async fn journal_page(pool: &PgPool, scope: JournalScope) -> Result<JournalP
         .bind(scope.to)
         .bind(&needle)
         .bind(&kinds)
-        .bind(&sites)
+        .bind(&units)
         .bind(cursor.as_ref().map(|c| c.entry_id))
         .bind(limit)
         .fetch_all(pool)
@@ -472,35 +473,35 @@ async fn journal_facets(
          -- built per entry: same answer, and it rides `ix_journal_line_entry`
          -- instead of reading every line of the window twice.
          --
-         -- `COUNT(DISTINCT entry_id)`, because an entry with two lines at one
-         -- shop is one entry that touched that shop. These still do not sum to
-         -- `total` — an entry at two shops is counted under both, which is
-         -- what `JournalFacets::sites` says and means.
-         SELECT 'site', l.site_id,
-                (SELECT p.name FROM site p WHERE p.id = l.site_id),
+         -- `COUNT(DISTINCT entry_id)`, because an entry with two lines in one
+         -- unit's books is one entry that touched that unit. These still do not
+         -- sum to `total` — an entry in two units is counted under both, which
+         -- is what `JournalFacets::units` says and means.
+         SELECT 'unit', l.unit_id,
+                (SELECT u.name FROM unit u WHERE u.id = l.unit_id),
                 COUNT(DISTINCT l.entry_id)::bigint, 0::bigint
            FROM searched s JOIN journal_line l ON l.entry_id = s.entry_id
-          GROUP BY l.site_id
+          GROUP BY l.unit_id
           UNION ALL
          SELECT 'all', '', NULL::text, COUNT(*)::bigint,
                 COALESCE(SUM(total_minor), 0)::bigint
            FROM kept"
     );
     let kinds = (!scope.kinds.is_empty()).then(|| scope.kinds.clone());
-    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let units = (!scope.units.is_empty()).then(|| scope.units.clone());
     let rows = sqlx::query(&sql)
         .bind(scope.from)
         .bind(scope.to)
         .bind(needle)
         .bind(&kinds)
-        .bind(&sites)
+        .bind(&units)
         .fetch_all(pool)
         .await?;
 
     let mut total = 0i64;
     let mut total_minor = 0i64;
     let mut kind_facets = Vec::new();
-    let mut site_facets = Vec::new();
+    let mut unit_facets = Vec::new();
     for row in &rows {
         let kind: String = row.try_get("kind")?;
         let value: String = row.try_get("value")?;
@@ -512,7 +513,7 @@ async fn journal_facets(
                 label,
                 count: n,
             }),
-            "site" => site_facets.push(JournalFacet {
+            "unit" => unit_facets.push(JournalFacet {
                 value,
                 label,
                 count: n,
@@ -528,7 +529,7 @@ async fn journal_facets(
     // the most behind it. Ties break on the value so the order is stable
     // between calls — a list that reshuffles under the cursor is a list nobody
     // can click.
-    for list in [&mut kind_facets, &mut site_facets] {
+    for list in [&mut kind_facets, &mut unit_facets] {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
     }
     Ok((
@@ -536,7 +537,7 @@ async fn journal_facets(
         total_minor,
         JournalFacets {
             kinds: kind_facets,
-            sites: site_facets,
+            units: unit_facets,
         },
     ))
 }
@@ -551,8 +552,8 @@ pub async fn journal_entry(pool: &PgPool, entry_id: Uuid) -> Result<JournalEntry
     let entry = to_entry(&row)?;
 
     let lines = sqlx::query(
-        "SELECT l.line_number, l.account_code, a.name AS account_name, l.site_id,
-                l.counter_site_id, l.debit_minor, l.credit_minor, l.party_type, l.party_id,
+        "SELECT l.line_number, l.account_code, a.name AS account_name, l.unit_id,
+                l.counter_unit_id, l.debit_minor, l.credit_minor, l.party_type, l.party_id,
                 l.category_code, k.name AS category_name,
                 l.asset_id, f.asset_number, l.memo
            FROM journal_line l
@@ -574,8 +575,8 @@ pub async fn journal_entry(pool: &PgPool, entry_id: Uuid) -> Result<JournalEntry
                     line_number: row.try_get("line_number")?,
                     account_code: row.try_get("account_code")?,
                     account_name: row.try_get("account_name")?,
-                    site_id: row.try_get("site_id")?,
-                    counter_site_id: row.try_get("counter_site_id")?,
+                    unit_id: row.try_get("unit_id")?,
+                    counter_unit_id: row.try_get("counter_unit_id")?,
                     debit_minor: row.try_get("debit_minor")?,
                     credit_minor: row.try_get("credit_minor")?,
                     party_type: row.try_get("party_type")?,
@@ -618,11 +619,11 @@ const MAX_LEDGER_LIMIT: i64 = 1000;
 /// What a caller is asking one account's ledger for.
 #[derive(Clone, Debug, Default)]
 pub struct GeneralLedgerScope {
-    /// One location, or all of them. **Part of the window, not a filter**: it
-    /// narrows the opening balance and the totals too, which is what it has
+    /// One unit's books, or all of them. **Part of the window, not a filter**:
+    /// it narrows the opening balance and the totals too, which is what it has
     /// always done — "cash at Cikupa" is a different ledger, not a filtered
     /// view of a wider one.
-    pub site_id: Option<String>,
+    pub unit_id: Option<String>,
     pub from: NaiveDate,
     pub to: NaiveDate,
     /// Free text, tried against the entry number, the line's memo (falling
@@ -677,13 +678,13 @@ pub struct GeneralLedgerFacets {
     /// the client's own name for each as the label. Empty on an account that
     /// declares no family, which is most of the balance sheet.
     pub categories: Vec<GeneralLedgerFacet>,
-    /// The locations this account moved at inside the window.
+    /// The units whose books this account moved in inside the window.
     ///
-    /// Informational when `site_id` was given, where there is exactly one and
+    /// Informational when `unit_id` was given, where there is exactly one and
     /// clicking it cannot change the answer — it is left in rather than
     /// suppressed because here it is also the caption for a window somebody
     /// has already narrowed.
-    pub sites: Vec<GeneralLedgerFacet>,
+    pub units: Vec<GeneralLedgerFacet>,
 }
 
 /// One movement in an account's own ledger.
@@ -724,7 +725,8 @@ pub struct GeneralLedgerRow {
     /// and telling them apart would mean opening each voucher.
     pub category_code: Option<String>,
     pub category_name: Option<String>,
-    pub site_id: String,
+    /// Whose books the line is in (0605).
+    pub unit_id: String,
     /// The unit on the other side of the movement, when the posting named
     /// one. 0120 put it on the line.
     ///
@@ -733,7 +735,7 @@ pub struct GeneralLedgerRow {
     /// which is what a trial balance does, and is why this screen and the
     /// trial balance cannot disagree. See `interunit`. This column answers
     /// the other half of the question, which movements rather than how much.
-    pub counter_site_id: Option<String>,
+    pub counter_unit_id: Option<String>,
     /// Who the other side was, when the posting named one.
     ///
     /// `journal_line.party_type` + `party_id` (0300) are the sub-ledger dimension the payables
@@ -771,7 +773,7 @@ pub struct GeneralLedgerRow {
 pub struct GeneralLedger {
     pub account_code: String,
     pub account_name: String,
-    pub site_id: Option<String>,
+    pub unit_id: Option<String>,
     pub from: NaiveDate,
     pub to: NaiveDate,
     /// What the account held the day before `from`. Without it the first
@@ -828,7 +830,7 @@ impl LedgerCursor {
 /// that is the whole reason it is a constant: the three are only consistent if
 /// they are the same rows.
 ///
-/// Binds: `$1` the account number, `$2` the site or NULL, `$3` from, `$4`
+/// Binds: `$1` the account number, `$2` the unit or NULL, `$3` from, `$4`
 /// the opening balance, `$5` to.
 ///
 /// `ord` and `amount` are computed here rather than only in `ORDER BY` because
@@ -839,7 +841,7 @@ impl LedgerCursor {
 /// ledger in the order the ledger means.
 const LEDGER_WINDOW: &str = "
     SELECT l.line_id, e.entry_id, e.entry_number, e.posting_date, e.source_kind,
-           e.source_id, l.site_id, l.counter_site_id, l.account_code,
+           e.source_id, l.unit_id, l.counter_unit_id, l.account_code,
            l.category_code, l.party_type, l.party_id,
            COALESCE(l.memo, e.memo) AS memo,
            l.debit_minor, l.credit_minor,
@@ -860,7 +862,7 @@ const LEDGER_WINDOW: &str = "
       JOIN journal_entry e USING (entry_id)
       LEFT JOIN bank_line_match m ON m.journal_line_id = l.line_id
      WHERE selected.account_code = $1
-       AND ($2::text IS NULL OR l.site_id = $2)
+       AND ($2::text IS NULL OR l.unit_id = $2)
        AND e.posting_date >= $3 AND e.posting_date <= $5
 ";
 
@@ -885,7 +887,7 @@ const LEDGER_FILTERS: &str = "
 /// The account's nested-set bounds select its whole subtree — so asking for a
 /// heading gives all descendant movements even when account numbers do not
 /// encode the hierarchy.
-/// `counter_site_id` narrows it further, to the movements with one other unit.
+/// `counter_unit_id` narrows it further, to the movements with one other unit.
 /// It is the question an affiliate account exists to answer — head office's
 /// `Piutang Affiliasi` is thirteen balances filed under one heading, and 0122
 /// gives each pair its own leaf, so this reaches the same rows whether the
@@ -902,7 +904,7 @@ pub async fn general_ledger(
         .ok_or_else(|| AppError::NotFound(format!("account {account_code}")))?
         .try_get("name")?;
 
-    let site_id = scope.site_id.as_deref();
+    let unit_id = scope.unit_id.as_deref();
     let opening: i64 = sqlx::query(
         "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor),0)::bigint AS opening
            FROM ledger_account selected
@@ -911,14 +913,14 @@ pub async fn general_ledger(
            JOIN journal_line l ON l.account_code = descendant.account_code
            JOIN journal_entry e USING (entry_id)
           WHERE selected.account_code = $1
-            AND ($2::text IS NULL OR l.site_id = $2)
+            AND ($2::text IS NULL OR l.unit_id = $2)
             AND e.posting_date < $3",
     )
     .bind(account_code)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(scope.from)
     // Three parameters, three binds. The query used to carry a fourth --
-    // `AND ($4::text IS NULL OR l.counter_site_id = $4)`, a counterparty
+    // `AND ($4::text IS NULL OR l.counter_unit_id = $4)`, a counterparty
     // narrowing nothing ever sent -- and the prepared statement demanded a
     // bind the caller never supplied, so every read of an account failed as
     // 08P01. The clause is gone with the parameter; if counterparty narrowing
@@ -1011,7 +1013,7 @@ pub async fn general_ledger(
     );
     let rows = sqlx::query(&sql)
         .bind(account_code)
-        .bind(site_id)
+        .bind(unit_id)
         .bind(scope.from)
         .bind(opening)
         .bind(scope.to)
@@ -1051,8 +1053,8 @@ pub async fn general_ledger(
                 .unwrap_or_default(),
             category_code: row.try_get("category_code")?,
             category_name: row.try_get("category_name")?,
-            site_id: row.try_get("site_id")?,
-            counter_site_id: row.try_get("counter_site_id")?,
+            unit_id: row.try_get("unit_id")?,
+            counter_unit_id: row.try_get("counter_unit_id")?,
             party_type: row.try_get("party_type")?,
             party_id: row.try_get("party_id")?,
             supplier_name: row.try_get("supplier_name")?,
@@ -1078,7 +1080,7 @@ pub async fn general_ledger(
     Ok(GeneralLedger {
         account_code: account_code.to_string(),
         account_name: name,
-        site_id: scope.site_id.clone(),
+        unit_id: scope.unit_id.clone(),
         from: scope.from,
         to: scope.to,
         opening_minor: opening,
@@ -1133,10 +1135,10 @@ async fn ledger_summary(
                 COUNT(*)::bigint AS n, 0::bigint AS debit, 0::bigint AS credit
            FROM windowed GROUP BY source_kind
           UNION ALL
-         SELECT 'site', w.site_id,
-                (SELECT p.name FROM site p WHERE p.id = w.site_id),
+         SELECT 'unit', w.unit_id,
+                (SELECT u.name FROM unit u WHERE u.id = w.unit_id),
                 COUNT(*)::bigint, 0::bigint, 0::bigint
-           FROM windowed w GROUP BY w.site_id
+           FROM windowed w GROUP BY w.unit_id
           UNION ALL
          -- `IS NOT NULL` and not a COALESCE to a placeholder: a facet value has
          -- to be a value the filter can be given back, and no category means
@@ -1156,7 +1158,7 @@ async fn ledger_summary(
     );
     let rows = sqlx::query(&sql)
         .bind(account_code)
-        .bind(scope.site_id.as_deref())
+        .bind(scope.unit_id.as_deref())
         .bind(scope.from)
         .bind(opening)
         .bind(scope.to)
@@ -1174,7 +1176,7 @@ async fn ledger_summary(
         facets: GeneralLedgerFacets {
             kinds: Vec::new(),
             categories: Vec::new(),
-            sites: Vec::new(),
+            units: Vec::new(),
         },
     };
     for row in &rows {
@@ -1193,7 +1195,7 @@ async fn ledger_summary(
                 label,
                 count: n,
             }),
-            "site" => summary.facets.sites.push(GeneralLedgerFacet {
+            "unit" => summary.facets.units.push(GeneralLedgerFacet {
                 value,
                 label,
                 count: n,
@@ -1209,7 +1211,7 @@ async fn ledger_summary(
     for list in [
         &mut summary.facets.kinds,
         &mut summary.facets.categories,
-        &mut summary.facets.sites,
+        &mut summary.facets.units,
     ] {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
     }

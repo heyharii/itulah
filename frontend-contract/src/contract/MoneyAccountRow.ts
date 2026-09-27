@@ -3,7 +3,7 @@ import type { MoneyPot } from "./MoneyPot";
 import type { MoneyStatementRef } from "./MoneyStatementRef";
 
 /**
- * One mapped money account, at one location.
+ * One mapped money account, in one unit's books.
  */
 export type MoneyAccountRow = { semantic_key: string, 
 /**
@@ -21,7 +21,11 @@ pot: MoneyPot,
 /**
  * Which bank, which scheme. Empty when the meaning needs no narrowing.
  */
-qualifier: string, site_id: string, account_code: string, 
+qualifier: string, 
+/**
+ * Whose books the account is in (0605).
+ */
+unit_id: string, account_code: string, 
 /**
  * The client's own name, never translated and never trimmed.
  *
@@ -37,19 +41,19 @@ qualifier: string, site_id: string, account_code: string,
  * dropping that left every row on a single-kind list reading `Cash on
  * Hand`. A column whose every cell says the same word says nothing, and
  * the repetition it was removing was the lesser fault — `C001` is the
- * CLIENT's name for the shop, and the location column is ours.
+ * CLIENT's name for the shop, and the unit column is ours.
  */
 account_name: string, 
 /**
- * What the site is called, rather than what this system files it under.
+ * What the unit is called (`unit.name`), rather than what this system
+ * files it under.
  *
- * `site_id` is ours — `store-01`, `dc` — and it appears on no document
- * anybody outside this system holds. Worse, on the head-office rows it
- * contradicts the account's own name: the chart says `HO` and the id says
- * `dc`, because head office and the distribution centre share a building
- * and this system files them under one site.
+ * `unit_id` is ours, and it appears on no document anybody outside this
+ * system holds. The name is what a person reads; it is the unit's, never a
+ * premises': head office's books are not the Gudang's, whatever building
+ * they are kept in.
  */
-site_name: string, 
+unit_name: string, 
 /**
  * The ledger balance as at the reporting date: debits minus credits, in
  * the account's own sign and deliberately not flipped. `giro_outstanding`
@@ -58,7 +62,7 @@ site_name: string,
  */
 per_books_minor: number, 
 /**
- * The latest statement imported for this account at this location on or
+ * The latest statement imported for this account in this unit on or
  * before the reporting date, when there is one. Absent on cash, on a
  * cashier float, and on any bank nobody has uploaded a statement for.
  */

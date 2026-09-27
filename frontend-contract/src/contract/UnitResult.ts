@@ -2,8 +2,17 @@
 
 /**
  * One unit's P&L, in the same layers as [`ProfitAndLoss`].
+ *
+ * A unit — head office or a store — and not a premises (0605): head
+ * office's result is one row however many sites it keeps, and it is found by
+ * the unit, never by a site id.
  */
-export type UnitResult = { site_id: string, revenue_minor: number, cost_of_sales_minor: number, gross_profit_minor: number, operating_expenses_minor: number, gross_operating_profit_minor: number, other_operating_expenses_minor: number, net_operating_profit_minor: number, 
+export type UnitResult = { unit_id: string, 
+/**
+ * The client's code (`HO`, `C004`) and the unit's name, so a screen shows
+ * what people read and never the internal id.
+ */
+unit_code: string, unit_name: string, revenue_minor: number, cost_of_sales_minor: number, gross_profit_minor: number, operating_expenses_minor: number, gross_operating_profit_minor: number, other_operating_expenses_minor: number, net_operating_profit_minor: number, 
 /**
  * Signed: OTHER_INCOME − OTHER_EXPENSE + OTHER_NET.
  */

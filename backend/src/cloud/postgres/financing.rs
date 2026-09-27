@@ -10,6 +10,9 @@
 //! this system's opinion about what the lender charges; the instalments come
 //! off the contract, and the one arithmetic rule enforced is that the parts of
 //! an instalment add up to what is paid.
+//!
+//! A facility is recorded at a site and its instalments are booked to the unit
+//! that owns it (`sites::unit_of_site`, 0605) — head office's, for the Gudang.
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -340,6 +343,7 @@ pub async fn financing_installment_pay(
     }
     let facility_id: Uuid = row.try_get("facility_id")?;
     let site_id: String = row.try_get("site_id")?;
+    let unit = super::sites::unit_of_site(pool, &site_id).await?;
     let principal: i64 = row.try_get("principal_minor")?;
     let interest: i64 = row.try_get("interest_minor")?;
     let seq: i32 = row.try_get("seq")?;
@@ -352,18 +356,18 @@ pub async fn financing_installment_pay(
     let mut lines = Vec::with_capacity(3);
     if principal > 0 {
         lines.push(
-            PostingLine::debit(&principal_key, &site_id, principal)
+            PostingLine::debit(&principal_key, &unit, principal)
                 .with_qualifier(&principal_qualifier),
         );
     }
     if interest > 0 {
         lines.push(
-            PostingLine::debit(&interest_key, &site_id, interest)
+            PostingLine::debit(&interest_key, &unit, interest)
                 .with_qualifier(&interest_qualifier),
         );
     }
     lines.push(
-        PostingLine::credit(&request.bank_key, &site_id, principal + interest)
+        PostingLine::credit(&request.bank_key, &unit, principal + interest)
             .with_qualifier(&request.bank_qualifier),
     );
 

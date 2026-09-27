@@ -30,21 +30,23 @@ pub async fn pairs(State(state): State<AppState>) -> Result<Json<InterunitReport
     Ok(Json(infrastructure::interunit_pairs(&state.db).await?))
 }
 
-/// One shop's balance with head office, and its own recent movements.
+/// One store's balance with head office, and its own recent movements. The
+/// path names the store's unit (0605): the books are the unit's, not a
+/// premises'.
 pub async fn store(
     State(state): State<AppState>,
-    Path(site): Path<String>,
+    Path(unit): Path<String>,
 ) -> Result<Json<InterunitReport>, AppError> {
     Ok(Json(
-        infrastructure::interunit_store_view(&state.db, &site).await?,
+        infrastructure::interunit_store_view(&state.db, &unit).await?,
     ))
 }
 
-/// `pairs` is above `{store}` because the router ranks a static segment over a
-/// dynamic one, so the word "pairs" here is never read as a location id — the
+/// `pairs` is above `{unit}` because the router ranks a static segment over a
+/// dynamic one, so the word "pairs" here is never read as a unit id — the
 /// same ordering `employees/contracts/expiring` relies on.
 pub fn lane_d_routes(router: Router<AppState>) -> Router<AppState> {
     router
         .route("/api/v1/finance/interunit/pairs", get(pairs))
-        .route("/api/v1/finance/interunit/{store}", get(store))
+        .route("/api/v1/finance/interunit/{unit}", get(store))
 }

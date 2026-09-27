@@ -95,6 +95,9 @@ async fn account_name(pool: &PgPool, code: &str) -> Result<Option<String>, AppEr
 
 /// Try one meaning/qualifier at one site. A missing mapping is returned as a
 /// suggestion carrying `missing`, and every other error is passed through.
+///
+/// The line is at a site; the map is read in the books of the unit that owns
+/// it (0605), because that is where the bill will post.
 async fn resolve_or_missing(
     pool: &PgPool,
     site_id: &str,
@@ -103,7 +106,8 @@ async fn resolve_or_missing(
     source: String,
     what_needs_an_account: &str,
 ) -> Result<AccountSuggestion, AppError> {
-    match resolve_account(pool, semantic_key, site_id, qualifier).await {
+    let unit = super::sites::unit_of_site(pool, site_id).await?;
+    match resolve_account(pool, semantic_key, &unit, qualifier).await {
         Ok(resolved) => Ok(AccountSuggestion {
             account_name: account_name(pool, &resolved.account_code).await?,
             account_code: Some(resolved.account_code),

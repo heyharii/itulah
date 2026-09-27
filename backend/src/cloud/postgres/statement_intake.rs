@@ -32,7 +32,8 @@ pub struct BankStatementSourceRow {
     /// The client's own name for the account, so a rule reads as a sentence
     /// rather than as a code somebody has to look up.
     pub account_name: String,
-    pub site_id: String,
+    /// Whose books the account is kept in (0605).
+    pub unit_id: String,
     pub from_pattern: String,
     pub subject_pattern: String,
     pub filename_pattern: String,
@@ -59,7 +60,8 @@ pub struct SaveStatementSourceRequest {
     #[serde(default = "yes")]
     pub enabled: bool,
     pub account_code: String,
-    pub site_id: String,
+    /// Whose books the account is kept in.
+    pub unit_id: String,
     #[serde(default)]
     pub from_pattern: String,
     #[serde(default)]
@@ -88,7 +90,8 @@ fn hundred() -> i32 {
 pub struct ResolvedSource {
     pub rule: SourceRule,
     pub account_code: String,
-    pub site_id: String,
+    /// Whose books the account is kept in.
+    pub unit_id: String,
     /// Which of our real accounts this route files statements for (0271). A route
     /// configured before the account master knows the ledger binding only, and
     /// the import resolves it — refusing when the binding has two accounts,
@@ -142,7 +145,7 @@ pub async fn list_statement_sources(
 ) -> Result<Vec<BankStatementSourceRow>, AppError> {
     let rows = sqlx::query(
         "SELECT s.source_id, s.label, s.enabled, s.account_code, a.name AS account_name,
-                s.site_id, s.from_pattern, s.subject_pattern, s.filename_pattern,
+                s.unit_id, s.from_pattern, s.subject_pattern, s.filename_pattern,
                 s.format, s.settings, s.priority, s.created_by, s.created_at, s.updated_at,
                 last.seen_at AS last_seen_at, last.status AS last_status
            FROM bank_statement_source s
@@ -169,7 +172,7 @@ pub async fn list_statement_sources(
                 enabled: row.try_get("enabled")?,
                 account_code: row.try_get("account_code")?,
                 account_name: row.try_get("account_name")?,
-                site_id: row.try_get("site_id")?,
+                unit_id: row.try_get("unit_id")?,
                 from_pattern: row.try_get("from_pattern")?,
                 subject_pattern: row.try_get("subject_pattern")?,
                 filename_pattern: row.try_get("filename_pattern")?,
@@ -225,7 +228,7 @@ fn mapping_fault(format: &str, settings: &serde_json::Value) -> Option<String> {
 /// shows up, next to the rule.
 pub async fn active_statement_sources(pool: &PgPool) -> Result<Vec<ResolvedSource>, AppError> {
     let rows = sqlx::query(
-        "SELECT source_id, label, account_code, site_id, bank_account_id, from_pattern,
+        "SELECT source_id, label, account_code, unit_id, bank_account_id, from_pattern,
                 subject_pattern, filename_pattern, format, settings
            FROM bank_statement_source
           WHERE enabled
@@ -256,7 +259,7 @@ pub async fn active_statement_sources(pool: &PgPool) -> Result<Vec<ResolvedSourc
                 filename_pattern: row.try_get("filename_pattern")?,
             },
             account_code: row.try_get("account_code")?,
-            site_id: row.try_get("site_id")?,
+            unit_id: row.try_get("unit_id")?,
             bank_account_id: row.try_get("bank_account_id")?,
             format,
             settings,
@@ -289,14 +292,14 @@ pub async fn save_statement_source(
     let source_id = source_id.unwrap_or_else(Uuid::new_v4);
     sqlx::query(
         "INSERT INTO bank_statement_source
-           (source_id, label, enabled, account_code, site_id, from_pattern, subject_pattern,
+           (source_id, label, enabled, account_code, unit_id, from_pattern, subject_pattern,
             filename_pattern, format, settings, priority, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          ON CONFLICT (source_id) DO UPDATE SET
             label = EXCLUDED.label,
             enabled = EXCLUDED.enabled,
             account_code = EXCLUDED.account_code,
-            site_id = EXCLUDED.site_id,
+            unit_id = EXCLUDED.unit_id,
             from_pattern = EXCLUDED.from_pattern,
             subject_pattern = EXCLUDED.subject_pattern,
             filename_pattern = EXCLUDED.filename_pattern,
@@ -309,7 +312,7 @@ pub async fn save_statement_source(
     .bind(request.label.trim())
     .bind(request.enabled)
     .bind(request.account_code.trim())
-    .bind(request.site_id.trim())
+    .bind(request.unit_id.trim())
     .bind(request.from_pattern.trim())
     .bind(request.subject_pattern.trim())
     .bind(request.filename_pattern.trim())

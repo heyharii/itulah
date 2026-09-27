@@ -19,7 +19,15 @@ number: string | null, doc_date: string, from_key: string | null, from_qualifier
  * decided, and a category worked out afresh months later could file a
  * reversal somewhere the original never went.
  */
-from_category_code: string | null, from_site: string, to_key: string | null, to_qualifier: string, to_account_code: string | null, to_category_code: string | null, to_site: string, amount_minor: number, currency: string, party_type: string, supplier_id: string | null, employee_id: string | null, party_name: string, memo: string, attachment_file_id: string | null, 
+from_category_code: string | null, 
+/**
+ * Whose books the money leaves (0608).
+ */
+from_unit: string, to_key: string | null, to_qualifier: string, to_account_code: string | null, to_category_code: string | null, 
+/**
+ * Whose books the money enters (0608).
+ */
+to_unit: string, amount_minor: number, currency: string, party_type: string, supplier_id: string | null, employee_id: string | null, party_name: string, memo: string, attachment_file_id: string | null, 
 /**
  * The bank line this was booked from, when it was not typed.
  */

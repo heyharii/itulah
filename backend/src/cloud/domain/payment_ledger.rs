@@ -100,8 +100,8 @@ impl AgingTotals {
         });
     }
 
-    /// Fold another set of totals in, for rolling a party up into a site or a
-    /// site up into a control account.
+    /// Fold another set of totals in, for rolling a party up into a unit or a
+    /// unit up into a control account.
     pub fn absorb(&mut self, other: &Self) {
         self.current_minor = self.current_minor.saturating_add(other.current_minor);
         self.days_1_30_minor = self.days_1_30_minor.saturating_add(other.days_1_30_minor);

@@ -22,7 +22,7 @@
 //!
 //! The side a correction moves an amount ONTO is a meaning — `stock_loss`,
 //! `bad_debt_expense`, whatever the person chose — resolved through
-//! `account_resolution` for the location, exactly as a posting rule resolves one.
+//! `account_resolution` for the unit, exactly as a posting rule resolves one.
 //!
 //! The side it moves an amount OFF, for a reclassification, is the ORIGINAL
 //! journal line's own account code, copied. Not re-resolved. This is
@@ -43,6 +43,7 @@
 
 use super::ledger::{resolve_account, resolve_account_code};
 use super::poster::{post, reverse, LineAccount, PostingIntent, PostingLine};
+use super::sites::unit_exists;
 use crate::cloud::application::AppError;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -74,7 +75,8 @@ pub struct CorrectionDocument {
     pub document_number: String,
     /// `RECLASS`, `ADJUSTMENT` or `WRITE_OFF`.
     pub kind: String,
-    pub site_id: String,
+    /// The books the correction is in (0609).
+    pub unit_id: String,
     pub document_date: NaiveDate,
     pub currency: String,
     pub amount_minor: i64,
@@ -86,7 +88,8 @@ pub struct CorrectionDocument {
     pub source_account_code: Option<String>,
     pub target_key: Option<String>,
     pub target_qualifier: String,
-    pub target_site_id: Option<String>,
+    /// On a reclassification, the books the amount moves to (0609).
+    pub target_unit_id: Option<String>,
 
     pub adjustment_kind: Option<String>,
     pub direction: Option<String>,
@@ -130,10 +133,10 @@ pub struct ReclassRequest {
     pub target_key: String,
     #[serde(default)]
     pub target_qualifier: String,
-    /// Which location the target belongs to. Defaults to the source line's, and
+    /// Whose books the target is in. Defaults to the source line's unit, and
     /// may differ: a cost booked at head office that belongs to store 03 is the
-    /// commonest reclassification there is.
-    pub target_site_id: Option<String>,
+    /// commonest reclassification there is. The poster adds the affiliate legs.
+    pub target_unit_id: Option<String>,
     /// May be less than the line, and never more. A partial reclassification is
     /// ordinary — one invoice line of five was the wrong department.
     pub amount_minor: i64,
@@ -150,7 +153,8 @@ pub struct AdjustmentRequest {
     /// `LOSS` or `GAIN`. A till over and a till short are the same amount and
     /// opposite entries.
     pub direction: String,
-    pub site_id: String,
+    /// The books the difference is written off in.
+    pub unit_id: String,
     pub amount_minor: i64,
     /// `COUNT`, `SHIFT` or `OTHER`, and the identifier of the thing.
     pub evidence_kind: Option<String>,
@@ -176,7 +180,8 @@ pub struct WriteOffRequest {
     pub balance_key: String,
     #[serde(default)]
     pub balance_qualifier: String,
-    pub site_id: String,
+    /// The books the balance sits in.
+    pub unit_id: String,
     pub amount_minor: i64,
     /// Who owed it, or was owed it.
     pub counterparty: Option<String>,
@@ -196,7 +201,7 @@ fn row_to_document(row: &sqlx::postgres::PgRow) -> Result<CorrectionDocument, Ap
         correction_id: row.try_get("correction_id")?,
         document_number: row.try_get("document_number")?,
         kind: row.try_get("kind")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         document_date: row.try_get("document_date")?,
         currency: row.try_get("currency")?,
         amount_minor: row.try_get("amount_minor")?,
@@ -205,7 +210,7 @@ fn row_to_document(row: &sqlx::postgres::PgRow) -> Result<CorrectionDocument, Ap
         source_account_code: row.try_get("source_account_code")?,
         target_key: row.try_get("target_key")?,
         target_qualifier: row.try_get("target_qualifier")?,
-        target_site_id: row.try_get("target_site_id")?,
+        target_unit_id: row.try_get("target_unit_id")?,
         adjustment_kind: row.try_get("adjustment_kind")?,
         direction: row.try_get("direction")?,
         evidence_kind: row.try_get("evidence_kind")?,
@@ -232,10 +237,10 @@ fn row_to_document(row: &sqlx::postgres::PgRow) -> Result<CorrectionDocument, Ap
 }
 
 const SELECT_CORRECTION: &str = "
-    SELECT c.correction_id, c.document_number, c.kind, c.site_id, c.document_date,
+    SELECT c.correction_id, c.document_number, c.kind, c.unit_id, c.document_date,
            c.currency, c.amount_minor, c.reason,
            c.source_line_id, l.account_code AS source_account_code,
-           c.target_key, c.target_qualifier, c.target_site_id,
+           c.target_key, c.target_qualifier, c.target_unit_id,
            c.adjustment_kind, c.direction, c.evidence_kind, c.evidence_ref,
            c.balance_side, c.balance_key, c.balance_qualifier, c.counterparty, c.balance_ref,
            c.status, c.journal_entry_id, e.entry_number AS journal_entry_number,
@@ -262,20 +267,20 @@ pub async fn correction_list(
     pool: &PgPool,
     kind: Option<&str>,
     status: Option<&str>,
-    site: Option<&str>,
+    unit: Option<&str>,
     limit: i64,
 ) -> Result<Vec<CorrectionDocument>, AppError> {
     let rows = sqlx::query(&format!(
         "{SELECT_CORRECTION}
           WHERE ($1::text IS NULL OR c.kind = $1)
             AND ($2::text IS NULL OR c.status = $2)
-            AND ($3::text IS NULL OR c.site_id = $3)
+            AND ($3::text IS NULL OR c.unit_id = $3)
           ORDER BY c.document_date DESC, c.document_number DESC
           LIMIT $4"
     ))
     .bind(kind)
     .bind(status)
-    .bind(site)
+    .bind(unit)
     .bind(limit.clamp(1, 500))
     .fetch_all(pool)
     .await?;
@@ -304,6 +309,18 @@ fn checked_reason(reason: &str) -> Result<&str, AppError> {
         ));
     }
     Ok(reason)
+}
+
+/// Refuse a unit this system does not keep, by name, rather than as the
+/// foreign-key violation the insert would otherwise raise.
+async fn checked_unit(tx: &mut Transaction<'_, Postgres>, unit_id: &str) -> Result<(), AppError> {
+    if unit_exists(&mut **tx, unit_id).await? {
+        return Ok(());
+    }
+    Err(AppError::Validation(format!(
+        "there is no unit {unit_id:?}; a correction is made in the books of a unit this system \
+         keeps"
+    )))
 }
 
 fn checked_amount(amount_minor: i64) -> Result<i64, AppError> {
@@ -375,7 +392,8 @@ pub async fn reclass_create(
     let mut tx = pool.begin().await?;
 
     let line = sqlx::query(
-        "SELECT l.account_code, l.site_id, l.debit_minor, l.credit_minor, e.posting_date, e.currency
+        "SELECT l.account_code, l.category_code, l.unit_id, l.debit_minor, l.credit_minor,
+                e.posting_date, e.currency
            FROM journal_line l JOIN journal_entry e USING (entry_id)
           WHERE l.line_id = $1",
     )
@@ -386,7 +404,7 @@ pub async fn reclass_create(
 
     let source_account: String = line.try_get("account_code")?;
     let source_category: Option<String> = line.try_get("category_code")?;
-    let source_site: String = line.try_get("site_id")?;
+    let source_unit: String = line.try_get("unit_id")?;
     let currency: String = line.try_get("currency")?;
     let debit: i64 = line.try_get("debit_minor")?;
     let credit: i64 = line.try_get("credit_minor")?;
@@ -397,13 +415,14 @@ pub async fn reclass_create(
         )));
     }
 
-    let target_site = request
-        .target_site_id
+    let target_unit = request
+        .target_unit_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(&source_site)
+        .unwrap_or(&source_unit)
         .to_string();
+    checked_unit(&mut tx, &target_unit).await?;
 
     // Both sides, before either is stored. The target is resolved here purely
     // to check it — the posting resolves it again, and must, because the map
@@ -417,7 +436,7 @@ pub async fn reclass_create(
     let target = resolve_account(
         &mut *tx,
         target_key,
-        &target_site,
+        &target_unit,
         &request.target_qualifier,
     )
     .await?;
@@ -441,14 +460,14 @@ pub async fn reclass_create(
     let correction_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO correction_document
-           (correction_id, document_number, kind, site_id, document_date, currency,
+           (correction_id, document_number, kind, unit_id, document_date, currency,
             amount_minor, reason, source_line_id, target_key, target_qualifier,
-            target_site_id, created_by, note)
+            target_unit_id, created_by, note)
          VALUES ($1,$2,'RECLASS',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(correction_id)
     .bind(&number)
-    .bind(&source_site)
+    .bind(&source_unit)
     .bind(document_date)
     .bind(&currency)
     .bind(amount)
@@ -456,7 +475,7 @@ pub async fn reclass_create(
     .bind(request.source_line_id)
     .bind(target_key)
     .bind(request.target_qualifier.trim())
-    .bind(&target_site)
+    .bind(&target_unit)
     .bind(actor)
     .bind(request.note.as_deref())
     .execute(&mut *tx)
@@ -519,18 +538,19 @@ pub async fn adjustment_create(
         .document_date
         .unwrap_or_else(|| Utc::now().date_naive());
     let mut tx = pool.begin().await?;
+    checked_unit(&mut tx, request.unit_id.trim()).await?;
     let number = next_number(&mut tx).await?;
     let correction_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO correction_document
-           (correction_id, document_number, kind, site_id, document_date, currency,
+           (correction_id, document_number, kind, unit_id, document_date, currency,
             amount_minor, reason, adjustment_kind, direction, evidence_kind, evidence_ref,
             target_key, target_qualifier, created_by, note)
          VALUES ($1,$2,'ADJUSTMENT',$3,$4,'IDR',$5,$6,$7,$8,$9,$10,NULL,$11,$12,$13)",
     )
     .bind(correction_id)
     .bind(&number)
-    .bind(request.site_id.trim())
+    .bind(request.unit_id.trim())
     .bind(document_date)
     .bind(amount)
     .bind(reason)
@@ -584,12 +604,13 @@ pub async fn write_off_create(
         .document_date
         .unwrap_or_else(|| Utc::now().date_naive());
     let mut tx = pool.begin().await?;
+    checked_unit(&mut tx, request.unit_id.trim()).await?;
     // Resolved now so a write-off cannot be drafted against a meaning nobody
     // mapped, and refused with the key named rather than at posting time.
     resolve_account_code(
         &mut *tx,
         balance_key,
-        request.site_id.trim(),
+        request.unit_id.trim(),
         &request.balance_qualifier,
     )
     .await?;
@@ -597,14 +618,14 @@ pub async fn write_off_create(
     let correction_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO correction_document
-           (correction_id, document_number, kind, site_id, document_date, currency,
+           (correction_id, document_number, kind, unit_id, document_date, currency,
             amount_minor, reason, balance_side, balance_key, balance_qualifier,
             counterparty, balance_ref, created_by, note)
          VALUES ($1,$2,'WRITE_OFF',$3,$4,'IDR',$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(correction_id)
     .bind(&number)
-    .bind(request.site_id.trim())
+    .bind(request.unit_id.trim())
     .bind(document_date)
     .bind(amount)
     .bind(reason)
@@ -667,12 +688,13 @@ pub async fn correction_approve(
 // Posting
 // ---------------------------------------------------------------------------
 
-/// The two lines a correction posts, as meanings or codes.
+/// The two lines a correction posts, as meanings or codes, and whose books
+/// each is in.
 struct Sides {
     debit: LineAccount,
-    debit_site: String,
+    debit_unit: String,
     credit: LineAccount,
-    credit_site: String,
+    credit_unit: String,
     memo: String,
 }
 
@@ -703,7 +725,7 @@ async fn sides_for(
                 .source_line_id
                 .ok_or_else(|| AppError::Validation("a reclassification names a line".into()))?;
             let line = sqlx::query(
-                "SELECT account_code, category_code, site_id, debit_minor, credit_minor
+                "SELECT account_code, category_code, unit_id, debit_minor, credit_minor
                    FROM journal_line WHERE line_id = $1",
             )
             .bind(line_id)
@@ -718,17 +740,17 @@ async fn sides_for(
             // categories wrong and the account right, which is the one kind of
             // error a trial balance cannot show.
             let source_category: Option<String> = line.try_get("category_code")?;
-            let source_site: String = line.try_get("site_id")?;
+            let source_unit: String = line.try_get("unit_id")?;
             let was_debit: i64 = line.try_get("debit_minor")?;
 
             let target = meaning(
                 document.target_key.as_deref().unwrap_or_default(),
                 &document.target_qualifier,
             );
-            let target_site = document
-                .target_site_id
+            let target_unit = document
+                .target_unit_id
                 .clone()
-                .unwrap_or_else(|| source_site.clone());
+                .unwrap_or_else(|| source_unit.clone());
             let source = LineAccount::Account {
                 account_code: source_account.clone(),
                 category_code: source_category.clone(),
@@ -737,17 +759,17 @@ async fn sides_for(
             if was_debit > 0 {
                 Ok(Sides {
                     debit: target,
-                    debit_site: target_site,
+                    debit_unit: target_unit,
                     credit: source,
-                    credit_site: source_site,
+                    credit_unit: source_unit,
                     memo,
                 })
             } else {
                 Ok(Sides {
                     debit: source,
-                    debit_site: source_site,
+                    debit_unit: source_unit,
                     credit: target,
-                    credit_site: target_site,
+                    credit_unit: target_unit,
                     memo,
                 })
             }
@@ -755,7 +777,7 @@ async fn sides_for(
         "ADJUSTMENT" => {
             let kind = document.adjustment_kind.as_deref().unwrap_or("OTHER");
             let gain = document.direction.as_deref() == Some("GAIN");
-            let site = document.site_id.clone();
+            let unit = document.unit_id.clone();
             // STOCK_LOSS       Dr stock_loss    / Cr inventory
             // CASH_OVER_SHORT  Dr cash_shortage / Cr cash           on a LOSS
             //                  Dr cash          / Cr cash_variance  on a GAIN
@@ -795,17 +817,17 @@ async fn sides_for(
             if gain {
                 Ok(Sides {
                     debit: against,
-                    debit_site: site.clone(),
+                    debit_unit: unit.clone(),
                     credit: result,
-                    credit_site: site,
+                    credit_unit: unit,
                     memo,
                 })
             } else {
                 Ok(Sides {
                     debit: result,
-                    debit_site: site.clone(),
+                    debit_unit: unit.clone(),
                     credit: against,
-                    credit_site: site,
+                    credit_unit: unit,
                     memo,
                 })
             }
@@ -815,7 +837,7 @@ async fn sides_for(
         // (Biaya) Lain-Lain` unless Finance maps them apart — see the semantic
         // key list, which says so and offers each its own mapping.
         "WRITE_OFF" => {
-            let site = document.site_id.clone();
+            let unit = document.unit_id.clone();
             let balance = meaning(
                 document.balance_key.as_deref().unwrap_or_default(),
                 &document.balance_qualifier,
@@ -830,17 +852,17 @@ async fn sides_for(
             if document.balance_side.as_deref() == Some("PAYABLE") {
                 Ok(Sides {
                     debit: balance,
-                    debit_site: site.clone(),
+                    debit_unit: unit.clone(),
                     credit: meaning("other_income_expense", ""),
-                    credit_site: site,
+                    credit_unit: unit,
                     memo,
                 })
             } else {
                 Ok(Sides {
                     debit: meaning("bad_debt_expense", ""),
-                    debit_site: site.clone(),
+                    debit_unit: unit.clone(),
                     credit: balance,
-                    credit_site: site,
+                    credit_unit: unit,
                     memo,
                 })
             }
@@ -916,11 +938,12 @@ pub async fn correction_post(
             PostingLine {
                 dimensions: Vec::new(),
                 account: sides.debit,
-                site_id: sides.debit_site,
+                unit_id: sides.debit_unit,
                 // A correction may move a figure between two units, and where
                 // it does the balancer works out what they now owe each other
-                // and adds the affiliate legs itself.
-                counter_site_id: None,
+                // and adds the affiliate legs itself — through head office when
+                // both are stores (I8).
+                counter_unit_id: None,
                 debit_minor: existing.amount_minor,
                 credit_minor: 0,
                 party_type: None,
@@ -932,8 +955,8 @@ pub async fn correction_post(
             PostingLine {
                 dimensions: Vec::new(),
                 account: sides.credit,
-                site_id: sides.credit_site,
-                counter_site_id: None,
+                unit_id: sides.credit_unit,
+                counter_unit_id: None,
                 debit_minor: 0,
                 credit_minor: existing.amount_minor,
                 party_type: None,

@@ -3,6 +3,11 @@ import type { BalanceRow } from "./BalanceRow";
 
 /**
  * An account family, laid out the way the client keeps it: one row per
- * sub-account, one column per location.
+ * sub-account, one column per unit.
  */
-export type BalanceMatrix = { family_code: string, family_name: string, as_of: string, locations: Array<string>, rows: Array<BalanceRow>, column_totals: Array<number>, grand_total_minor: number, };
+export type BalanceMatrix = { family_code: string, family_name: string, as_of: string, 
+/**
+ * The units whose books the columns are, by id: head office first, then
+ * the stores.
+ */
+units: Array<string>, rows: Array<BalanceRow>, column_totals: Array<number>, grand_total_minor: number, };

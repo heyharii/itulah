@@ -54,16 +54,24 @@ use super::ledger::{
     PostingFacts, Resolved,
 };
 use crate::cloud::application::AppError;
-use crate::cloud::domain::{balancing_legs, first_unbalanced_site, kind_for_source, SiteMovement};
+use crate::cloud::domain::{balancing_legs, first_unbalanced_unit, kind_for_source, UnitMovement};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 // The unit whose books carry every inter-unit receivable is head office, read
-// from data on every posting (`sites::head_office_site_id`: the one site of
-// kind HO) — no longer a `"dc"` constant here. The kernel still takes it as an
+// from data on every posting (`sites::head_office_unit_id`: the one unit of
+// kind HO, 0605) — never a constant here. The kernel still takes it as an
 // argument, which is what keeps the kernel testable without a database.
+//
+// # A line is in a unit's books
+//
+// Since 0605 `journal_line.unit_id` names the unit — head office or a store —
+// whose books the line is in, and every entry balances per unit (I3). A rule
+// that knows a unit (payroll, a claim, store money) names it; a rule that
+// knows a site (a receipt at the Gudang, a sale at a shop) asks
+// `sites::unit_of_site` first. Nothing here takes a site.
 
 /// The step a document posts for when it has only one, which is nearly always.
 pub const MAIN: &str = "MAIN";
@@ -93,7 +101,7 @@ pub const MAIN: &str = "MAIN";
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LineAccount {
-    /// Resolved through `account_link` for this line's site: the role, and
+    /// Resolved through `account_link` for this line's unit: the role, and
     /// where the decision is kept — the company's defaults (`COMPANY`, with the
     /// bank, pay class or asset class as `qualifier`), or a master record
     /// (`EXPENSE_CATEGORY`, `PAY_COMPONENT`, `PAYMENT_METHOD`, …) named by
@@ -162,14 +170,15 @@ impl From<String> for LineAccount {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PostingLine {
     pub account: LineAccount,
-    pub site_id: String,
+    /// Whose books the line is in: a unit id, never a site's (0605).
+    pub unit_id: String,
     /// The unit on the other side, on an inter-unit line and nowhere else.
     ///
     /// A rule never sets this. It is written by the balancer below onto the
     /// affiliate legs it adds, so a shop's ledger can say who a balance is with
     /// instead of leaving somebody to decode a twelve-digit account code.
     #[serde(default)]
-    pub counter_site_id: Option<String>,
+    pub counter_unit_id: Option<String>,
     pub debit_minor: i64,
     pub credit_minor: i64,
     /// Which party this line is against, from the party_type registry (0299), and
@@ -217,11 +226,11 @@ impl PostingLine {
     /// that only spoke meanings meant every such caller assembling the struct
     /// by hand, field by field, with the next new field silently missing from
     /// all of them.
-    pub fn debit(account: impl Into<LineAccount>, site_id: &str, amount_minor: i64) -> Self {
+    pub fn debit(account: impl Into<LineAccount>, unit_id: &str, amount_minor: i64) -> Self {
         Self {
             account: account.into(),
-            site_id: site_id.to_string(),
-            counter_site_id: None,
+            unit_id: unit_id.to_string(),
+            counter_unit_id: None,
             debit_minor: amount_minor,
             credit_minor: 0,
             party_type: None,
@@ -233,11 +242,11 @@ impl PostingLine {
         }
     }
 
-    pub fn credit(account: impl Into<LineAccount>, site_id: &str, amount_minor: i64) -> Self {
+    pub fn credit(account: impl Into<LineAccount>, unit_id: &str, amount_minor: i64) -> Self {
         Self {
             account: account.into(),
-            site_id: site_id.to_string(),
-            counter_site_id: None,
+            unit_id: unit_id.to_string(),
+            counter_unit_id: None,
             debit_minor: 0,
             credit_minor: amount_minor,
             party_type: None,
@@ -307,8 +316,10 @@ impl PostingLine {
         self
     }
 
-    pub fn with_counter_site(mut self, counter_site_id: &str) -> Self {
-        self.counter_site_id = Some(counter_site_id.to_string());
+    /// The unit on the other side of an affiliate line this rule posts itself
+    /// — head office on a store's leg, the store on head office's (I8).
+    pub fn with_counter_unit(mut self, counter_unit_id: &str) -> Self {
+        self.counter_unit_id = Some(counter_unit_id.to_string());
         self
     }
 
@@ -419,16 +430,16 @@ fn check_balanced(lines: &[PostingLine]) -> Result<i64, AppError> {
 /// and the legs are added second. The legs are then validated exactly like the
 /// rule's own lines: they resolve through `account_map` and they must name a
 /// postable account, which is why this happens before resolution and not after.
-fn balanced_per_site(
+fn balanced_per_unit(
     intent: &PostingIntent,
     head_office: &str,
 ) -> Result<(Vec<PostingLine>, i64), AppError> {
     let total = check_balanced(&intent.lines)?;
 
-    let movements: Vec<SiteMovement> = intent
+    let movements: Vec<UnitMovement> = intent
         .lines
         .iter()
-        .map(|line| SiteMovement::new(&line.site_id, line.debit_minor, line.credit_minor))
+        .map(|line| UnitMovement::new(&line.unit_id, line.debit_minor, line.credit_minor))
         .collect();
     let kind = kind_for_source(&intent.source_kind);
     let legs = balancing_legs(&movements, kind, head_office);
@@ -445,8 +456,8 @@ fn balanced_per_site(
                 qualifier: leg.qualifier,
                 source_type: company_source(),
             },
-            site_id: leg.site_id,
-            counter_site_id: Some(leg.counter_site_id),
+            unit_id: leg.unit_id,
+            counter_unit_id: Some(leg.counter_unit_id),
             debit_minor: leg.debit_minor,
             credit_minor: leg.credit_minor,
             party_type: None,
@@ -470,13 +481,13 @@ fn balanced_per_site(
     // were added, this file has a bug, and the entry would otherwise reach the
     // ledger looking correct — 0120's trigger would catch it at COMMIT and name
     // a transaction rather than a rule.
-    let after: Vec<SiteMovement> = lines
+    let after: Vec<UnitMovement> = lines
         .iter()
-        .map(|line| SiteMovement::new(&line.site_id, line.debit_minor, line.credit_minor))
+        .map(|line| UnitMovement::new(&line.unit_id, line.debit_minor, line.credit_minor))
         .collect();
-    if let Some((site, out_by)) = first_unbalanced_site(&after) {
+    if let Some((unit, out_by)) = first_unbalanced_unit(&after) {
         return Err(AppError::Validation(format!(
-            "balancing a {} entry left {site} out by {out_by}; this is a fault in the \
+            "balancing a {} entry left unit {unit} out by {out_by}; this is a fault in the \
              inter-unit rule and not in the entry",
             intent.source_kind
         )));
@@ -557,8 +568,8 @@ pub async fn post(
         .map(str::trim)
         .filter(|p| !p.is_empty())
         .unwrap_or(MAIN);
-    let head_office = super::sites::head_office_site_id(&mut **tx).await?;
-    let (lines, total) = balanced_per_site(intent, &head_office)?;
+    let head_office = super::sites::head_office_unit_id(&mut **tx).await?;
+    let (lines, total) = balanced_per_unit(intent, &head_office)?;
 
     // Resolved before anything is written, so an unmapped meaning fails without
     // leaving half an entry behind for the rollback to tidy up.
@@ -604,7 +615,7 @@ pub async fn post(
                 // falls back to the company's default (0465).
                 let party = match (&line.party_type, &line.party_id) {
                     (Some(kind), Some(id)) if source_type == "COMPANY" => {
-                        match resolve_linked(&mut **tx, semantic_key, &line.site_id, "PARTY", &format!("{kind}:{id}"))
+                        match resolve_linked(&mut **tx, semantic_key, &line.unit_id, "PARTY", &format!("{kind}:{id}"))
                             .await?
                         {
                             Some(own) => Some(own),
@@ -622,7 +633,7 @@ pub async fn post(
                                         resolve_linked(
                                             &mut **tx,
                                             semantic_key,
-                                            &line.site_id,
+                                            &line.unit_id,
                                             "PARTY_GROUP",
                                             &format!("SUPPLIER:{group}"),
                                         )
@@ -639,7 +650,7 @@ pub async fn post(
                 match party {
                     Some(found) => found,
                     None => {
-                        resolve_account_from(&mut **tx, semantic_key, &line.site_id, source_type, qualifier)
+                        resolve_account_from(&mut **tx, semantic_key, &line.unit_id, source_type, qualifier)
                             .await?
                     }
                 }
@@ -679,8 +690,8 @@ pub async fn post(
             &code,
             PostingFacts {
                 source_kind: &intent.source_kind,
-                site_id: &line.site_id,
-                counter_site_id: line.counter_site_id.as_deref(),
+                unit_id: &line.unit_id,
+                counter_unit_id: line.counter_unit_id.as_deref(),
                 category_code: category.as_deref(),
                 bank_account_id: line.bank_account_id,
                 semantic_key: meaning,
@@ -740,8 +751,8 @@ pub async fn post(
         let line_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO journal_line
-               (line_id, entry_id, line_number, account_code, category_code, site_id,
-                counter_site_id, debit_minor, credit_minor, party_type, party_id, asset_id, memo,
+               (line_id, entry_id, line_number, account_code, category_code, unit_id,
+                counter_unit_id, debit_minor, credit_minor, party_type, party_id, asset_id, memo,
                 bank_account_id)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
         )
@@ -755,8 +766,8 @@ pub async fn post(
         // person writing the entry are the only two things that know, and both
         // have already said.
         .bind(category_code.as_deref())
-        .bind(&line.site_id)
-        .bind(line.counter_site_id.as_deref())
+        .bind(&line.unit_id)
+        .bind(line.counter_unit_id.as_deref())
         .bind(line.debit_minor)
         .bind(line.credit_minor)
         .bind(line.party_type.as_deref())
@@ -803,7 +814,7 @@ pub async fn post(
 /// original never touched, and both accounts would be wrong by the same amount
 /// while the trial balance still balanced.
 ///
-/// The affiliate legs are copied with everything else, `counter_site_id` and
+/// The affiliate legs are copied with everything else, `counter_unit_id` and
 /// all, and are not recomputed. Two reasons, and either would be enough. The
 /// stored lines already balance every unit, so mirroring them balances every
 /// unit again — running the balancer over them would find nothing to do, which
@@ -833,7 +844,7 @@ pub async fn reverse(
     // `reversal_of` is UNIQUE, so a second attempt is refused by the database
     // rather than by a check somebody could forget to write.
     let lines = sqlx::query(
-        "SELECT line_id, line_number, account_code, category_code, site_id, counter_site_id,
+        "SELECT line_id, line_number, account_code, category_code, unit_id, counter_unit_id,
                 debit_minor, credit_minor, party_type, party_id, asset_id, memo, bank_account_id
            FROM journal_line WHERE entry_id = $1 ORDER BY line_number",
     )
@@ -882,8 +893,8 @@ pub async fn reverse(
         let mirror_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO journal_line
-               (line_id, entry_id, line_number, account_code, category_code, site_id,
-                counter_site_id, debit_minor, credit_minor, party_type, party_id, asset_id, memo,
+               (line_id, entry_id, line_number, account_code, category_code, unit_id,
+                counter_unit_id, debit_minor, credit_minor, party_type, party_id, asset_id, memo,
                 bank_account_id)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
         )
@@ -898,10 +909,10 @@ pub async fn reverse(
         // settled while both were wrong. A reversal undoes what was posted, not
         // what the rule would post today.
         .bind(row.try_get::<Option<String>, _>("category_code")?)
-        .bind(row.try_get::<String, _>("site_id")?)
+        .bind(row.try_get::<String, _>("unit_id")?)
         // Carried, not recomputed: the reversal of an inter-unit leg is with
         // the same unit the original was with.
-        .bind(row.try_get::<Option<String>, _>("counter_site_id")?)
+        .bind(row.try_get::<Option<String>, _>("counter_unit_id")?)
         // The mirror: what was debited is credited.
         .bind(credit)
         .bind(debit)
@@ -963,7 +974,7 @@ async fn enforce_budgets(
     resolved: &[(String, Option<String>, Option<Uuid>)],
 ) -> Result<(), AppError> {
     let budgets = sqlx::query(
-        "SELECT site_id, account_code, category_code, amount_minor, period_start, period_end
+        "SELECT unit_id, account_code, category_code, amount_minor, period_start, period_end
            FROM budget
           WHERE superseded_by IS NULL
             AND on_exceed = 'STOP'
@@ -982,7 +993,7 @@ async fn enforce_budgets(
         .filter(|(line, _)| line.debit_minor > 0)
         .map(|(line, (account_code, category_code, _))| {
             (
-                line.site_id.as_str(),
+                line.unit_id.as_str(),
                 account_code.as_str(),
                 category_code.as_deref(),
                 line.debit_minor,
@@ -994,7 +1005,7 @@ async fn enforce_budgets(
     }
 
     for budget in &budgets {
-        let site_id: String = budget.try_get("site_id")?;
+        let unit_id: String = budget.try_get("unit_id")?;
         let account_code: Option<String> = budget.try_get("account_code")?;
         let category_code: Option<String> = budget.try_get("category_code")?;
         let amount_minor: i64 = budget.try_get("amount_minor")?;
@@ -1002,19 +1013,19 @@ async fn enforce_budgets(
         let period_end: NaiveDate = budget.try_get("period_end")?;
 
         let mut adds: i64 = 0;
-        let mut hits_site = false;
-        for (site, account, category, debit) in &spenders {
+        let mut hits_unit = false;
+        for (unit, account, category, debit) in &spenders {
             let hit = match (&account_code, &category_code) {
                 (Some(wanted), _) => *account == wanted.as_str(),
                 (None, Some(wanted)) => *category == Some(wanted.as_str()),
                 (None, None) => false,
             };
-            if hit && *site == site_id {
+            if hit && *unit == unit_id {
                 adds += debit;
-                hits_site = true;
+                hits_unit = true;
             }
         }
-        if !hits_site {
+        if !hits_unit {
             continue;
         }
 
@@ -1025,13 +1036,13 @@ async fn enforce_budgets(
             "SELECT COALESCE(SUM(jl.debit_minor - jl.credit_minor), 0)::bigint
                FROM journal_line jl
                JOIN journal_entry je ON je.entry_id = jl.entry_id
-              WHERE jl.site_id = $1
+              WHERE jl.unit_id = $1
                 AND je.posting_date BETWEEN $2 AND $3
                 AND je.source_kind <> 'OPENING'
                 AND ($4::text IS NULL OR jl.account_code = $4)
                 AND ($5::text IS NULL OR jl.category_code = $5)",
         )
-        .bind(&site_id)
+        .bind(&unit_id)
         .bind(period_start)
         .bind(period_end)
         .bind(&account_code)
@@ -1041,7 +1052,7 @@ async fn enforce_budgets(
 
         if spent + adds > amount_minor {
             return Err(AppError::Validation(format!(
-                "budget STOP at {site_id} for {} ({}..{}): promised {amount_minor}, the month \
+                "budget STOP at {unit_id} for {} ({}..{}): promised {amount_minor}, the month \
                  already spent {spent}, and this entry adds {adds} — move the posting or raise \
                  the promise",
                 account_code.as_deref().unwrap_or("its category"),

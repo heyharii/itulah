@@ -55,7 +55,7 @@ use chrono::{Datelike, NaiveDate};
 use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
-/// The meanings that carry money at a location.
+/// The meanings that carry money in a unit's books.
 ///
 /// A copy of what `domain::MONEY_MEANINGS` will hold when the cash lane lands;
 /// the names come from `ledger::required_semantic_keys`, which is the authority
@@ -85,7 +85,9 @@ pub(super) struct PayInstruction {
     /// The company money account the payment leaves from, named by meaning.
     pub from_key: String,
     pub from_qualifier: String,
-    pub site_id: String,
+    /// Whose books the money leaves (0608: a cash document names units). The
+    /// document's two sides are the same unit: a payment, not a transfer.
+    pub unit_id: String,
     /// What the money answers. A meaning, or an account code somebody chose.
     pub counter_key: Option<String>,
     pub counter_qualifier: String,
@@ -215,8 +217,8 @@ pub(super) async fn payment_execution_pay(
     sqlx::query(
         "INSERT INTO cash_document
            (document_id, kind, doc_date,
-            from_key, from_qualifier, from_account_code, from_category_code, from_site,
-            to_key, to_qualifier, to_account_code, to_category_code, to_site,
+            from_key, from_qualifier, from_account_code, from_category_code, from_unit,
+            to_key, to_qualifier, to_account_code, to_category_code, to_unit,
             amount_minor, currency, party_type, supplier_id, employee_id, party_name,
             memo, created_by)
          VALUES ($1,'PAY',$2,$3,$4,NULL,NULL,$5,$6,$7,$8,$9,$5,$10,'IDR',
@@ -226,7 +228,7 @@ pub(super) async fn payment_execution_pay(
     .bind(instruction.doc_date)
     .bind(&instruction.from_key)
     .bind(&instruction.from_qualifier)
-    .bind(&instruction.site_id)
+    .bind(&instruction.unit_id)
     .bind(instruction.counter_key.as_deref())
     .bind(&instruction.counter_qualifier)
     .bind(instruction.counter_account_code.as_deref())
@@ -290,8 +292,8 @@ pub(super) async fn payment_execution_pay(
             PostingLine {
                 dimensions: Vec::new(),
                 account: counter,
-                site_id: instruction.site_id.clone(),
-                counter_site_id: None,
+                unit_id: instruction.unit_id.clone(),
+                counter_unit_id: None,
                 debit_minor: instruction.amount_minor,
                 credit_minor: 0,
                 party_type: Some("SUPPLIER".to_string()),
@@ -307,8 +309,8 @@ pub(super) async fn payment_execution_pay(
                     qualifier: instruction.from_qualifier.clone(),
                     source_type: "COMPANY".into(),
                 },
-                site_id: instruction.site_id.clone(),
-                counter_site_id: None,
+                unit_id: instruction.unit_id.clone(),
+                counter_unit_id: None,
                 debit_minor: 0,
                 credit_minor: instruction.amount_minor,
                 party_type: None,

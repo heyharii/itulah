@@ -3,9 +3,9 @@
 //! Almost every screen left in the module asks one of two questions, and neither
 //! needs a table of its own:
 //!
-//! **"What is this family worth, at each location?"** — cash, banks, card
+//! **"What is this family worth, in each unit's books?"** — cash, banks, card
 //! receivables, inter-unit balances, inventory, fixed assets, loans. One matrix
-//! of sub-account by location answers all of them, which is why there is one
+//! of sub-account by unit answers all of them, which is why there is one
 //! endpoint rather than fifteen.
 //!
 //! **"What do the books say?"** — the balance sheet and the profit and loss,
@@ -22,15 +22,15 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-/// One sub-account across every location.
+/// One sub-account across every unit's books.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct BalanceRow {
     pub account_code: String,
     /// The client's own name, never translated.
     pub name: String,
-    /// Aligned with `locations`, so the browser renders a table without
-    /// matching keys. A location with nothing posted is a zero, not a gap:
+    /// Aligned with `units`, so the browser renders a table without
+    /// matching keys. A unit with nothing posted is a zero, not a gap:
     /// "no cash at store 07" and "we never asked about store 07" look the same
     /// in a sparse map and are very different things to an accountant.
     pub cells: Vec<i64>,
@@ -38,23 +38,25 @@ pub struct BalanceRow {
 }
 
 /// An account family, laid out the way the client keeps it: one row per
-/// sub-account, one column per location.
+/// sub-account, one column per unit.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct BalanceMatrix {
     pub family_code: String,
     pub family_name: String,
     pub as_of: NaiveDate,
-    pub locations: Vec<String>,
+    /// The units whose books the columns are, by id: head office first, then
+    /// the stores.
+    pub units: Vec<String>,
     pub rows: Vec<BalanceRow>,
     pub column_totals: Vec<i64>,
     pub grand_total_minor: i64,
 }
 
-/// What one family holds, per location.
+/// What one family holds, per unit.
 ///
 /// `family` is any code in the chart. Asking for `1011001` gives cash on hand,
-/// petty cash and the cashier float across all fourteen locations; asking for
+/// petty cash and the cashier float across all fourteen units; asking for
 /// `10110` gives the whole of KAS & SETARA KAS. The tree is in the codes, so
 /// the caller chooses the altitude and this does not need to know which screen
 /// is asking.
@@ -71,9 +73,9 @@ pub async fn balance_matrix(
             .ok_or_else(|| AppError::NotFound(format!("account {family}")))?
             .try_get("name")?;
 
-    // The locations the books are kept for, in the same order everywhere:
-    // head office first, then the shops.
-    let locations: Vec<String> = sqlx::query("SELECT id FROM site ORDER BY (kind <> 'HO'), id")
+    // The units the books are kept for (0605), in the same order everywhere:
+    // head office first, then the stores.
+    let units: Vec<String> = sqlx::query("SELECT id FROM unit ORDER BY (kind <> 'HO'), id")
         .fetch_all(pool)
         .await?
         .iter()
@@ -88,19 +90,19 @@ pub async fn balance_matrix(
                FROM ledger_account a
               WHERE a.parent_code = $1
          )
-         SELECT c.account_code, c.name, c.is_active, l.site_id,
+         SELECT c.account_code, c.name, c.is_active, l.unit_id,
                 COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS balance
            FROM child c
            LEFT JOIN ledger_account posting_account
              ON posting_account.lft >= c.lft AND posting_account.rgt <= c.rgt
             AND NOT posting_account.is_group
            LEFT JOIN (
-                SELECT jl.account_code, jl.site_id, jl.debit_minor, jl.credit_minor
+                SELECT jl.account_code, jl.unit_id, jl.debit_minor, jl.credit_minor
                   FROM journal_line jl
                   JOIN journal_entry je ON je.entry_id = jl.entry_id
                  WHERE je.posting_date <= $2
            ) l ON l.account_code = posting_account.account_code
-          GROUP BY c.account_code, c.name, c.is_active, l.site_id
+          GROUP BY c.account_code, c.name, c.is_active, l.unit_id
           ORDER BY c.is_active DESC, c.account_code",
     )
     .bind(family)
@@ -108,8 +110,8 @@ pub async fn balance_matrix(
     .fetch_all(pool)
     .await?;
 
-    // Fold the (account, site) pairs into one row per account, with a cell per
-    // location in the fixed order above.
+    // Fold the (account, unit) pairs into one row per account, with a cell per
+    // unit in the fixed order above.
     let mut order: Vec<(String, String)> = Vec::new();
     let mut cells: std::collections::HashMap<(String, String), i64> =
         std::collections::HashMap::new();
@@ -119,23 +121,23 @@ pub async fn balance_matrix(
         if !order.iter().any(|(c, _)| c == &code) {
             order.push((code.clone(), name));
         }
-        // A LEFT JOIN with nothing posted gives a NULL site; there is no cell
+        // A LEFT JOIN with nothing posted gives a NULL unit; there is no cell
         // to place it in, and its balance is zero anyway.
-        if let Ok(site) = row.try_get::<String, _>("site_id") {
+        if let Ok(unit) = row.try_get::<String, _>("unit_id") {
             let balance: i64 = row.try_get("balance")?;
-            *cells.entry((code, site)).or_insert(0) += balance;
+            *cells.entry((code, unit)).or_insert(0) += balance;
         }
     }
 
-    let mut column_totals = vec![0i64; locations.len()];
+    let mut column_totals = vec![0i64; units.len()];
     let mut grand_total = 0i64;
     let mut out = Vec::with_capacity(order.len());
     for (code, name) in order {
-        let mut line = Vec::with_capacity(locations.len());
+        let mut line = Vec::with_capacity(units.len());
         let mut total = 0i64;
-        for (index, site) in locations.iter().enumerate() {
+        for (index, unit) in units.iter().enumerate() {
             let value = cells
-                .get(&(code.clone(), site.clone()))
+                .get(&(code.clone(), unit.clone()))
                 .copied()
                 .unwrap_or(0);
             line.push(value);
@@ -155,7 +157,7 @@ pub async fn balance_matrix(
         family_code: family.to_string(),
         family_name,
         as_of,
-        locations,
+        units,
         rows: out,
         column_totals,
         grand_total_minor: grand_total,
@@ -202,7 +204,8 @@ pub struct Statement {
     pub kind: String,
     pub from: Option<NaiveDate>,
     pub to: NaiveDate,
-    pub site_id: Option<String>,
+    /// Whose books the statement is of; absent for the whole company.
+    pub unit_id: Option<String>,
     pub sections: Vec<StatementSection>,
     /// Classes 4 through 8 netted, in the ledger's own signs: debits positive,
     /// so a net cost is positive and a net profit is negative. The same
@@ -272,7 +275,7 @@ pub async fn statement(
     kind: &str,
     from: Option<NaiveDate>,
     to: NaiveDate,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<Statement, AppError> {
     let (classes, from): (&[&str], Option<NaiveDate>) = match kind {
         "BALANCE_SHEET" => (&BALANCE_SHEET, None),
@@ -284,7 +287,7 @@ pub async fn statement(
             let from = from.ok_or_else(|| {
                 AppError::Validation("a cash flow needs a window to report; send `from`".into())
             })?;
-            return cash_flow(pool, from, to, site_id).await;
+            return cash_flow(pool, from, to, unit_id).await;
         }
         other => {
             return Err(AppError::Validation(format!(
@@ -308,7 +311,7 @@ pub async fn statement(
                                   AND descendant.lft >= a.lft
                                   AND descendant.rgt <= a.rgt
                            )
-                       AND ($3::text IS NULL OR l.site_id = $3)
+                       AND ($3::text IS NULL OR l.unit_id = $3)
                        AND ($4::date IS NULL OR e.posting_date >= $4)
                        AND e.posting_date <= $2
                 ), 0)::bigint AS amount
@@ -318,7 +321,7 @@ pub async fn statement(
     )
     .bind(classes)
     .bind(to)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(from)
     .fetch_all(pool)
     .await?;
@@ -370,13 +373,13 @@ pub async fn statement(
            FROM journal_line l JOIN journal_entry e USING (entry_id)
            JOIN ledger_account a ON a.account_code = l.account_code
           WHERE a.root_class = ANY($1)
-            AND ($3::text IS NULL OR l.site_id = $3)
+            AND ($3::text IS NULL OR l.unit_id = $3)
             AND ($4::date IS NULL OR e.posting_date >= $4)
             AND e.posting_date <= $2",
     )
     .bind(&PROFIT_LOSS[..])
     .bind(to)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(from)
     .fetch_one(pool)
     .await?
@@ -402,7 +405,7 @@ pub async fn statement(
         kind: kind.to_string(),
         from,
         to,
-        site_id: site_id.map(str::to_string),
+        unit_id: unit_id.map(str::to_string),
         sections,
         result_minor: result,
         out_of_balance_minor: out_of_balance,
@@ -473,10 +476,10 @@ const CASH_KEYS: [&str; 5] = [
 ///   * a SHORT-TERM bank loan lives under `201` and is read as operating. The
 ///     client's chart does not separate it and guessing from an account's name
 ///     would be a rule that breaks the first time somebody renames one.
-///   * with a `site` filter, a transfer from a shop's drawer to head office's
-///     bank is a real flow FOR THAT SHOP and its contra is the HO bank
-///     account, under `101` — so it reads as operating. Without the filter
-///     both sides are cash and it correctly contributes nothing.
+///   * with a `unit` filter, a transfer from a store's drawer to head office's
+///     bank is a real flow FOR THAT STORE and its contra is its affiliate
+///     account, under `101` or `201` — so it reads as operating. Without the
+///     filter both sides are cash and it correctly contributes nothing.
 fn cash_flow_section(account_code: &str) -> &'static str {
     match account_code.chars().next() {
         Some('4') | Some('5') | Some('6') | Some('7') | Some('8') => "OPERATING",
@@ -525,13 +528,13 @@ const CASH_FLOW_SECTIONS: [(&str, &str); 4] = [
 /// `opening + result - closing`, where opening and closing are summed straight
 /// off the cash accounts and `result` is the decomposition above. Non-zero
 /// means cash moved in a way the sections do not explain — the case it catches
-/// is a `site`-filtered report whose entries have their other side at another
-/// unit, which is the inter-unit gap this module already knows it has.
+/// is a `unit`-filtered report whose entries have their other side in another
+/// unit's books, which is the inter-unit gap this module already knows it has.
 pub async fn cash_flow(
     pool: &PgPool,
     from: NaiveDate,
     to: NaiveDate,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<Statement, AppError> {
     if to < from {
         return Err(AppError::Validation(format!(
@@ -547,22 +550,22 @@ pub async fn cash_flow(
         "SELECT DISTINCT m.account_code
            FROM account_resolution m
           WHERE m.role = ANY($1)
-            AND ($2::text IS NULL OR m.site_id = $2)
+            AND ($2::text IS NULL OR m.unit_id = $2)
           ORDER BY 1",
     )
     .bind(&CASH_KEYS[..])
-    .bind(site_id)
+    .bind(unit_id)
     .fetch_all(pool)
     .await?;
 
     // The cash SET is (account, unit) pairs and not codes alone: the same code
-    // is mapped at several units, and a `site`-filtered report must not count
+    // is mapped at several units, and a `unit`-filtered report must not count
     // another unit's drawer as its own.
     const CASH_SET: &str = "
-        SELECT m.account_code, m.site_id
+        SELECT m.account_code, m.unit_id
           FROM account_resolution m
          WHERE m.role = ANY($1)
-           AND ($2::text IS NULL OR m.site_id = $2)
+           AND ($2::text IS NULL OR m.unit_id = $2)
     ";
 
     // What the cash accounts held on either side of the window. Two reads of
@@ -573,18 +576,18 @@ pub async fn cash_flow(
         SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS held
           FROM journal_line l
           JOIN journal_entry e USING (entry_id)
-          JOIN cash c ON c.account_code = l.account_code AND c.site_id = l.site_id
+          JOIN cash c ON c.account_code = l.account_code AND c.unit_id = l.unit_id
          WHERE e.posting_date
     ";
     let opening: i64 = sqlx::query_scalar(&format!("WITH cash AS ({CASH_SET}) {HELD} < $3"))
         .bind(&CASH_KEYS[..])
-        .bind(site_id)
+        .bind(unit_id)
         .bind(from)
         .fetch_one(pool)
         .await?;
     let closing: i64 = sqlx::query_scalar(&format!("WITH cash AS ({CASH_SET}) {HELD} <= $3"))
         .bind(&CASH_KEYS[..])
-        .bind(site_id)
+        .bind(unit_id)
         .bind(to)
         .fetch_one(pool)
         .await?;
@@ -596,7 +599,7 @@ pub async fn cash_flow(
                   FROM journal_line l
                   JOIN journal_entry e USING (entry_id)
                   JOIN cash c ON c.account_code = l.account_code
-                             AND c.site_id = l.site_id
+                             AND c.unit_id = l.unit_id
                  WHERE e.posting_date >= $3 AND e.posting_date <= $4
               )
          SELECT l.account_code,
@@ -609,12 +612,12 @@ pub async fn cash_flow(
           WHERE NOT EXISTS (
                     SELECT 1 FROM cash c
                      WHERE c.account_code = l.account_code
-                       AND c.site_id = l.site_id)
+                       AND c.unit_id = l.unit_id)
           GROUP BY l.account_code, a.name
           ORDER BY l.account_code"
     ))
     .bind(&CASH_KEYS[..])
-    .bind(site_id)
+    .bind(unit_id)
     .bind(from)
     .bind(to)
     .fetch_all(pool)
@@ -661,7 +664,7 @@ pub async fn cash_flow(
         kind: "CASH_FLOW".into(),
         from: Some(from),
         to,
-        site_id: site_id.map(str::to_string),
+        unit_id: unit_id.map(str::to_string),
         sections,
         result_minor: result,
         out_of_balance_minor: opening + result - closing,
@@ -672,7 +675,7 @@ pub async fn cash_flow(
 }
 
 // ---------------------------------------------------------------------------
-// Cash and bank, per account and per location
+// Cash and bank, per account and per unit
 // ---------------------------------------------------------------------------
 
 /// The meanings that hold money, in the order somebody reads them.
@@ -721,7 +724,7 @@ pub struct MoneyStatementRef {
     pub unmatched_count: i64,
 }
 
-/// One mapped money account, at one location.
+/// One mapped money account, in one unit's books.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct MoneyAccountRow {
@@ -738,7 +741,8 @@ pub struct MoneyAccountRow {
     pub pot: MoneyPot,
     /// Which bank, which scheme. Empty when the meaning needs no narrowing.
     pub qualifier: String,
-    pub site_id: String,
+    /// Whose books the account is in (0605).
+    pub unit_id: String,
     pub account_code: String,
     /// The client's own name, never translated and never trimmed.
     ///
@@ -754,22 +758,22 @@ pub struct MoneyAccountRow {
     /// dropping that left every row on a single-kind list reading `Cash on
     /// Hand`. A column whose every cell says the same word says nothing, and
     /// the repetition it was removing was the lesser fault — `C001` is the
-    /// CLIENT's name for the shop, and the location column is ours.
+    /// CLIENT's name for the shop, and the unit column is ours.
     pub account_name: String,
-    /// What the site is called, rather than what this system files it under.
+    /// What the unit is called (`unit.name`), rather than what this system
+    /// files it under.
     ///
-    /// `site_id` is ours — `store-01`, `dc` — and it appears on no document
-    /// anybody outside this system holds. Worse, on the head-office rows it
-    /// contradicts the account's own name: the chart says `HO` and the id says
-    /// `dc`, because head office and the distribution centre share a building
-    /// and this system files them under one site.
-    pub site_name: String,
+    /// `unit_id` is ours, and it appears on no document anybody outside this
+    /// system holds. The name is what a person reads; it is the unit's, never a
+    /// premises': head office's books are not the Gudang's, whatever building
+    /// they are kept in.
+    pub unit_name: String,
     /// The ledger balance as at the reporting date: debits minus credits, in
     /// the account's own sign and deliberately not flipped. `giro_outstanding`
     /// is a liability and comes back negative, which is what it is; a report
     /// decides how to present a balance, a balance does not decide for it.
     pub per_books_minor: i64,
-    /// The latest statement imported for this account at this location on or
+    /// The latest statement imported for this account in this unit on or
     /// before the reporting date, when there is one. Absent on cash, on a
     /// cashier float, and on any bank nobody has uploaded a statement for.
     pub last_statement: Option<MoneyStatementRef>,
@@ -838,12 +842,12 @@ impl MoneyPot {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct MoneyFacet {
     /// What to send back as the filter. The client's own vocabulary for the
-    /// thing — a site id, a pot name — never a display string.
+    /// thing — a unit id, a pot name — never a display string.
     pub value: String,
     /// What to draw, when it differs from the value.
     ///
     /// Absent for a pot, whose words belong to the screen ("Cash in hand" is
-    /// ours, not the server's). Present for a site, because `store-01` is an
+    /// ours, not the server's). Present for a unit, because `store-01` is an
     /// id this system files it under and the list beside the filter shows
     /// `Store 01` — one panel naming things one way and the column beside it
     /// another is the reader's problem, not the schema's.
@@ -861,7 +865,7 @@ pub struct MoneyFacet {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct MoneyFacets {
     pub pots: Vec<MoneyFacet>,
-    pub sites: Vec<MoneyFacet>,
+    pub units: Vec<MoneyFacet>,
     pub flags: Vec<MoneyFacet>,
 }
 
@@ -870,7 +874,7 @@ pub struct MoneyFacets {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct MoneyOverview {
     pub as_of: NaiveDate,
-    pub site_id: Option<String>,
+    pub unit_id: Option<String>,
     pub rows: Vec<MoneyAccountRow>,
     /// Opaque. Pass it back as `cursor` for the next page; absent means this
     /// was the last one.
@@ -906,13 +910,14 @@ pub struct MoneyOverview {
 #[derive(Clone, Debug, Default)]
 pub struct MoneyScope {
     pub as_of: Option<NaiveDate>,
-    /// Free text, tried against the account's name, its code and its location.
+    /// Free text, tried against the account's name, its code and its unit.
     pub needle: Option<String>,
     /// Pots to keep. Empty means every pot — an empty filter and no filter are
     /// the same request, and treating them differently is how a screen ends up
     /// showing nothing the moment somebody unticks the last box.
     pub pots: Vec<String>,
-    pub sites: Vec<String>,
+    /// Units to keep, by id. Empty means every unit.
+    pub units: Vec<String>,
     /// State to narrow by: `DIFFERS`, `NO_STATEMENT`, `UNMATCHED`, `NEGATIVE`.
     pub flags: Vec<String>,
     /// `default`, `balance` or `name`. Anything else falls back to `default`
@@ -930,7 +935,7 @@ pub struct MoneyScope {
 
 /// Where the previous page stopped — as a ROW, not as a position.
 ///
-/// It carries the key of an `account_resolution` row (role, source, site),
+/// It carries the key of an `account_resolution` row (role, source, unit),
 /// under the names the screen has always used, and nothing else, whatever the
 /// list is sorted by. The seek re-reads that row's own sort value in SQL, so
 /// one cursor shape serves every order.
@@ -944,7 +949,7 @@ pub struct MoneyScope {
 struct MoneyCursor {
     semantic_key: String,
     qualifier: String,
-    site_id: String,
+    unit_id: String,
 }
 
 impl MoneyCursor {
@@ -977,7 +982,7 @@ impl MoneyCursor {
 /// "Bank 69" has to mean "there are 69 banks", not "there are 69 banks among
 /// the ones you have already narrowed to banks".
 ///
-/// `ord` and `dc_last` are computed here rather than only in `ORDER BY`
+/// `ord` and `ho_last` are computed here rather than only in `ORDER BY`
 /// because the keyset in the page query has to compare against them, and a
 /// sort expression that is not also a column is one a `WHERE` cannot see.
 const MONEY_ROWS: &str = "
@@ -989,7 +994,7 @@ const MONEY_ROWS: &str = "
            (closing_minor IS NOT NULL) AS has_statement,
            (per_books - closing_minor) AS difference
       FROM (
-    SELECT m.role AS semantic_key, m.source_id AS qualifier, m.site_id, m.account_code,
+    SELECT m.role AS semantic_key, m.source_id AS qualifier, m.unit_id, m.account_code,
            a.name AS account_name,
            CASE m.role
                WHEN 'cash' THEN 'CASH'
@@ -1001,18 +1006,18 @@ const MONEY_ROWS: &str = "
                ELSE 'CARD_RECEIVABLE'
            END AS pot,
            array_position($2::text[], m.role) AS ord,
-           (st.kind <> 'HO') AS dc_last,
+           (u.kind <> 'HO') AS ho_last,
            COALESCE((SELECT SUM(l.debit_minor - l.credit_minor)
                        FROM journal_line l JOIN journal_entry e USING (entry_id)
                       WHERE l.account_code = m.account_code
-                        AND l.site_id = m.site_id
+                        AND l.unit_id = m.unit_id
                         AND e.posting_date <= $1), 0)::bigint AS per_books,
-           st.name AS site_name,
+           u.name AS unit_name,
            s.statement_id, s.period_end, s.closing_minor, s.unmatched
       FROM account_resolution m
       JOIN ledger_account a ON a.account_code = m.account_code
-      JOIN site st ON st.id = m.site_id
-      -- The latest statement for this account at this location, and how much
+      JOIN unit u ON u.id = m.unit_id
+      -- The latest statement for this account in this unit, and how much
       -- of it is still unexplained. A lateral join rather than a window, so
       -- the planner stops at the first row per account.
       --
@@ -1034,7 +1039,7 @@ const MONEY_ROWS: &str = "
                          < GREATEST(bl.debit_minor, bl.credit_minor)) AS unmatched
             FROM bank_statement b
            WHERE b.account_code = m.account_code
-             AND b.site_id = m.site_id
+             AND b.unit_id = m.unit_id
              AND b.superseded_by IS NULL
              AND b.period_end <= $1
            ORDER BY b.period_end DESC, b.imported_at DESC
@@ -1042,11 +1047,11 @@ const MONEY_ROWS: &str = "
       ) s ON true
      WHERE m.role = ANY($2)
        AND m.source_type = 'COMPANY'
-       -- Name, code and location. Three fields because those are the three
+       -- Name, code and unit. Three fields because those are the three
        -- things somebody actually has in front of them: the name off a
-       -- statement, the code off a journal, the shop off a phone call.
+       -- statement, the code off a journal, the store off a phone call.
        AND ($3::text IS NULL
-            OR a.name ILIKE $3 OR m.account_code ILIKE $3 OR m.site_id ILIKE $3)
+            OR a.name ILIKE $3 OR m.account_code ILIKE $3 OR m.unit_id ILIKE $3)
     ) base
 ";
 
@@ -1062,7 +1067,7 @@ const FLAG_CLAUSE: &str = "
     CASE WHEN per_books < 0 THEN 'NEGATIVE' END
 ";
 
-/// Every mapped money account, per location, beside the last bank statement.
+/// Every mapped money account, per unit, beside the last bank statement.
 ///
 /// # Why this is driven off `account_resolution` and not off the chart
 ///
@@ -1096,7 +1101,7 @@ pub async fn money_overview(pool: &PgPool, scope: MoneyScope) -> Result<MoneyOve
     // otherwise a screen shows nothing the moment somebody unticks the last
     // box, which reads as broken rather than as unfiltered.
     let pots = keep_known(&scope.pots, |raw| MoneyPot::from_wire(raw).is_some());
-    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let units = (!scope.units.is_empty()).then(|| scope.units.clone());
     let flags = keep_known(&scope.flags, |raw| {
         matches!(raw, "DIFFERS" | "NO_STATEMENT" | "UNMATCHED" | "NEGATIVE")
     });
@@ -1113,14 +1118,14 @@ pub async fn money_overview(pool: &PgPool, scope: MoneyScope) -> Result<MoneyOve
         Some("balance") => ("per_books", scope.desc),
         Some("name") => ("account_name", scope.desc),
         // The house order: the client's own chart order, then head office
-        // before the shops. Reversing it would mean nothing, so `dir` is not
+        // before the stores. Reversing it would mean nothing, so `dir` is not
         // read here.
-        _ => ("ord, dc_last", false),
+        _ => ("ord, ho_last", false),
     };
-    let cols = format!("{lead}, semantic_key, qualifier, site_id");
+    let cols = format!("{lead}, semantic_key, qualifier, unit_id");
     let dir = if descending { "DESC" } else { "ASC" };
     let order = format!(
-        "{} {dir}, semantic_key {dir}, qualifier {dir}, site_id {dir}",
+        "{} {dir}, semantic_key {dir}, qualifier {dir}, unit_id {dir}",
         lead.replace(", ", &format!(" {dir}, "))
     );
     // Which way the seek points follows the direction, or paging a descending
@@ -1150,14 +1155,14 @@ pub async fn money_overview(pool: &PgPool, scope: MoneyScope) -> Result<MoneyOve
               kept AS NOT MATERIALIZED (
              SELECT * FROM searched
               WHERE ($4::text[] IS NULL OR pot = ANY($4))
-                AND ($5::text[] IS NULL OR site_id = ANY($5))
+                AND ($5::text[] IS NULL OR unit_id = ANY($5))
                 AND ($6::text[] IS NULL OR ARRAY[{FLAG_CLAUSE}] && $6)
          )
          SELECT * FROM kept
           WHERE $7::text IS NULL
              OR ({cols}) {seek} (SELECT {cols} FROM kept
                                   WHERE semantic_key = $7 AND qualifier = $8
-                                    AND site_id = $9)
+                                    AND unit_id = $9)
           ORDER BY {order}
           LIMIT $10"
     );
@@ -1166,11 +1171,11 @@ pub async fn money_overview(pool: &PgPool, scope: MoneyScope) -> Result<MoneyOve
         .bind(&MONEY_KEYS[..])
         .bind(&needle)
         .bind(&pots)
-        .bind(&sites)
+        .bind(&units)
         .bind(&flags)
         .bind(cursor.as_ref().map(|c| c.semantic_key.clone()))
         .bind(cursor.as_ref().map(|c| c.qualifier.clone()))
-        .bind(cursor.as_ref().map(|c| c.site_id.clone()))
+        .bind(cursor.as_ref().map(|c| c.unit_id.clone()))
         // No limit means no limit. `NULL` is how Postgres spells that in
         // `LIMIT`, which is why this is an Option rather than a large number
         // standing in for one.
@@ -1188,7 +1193,7 @@ pub async fn money_overview(pool: &PgPool, scope: MoneyScope) -> Result<MoneyOve
                 MoneyCursor {
                     semantic_key: row.try_get("semantic_key")?,
                     qualifier: row.try_get("qualifier")?,
-                    site_id: row.try_get("site_id")?,
+                    unit_id: row.try_get("unit_id")?,
                 }
                 .encode()?,
             ),
@@ -1202,13 +1207,13 @@ pub async fn money_overview(pool: &PgPool, scope: MoneyScope) -> Result<MoneyOve
     }
 
     let (total, total_minor, facets) =
-        money_facets(pool, as_of, needle.as_deref(), &pots, &sites, &flags).await?;
+        money_facets(pool, as_of, needle.as_deref(), &pots, &units, &flags).await?;
     Ok(MoneyOverview {
         as_of,
         // What the caller narrowed to, echoed back — and only meaningful when
-        // they named exactly one. A list of three sites has no single answer
+        // they named exactly one. A list of three units has no single answer
         // and must not pretend to.
-        site_id: match scope.sites.as_slice() {
+        unit_id: match scope.units.as_slice() {
             [only] => Some(only.clone()),
             _ => None,
         },
@@ -1253,10 +1258,10 @@ fn money_row_from(row: &sqlx::postgres::PgRow) -> Result<MoneyAccountRow, AppErr
         // reports rather than a 500 nobody can act on.
         pot: MoneyPot::from_wire(&pot_wire).unwrap_or(MoneyPot::Cash),
         qualifier: row.try_get("qualifier")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         account_code: row.try_get("account_code")?,
         account_name: row.try_get("account_name")?,
-        site_name: row.try_get("site_name")?,
+        unit_name: row.try_get("unit_name")?,
         per_books_minor: per_books,
         difference_minor: statement
             .as_ref()
@@ -1287,20 +1292,20 @@ async fn money_facets(
     as_of: NaiveDate,
     needle: Option<&str>,
     pots: &Option<Vec<String>>,
-    sites: &Option<Vec<String>>,
+    units: &Option<Vec<String>>,
     flags: &Option<Vec<String>>,
 ) -> Result<(i64, i64, MoneyFacets), AppError> {
     let sql = format!(
         "WITH searched AS ({MONEY_ROWS}), kept AS (
              SELECT * FROM searched
               WHERE ($4::text[] IS NULL OR pot = ANY($4))
-                AND ($5::text[] IS NULL OR site_id = ANY($5))
+                AND ($5::text[] IS NULL OR unit_id = ANY($5))
                 AND ($6::text[] IS NULL OR ARRAY[{FLAG_CLAUSE}] && $6)
          )
          SELECT 'pot' AS kind, pot AS value, NULL::text AS label, COUNT(*)::bigint AS n
            FROM searched GROUP BY pot
           UNION ALL
-         SELECT 'site', site_id, site_name, COUNT(*)::bigint FROM searched GROUP BY site_id, site_name
+         SELECT 'unit', unit_id, unit_name, COUNT(*)::bigint FROM searched GROUP BY unit_id, unit_name
           UNION ALL
          -- A row can carry several flags, so these counts can add up to more
          -- than the total. That is the shape of the question, not an error.
@@ -1317,7 +1322,7 @@ async fn money_facets(
         .bind(&MONEY_KEYS[..])
         .bind(needle)
         .bind(pots)
-        .bind(sites)
+        .bind(units)
         .bind(flags)
         .fetch_all(pool)
         .await?;
@@ -1325,7 +1330,7 @@ async fn money_facets(
     let mut total = 0i64;
     let mut total_minor = 0i64;
     let mut pots_out = Vec::new();
-    let mut sites_out = Vec::new();
+    let mut units_out = Vec::new();
     let mut flags_out = Vec::new();
     for row in &rows {
         let kind: String = row.try_get("kind")?;
@@ -1338,7 +1343,7 @@ async fn money_facets(
                 label,
                 count: n,
             }),
-            "site" => sites_out.push(MoneyFacet {
+            "unit" => units_out.push(MoneyFacet {
                 value,
                 label,
                 count: n,
@@ -1356,7 +1361,7 @@ async fn money_facets(
     // most likely to want is the one with the most behind it. Ties break on the
     // name so the order is stable between calls — a list that reshuffles under
     // the cursor is a list nobody can click.
-    for list in [&mut pots_out, &mut sites_out, &mut flags_out] {
+    for list in [&mut pots_out, &mut units_out, &mut flags_out] {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
     }
     Ok((
@@ -1364,7 +1369,7 @@ async fn money_facets(
         total_minor,
         MoneyFacets {
             pots: pots_out,
-            sites: sites_out,
+            units: units_out,
             flags: flags_out,
         },
     ))

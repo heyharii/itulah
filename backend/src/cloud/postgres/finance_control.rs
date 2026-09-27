@@ -176,8 +176,8 @@ pub async fn finance_controls(
     // ── inter-unit ─────────────────────────────────────────────────────────
     //
     // The test is not GL against a subledger: it is that the affiliate accounts
-    // net to nothing across every unit. Money head office is owed by a shop is
-    // money that shop owes head office, and a total that is not zero means one
+    // net to nothing across every unit. Money head office is owed by a store is
+    // money that store owes head office, and a total that is not zero means one
     // leg of a pair never posted.
     let interunit: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor),0)::bigint
@@ -208,21 +208,21 @@ pub async fn finance_controls(
     // reconciliation is for.
     let bank = sqlx::query(
         "WITH mapped AS (
-             SELECT DISTINCT m.site_id, m.account_code
+             SELECT DISTINCT m.unit_id, m.account_code
                FROM account_resolution m
               WHERE m.role IN ('bank_giro', 'bank_savings')
          ), latest AS (
-             SELECT DISTINCT ON (s.site_id, s.account_code)
-                    s.site_id, s.account_code, s.closing_minor, s.period_end
+             SELECT DISTINCT ON (s.unit_id, s.account_code)
+                    s.unit_id, s.account_code, s.closing_minor, s.period_end
                FROM bank_statement s
-               JOIN mapped ON mapped.site_id = s.site_id
+               JOIN mapped ON mapped.unit_id = s.unit_id
                           AND mapped.account_code = s.account_code
-              ORDER BY s.site_id, s.account_code, s.period_end DESC
+              ORDER BY s.unit_id, s.account_code, s.period_end DESC
          )
          SELECT
             COALESCE((SELECT SUM(l.debit_minor - l.credit_minor)
                         FROM journal_line l
-                        JOIN mapped ON mapped.site_id = l.site_id
+                        JOIN mapped ON mapped.unit_id = l.unit_id
                                    AND mapped.account_code = l.account_code), 0)::bigint
                 AS gl_minor,
             COALESCE((SELECT SUM(closing_minor) FROM latest), 0)::bigint AS subledger_minor,
@@ -649,7 +649,7 @@ pub async fn finance_close_readiness(
     // in systems built that way. Here it is one SUM, and it blocks the close.
     //
     // Per unit it is expected to be non-zero, which is the point: that is what
-    // a shop's own balance sheet needs to balance. Only the total is zero.
+    // a store's own balance sheet needs to balance. Only the total is zero.
     let interunit: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
            FROM journal_line l
@@ -660,7 +660,7 @@ pub async fn finance_close_readiness(
           WHERE l.account_code IN (
                 SELECT DISTINCT account_code FROM account_resolution
                  WHERE role IN ('affiliate_receivable', 'affiliate_payable'))
-            AND l.counter_site_id IS NOT NULL
+            AND l.counter_unit_id IS NOT NULL
             AND e.posting_date <= make_date($1, $2, 1) + INTERVAL '1 month' - INTERVAL '1 day'",
     )
     .bind(i32::from(year16))
@@ -800,7 +800,8 @@ pub struct LedgerTrace {
     pub posting_date: NaiveDate,
     pub account_code: String,
     pub account_name: String,
-    pub site_id: String,
+    /// Whose books the line is in (0605).
+    pub unit_id: String,
     pub debit_minor: i64,
     pub credit_minor: i64,
     pub source_kind: String,
@@ -822,12 +823,12 @@ pub async fn ledger_trace(
     account_code: &str,
     from: NaiveDate,
     to: NaiveDate,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     limit: i64,
 ) -> Result<Vec<LedgerTrace>, AppError> {
     let rows = sqlx::query(
         "SELECT l.line_id, l.entry_id, e.entry_number, e.posting_date, l.account_code,
-                a.name AS account_name, l.site_id, l.debit_minor, l.credit_minor,
+                a.name AS account_name, l.unit_id, l.debit_minor, l.credit_minor,
                 e.source_kind, e.source_id, e.memo,
                 CASE e.source_kind
                     WHEN 'PREPAID_ALLOCATION' THEN 'prepaid_schedule'
@@ -863,14 +864,14 @@ pub async fn ledger_trace(
            JOIN ledger_account a ON a.account_code = l.account_code
           WHERE l.account_code = $1
             AND e.posting_date BETWEEN $2 AND $3
-            AND ($4::text IS NULL OR l.site_id = $4)
+            AND ($4::text IS NULL OR l.unit_id = $4)
           ORDER BY e.posting_date, e.entry_number
           LIMIT $5",
     )
     .bind(account_code)
     .bind(from)
     .bind(to)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(limit.clamp(1, 1000))
     .fetch_all(pool)
     .await?;
@@ -884,7 +885,7 @@ pub async fn ledger_trace(
                 posting_date: row.try_get("posting_date")?,
                 account_code: row.try_get("account_code")?,
                 account_name: row.try_get("account_name")?,
-                site_id: row.try_get("site_id")?,
+                unit_id: row.try_get("unit_id")?,
                 debit_minor: row.try_get("debit_minor")?,
                 credit_minor: row.try_get("credit_minor")?,
                 source_kind: row.try_get("source_kind")?,

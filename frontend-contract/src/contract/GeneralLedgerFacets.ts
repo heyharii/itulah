@@ -12,11 +12,11 @@ export type GeneralLedgerFacets = { kinds: Array<GeneralLedgerFacet>,
  */
 categories: Array<GeneralLedgerFacet>, 
 /**
- * The locations this account moved at inside the window.
+ * The units whose books this account moved in inside the window.
  *
- * Informational when `site_id` was given, where there is exactly one and
+ * Informational when `unit_id` was given, where there is exactly one and
  * clicking it cannot change the answer — it is left in rather than
  * suppressed because here it is also the caption for a window somebody
  * has already narrowed.
  */
-sites: Array<GeneralLedgerFacet>, };
+units: Array<GeneralLedgerFacet>, };

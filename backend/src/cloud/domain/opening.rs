@@ -20,7 +20,7 @@
 //! database.
 //!
 //! **Agreeing the totals.** An opening trial balance either balances or it does
-//! not, per site, and the difference is the number a person needs. Doing this in
+//! not, per unit, and the difference is the number a person needs. Doing this in
 //! SQL would put the most important refusal in the system inside a query plan.
 //!
 //! **Pricing the stock.** The sharpest one. FIFO needs a layer and a layer needs
@@ -431,16 +431,17 @@ pub fn parse_opening_amount(raw: &str) -> Result<i64, AmountRefusal> {
 /// One imported trial balance row, as arithmetic sees it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct OpeningAmount {
-    pub site_id: String,
+    /// The unit whose books the row is in (0608).
+    pub unit_id: String,
     pub debit_minor: i64,
     pub credit_minor: i64,
 }
 
-/// What one site's opening balance adds up to.
+/// What one unit's opening balance adds up to.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
-pub struct OpeningSiteTotal {
-    pub site_id: String,
+pub struct OpeningUnitTotal {
+    pub unit_id: String,
     pub debit_minor: i64,
     pub credit_minor: i64,
     /// Debits less credits. Signed, and not an absolute value: which way a
@@ -449,28 +450,28 @@ pub struct OpeningSiteTotal {
     pub lines: i64,
 }
 
-impl OpeningSiteTotal {
+impl OpeningUnitTotal {
     pub const fn agrees(&self) -> bool {
         self.difference_minor == 0
     }
 }
 
-/// Sum the sheet, one total per site, sites in the order they first appear.
+/// Sum the sheet, one total per unit, units in the order they first appear.
 ///
 /// First-appearance order and not sorted, because the file's own order is what
 /// a person is looking at while they read the report.
-pub fn opening_site_totals(rows: &[OpeningAmount]) -> Vec<OpeningSiteTotal> {
-    let mut totals: Vec<OpeningSiteTotal> = Vec::new();
+pub fn opening_unit_totals(rows: &[OpeningAmount]) -> Vec<OpeningUnitTotal> {
+    let mut totals: Vec<OpeningUnitTotal> = Vec::new();
     for row in rows {
-        match totals.iter_mut().find(|total| total.site_id == row.site_id) {
+        match totals.iter_mut().find(|total| total.unit_id == row.unit_id) {
             Some(total) => {
                 total.debit_minor += row.debit_minor;
                 total.credit_minor += row.credit_minor;
                 total.difference_minor = total.debit_minor - total.credit_minor;
                 total.lines += 1;
             }
-            None => totals.push(OpeningSiteTotal {
-                site_id: row.site_id.clone(),
+            None => totals.push(OpeningUnitTotal {
+                unit_id: row.unit_id.clone(),
                 debit_minor: row.debit_minor,
                 credit_minor: row.credit_minor,
                 difference_minor: row.debit_minor - row.credit_minor,
@@ -696,9 +697,9 @@ pub const fn signed_to_side(debits_minor: i64, credits_minor: i64, receivable: b
 mod tests {
     use super::*;
 
-    fn row(site: &str, debit: i64, credit: i64) -> OpeningAmount {
+    fn row(unit: &str, debit: i64, credit: i64) -> OpeningAmount {
         OpeningAmount {
-            site_id: site.to_string(),
+            unit_id: unit.to_string(),
             debit_minor: debit,
             credit_minor: credit,
         }
@@ -855,36 +856,36 @@ mod tests {
     }
 
     #[test]
-    fn a_sheet_that_agrees_shows_no_difference_at_any_site() {
-        let totals = opening_site_totals(&[
-            row("dc", 500, 0),
-            row("dc", 0, 500),
+    fn a_sheet_that_agrees_shows_no_difference_in_any_unit() {
+        let totals = opening_unit_totals(&[
+            row("unit-a", 500, 0),
+            row("unit-a", 0, 500),
             row("store-01", 300, 0),
             row("store-01", 0, 300),
         ]);
         assert_eq!(totals.len(), 2);
-        assert!(totals.iter().all(OpeningSiteTotal::agrees));
-        assert_eq!(totals[0].site_id, "dc", "sites keep the file's own order");
+        assert!(totals.iter().all(OpeningUnitTotal::agrees));
+        assert_eq!(totals[0].unit_id, "unit-a", "units keep the file's own order");
         assert_eq!(totals[0].lines, 2);
     }
 
     #[test]
     fn a_difference_is_signed_so_it_says_which_way() {
-        let totals = opening_site_totals(&[row("dc", 500, 0), row("dc", 0, 300)]);
+        let totals = opening_unit_totals(&[row("unit-a", 500, 0), row("unit-a", 0, 300)]);
         assert_eq!(totals[0].difference_minor, 200);
         assert!(!totals[0].agrees());
 
-        let other = opening_site_totals(&[row("dc", 300, 0), row("dc", 0, 500)]);
+        let other = opening_unit_totals(&[row("unit-a", 300, 0), row("unit-a", 0, 500)]);
         assert_eq!(other[0].difference_minor, -200);
     }
 
     #[test]
-    fn one_site_out_does_not_hide_behind_another_being_over() {
-        // The trap the per-site total exists for: the sheet balances in total
-        // and neither location's books do.
-        let totals = opening_site_totals(&[
-            row("dc", 700, 0),
-            row("dc", 0, 500),
+    fn one_unit_out_does_not_hide_behind_another_being_over() {
+        // The trap the per-unit total exists for: the sheet balances in total
+        // and neither unit's books do.
+        let totals = opening_unit_totals(&[
+            row("unit-a", 700, 0),
+            row("unit-a", 0, 500),
             row("store-01", 300, 0),
             row("store-01", 0, 500),
         ]);

@@ -5,11 +5,15 @@
 //!
 //! Two questions, asked separately, because they have different answers.
 //!
-//! **Which places** — `Reach`, the same rule the People module uses. An Admin
+//! **Which units** — `Reach`, the same rule the People module uses. An Admin
 //! reaches everywhere, somebody posted to head office reaches everywhere, a
-//! store manager reaches their own shop, and a session with no open posting
-//! reaches nothing. A store route that took a `site` and did not check it would
-//! be a store route that reads every other shop's cash.
+//! store manager reaches their own store, and a session with no open posting
+//! reaches nothing. A store route that took a `unit` and did not check it would
+//! be a store route that reads every other store's cash.
+//!
+//! Store money is a unit's since 0607, so every route here names a unit and is
+//! checked as one. The drawer is the exception: a cashier's shift happens at a
+//! shop and keeps its site, and is checked against the unit that owns it.
 //!
 //! **Which acts** — the rung. Deciding what a shop does with its takings, and
 //! sending it money, are head office's; recording what a shop spent, banking
@@ -84,7 +88,7 @@ pub fn lane_b_routes(router: Router<AppState>) -> Router<AppState> {
         )
         .route("/api/v1/store-money/remittance-authority", get(authority))
         .route(
-            "/api/v1/store-money/sites/{site}/remittance-default",
+            "/api/v1/store-money/units/{unit}/remittance-default",
             post(remittance_default),
         )
         // The float.
@@ -130,36 +134,47 @@ pub fn lane_b_routes(router: Router<AppState>) -> Router<AppState> {
         )
         .route("/api/v1/store-money/petty-cash", post(petty_replenish))
         // Where the money is.
-        .route("/api/v1/store-money/sites/{site}/position", get(position))
+        .route("/api/v1/store-money/units/{unit}/position", get(position))
 }
 
 // ---------------------------------------------------------------------------
 // Who may act, and where
 // ---------------------------------------------------------------------------
 
-/// Refuse a session that may not act on this shop.
+/// Refuse a session that may not act on this unit's money.
 ///
-/// The message names the shop rather than saying "forbidden", because the
+/// The message names the unit rather than saying "forbidden", because the
 /// person reading it is usually somebody who picked the wrong row from a list.
+async fn allow_unit(
+    state: &AppState,
+    principal: &Principal,
+    unit_id: &str,
+) -> Result<(), AppError> {
+    let reach = reach_of(state, principal).await?;
+    if reach.covers(Some(unit_id)) {
+        return Ok(());
+    }
+    Err(AppError::Forbidden(match reach {
+        Reach::Nowhere => format!(
+            "this login has no open posting, so it cannot act on {unit_id}'s money. Ask HR to \
+             post you to a unit."
+        ),
+        _ => format!("this login does not cover {unit_id}"),
+    }))
+}
+
+/// Refuse a session that may not act on this shop: the unit that owns it is
+/// what reach is asked about. For the drawer, whose shift keeps its site.
 async fn allow_site(
     state: &AppState,
     principal: &Principal,
     site_id: &str,
 ) -> Result<(), AppError> {
-    let reach = reach_of(state, principal).await?;
-    if reach.covers(Some(site_id)) {
-        return Ok(());
-    }
-    Err(AppError::Forbidden(match reach {
-        Reach::Nowhere => format!(
-            "this login has no open posting, so it cannot act on {site_id}'s money. Ask HR to \
-             post you to a unit."
-        ),
-        _ => format!("this login does not cover {site_id}"),
-    }))
+    let unit = infrastructure::sites::unit_of_site(&state.db, site_id).await?;
+    allow_unit(state, principal, &unit).await
 }
 
-/// The shop a list is bounded to, or `None` for a caller who reaches
+/// The unit a list is bounded to, or `None` for a caller who reaches
 /// everywhere.
 ///
 /// The distinction matters: `None` from a `Nowhere` reach would return the
@@ -174,7 +189,7 @@ async fn list_scope(
     let reach = reach_of(state, principal).await?;
     if reach.is_nowhere() {
         return Err(AppError::Forbidden(
-            "this login has no open posting, so there is no shop whose money it may read".into(),
+            "this login has no open posting, so there is no store whose money it may read".into(),
         ));
     }
     match (reach.sole_unit(), asked) {
@@ -218,7 +233,9 @@ fn at_least_supervisor(principal: &Principal, act: &str) -> Result<(), AppError>
 
 #[derive(Debug, Deserialize)]
 pub struct ShiftQuery {
-    pub site: Option<String>,
+    /// The unit whose shops' shifts to list. A shift keeps its site; the list
+    /// is bounded by unit like every other list here.
+    pub unit: Option<String>,
     #[serde(default)]
     pub unapproved: bool,
     pub limit: Option<i64>,
@@ -229,11 +246,11 @@ pub async fn shifts(
     Extension(principal): Extension<Principal>,
     Query(query): Query<ShiftQuery>,
 ) -> Result<Json<Vec<Value>>, AppError> {
-    let site = list_scope(&state, &principal, query.site.as_deref()).await?;
+    let unit = list_scope(&state, &principal, query.unit.as_deref()).await?;
     Ok(Json(
         infrastructure::cash_shift_list(
             &state.db,
-            site.as_deref(),
+            unit.as_deref(),
             query.unapproved,
             query.limit.unwrap_or(100),
         )
@@ -301,7 +318,7 @@ pub async fn shift_approve_variance(
 
 #[derive(Debug, Deserialize)]
 pub struct DepositQuery {
-    pub site: Option<String>,
+    pub unit: Option<String>,
     pub status: Option<String>,
     pub limit: Option<i64>,
 }
@@ -311,11 +328,11 @@ pub async fn deposits(
     Extension(principal): Extension<Principal>,
     Query(query): Query<DepositQuery>,
 ) -> Result<Json<Vec<Value>>, AppError> {
-    let site = list_scope(&state, &principal, query.site.as_deref()).await?;
+    let unit = list_scope(&state, &principal, query.unit.as_deref()).await?;
     Ok(Json(
         infrastructure::store_deposit_list(
             &state.db,
-            site.as_deref(),
+            unit.as_deref(),
             query.status.as_deref(),
             query.limit.unwrap_or(100),
         )
@@ -328,7 +345,7 @@ pub async fn deposit_prepare(
     Extension(principal): Extension<Principal>,
     Json(request): Json<infrastructure::PrepareDepositRequest>,
 ) -> Result<Json<Value>, AppError> {
-    allow_site(&state, &principal, &request.site_id).await?;
+    allow_unit(&state, &principal, &request.unit_id).await?;
     Ok(Json(
         infrastructure::store_deposit_prepare(&state.db, &request, &principal.username).await?,
     ))
@@ -340,16 +357,16 @@ pub async fn deposit_hand_over(
     Path(id): Path<Uuid>,
     Json(request): Json<infrastructure::HandOverDepositRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let site = deposit_site(&state, id).await?;
-    allow_site(&state, &principal, &site).await?;
+    let unit = deposit_unit(&state, id).await?;
+    allow_unit(&state, &principal, &unit).await?;
     Ok(Json(
         infrastructure::store_deposit_hand_over(&state.db, id, &request, &principal.username)
             .await?,
     ))
 }
 
-async fn deposit_site(state: &AppState, deposit_id: Uuid) -> Result<String, AppError> {
-    sqlx::query_scalar::<_, String>("SELECT site_id FROM store_deposit WHERE deposit_id = $1")
+async fn deposit_unit(state: &AppState, deposit_id: Uuid) -> Result<String, AppError> {
+    sqlx::query_scalar::<_, String>("SELECT unit_id FROM store_deposit WHERE deposit_id = $1")
         .bind(deposit_id)
         .fetch_optional(&state.db)
         .await?
@@ -380,7 +397,7 @@ pub async fn deposit_confirm(
 
 #[derive(Debug, Deserialize)]
 pub struct OrderQuery {
-    pub site: Option<String>,
+    pub unit: Option<String>,
     pub limit: Option<i64>,
 }
 
@@ -389,11 +406,11 @@ pub async fn orders(
     Extension(principal): Extension<Principal>,
     Query(query): Query<OrderQuery>,
 ) -> Result<Json<Vec<Value>>, AppError> {
-    let site = list_scope(&state, &principal, query.site.as_deref()).await?;
+    let unit = list_scope(&state, &principal, query.unit.as_deref()).await?;
     Ok(Json(
         infrastructure::remittance_order_list(
             &state.db,
-            site.as_deref(),
+            unit.as_deref(),
             query.limit.unwrap_or(50),
         )
         .await?,
@@ -406,12 +423,12 @@ pub async fn order(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, AppError> {
     let view = infrastructure::remittance_order_view(&state.db, id).await?;
-    let site = view
-        .get("site_id")
+    let unit = view
+        .get("unit_id")
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
-    allow_site(&state, &principal, &site).await?;
+    allow_unit(&state, &principal, &unit).await?;
     Ok(Json(view))
 }
 
@@ -459,7 +476,7 @@ pub async fn order_link_execution(
 
 #[derive(Debug, Deserialize)]
 pub struct AuthorityQuery {
-    pub site: String,
+    pub unit: String,
     pub destination_kind: String,
     pub destination_ref: String,
     pub amount_minor: i64,
@@ -476,11 +493,11 @@ pub async fn authority(
     Extension(principal): Extension<Principal>,
     Query(query): Query<AuthorityQuery>,
 ) -> Result<Json<Value>, AppError> {
-    allow_site(&state, &principal, &query.site).await?;
+    allow_unit(&state, &principal, &query.unit).await?;
     Ok(Json(
         infrastructure::remittance_authority(
             &state.db,
-            &query.site,
+            &query.unit,
             &query.destination_kind,
             &query.destination_ref,
             query.amount_minor,
@@ -492,12 +509,12 @@ pub async fn authority(
 pub async fn remittance_default(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Path(site): Path<String>,
+    Path(unit): Path<String>,
     Json(request): Json<infrastructure::SetRemittanceDefaultRequest>,
 ) -> Result<Json<Value>, AppError> {
-    head_office_only(&principal, "setting where a shop's takings go by default")?;
+    head_office_only(&principal, "setting where a store's takings go by default")?;
     Ok(Json(
-        infrastructure::remittance_default_set(&state.db, &site, &request, &principal.username)
+        infrastructure::remittance_default_set(&state.db, &unit, &request, &principal.username)
             .await?,
     ))
 }
@@ -508,7 +525,7 @@ pub async fn remittance_default(
 
 #[derive(Debug, Deserialize)]
 pub struct FundQuery {
-    pub site: Option<String>,
+    pub unit: Option<String>,
     #[serde(default)]
     pub open: bool,
     pub limit: Option<i64>,
@@ -519,11 +536,11 @@ pub async fn funds(
     Extension(principal): Extension<Principal>,
     Query(query): Query<FundQuery>,
 ) -> Result<Json<Vec<Value>>, AppError> {
-    let site = list_scope(&state, &principal, query.site.as_deref()).await?;
+    let unit = list_scope(&state, &principal, query.unit.as_deref()).await?;
     Ok(Json(
         infrastructure::operating_fund_list(
             &state.db,
-            site.as_deref(),
+            unit.as_deref(),
             query.open,
             query.limit.unwrap_or(100),
         )
@@ -547,16 +564,16 @@ pub async fn fund_accountability(
     Extension(principal): Extension<Principal>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, AppError> {
-    let site =
-        sqlx::query_scalar::<_, String>("SELECT site_id FROM operating_fund WHERE fund_id = $1")
+    let unit =
+        sqlx::query_scalar::<_, String>("SELECT unit_id FROM operating_fund WHERE fund_id = $1")
             .bind(id)
             .fetch_optional(&state.db)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("there is no operating fund {id}")))?;
-    allow_site(&state, &principal, &site).await?;
+    allow_unit(&state, &principal, &unit).await?;
     Ok(Json(json!({
         "fund_id": id,
-        "site_id": site,
+        "unit_id": unit,
         "accountability": infrastructure::operating_fund_accountability(&state.db, id).await?,
     })))
 }
@@ -580,13 +597,13 @@ pub async fn fund_receive(
     Path(id): Path<Uuid>,
     Json(request): Json<infrastructure::ReceiveFundRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let site =
-        sqlx::query_scalar::<_, String>("SELECT site_id FROM operating_fund WHERE fund_id = $1")
+    let unit =
+        sqlx::query_scalar::<_, String>("SELECT unit_id FROM operating_fund WHERE fund_id = $1")
             .bind(id)
             .fetch_optional(&state.db)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("there is no operating fund {id}")))?;
-    allow_site(&state, &principal, &site).await?;
+    allow_unit(&state, &principal, &unit).await?;
     at_least_supervisor(&principal, "confirming a fund into petty cash")?;
     Ok(Json(
         infrastructure::operating_fund_receive(&state.db, id, &request, &principal.username)
@@ -600,15 +617,15 @@ pub async fn fund_settle(
     Extension(principal): Extension<Principal>,
     Json(request): Json<infrastructure::SettleFundRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let site =
-        sqlx::query_scalar::<_, String>("SELECT site_id FROM operating_fund WHERE fund_id = $1")
+    let unit =
+        sqlx::query_scalar::<_, String>("SELECT unit_id FROM operating_fund WHERE fund_id = $1")
             .bind(request.fund_id)
             .fetch_optional(&state.db)
             .await?
             .ok_or_else(|| {
                 AppError::NotFound(format!("there is no operating fund {}", request.fund_id))
             })?;
-    allow_site(&state, &principal, &site).await?;
+    allow_unit(&state, &principal, &unit).await?;
     at_least_supervisor(&principal, "accounting for an operating fund")?;
     Ok(Json(
         infrastructure::fund_settlement_record(&state.db, &request, &principal.username).await?,
@@ -641,8 +658,8 @@ pub async fn payout_list(
     Extension(principal): Extension<Principal>,
     Path(allocation): Path<Uuid>,
 ) -> Result<Json<Vec<Value>>, AppError> {
-    let site = sqlx::query_scalar::<_, String>(
-        "SELECT f.site_id FROM fund_allocation a
+    let unit = sqlx::query_scalar::<_, String>(
+        "SELECT f.unit_id FROM fund_allocation a
            JOIN operating_fund f ON f.fund_id = a.fund_id
           WHERE a.allocation_id = $1",
     )
@@ -650,7 +667,7 @@ pub async fn payout_list(
     .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("there is no allocation {allocation}")))?;
-    allow_site(&state, &principal, &site).await?;
+    allow_unit(&state, &principal, &unit).await?;
     Ok(Json(
         infrastructure::payroll_payout_list(&state.db, allocation).await?,
     ))
@@ -662,8 +679,8 @@ pub async fn payout_pay(
     Path(id): Path<Uuid>,
     Json(request): Json<infrastructure::PayEmployeeRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let site = sqlx::query_scalar::<_, String>(
-        "SELECT f.site_id FROM payroll_payout_task t
+    let unit = sqlx::query_scalar::<_, String>(
+        "SELECT f.unit_id FROM payroll_payout_task t
            JOIN fund_allocation a ON a.allocation_id = t.allocation_id
            JOIN operating_fund f ON f.fund_id = a.fund_id
           WHERE t.task_id = $1",
@@ -672,7 +689,7 @@ pub async fn payout_pay(
     .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("there is no payout task {id}")))?;
-    allow_site(&state, &principal, &site).await?;
+    allow_unit(&state, &principal, &unit).await?;
     at_least_supervisor(&principal, "handing over wages")?;
     Ok(Json(
         infrastructure::payroll_payout_pay(&state.db, id, &request, &principal.username).await?,
@@ -685,7 +702,7 @@ pub async fn payout_pay(
 
 #[derive(Debug, Deserialize)]
 pub struct HandoverQuery {
-    pub site: Option<String>,
+    pub unit: Option<String>,
     pub limit: Option<i64>,
 }
 
@@ -694,11 +711,11 @@ pub async fn handovers(
     Extension(principal): Extension<Principal>,
     Query(query): Query<HandoverQuery>,
 ) -> Result<Json<Vec<Value>>, AppError> {
-    let site = list_scope(&state, &principal, query.site.as_deref()).await?;
+    let unit = list_scope(&state, &principal, query.unit.as_deref()).await?;
     Ok(Json(
         infrastructure::custodian_handover_list(
             &state.db,
-            site.as_deref(),
+            unit.as_deref(),
             query.limit.unwrap_or(50),
         )
         .await?,
@@ -724,14 +741,14 @@ pub async fn handover_sign(
     Path(id): Path<Uuid>,
     Json(request): Json<infrastructure::SignHandoverRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let site = sqlx::query_scalar::<_, String>(
-        "SELECT site_id FROM custodian_handover WHERE handover_id = $1",
+    let unit = sqlx::query_scalar::<_, String>(
+        "SELECT unit_id FROM custodian_handover WHERE handover_id = $1",
     )
     .bind(id)
     .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("there is no handover {id}")))?;
-    allow_site(&state, &principal, &site).await?;
+    allow_unit(&state, &principal, &unit).await?;
     at_least_supervisor(&principal, "signing for a store float")?;
     Ok(Json(
         infrastructure::custodian_handover_sign(&state.db, id, &request, &principal.username)
@@ -745,7 +762,7 @@ pub async fn handover_sign(
 
 #[derive(Debug, Deserialize)]
 pub struct ExpenseQuery {
-    pub site: Option<String>,
+    pub unit: Option<String>,
     pub status: Option<String>,
     pub limit: Option<i64>,
 }
@@ -755,11 +772,11 @@ pub async fn expenses(
     Extension(principal): Extension<Principal>,
     Query(query): Query<ExpenseQuery>,
 ) -> Result<Json<Vec<Value>>, AppError> {
-    let site = list_scope(&state, &principal, query.site.as_deref()).await?;
+    let unit = list_scope(&state, &principal, query.unit.as_deref()).await?;
     Ok(Json(
         infrastructure::store_expense_list(
             &state.db,
-            site.as_deref(),
+            unit.as_deref(),
             query.status.as_deref(),
             query.limit.unwrap_or(100),
         )
@@ -774,7 +791,7 @@ pub async fn expense_claim(
     Extension(principal): Extension<Principal>,
     Json(request): Json<infrastructure::ClaimExpenseRequest>,
 ) -> Result<Json<Value>, AppError> {
-    allow_site(&state, &principal, &request.site_id).await?;
+    allow_unit(&state, &principal, &request.unit_id).await?;
     Ok(Json(
         infrastructure::store_expense_claim(&state.db, &request, &principal.username).await?,
     ))
@@ -798,13 +815,13 @@ pub async fn expense_approve(
     Path(id): Path<Uuid>,
     Json(body): Json<ApproveExpenseBody>,
 ) -> Result<Json<Value>, AppError> {
-    let site =
-        sqlx::query_scalar::<_, String>("SELECT site_id FROM store_expense WHERE expense_id = $1")
+    let unit =
+        sqlx::query_scalar::<_, String>("SELECT unit_id FROM store_expense WHERE expense_id = $1")
             .bind(id)
             .fetch_optional(&state.db)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("there is no expense {id}")))?;
-    allow_site(&state, &principal, &site).await?;
+    allow_unit(&state, &principal, &unit).await?;
     at_least_supervisor(&principal, "approving a store expense")?;
     let request = infrastructure::ApproveExpenseRequest {
         approver_level: match principal.role {
@@ -824,13 +841,13 @@ pub async fn expense_reject(
     Path(id): Path<Uuid>,
     Json(request): Json<infrastructure::RejectExpenseRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let site =
-        sqlx::query_scalar::<_, String>("SELECT site_id FROM store_expense WHERE expense_id = $1")
+    let unit =
+        sqlx::query_scalar::<_, String>("SELECT unit_id FROM store_expense WHERE expense_id = $1")
             .bind(id)
             .fetch_optional(&state.db)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("there is no expense {id}")))?;
-    allow_site(&state, &principal, &site).await?;
+    allow_unit(&state, &principal, &unit).await?;
     at_least_supervisor(&principal, "refusing a store expense")?;
     Ok(Json(
         infrastructure::store_expense_reject(&state.db, id, &request, &principal.username).await?,
@@ -857,15 +874,15 @@ pub struct PositionQuery {
     pub as_of: Option<NaiveDate>,
 }
 
-/// A shop's money, in two groups that are never added together.
+/// A store's money, in two groups that are never added together.
 pub async fn position(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Path(site): Path<String>,
+    Path(unit): Path<String>,
     Query(query): Query<PositionQuery>,
 ) -> Result<Json<Value>, AppError> {
-    allow_site(&state, &principal, &site).await?;
+    allow_unit(&state, &principal, &unit).await?;
     Ok(Json(
-        infrastructure::store_cash_position(&state.db, &site, query.as_of).await?,
+        infrastructure::store_cash_position(&state.db, &unit, query.as_of).await?,
     ))
 }

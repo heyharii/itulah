@@ -8,7 +8,7 @@ import type { AgingBuckets } from "./AgingBuckets";
  * is `None` on the roll-up. Two shapes would mean two ways to draw the same
  * table and two places to fix a bucket.
  */
-export type PaymentLedgerAgingRow = { account_key: string, qualifier: string, site_id: string, side: string, party_type: string | null, party_id: string | null, party_name: string | null, items: number, 
+export type PaymentLedgerAgingRow = { account_key: string, qualifier: string, unit_id: string, side: string, party_type: string | null, party_id: string | null, party_name: string | null, items: number, 
 /**
  * The age of the oldest thing still open, in days. Negative when nothing
  * here has fallen due yet.

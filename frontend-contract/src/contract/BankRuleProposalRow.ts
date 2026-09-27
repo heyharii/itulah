@@ -18,9 +18,17 @@ category_code: string | null, category_name: string | null,
  * that offers Accept beside a proposal that cannot be accepted is a screen
  * that lies.
  */
-category_refusal: string | null, semantic_key: string | null, qualifier: string, site_id: string, account_code: string | null, account_name: string | null, status: string, cash_document_id: string | null, cash_document_number: string | null, 
+category_refusal: string | null, semantic_key: string | null, qualifier: string, 
+/**
+ * Whose books the proposed meaning resolves in (0609).
+ */
+unit_id: string, account_code: string | null, account_name: string | null, status: string, cash_document_id: string | null, cash_document_number: string | null, 
 /**
  * The line itself, because a proposal read on its own is unreadable: the
  * narration IS the evidence a person is judging.
  */
-value_date: string, description: string, reference: string | null, debit_minor: number, credit_minor: number, statement_account_code: string, statement_site_id: string, proposed_at: string, decided_by: string | null, decided_at: string | null, reason: string | null, };
+value_date: string, description: string, reference: string | null, debit_minor: number, credit_minor: number, statement_account_code: string, 
+/**
+ * Whose bank account the statement is of (0605).
+ */
+statement_unit_id: string, proposed_at: string, decided_by: string | null, decided_at: string | null, reason: string | null, };

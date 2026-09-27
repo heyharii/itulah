@@ -1300,15 +1300,18 @@ pub async fn sales_posting_exception_resolve(
     let vat = 0i64;
     let _ = vat_rate_bps;
     let label = if method == "EWALLET" { "E-wallet" } else { "QRIS" };
+    // The day happened at the shop; its takings are in the books of the unit
+    // that owns it.
+    let unit = super::sites::unit_of_site(pool, &site_id).await?;
     let memo = format!("{label} {bank} takings (exception resolved)");
     let lines = vec![
         {
-            let mut line = PostingLine::debit("card_receivable_debit", &site_id, net).with_qualifier(&bank);
+            let mut line = PostingLine::debit("card_receivable_debit", &unit, net).with_qualifier(&bank);
             line.memo = Some(memo.clone());
             line
         },
         {
-            let mut line = PostingLine::credit("revenue_debit", &site_id, net - vat).with_qualifier(&bank);
+            let mut line = PostingLine::credit("revenue_debit", &unit, net - vat).with_qualifier(&bank);
             line.memo = Some(format!("{label} {bank} sales"));
             line
         },
@@ -1336,7 +1339,7 @@ pub async fn sales_posting_exception_resolve(
         &mut tx,
         posting_id,
         &format!("EXCEPTION_{exception_id}"),
-        &site_id,
+        &unit,
         business_date,
         posted.entry_id,
         std::slice::from_ref(&side),
@@ -1485,19 +1488,20 @@ fn day_voucher(posting_id: Uuid, purpose: &str) -> String {
     format!("{posting_id}/{purpose}")
 }
 
-/// Where a takings side posts.
+/// Whose books a takings side posts in.
 ///
 /// Two of the day's meanings are promises the company itself holds, not the
 /// shop: output tax is owed to the tax office (`2201`), and a voucher is owed
 /// to a customer (`2401`). The chart scopes both `dimension = 'company'` —
-/// they post at head office and `balanced_per_site` bridges the two units with
-/// the affiliate accounts. Every other side posts where the day happened.
-/// Placing either leg at the shop makes the day unpostable, which is the one
-/// outcome a posting rule may never cause.
-fn posting_site(day_site: &str, semantic_key: &str, head_office: &str) -> String {
+/// they post in head office's books and `balanced_per_unit` bridges the two
+/// units with the affiliate accounts. Every other side posts in the books of
+/// the unit that owns the shop where the day happened (`sites::unit_of_site`).
+/// Placing either leg in the store's books makes the day unpostable, which is
+/// the one outcome a posting rule may never cause.
+fn posting_unit(day_unit: &str, semantic_key: &str, head_office: &str) -> String {
     match semantic_key {
         "vat_out" | "voucher_liability" => head_office.to_string(),
-        _ => day_site.to_string(),
+        _ => day_unit.to_string(),
     }
 }
 
@@ -1518,11 +1522,15 @@ fn posting_site(day_site: &str, semantic_key: &str, head_office: &str) -> String
 /// a balance on an ageing report that names nobody; the books still carry the
 /// receivable, and `payment_ledger_integrity` is where the two part company
 /// visibly rather than quietly.
+///
+/// `unit_id` is the books the receivable was raised in — the unit owning the
+/// shop — because the Payment Ledger is kept by the same key as the journal
+/// (0608).
 async fn sales_posting_open_receivables(
     tx: &mut Transaction<'_, Postgres>,
     posting_id: Uuid,
     purpose: &str,
-    site_id: &str,
+    unit_id: &str,
     business_date: NaiveDate,
     journal_entry_id: Uuid,
     sides: &[LedgerSide],
@@ -1534,7 +1542,7 @@ async fn sales_posting_open_receivables(
     {
         if side.qualifier.is_empty() {
             tracing::warn!(
-                site = %site_id,
+                unit = %unit_id,
                 day = %business_date,
                 key = side.semantic_key,
                 "a card line with no acquirer on it: posted to the books, and no open item \
@@ -1547,7 +1555,7 @@ async fn sales_posting_open_receivables(
             &payment_ledger::PaymentLedgerItem {
                 account_key: side.semantic_key.to_string(),
                 qualifier: side.qualifier.clone(),
-                site_id: site_id.to_string(),
+                unit_id: unit_id.to_string(),
                 party_type: payment_ledger::PaymentLedgerPartyType::Acquirer,
                 party_id: side.qualifier.clone(),
                 party_name: Some(side.qualifier.clone()),
@@ -1815,16 +1823,19 @@ pub async fn sales_posting_post(
         )));
     }
 
-    let head_office = super::sites::head_office_site_id(pool).await?;
+    // The day is a shop's; its lines are in the books of the unit owning the
+    // shop, and the company's own promises in head office's (`posting_unit`).
+    let head_office = super::sites::head_office_unit_id(pool).await?;
+    let day_unit = super::sites::unit_of_site(pool, &existing.posting.site_id).await?;
     let lines: Vec<PostingLine> = built
         .sides
         .iter()
         .map(|side| {
-            let site = posting_site(&existing.posting.site_id, side.semantic_key, &head_office);
+            let unit = posting_unit(&day_unit, side.semantic_key, &head_office);
             let mut line = if side.debit_minor > 0 {
-                PostingLine::debit(side.semantic_key, &site, side.debit_minor)
+                PostingLine::debit(side.semantic_key, &unit, side.debit_minor)
             } else {
-                PostingLine::credit(side.semantic_key, &site, side.credit_minor)
+                PostingLine::credit(side.semantic_key, &unit, side.credit_minor)
             };
             if !side.qualifier.is_empty() {
                 line = line.with_qualifier(&side.qualifier);
@@ -1874,7 +1885,7 @@ pub async fn sales_posting_post(
         &mut tx,
         posting_id,
         &purpose,
-        &existing.posting.site_id,
+        &day_unit,
         existing.posting.business_date,
         posted.entry_id,
         &built.sides,
@@ -2192,7 +2203,10 @@ pub async fn retender_tender(
         let (from_key, from_qualifier) =
             receivable_of(&found.method, found.card_kind, &found.acquirer)?;
         let (to_key, to_qualifier) = receivable_of(&to_method, to_card_kind, &to_acquirer)?;
-        let head_office = super::sites::head_office_site_id(&mut *tx).await?;
+        // The tender was rung at a shop; the receivable it raised is in the
+        // books of the unit that owns the shop, which is where it moves.
+        let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
+        let day_unit = super::sites::unit_of_site(&mut *tx, &found.site_id).await?;
         // Only the asset side moves. The income was earned either way and the
         // VAT was charged either way; what was wrong was which counterparty
         // owes the money.
@@ -2208,16 +2222,16 @@ pub async fn retender_tender(
             )),
             lines: vec![
                 {
-                    let site = posting_site(&found.site_id, to_key, &head_office);
-                    let mut line = PostingLine::debit(to_key, &site, found.amount_minor);
+                    let unit = posting_unit(&day_unit, to_key, &head_office);
+                    let mut line = PostingLine::debit(to_key, &unit, found.amount_minor);
                     if !to_qualifier.is_empty() {
                         line = line.with_qualifier(&to_qualifier);
                     }
                     line
                 },
                 {
-                    let site = posting_site(&found.site_id, from_key, &head_office);
-                    let mut line = PostingLine::credit(from_key, &site, found.amount_minor);
+                    let unit = posting_unit(&day_unit, from_key, &head_office);
+                    let mut line = PostingLine::credit(from_key, &unit, found.amount_minor);
                     if !from_qualifier.is_empty() {
                         line = line.with_qualifier(&from_qualifier);
                     }
@@ -2238,7 +2252,7 @@ pub async fn retender_tender(
                 &payment_ledger::PaymentLedgerClaim {
                     account_key: from_key,
                     qualifier: &from_qualifier,
-                    site_id: &found.site_id,
+                    unit_id: &day_unit,
                     party_type: payment_ledger::PaymentLedgerPartyType::Acquirer,
                     party_id: &from_qualifier,
                     // Whatever of that acquirer's is still open, oldest first.
@@ -2262,7 +2276,7 @@ pub async fn retender_tender(
                 &payment_ledger::PaymentLedgerItem {
                     account_key: to_key.to_string(),
                     qualifier: to_qualifier.clone(),
-                    site_id: found.site_id.clone(),
+                    unit_id: day_unit.clone(),
                     party_type: payment_ledger::PaymentLedgerPartyType::Acquirer,
                     party_id: to_qualifier.clone(),
                     party_name: Some(to_qualifier.clone()),

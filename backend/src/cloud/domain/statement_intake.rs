@@ -50,7 +50,7 @@ pub struct InboundMessage {
 /// The matching half of a `bank_statement_source` row.
 ///
 /// Only the fields the decision needs. What the rule points AT — the account,
-/// the site, the parser and its settings — is the caller's business, fetched
+/// the unit, the parser and its settings — is the caller's business, fetched
 /// by `source_id` once a rule has won.
 #[derive(Clone, Debug, Serialize)]
 pub struct SourceRule {

@@ -32,6 +32,7 @@ debit_card: boolean,
  */
 account_no?: string | null, account_holder?: string | null, 
 /**
- * Where the registered account sits; head office when absent.
+ * Whose books the registered account is kept in; head office's when
+ * absent.
  */
-account_site_id?: string | null, terminals: Array<NewBankTerminal>, };
+account_unit_id?: string | null, terminals: Array<NewBankTerminal>, };

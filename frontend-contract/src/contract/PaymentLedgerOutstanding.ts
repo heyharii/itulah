@@ -3,4 +3,4 @@
 /**
  * What one control account has open.
  */
-export type PaymentLedgerOutstanding = { account_key: string, site_id: string | null, qualifier: string | null, as_of: string, open_items: number, outstanding_minor: number, };
+export type PaymentLedgerOutstanding = { account_key: string, unit_id: string | null, qualifier: string | null, as_of: string, open_items: number, outstanding_minor: number, };

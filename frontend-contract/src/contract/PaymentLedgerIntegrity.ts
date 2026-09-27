@@ -4,7 +4,7 @@ import type { PaymentLedgerIntegrityRow } from "./PaymentLedgerIntegrityRow";
 /**
  * Whether the Payment Ledger and the General Ledger agree, account by account.
  */
-export type PaymentLedgerIntegrity = { as_of: string, site_id: string | null, rows: Array<PaymentLedgerIntegrityRow>, 
+export type PaymentLedgerIntegrity = { as_of: string, unit_id: string | null, rows: Array<PaymentLedgerIntegrityRow>, 
 /**
  * Sent rather than left for the browser to work out, for the same reason
  * `TrialBalance.balanced` is: a sub-ledger that does not agree with the

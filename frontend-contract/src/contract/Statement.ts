@@ -12,7 +12,11 @@ export type Statement = {
  * flow statement is read as inflows and outflows and a revenue line
  * showing negative would be the report arguing with its own title.
  */
-kind: string, from: string | null, to: string, site_id: string | null, sections: Array<StatementSection>, 
+kind: string, from: string | null, to: string, 
+/**
+ * Whose books the statement is of; absent for the whole company.
+ */
+unit_id: string | null, sections: Array<StatementSection>, 
 /**
  * Classes 4 through 8 netted, in the ledger's own signs: debits positive,
  * so a net cost is positive and a net profit is negative. The same
@@ -68,6 +72,6 @@ closing_cash_minor: number | null,
  * of accounts nobody can see is a figure nobody can check. Empty on the
  * other two statements, and empty on a cash flow means the account map
  * names no money account for this unit — which is why the report is
- * empty, and is fixed on the Account Map screen.
+ * empty, and is fixed on the Account Links screen.
  */
 cash_accounts: Array<string>, };

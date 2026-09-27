@@ -24,14 +24,21 @@
 //! caller's transaction, so the document and its entry either both exist or
 //! neither does.
 //!
-//! # Cross-site lines are posted as written
+//! # Cross-unit lines are posted as written
 //!
-//! A settlement debits a bank account at `dc` and credits thirteen shops'
-//! receivables. The entry balances in total and does not balance per site, and
-//! that is correct: the money genuinely moved between two sets of books. The
-//! inter-unit legs that square each location are the poster's business, not
-//! this module's — writing them here would be a second implementation of a rule
-//! that has one home.
+//! A settlement debits a bank account in head office's books and credits the
+//! receivables in the books of the thirteen stores whose shops took the sales
+//! (each shop's unit, `sites::unit_of_site`). The entry balances in total and
+//! does not balance per unit, and that is correct: the money genuinely moved
+//! between two sets of books. The inter-unit legs that square each unit are the
+//! poster's business, not this module's — writing them here would be a second
+//! implementation of a rule that has one home.
+//!
+//! # A store's evening is its unit's
+//!
+//! A tender reconciliation is kept for a unit (0609): its shops' receipts,
+//! each dated by its own shop's clock. A store with one shop — every store
+//! today — reconciles exactly what that shop took.
 
 use super::ledger::resolve_account_code;
 use super::payables::AgingBuckets;
@@ -62,7 +69,8 @@ const SALE_BUSINESS_DATE: &str = "site_local_date(e.occurred_at, e.site_id)";
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct TenderReconciliationRow {
     pub recon_id: Uuid,
-    pub site_id: String,
+    /// Whose takings are being proved: the unit, not one of its shops (0609).
+    pub unit_id: String,
     pub business_date: NaiveDate,
     /// `CASH`, `CARD`, `QRIS` or `VOUCHER`.
     pub tender_kind: String,
@@ -70,7 +78,7 @@ pub struct TenderReconciliationRow {
     /// `OPEN` or `CLOSED`.
     pub status: String,
     pub counted_cash_minor: Option<i64>,
-    /// What the till took for this tender that day, across the shop.
+    /// What the tills took for this tender that day, across the unit's shops.
     pub receipts_minor: i64,
     pub receipt_count: i64,
     /// What this terminal's slip says it approved.
@@ -288,18 +296,23 @@ const TENDER_DECISIONS: [&str; 5] = [
     "RETENDER",
 ];
 
-/// Open a shop's reconciliation for one tender on one day.
+/// Open a store's reconciliation for one tender on one day.
 ///
 /// Idempotent by the unique indexes in 0134: opening the same one twice hands
 /// back the row that exists rather than refusing, because "open today's card
 /// reconciliation" is what a screen does every time it loads.
+///
+/// `unit_id` is the store — the unit whose takings are proved (0609).
 pub async fn tender_recon_open(
     pool: &PgPool,
-    site_id: &str,
+    unit_id: &str,
     business_date: NaiveDate,
     request: &OpenTenderReconRequest,
     actor: &str,
 ) -> Result<TenderReconciliationRow, AppError> {
+    if !super::sites::unit_exists(pool, unit_id).await? {
+        return Err(AppError::NotFound(format!("unit {unit_id}")));
+    }
     let kind = request.tender_kind.trim().to_uppercase();
     if !TENDER_KINDS.contains(&kind.as_str()) {
         return Err(AppError::Validation(format!(
@@ -332,19 +345,19 @@ pub async fn tender_recon_open(
     // and there are two of them. A read first, then an insert, is honest about
     // what this is: the unique indexes remain the guarantee, and a race loses
     // the insert and re-reads.
-    if let Some(existing) = tender_recon_find(pool, site_id, business_date, &kind, terminal).await?
+    if let Some(existing) = tender_recon_find(pool, unit_id, business_date, &kind, terminal).await?
     {
         return Ok(existing);
     }
     let recon_id = Uuid::new_v4();
     let inserted = sqlx::query(
         "INSERT INTO tender_reconciliation
-           (recon_id, site_id, business_date, tender_kind, terminal_id, opened_by)
+           (recon_id, unit_id, business_date, tender_kind, terminal_id, opened_by)
          VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT DO NOTHING",
     )
     .bind(recon_id)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(business_date)
     .bind(&kind)
     .bind(terminal)
@@ -352,7 +365,7 @@ pub async fn tender_recon_open(
     .execute(pool)
     .await?;
     if inserted.rows_affected() == 0 {
-        return tender_recon_find(pool, site_id, business_date, &kind, terminal)
+        return tender_recon_find(pool, unit_id, business_date, &kind, terminal)
             .await?
             .ok_or_else(|| AppError::Conflict("this reconciliation is being opened".into()));
     }
@@ -361,17 +374,17 @@ pub async fn tender_recon_open(
 
 async fn tender_recon_find(
     pool: &PgPool,
-    site_id: &str,
+    unit_id: &str,
     business_date: NaiveDate,
     kind: &str,
     terminal: Option<&str>,
 ) -> Result<Option<TenderReconciliationRow>, AppError> {
     let found = sqlx::query(
         "SELECT recon_id FROM tender_reconciliation
-          WHERE site_id = $1 AND business_date = $2 AND tender_kind = $3
+          WHERE unit_id = $1 AND business_date = $2 AND tender_kind = $3
             AND terminal_id IS NOT DISTINCT FROM $4",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .bind(business_date)
     .bind(kind)
     .bind(terminal)
@@ -387,13 +400,13 @@ async fn tender_recon_find(
 
 /// The counts a screen shows and the closing gate reads, in one query.
 ///
-/// The receipt figures are scoped to (shop, day, tender) and NOT to the
+/// The receipt figures are scoped to (unit, day, tender) and NOT to the
 /// terminal, because a till receipt does not know which machine took it. A shop
 /// with three EDCs is reconciling one day's card takings across three slips,
 /// and a receipt is decided against whichever slip turns out to hold it — so
 /// "everything is answered" is a question about the day, not about one machine.
 const RECON_COLUMNS: &str = "
-    r.recon_id, r.site_id, r.business_date, r.tender_kind, r.terminal_id,
+    r.recon_id, r.unit_id, r.business_date, r.tender_kind, r.terminal_id,
     r.status, r.counted_cash_minor, r.opened_by, r.opened_at, r.closed_by, r.closed_at,
     COALESCE(t.receipts_minor, 0)::bigint AS receipts_minor,
     COALESCE(t.receipt_count, 0)::bigint AS receipt_count,
@@ -404,8 +417,10 @@ const RECON_COLUMNS: &str = "
 
 /// The joins behind [`RECON_COLUMNS`].
 ///
-/// `decided` is every answer given anywhere in this shop's day for this tender,
-/// across every terminal's reconciliation — see the note above.
+/// `decided` is every answer given anywhere in this unit's day for this tender,
+/// across every terminal's reconciliation — see the note above. The receipts
+/// are every sale rung at a shop the unit owns, each dated by its own shop's
+/// clock.
 const RECON_FROM: &str = "
     FROM tender_reconciliation r
     LEFT JOIN LATERAL (
@@ -417,7 +432,8 @@ const RECON_FROM: &str = "
                ))::bigint AS undecided_receipts
           FROM edge_sale_tender st
           JOIN edge_sale e USING (sale_id)
-         WHERE e.site_id = r.site_id
+          JOIN site s ON s.id = e.site_id
+         WHERE s.unit_id = r.unit_id
            AND st.method = r.tender_kind
            AND site_local_date(e.occurred_at, e.site_id) = r.business_date
     ) t ON true
@@ -435,7 +451,7 @@ const RECON_FROM: &str = "
 fn to_recon_row(row: &sqlx::postgres::PgRow) -> Result<TenderReconciliationRow, AppError> {
     Ok(TenderReconciliationRow {
         recon_id: row.try_get("recon_id")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         business_date: row.try_get("business_date")?,
         tender_kind: row.try_get("tender_kind")?,
         terminal_id: row.try_get("terminal_id")?,
@@ -467,32 +483,35 @@ async fn tender_recon_row(
     to_recon_row(&row)
 }
 
-/// Every reconciliation a shop has open or closed for one day.
+/// Every reconciliation a store has open or closed for one day.
 pub async fn tender_recon_list(
     pool: &PgPool,
-    site_id: &str,
+    unit_id: &str,
     business_date: NaiveDate,
 ) -> Result<Vec<TenderReconciliationRow>, AppError> {
+    if !super::sites::unit_exists(pool, unit_id).await? {
+        return Err(AppError::NotFound(format!("unit {unit_id}")));
+    }
     let sql = format!(
         "SELECT {RECON_COLUMNS} {RECON_FROM}
-          WHERE r.site_id = $1 AND r.business_date = $2
+          WHERE r.unit_id = $1 AND r.business_date = $2
           ORDER BY r.tender_kind, r.terminal_id NULLS FIRST"
     );
     let rows = sqlx::query(&sql)
-        .bind(site_id)
+        .bind(unit_id)
         .bind(business_date)
         .fetch_all(pool)
         .await?;
     rows.iter().map(to_recon_row).collect()
 }
 
-/// The site and day a reconciliation belongs to, and whether it is still open.
+/// The unit and day a reconciliation belongs to, and whether it is still open.
 async fn recon_scope(
     pool: &PgPool,
     recon_id: Uuid,
 ) -> Result<(String, NaiveDate, String, String), AppError> {
     let row = sqlx::query(
-        "SELECT site_id, business_date, tender_kind, status
+        "SELECT unit_id, business_date, tender_kind, status
            FROM tender_reconciliation WHERE recon_id = $1",
     )
     .bind(recon_id)
@@ -500,7 +519,7 @@ async fn recon_scope(
     .await?
     .ok_or_else(|| AppError::NotFound("tender reconciliation".into()))?;
     Ok((
-        row.try_get("site_id")?,
+        row.try_get("unit_id")?,
         row.try_get("business_date")?,
         row.try_get("tender_kind")?,
         row.try_get("status")?,
@@ -515,7 +534,7 @@ pub async fn tender_recon_detail(
     let reconciliation = tender_recon_row(pool, recon_id).await?;
     let receipts = tender_recon_receipt_rows(
         pool,
-        &reconciliation.site_id,
+        &reconciliation.unit_id,
         reconciliation.business_date,
         &reconciliation.tender_kind,
     )
@@ -580,9 +599,11 @@ pub async fn tender_recon_detail(
     })
 }
 
+/// The receipts of one unit's day: every sale rung at a shop the unit owns,
+/// each dated by its own shop's clock.
 async fn tender_recon_receipt_rows(
     pool: &PgPool,
-    site_id: &str,
+    unit_id: &str,
     business_date: NaiveDate,
     tender_kind: &str,
 ) -> Result<Vec<TenderReceiptRow>, AppError> {
@@ -602,12 +623,13 @@ async fn tender_recon_receipt_rows(
                   WHERE d.sale_id = st.sale_id AND d.tender_seq = st.tender_seq) AS decision
            FROM edge_sale_tender st
            JOIN edge_sale e USING (sale_id)
-          WHERE e.site_id = $1 AND st.method = $3
+           JOIN site s ON s.id = e.site_id
+          WHERE s.unit_id = $1 AND st.method = $3
             AND {SALE_BUSINESS_DATE} = $2
           ORDER BY e.occurred_at, st.tender_seq"
     );
     let rows = sqlx::query(&sql)
-        .bind(site_id)
+        .bind(unit_id)
         .bind(business_date)
         .bind(tender_kind)
         .fetch_all(pool)
@@ -700,14 +722,14 @@ pub async fn tender_recon_record_batch(
 /// What the two lists suggest about each other.
 ///
 /// The kernel does the deciding; this only fetches its arguments. Approvals
-/// come from every terminal the shop reconciled that day, not only this one's,
+/// come from every terminal the store reconciled that day, not only this one's,
 /// because a retender is by definition an approval on another machine.
 pub async fn tender_recon_suggest(
     pool: &PgPool,
     recon_id: Uuid,
 ) -> Result<TenderSuggestionsView, AppError> {
-    let (site_id, business_date, kind, _) = recon_scope(pool, recon_id).await?;
-    let receipts = tender_recon_receipt_rows(pool, &site_id, business_date, &kind).await?;
+    let (unit_id, business_date, kind, _) = recon_scope(pool, recon_id).await?;
+    let receipts = tender_recon_receipt_rows(pool, &unit_id, business_date, &kind).await?;
     let day = business_date.num_days_from_ce();
 
     let undecided: Vec<ReceiptTender> = receipts
@@ -726,13 +748,13 @@ pub async fn tender_recon_suggest(
         "SELECT l.batch_line_id, l.terminal_id, l.acquirer, l.amount_minor
            FROM tender_batch_line l
            JOIN tender_reconciliation r USING (recon_id)
-          WHERE r.site_id = $1 AND r.business_date = $2 AND r.tender_kind = $3
+          WHERE r.unit_id = $1 AND r.business_date = $2 AND r.tender_kind = $3
             AND NOT EXISTS (
                 SELECT 1 FROM tender_reconciliation_decision d
                  WHERE d.batch_line_id = l.batch_line_id)
           ORDER BY l.terminal_id, l.batch_no, l.auth_code",
     )
-    .bind(&site_id)
+    .bind(&unit_id)
     .bind(business_date)
     .bind(&kind)
     .fetch_all(pool)
@@ -774,7 +796,8 @@ pub async fn tender_recon_suggest(
 pub struct AcquirerRetender {
     pub sale_id: Uuid,
     pub tender_seq: i32,
-    pub site_id: String,
+    /// The store whose reconciliation decided it — for the reason's words.
+    pub unit_id: String,
     pub business_date: NaiveDate,
     pub from_acquirer: String,
     pub to_acquirer: String,
@@ -824,11 +847,11 @@ impl AcquirerRetender {
         {
             Some(note) => format!(
                 "{} reconciliation {}: the receipt says {} and {} approved it — {note}",
-                self.site_id, self.business_date, self.from_acquirer, self.to_acquirer
+                self.unit_id, self.business_date, self.from_acquirer, self.to_acquirer
             ),
             None => format!(
                 "{} reconciliation {}: the receipt says {} and {} approved it",
-                self.site_id, self.business_date, self.from_acquirer, self.to_acquirer
+                self.unit_id, self.business_date, self.from_acquirer, self.to_acquirer
             ),
         };
         super::sales_posting::retender_tender(
@@ -853,7 +876,7 @@ pub async fn tender_recon_decide(
     request: &RecordTenderDecisionRequest,
     actor: &str,
 ) -> Result<TenderDecisionOutcome, AppError> {
-    let (site_id, business_date, _, status) = recon_scope(pool, recon_id).await?;
+    let (unit_id, business_date, _, status) = recon_scope(pool, recon_id).await?;
     if status != "OPEN" {
         return Err(AppError::Conflict(
             "this reconciliation is closed; its answers are the ones it closed with".into(),
@@ -918,7 +941,7 @@ pub async fn tender_recon_decide(
             AcquirerRetender {
                 sale_id,
                 tender_seq,
-                site_id: site_id.clone(),
+                unit_id: unit_id.clone(),
                 business_date,
                 from_acquirer: from.to_string(),
                 to_acquirer: to.to_string(),
@@ -1204,9 +1227,10 @@ pub struct ExplainSettlementRequest {
     /// `FEE`, `CHARGEBACK`, `OTHER_DAY` or `OPEN`.
     pub kind: String,
     pub explanation: String,
-    /// Which site carries the residual, when one is posted. The shop whose sale
-    /// it came from; head office when it is a charge on the account itself.
-    pub site_id: Option<String>,
+    /// Whose books carry the residual, when one is posted: the store whose
+    /// shop's sale it came from; head office when it is a charge on the account
+    /// itself, which is also what nothing named means.
+    pub unit_id: Option<String>,
 }
 
 const BANK_KEYS: [&str; 2] = ["bank_giro", "bank_savings"];
@@ -1573,7 +1597,7 @@ pub async fn acq_settlement_upload_report(
 
 /// Close the Payment Ledger items this settlement discharges.
 ///
-/// One settle per (shop, receivable) the entry credited, against the acquirer
+/// One settle per (unit, receivable) the entry credited, against the acquirer
 /// whose money it was. The mirror of `sales_posting`'s opener — same key, same
 /// qualifier, same party — so the pair is one item's life rather than two
 /// modules' guesses about the same debt.
@@ -1589,7 +1613,7 @@ pub async fn acq_settlement_upload_report(
 ///
 /// # Which days it answers
 ///
-/// Whatever that acquirer still has open at that shop, oldest first. A
+/// Whatever that acquirer still has open in that store's books, oldest first. A
 /// settlement file names its own date range and not the ledger's items, and an
 /// acquirer pays several evenings in one transfer — so the choice is between
 /// oldest first and refusing to allocate at all. Oldest first is what a person
@@ -1612,13 +1636,13 @@ async fn acq_settlement_settle_ledger_items(
     discharged: &[(String, String, i64)],
     actor: &str,
 ) -> Result<(), AppError> {
-    for (site_id, tender_kind, gross_minor) in discharged {
+    for (unit_id, tender_kind, gross_minor) in discharged {
         crate::cloud::postgres::payment_ledger::ple_settle_claim(
             tx,
             &crate::cloud::postgres::payment_ledger::PaymentLedgerClaim {
                 account_key: receivable_key(tender_kind),
                 qualifier: acquirer,
-                site_id,
+                unit_id,
                 party_type:
                     crate::cloud::postgres::payment_ledger::PaymentLedgerPartyType::Acquirer,
                 party_id: acquirer,
@@ -1751,15 +1775,15 @@ pub async fn acq_settlement_accept_mdr_variance(
 /// The entry, in the client's own terms:
 ///
 /// ```text
-///   Dr  bank_giro / bank_savings   at dc,            qualified by the bank
-///   Dr  card_fee                   at the sale's shop
-///   Cr  card_receivable_*          at the sale's shop, qualified by the acquirer
+///   Dr  bank_giro / bank_savings   in head office's books, qualified by the bank
+///   Dr  card_fee                   in the books of the sale's shop's unit
+///   Cr  card_receivable_*          in the same books, qualified by the acquirer
 /// ```
 ///
-/// The bank leg is one line at head office; the other two are one pair per
-/// shop, because the receivable was raised in thirteen sets of books and has to
-/// be discharged in the same thirteen. The entry balances in total and not per
-/// location, which is correct and is the poster's problem — see the header.
+/// The bank leg is one line in head office's books; the other two are one pair
+/// per store, because the receivable was raised in thirteen sets of books and
+/// has to be discharged in the same thirteen. The entry balances in total and
+/// not per unit, which is correct and is the poster's problem — see the header.
 pub async fn acq_settlement_curate(
     pool: &PgPool,
     settlement_id: Uuid,
@@ -1788,14 +1812,17 @@ pub async fn acq_settlement_curate(
         ));
     }
 
+    // A settlement line keeps the shop that took the sale; its money is in the
+    // books of the unit owning that shop, so the lines are summed per unit.
     let lines = sqlx::query(
-        "SELECT site_id, tender_kind,
-                SUM(amount_minor)::bigint AS amount_minor,
-                SUM(mdr_minor)::bigint AS mdr_minor
-           FROM acquirer_settlement_line
-          WHERE settlement_id = $1
-          GROUP BY site_id, tender_kind
-          ORDER BY site_id, tender_kind",
+        "SELECT s.unit_id, l.tender_kind,
+                SUM(l.amount_minor)::bigint AS amount_minor,
+                SUM(l.mdr_minor)::bigint AS mdr_minor
+           FROM acquirer_settlement_line l
+           JOIN site s ON s.id = l.site_id
+          WHERE l.settlement_id = $1
+          GROUP BY s.unit_id, l.tender_kind
+          ORDER BY s.unit_id, l.tender_kind",
     )
     .bind(settlement_id)
     .fetch_all(pool)
@@ -1808,28 +1835,28 @@ pub async fn acq_settlement_curate(
 
     let mut gross = 0i64;
     let mut fees = 0i64;
-    // What each shop's receivable is being cleared of, kept for the Payment
+    // What each store's receivable is being cleared of, kept for the Payment
     // Ledger below. Gathered here rather than re-queried: the posting and the
     // items have to describe the same rows or they describe different debts.
     let mut discharged: Vec<(String, String, i64)> = Vec::with_capacity(lines.len());
-    // The bank is head office's, found by its kind (0603).
-    let head_office = super::sites::head_office_site_id(pool).await?;
+    // The bank is in head office's books, found by its kind (0605).
+    let head_office = super::sites::head_office_unit_id(pool).await?;
     let mut posting_lines =
         vec![PostingLine::debit(bank_key, &head_office, settlement.net_minor)
             .with_qualifier(&bank_qualifier)];
     for row in &lines {
-        let site_id: String = row.try_get("site_id")?;
+        let unit_id: String = row.try_get("unit_id")?;
         let tender_kind: String = row.try_get("tender_kind")?;
         let amount: i64 = row.try_get("amount_minor")?;
         let mdr: i64 = row.try_get("mdr_minor")?;
         gross += amount;
         fees += mdr;
-        discharged.push((site_id.clone(), tender_kind.clone(), amount));
+        discharged.push((unit_id.clone(), tender_kind.clone(), amount));
         if mdr > 0 {
-            posting_lines.push(PostingLine::debit(fee_key(&tender_kind), &site_id, mdr));
+            posting_lines.push(PostingLine::debit(fee_key(&tender_kind), &unit_id, mdr));
         }
         posting_lines.push(
-            PostingLine::credit(receivable_key(&tender_kind), &site_id, amount)
+            PostingLine::credit(receivable_key(&tender_kind), &unit_id, amount)
                 .with_qualifier(&settlement.acquirer),
         );
     }
@@ -2103,16 +2130,24 @@ pub async fn acq_settlement_explain(
 
     let mut tx = pool.begin().await?;
     let entry_id = if matches!(kind.as_str(), "FEE" | "CHARGEBACK") {
-        // The site the residual belongs to. Head office by default: a charge on
-        // the bank account itself is head office's, and a caller that knows
-        // better names the shop.
-        let head_office = super::sites::head_office_site_id(&mut *tx).await?;
-        let site_id = request
-            .site_id
+        // The books the residual belongs to. Head office's by default: a
+        // charge on the bank account itself is head office's, and a caller
+        // that knows better names the store.
+        let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
+        let unit_id = match request
+            .unit_id
             .as_deref()
             .map(str::trim)
-            .filter(|site| !site.is_empty())
-            .map_or_else(|| head_office.clone(), str::to_string);
+            .filter(|unit| !unit.is_empty())
+        {
+            Some(unit) => {
+                if !super::sites::unit_exists(&mut *tx, unit).await? {
+                    return Err(AppError::NotFound(format!("unit {unit}")));
+                }
+                unit.to_string()
+            }
+            None => head_office.clone(),
+        };
         // Two meanings the client's chart already has. A FEE is the acquirer
         // charging more than its report stated, which is the same cost as MDR
         // and belongs in the same account. A CHARGEBACK is a sale the issuer
@@ -2135,12 +2170,12 @@ pub async fn acq_settlement_explain(
         let amount = difference.abs();
         let (charge, bank) = if difference > 0 {
             (
-                PostingLine::debit(key, &site_id, amount).with_qualifier(&settlement.acquirer),
+                PostingLine::debit(key, &unit_id, amount).with_qualifier(&settlement.acquirer),
                 PostingLine::credit("bank_giro", &head_office, amount),
             )
         } else {
             (
-                PostingLine::credit(key, &site_id, amount).with_qualifier(&settlement.acquirer),
+                PostingLine::credit(key, &unit_id, amount).with_qualifier(&settlement.acquirer),
                 PostingLine::debit("bank_giro", &head_office, amount),
             )
         };
@@ -2249,20 +2284,22 @@ async fn settlement_bank_qualifier(
 // What the acquirers still owe
 // ---------------------------------------------------------------------------
 
-/// One outstanding receivable balance at one shop, and whose it is.
+/// One outstanding receivable balance in one unit's books, and whose it is.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct AcquirerAgingRow {
     /// The acquirer. Always named, because the Payment Ledger carries the
     /// qualifier and the party on the item itself.
     pub acquirer: String,
-    pub site_id: String,
+    /// The books the receivable is in: the store owning the shop that took
+    /// the sale (0608).
+    pub unit_id: String,
     /// Which receivable: debit card (including new QRIS postings), credit card,
     /// or the legacy `qris_receivable` key for historical open items.
     pub semantic_key: String,
-    /// The client account this meaning and this acquirer resolve to at this
-    /// shop. `None` when the map points nowhere yet — which is a finding in
-    /// itself and not a reason to hide the balance.
+    /// The client account this meaning and this acquirer resolve to in this
+    /// unit's books. `None` when the map points nowhere yet — which is a
+    /// finding in itself and not a reason to hide the balance.
     pub account_code: Option<String>,
     /// How many days the oldest thing in this row has been owed. Negative when
     /// nothing here has fallen due.
@@ -2284,7 +2321,8 @@ const RECEIVABLE_KEYS: [&str; 3] = [
     "qris_receivable",
 ];
 
-/// What is still owed on cards at each shop, by how long it has been owed.
+/// What is still owed on cards in each store's books, by how long it has been
+/// owed.
 ///
 /// # Why this reads the Payment Ledger and no longer reads the journal
 ///
@@ -2316,7 +2354,7 @@ pub async fn acq_receivable_aging(
     pool: &PgPool,
     as_of: NaiveDate,
     acquirer: Option<&str>,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<AcquirerReceivableAging, AppError> {
     let wanted = acquirer
         .map(str::trim)
@@ -2325,7 +2363,7 @@ pub async fn acq_receivable_aging(
     let items = crate::cloud::postgres::payment_ledger::ple_open_items(
         pool,
         &crate::cloud::postgres::payment_ledger::PaymentLedgerFilter {
-            site_id: site_id.map(str::to_string),
+            unit_id: unit_id.map(str::to_string),
             party_type: Some(
                 crate::cloud::postgres::payment_ledger::PaymentLedgerPartyType::Acquirer,
             ),
@@ -2344,7 +2382,7 @@ pub async fn acq_receivable_aging(
     // JOIN in spirit: a balance whose meaning nobody has mapped is still a
     // balance, and saying so beats leaving it out.
     let mapped = sqlx::query(
-        "SELECT role AS semantic_key, source_id AS qualifier, site_id, account_code
+        "SELECT role AS semantic_key, source_id AS qualifier, unit_id, account_code
            FROM account_resolution
           WHERE role = ANY($1) AND source_type = 'COMPANY'",
     )
@@ -2357,7 +2395,7 @@ pub async fn acq_receivable_aging(
             (
                 row.try_get("semantic_key")?,
                 row.try_get("qualifier")?,
-                row.try_get("site_id")?,
+                row.try_get("unit_id")?,
             ),
             row.try_get("account_code")?,
         );
@@ -2370,7 +2408,7 @@ pub async fn acq_receivable_aging(
             continue;
         }
         let key = (
-            item.site_id.clone(),
+            item.unit_id.clone(),
             item.account_key.clone(),
             item.party_id.clone(),
         );
@@ -2393,12 +2431,12 @@ pub async fn acq_receivable_aging(
     let rows = grouped
         .iter()
         .filter(|(_, totals)| totals.total_minor != 0)
-        .map(|((site, key, party), totals)| AcquirerAgingRow {
+        .map(|((unit, key, party), totals)| AcquirerAgingRow {
             acquirer: party.clone(),
-            site_id: site.clone(),
+            unit_id: unit.clone(),
             semantic_key: key.clone(),
             account_code: codes
-                .get(&(key.clone(), party.clone(), site.clone()))
+                .get(&(key.clone(), party.clone(), unit.clone()))
                 .cloned(),
             oldest_days: totals.oldest_days.unwrap_or(0) as i32,
             buckets: buckets_of(totals),
@@ -2412,25 +2450,28 @@ pub async fn acq_receivable_aging(
     })
 }
 
-/// Is a meaning mapped for this acquirer at this shop?
+/// Is a meaning mapped for this acquirer in the books this settlement posts to?
 ///
-/// Offered so a screen can say "BCA has no fee account at C003" before somebody
-/// curates a settlement and is refused by the poster with the same news.
+/// Offered so a screen can say "BCA has no fee account in store-03's books"
+/// before somebody curates a settlement and is refused by the poster with the
+/// same news. Asked per unit — the books the curation posts in — not per shop.
 pub async fn acq_settlement_unmapped_keys(
     pool: &PgPool,
     settlement_id: Uuid,
 ) -> Result<Vec<String>, AppError> {
     let settlement = acq_settlement_row(pool, settlement_id).await?;
     let lines = sqlx::query(
-        "SELECT DISTINCT site_id, tender_kind FROM acquirer_settlement_line
-          WHERE settlement_id = $1",
+        "SELECT DISTINCT s.unit_id, l.tender_kind
+           FROM acquirer_settlement_line l
+           JOIN site s ON s.id = l.site_id
+          WHERE l.settlement_id = $1",
     )
     .bind(settlement_id)
     .fetch_all(pool)
     .await?;
     let mut missing = Vec::new();
     for row in &lines {
-        let site_id: String = row.try_get("site_id")?;
+        let unit_id: String = row.try_get("unit_id")?;
         let tender_kind: String = row.try_get("tender_kind")?;
         for key in [receivable_key(&tender_kind), fee_key(&tender_kind)] {
             let qualifier = if key == fee_key(&tender_kind) {
@@ -2438,11 +2479,14 @@ pub async fn acq_settlement_unmapped_keys(
             } else {
                 settlement.acquirer.as_str()
             };
-            if resolve_account_code(pool, key, &site_id, qualifier)
+            if resolve_account_code(pool, key, &unit_id, qualifier)
                 .await
                 .is_err()
             {
-                missing.push(format!("{key} at {site_id} ({})", settlement.acquirer));
+                missing.push(format!(
+                    "{key} in the books of {unit_id} ({})",
+                    settlement.acquirer
+                ));
             }
         }
     }
@@ -2451,23 +2495,24 @@ pub async fn acq_settlement_unmapped_keys(
     Ok(missing)
 }
 
-/// The business day of an instant, in the shop's own calendar — or head
-/// office's, when no shop is named.
+/// The business day of an instant, in the store's own calendar — its shop's
+/// clock (`unit_business_timezone`, 0603) — or head office's, when no unit is
+/// named.
 ///
 /// Exposed because any caller turning a timestamp into a trading day must use
-/// the same clock the SQL above does (`site_local_date`, 0603); two answers to
-/// "which day was this" is how a reconciliation comes to be missing one
-/// receipt.
+/// the same clock the SQL above does (`site_local_date`, 0603, which for a
+/// store's one shop is the same zone); two answers to "which day was this" is
+/// how a reconciliation comes to be missing one receipt.
 pub async fn acquirer_business_date(
     executor: impl sqlx::PgExecutor<'_>,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     at: DateTime<Utc>,
 ) -> Result<NaiveDate, AppError> {
-    Ok(
-        sqlx::query_scalar::<_, NaiveDate>("SELECT site_local_date($1, $2)")
-            .bind(at)
-            .bind(site_id)
-            .fetch_one(executor)
-            .await?,
+    Ok(sqlx::query_scalar::<_, NaiveDate>(
+        "SELECT ($1::timestamptz AT TIME ZONE unit_business_timezone($2))::date",
     )
+    .bind(at)
+    .bind(unit_id)
+    .fetch_one(executor)
+    .await?)
 }

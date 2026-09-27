@@ -71,7 +71,9 @@ pub struct CreatePaymentBatchRequest {
     pub from_key: String,
     #[serde(default)]
     pub from_qualifier: String,
-    pub site_id: String,
+    /// Whose books the money leaves: a unit id (0609). Head office's for
+    /// every batch today.
+    pub unit_id: String,
     /// What the money answers, on the other side of every entry. A meaning, or
     /// an account code — never both.
     pub counter_key: Option<String>,
@@ -108,7 +110,8 @@ pub struct PaymentBatchRow {
     pub source_id: Option<String>,
     pub from_key: String,
     pub from_qualifier: String,
-    pub site_id: String,
+    /// Whose books the batch pays from (0609).
+    pub unit_id: String,
     pub counter_key: Option<String>,
     pub counter_qualifier: String,
     pub counter_account_code: Option<String>,
@@ -206,7 +209,7 @@ pub struct PaymentBatchRunOutcome {
 }
 
 const BATCH_COLUMNS: &str = "b.batch_id, b.source_kind, b.source_id, b.from_key, b.from_qualifier,
-     b.site_id, b.counter_key, b.counter_qualifier, b.counter_account_code,
+     b.unit_id, b.counter_key, b.counter_qualifier, b.counter_account_code,
      b.counter_category_code,
      b.method, b.doc_date, b.currency, b.total_minor, b.item_count,
      b.unverified_policy, b.unverified_policy_reason, b.status, b.held_reason, b.memo,
@@ -219,7 +222,7 @@ fn to_batch(row: &sqlx::postgres::PgRow) -> Result<PaymentBatchRow, AppError> {
         source_id: row.try_get("source_id")?,
         from_key: row.try_get("from_key")?,
         from_qualifier: row.try_get("from_qualifier")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         counter_key: row.try_get("counter_key")?,
         counter_qualifier: row.try_get("counter_qualifier")?,
         counter_account_code: row.try_get("counter_account_code")?,
@@ -334,11 +337,18 @@ pub async fn payment_batch_create(
         (None, None) => {}
     }
 
+    let unit_id = request.unit_id.trim();
+    if !super::sites::unit_exists(pool, unit_id).await? {
+        return Err(AppError::Validation(format!(
+            "'{unit_id}' is not a unit; a batch pays from the bank of head office or a store"
+        )));
+    }
+
     let mut tx = pool.begin().await?;
     let batch_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO payment_batch
-           (batch_id, source_kind, source_id, from_key, from_qualifier, site_id,
+           (batch_id, source_kind, source_id, from_key, from_qualifier, unit_id,
             counter_key, counter_qualifier, counter_account_code, counter_category_code,
             method, doc_date, unverified_policy, unverified_policy_reason,
             status, memo, created_by, authorised_by, authorised_at)
@@ -349,7 +359,7 @@ pub async fn payment_batch_create(
     .bind(trimmed(request.source_id.as_deref()))
     .bind(request.from_key.trim())
     .bind(request.from_qualifier.trim())
-    .bind(request.site_id.trim())
+    .bind(unit_id)
     .bind(counter_key.as_deref())
     .bind(if counter_key.is_some() {
         request.counter_qualifier.trim()
@@ -818,7 +828,7 @@ async fn execute_one(
     let doc_date: NaiveDate = batch.try_get("doc_date")?;
     let from_key: String = batch.try_get("from_key")?;
     let from_qualifier: String = batch.try_get("from_qualifier")?;
-    let site_id: String = batch.try_get("site_id")?;
+    let unit_id: String = batch.try_get("unit_id")?;
     let counter_key: Option<String> = batch.try_get("counter_key")?;
     let counter_qualifier: String = batch.try_get("counter_qualifier")?;
     let counter_account_code: Option<String> = batch.try_get("counter_account_code")?;
@@ -941,7 +951,7 @@ async fn execute_one(
         doc_date,
         from_key,
         from_qualifier,
-        site_id,
+        unit_id,
         counter_key,
         counter_qualifier,
         counter_account_code,

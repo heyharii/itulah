@@ -7,12 +7,22 @@
 //!
 //! # Head office is found by its kind
 //!
-//! `head_office_site_id` is the only place that says how, and it says it by
-//! asking the SQL function of the same name (0603), which is also what a query
-//! calls when it needs head office inline. Today head office is the one `site`
-//! of kind `HO` — guarded to be the one by 0603's unique index. When the books
-//! move from site to unit, it becomes the one `unit` of kind `HO`, and that
-//! change is that one function's body and nothing else.
+//! Two questions, and they are not the same one since the books moved to
+//! units (0605):
+//!
+//! * **Whose books** — [`head_office_unit_id`], the one `unit` of kind `HO`.
+//!   Every inter-unit balance, every external party's account (I4) and every
+//!   "head office's books" in a posting rule asks this. It reads the SQL
+//!   function of the same name, which is also what a query calls inline.
+//! * **Which premises** — [`head_office_site_id`], the one `site` of kind
+//!   `HO` (0603): where head office's goods are, the Gudang. A stock movement,
+//!   a dispatch or a count asks this, never the books.
+//!
+//! And the one bridge between them, which goes one way: [`unit_of_site`]. A
+//! document that happens at a site — a receipt at the Gudang, a sale at a
+//! shop — is booked to the unit that owns the site (`site.unit_id`). There is
+//! no answer the other way round: a unit may own several premises, and "which
+//! site's books" is a question the ledger stopped asking.
 //!
 //! # A day is cut where the site is
 //!
@@ -31,11 +41,58 @@ use crate::cloud::application::AppError;
 use crate::ids::SiteKind;
 use chrono::{DateTime, Utc};
 
-/// The site whose books carry every inter-unit balance: the one of kind `HO`.
+/// Head office's books: the one unit of kind `HO` (0600, 0605).
 ///
-/// Read on each call rather than cached for the life of the process. It is
-/// one indexed row, and a process-wide cache would be wrong the moment two
-/// databases share a process — which every `#[sqlx::test]` run does.
+/// What a posting rule, the inter-unit balancer and every "head office's
+/// side" read. Read on each call rather than cached for the life of the
+/// process. It is one indexed row, and a process-wide cache would be wrong the
+/// moment two databases share a process — which every `#[sqlx::test]` run
+/// does.
+pub async fn head_office_unit_id(executor: impl sqlx::PgExecutor<'_>) -> Result<String, AppError> {
+    sqlx::query_scalar::<_, Option<String>>("SELECT head_office_unit_id()")
+        .fetch_one(executor)
+        .await?
+        .ok_or_else(|| {
+            AppError::Configuration(
+                "no unit is head office: exactly one unit must have kind HO".into(),
+            )
+        })
+}
+
+/// The unit whose books a site's goods and documents are booked to.
+///
+/// The model's one translation from a premises to the books (`site.unit_id`,
+/// 0600; `unit_of_site`, 0605). A site the centre does not hold is refused by
+/// name rather than booked somewhere plausible.
+pub async fn unit_of_site(
+    executor: impl sqlx::PgExecutor<'_>,
+    site_id: &str,
+) -> Result<String, AppError> {
+    sqlx::query_scalar::<_, Option<String>>("SELECT unit_of_site($1)")
+        .bind(site_id)
+        .fetch_one(executor)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("site {site_id}")))
+}
+
+/// Whether a unit exists. For the handlers and rules that take a unit from a
+/// request and would otherwise fail on a foreign key with no sentence.
+pub async fn unit_exists(
+    executor: impl sqlx::PgExecutor<'_>,
+    unit_id: &str,
+) -> Result<bool, AppError> {
+    Ok(
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM unit WHERE id = $1)")
+            .bind(unit_id)
+            .fetch_one(executor)
+            .await?,
+    )
+}
+
+/// Head office's premises: the one site of kind `HO`, the Gudang (0603).
+///
+/// For goods — where head office's stock is, where a dispatch leaves from.
+/// Never for the books: those are [`head_office_unit_id`]'s.
 pub async fn head_office_site_id(executor: impl sqlx::PgExecutor<'_>) -> Result<String, AppError> {
     sqlx::query_scalar::<_, Option<String>>("SELECT head_office_site_id()")
         .fetch_one(executor)

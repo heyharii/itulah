@@ -29,9 +29,16 @@
 //! `1011302* Prepaid - PPh/VAT/PBB` is a tax credit: it is reclaimed against a
 //! return, not amortised over months, and its life is a tax period rather than
 //! a date range. So the prepaid account a schedule names has to be one somebody
-//! mapped `prepaid_expense` to at that place, which is a statement by a person
-//! that the account holds prepayments. Tax is its own domain and borrowing this
-//! one's machinery would quietly make it this one's.
+//! mapped `prepaid_expense` to in that place's books, which is a statement by a
+//! person that the account holds prepayments. Tax is its own domain and
+//! borrowing this one's machinery would quietly make it this one's.
+//!
+//! # A schedule is written at a site and booked to its unit
+//!
+//! `prepaid_schedule.site_id` names the place that consumes the prepayment.
+//! Since the books are kept per unit (0605) both legs of every month land in
+//! the books of the unit that owns that site (`unit_of_site`), and the control
+//! account is read per unit for the same reason.
 
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
@@ -183,10 +190,12 @@ pub struct PrepaidAllocationRun {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PrepaidReconciliationRow {
-    pub site_id: String,
+    /// Whose books: the schedules are summed into the unit that owns their
+    /// site, because that is where the ledger holds the balance.
+    pub unit_id: String,
     pub account_code: String,
     pub account_name: String,
-    /// What the ledger holds on that account at that place.
+    /// What the ledger holds on that account in that unit's books.
     pub gl_minor: i64,
     /// What the open schedules say is still to come.
     pub subledger_minor: i64,
@@ -518,25 +527,27 @@ pub async fn prepaid_schedule_create(
         )));
     }
 
-    // The account has to be one somebody declared holds prepayments at that
-    // place. This is where tax stops: `1011302*` is a tax credit and is mapped
-    // to `vat_in` and the PPh meanings, never to this one.
+    // The account has to be one somebody declared holds prepayments in the
+    // books of the unit that owns that place. This is where tax stops:
+    // `1011302*` is a tax credit and is mapped to `vat_in` and the PPh
+    // meanings, never to this one.
+    let unit = super::sites::unit_of_site(pool, &request.site_id).await?;
     let mapped: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM account_resolution
-                        WHERE role = $1 AND site_id = $2 AND account_code = $3)",
+                        WHERE role = $1 AND unit_id = $2 AND account_code = $3)",
     )
     .bind(PREPAID_MEANING)
-    .bind(&request.site_id)
+    .bind(&unit)
     .bind(request.prepaid_account_code.trim())
     .fetch_one(pool)
     .await?;
     if !mapped {
         return Err(AppError::Validation(format!(
-            "{} is not mapped as '{PREPAID_MEANING}' at {} — a prepaid schedule may only \
-             draw down an account somebody has declared holds prepayments there. Tax \
-             credits are reclaimed on a return, not amortised, and belong to Tax.",
+            "{} is not mapped as '{PREPAID_MEANING}' in the books of {unit} — a prepaid \
+             schedule may only draw down an account somebody has declared holds \
+             prepayments there. Tax credits are reclaimed on a return, not amortised, \
+             and belong to Tax.",
             request.prepaid_account_code.trim(),
-            request.site_id
         )));
     }
 
@@ -639,7 +650,8 @@ pub async fn prepaid_allocate(
         .ok_or_else(|| AppError::Validation("that month has no end".to_string()))?;
 
     let rows = sqlx::query(
-        "SELECT s.schedule_id, s.site_id, s.schedule_number, s.prepaid_account_code,
+        "SELECT s.schedule_id, unit_of_site(s.site_id) AS unit_id,
+                s.schedule_number, s.prepaid_account_code,
                 s.prepaid_category_code, s.expense_account_code, s.expense_category_code,
                 s.currency::text AS currency, s.amount_minor,
                 s.start_period, s.end_period,
@@ -674,7 +686,8 @@ pub async fn prepaid_allocate(
             continue;
         }
         let schedule_id: Uuid = row.try_get("schedule_id")?;
-        let site_id: String = row.try_get("site_id")?;
+        // Both legs land in the books of the unit that owns the schedule's site.
+        let unit_id: String = row.try_get("unit_id")?;
         let number: String = row.try_get("schedule_number")?;
         let prepaid_account: String = row.try_get("prepaid_account_code")?;
         let prepaid_category: Option<String> = row.try_get("prepaid_category_code")?;
@@ -719,8 +732,8 @@ pub async fn prepaid_allocate(
                         account_code: expense_account.clone(),
                         category_code: expense_category.clone(),
                     },
-                    site_id: site_id.clone(),
-                    counter_site_id: None,
+                    unit_id: unit_id.clone(),
+                    counter_unit_id: None,
                     debit_minor: share,
                     credit_minor: 0,
                     party_type: None,
@@ -735,8 +748,8 @@ pub async fn prepaid_allocate(
                         account_code: prepaid_account.clone(),
                         category_code: prepaid_category.clone(),
                     },
-                    site_id: site_id.clone(),
-                    counter_site_id: None,
+                    unit_id: unit_id.clone(),
+                    counter_unit_id: None,
                     debit_minor: 0,
                     credit_minor: share,
                     party_type: None,
@@ -838,23 +851,25 @@ pub async fn prepaid_schedule_cancel(
 
 /// What the ledger holds against what the open schedules say is still to come.
 ///
-/// Per place and per account, because that is how a prepaid balance is read on
-/// a trial balance and how a difference is chased.
+/// Per unit and per account, because that is how a prepaid balance is read on
+/// a trial balance and how a difference is chased. A schedule counts in the
+/// books of the unit that owns its site.
 pub async fn prepaid_reconciliation(
     pool: &PgPool,
     as_of: Option<NaiveDate>,
 ) -> Result<Vec<PrepaidReconciliationRow>, AppError> {
     let rows = sqlx::query(
         "WITH gl AS (
-             SELECT l.site_id, l.account_code,
+             SELECT l.unit_id, l.account_code,
                     SUM(l.debit_minor - l.credit_minor)::bigint AS gl_minor
                FROM journal_line l
                JOIN journal_entry e ON e.entry_id = l.entry_id
               WHERE l.account_code IN (SELECT DISTINCT prepaid_account_code FROM prepaid_schedule)
                 AND ($1::date IS NULL OR e.posting_date <= $1)
-              GROUP BY l.site_id, l.account_code
+              GROUP BY l.unit_id, l.account_code
          ), sub AS (
-             SELECT s.site_id, s.prepaid_account_code AS account_code,
+             SELECT unit_of_site(s.site_id) AS unit_id,
+                    s.prepaid_account_code AS account_code,
                     SUM(s.amount_minor
                         - COALESCE((SELECT SUM(a.amount_minor) FROM prepaid_allocation a
                                      WHERE a.schedule_id = s.schedule_id), 0))::bigint
@@ -862,9 +877,9 @@ pub async fn prepaid_reconciliation(
                     COUNT(*)::bigint AS open_schedules
                FROM prepaid_schedule s
               WHERE s.status = 'ACTIVE'
-              GROUP BY s.site_id, s.prepaid_account_code
+              GROUP BY unit_of_site(s.site_id), s.prepaid_account_code
          )
-         SELECT COALESCE(gl.site_id, sub.site_id) AS site_id,
+         SELECT COALESCE(gl.unit_id, sub.unit_id) AS unit_id,
                 COALESCE(gl.account_code, sub.account_code) AS account_code,
                 a.name AS account_name,
                 COALESCE(gl.gl_minor, 0)::bigint AS gl_minor,
@@ -872,7 +887,7 @@ pub async fn prepaid_reconciliation(
                 COALESCE(sub.open_schedules, 0)::bigint AS open_schedules
            FROM gl
            FULL OUTER JOIN sub
-             ON sub.site_id = gl.site_id AND sub.account_code = gl.account_code
+             ON sub.unit_id = gl.unit_id AND sub.account_code = gl.account_code
            JOIN ledger_account a
              ON a.account_code = COALESCE(gl.account_code, sub.account_code)
           ORDER BY 1, 2",
@@ -886,7 +901,7 @@ pub async fn prepaid_reconciliation(
             let gl: i64 = row.try_get("gl_minor")?;
             let sub: i64 = row.try_get("subledger_minor")?;
             Ok(PrepaidReconciliationRow {
-                site_id: row.try_get("site_id")?,
+                unit_id: row.try_get("unit_id")?,
                 account_code: row.try_get("account_code")?,
                 account_name: row.try_get("account_name")?,
                 gl_minor: gl,

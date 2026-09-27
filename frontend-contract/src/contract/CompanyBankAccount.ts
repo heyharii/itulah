@@ -5,9 +5,10 @@
  */
 export type CompanyBankAccount = { account_id: string, 
 /**
- * The ledger account this describes, and the place it is kept for.
+ * The ledger account this describes, and the unit whose books it is kept
+ * in (0605): head office's, or a store's own account.
  */
-ledger_account_code: string, ledger_account_name: string, site_id: string, 
+ledger_account_code: string, ledger_account_name: string, unit_id: string, 
 /**
  * The institution's code, authoritative since 0269.
  */
@@ -21,6 +22,6 @@ kind: string,
  */
 status: string, 
 /**
- * The account this place pays out of unless somebody says otherwise.
+ * The account this unit pays out of unless somebody says otherwise.
  */
 is_primary: boolean, note: string | null, retired_at: string | null, updated_by: string, updated_at: string, };

@@ -122,10 +122,11 @@ pub struct AddBankRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
     pub account_holder: Option<String>,
-    /// Where the registered account sits; head office when absent.
+    /// Whose books the registered account is kept in; head office's when
+    /// absent.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
-    pub account_site_id: Option<String>,
+    pub account_unit_id: Option<String>,
     #[serde(default)]
     pub terminals: Vec<NewBankTerminal>,
 }
@@ -380,7 +381,7 @@ async fn ensure_leaf(
     Ok(code)
 }
 
-/// Link `role` for the bank to `account`, for every site.
+/// Link `role` for the bank to `account`, for every unit.
 async fn map_everywhere(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     semantic_key: &str,
@@ -559,18 +560,23 @@ pub async fn add_bank(
                 "an account number needs a giro or savings account to register it against".into(),
             ));
         }
-        // No site named means head office, found by its kind (0603).
-        let site = match request.account_site_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            Some(site) => site.to_string(),
-            None => super::sites::head_office_site_id(pool).await?,
+        // No unit named means head office's books, found by its kind (0605).
+        let unit = match request.account_unit_id.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
+            Some(unit) => {
+                if !super::sites::unit_exists(pool, unit).await? {
+                    return Err(AppError::NotFound(format!("unit {unit}")));
+                }
+                unit.to_string()
+            }
+            None => super::sites::head_office_unit_id(pool).await?,
         };
-        let site = site.as_str();
+        let unit = unit.as_str();
         let ledger: String = sqlx::query_scalar(
             "SELECT account_code FROM account_resolution
-              WHERE role = $1 AND site_id = $2 AND source_type = 'COMPANY' AND source_id = $3",
+              WHERE role = $1 AND unit_id = $2 AND source_type = 'COMPANY' AND source_id = $3",
         )
         .bind(semantic)
-        .bind(site)
+        .bind(unit)
         .bind(&bank)
         .fetch_one(pool)
         .await?;
@@ -578,7 +584,7 @@ pub async fn add_bank(
             pool,
             &DescribeBankAccountRequest {
                 ledger_account_code: ledger,
-                site_id: site.to_string(),
+                unit_id: unit.to_string(),
                 bank_code: Some(bank.clone()),
                 bank_name: String::new(),
                 account_no: account_no.to_string(),

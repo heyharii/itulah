@@ -1,6 +1,6 @@
 //! Accounting dimensions — ERPNext's Accounting Dimension (0470).
 //!
-//! Finance defines the ways it cuts the books beyond the site (division, cost
+//! Finance defines the ways it cuts the books beyond the unit (division, cost
 //! center, project, or anything else), their values, and whether a
 //! profit-and-loss or balance-sheet line must carry one. A posting line
 //! carries values through `PostingLine::with_dimension`; a manual journal

@@ -16,7 +16,7 @@
 //! its control account". They are ten named statements, and the registry is the
 //! list of them:
 //!
-//!  1. The General Ledger balances, per entry and per site.
+//!  1. The General Ledger balances, per entry and per unit.
 //!  2. Payment Ledger outstanding per control account equals that account's
 //!     General Ledger balance.
 //!  3. Funds sent by head office equal settled payments plus approved direct
@@ -24,7 +24,7 @@
 //!  4. Open fund allocations equal the Payment Ledger outstanding for Piutang
 //!     Kepala Toko, which equals its General Ledger balance.
 //!  5. Open acquirer receivables in the Payment Ledger equal the General Ledger
-//!     acquirer receivable control balance, per acquirer and site.
+//!     acquirer receivable control balance, per acquirer and unit.
 //!  6. Stock quantity equals the position inside the reconciliation boundary.
 //!  7. Stock Ledger value equals the General Ledger inventory control account.
 //!  8. Reconciled sales proceeds equal executed remittance plus held proceeds.
@@ -71,7 +71,12 @@
 //! One rule is worth naming because other lanes will rely on it. **An action
 //! whose `target_kind` is `site` routes its item to that location** — that is
 //! how a group-wide check produces work in a shop's own feed, without the check
-//! needing an instance per shop.
+//! needing an instance per shop. Its twin is for the books: **an action whose
+//! `target_kind` is `unit` routes its item to every premises that unit owns**.
+//! The books are a unit's (0605) and a feed is a place's, so a store whose books
+//! do not balance hears about it in its shop, and head office's in the Gudang's
+//! feed as well as its own — with no unit id ever written where a site id
+//! belongs.
 
 use super::ledger::{trial_balance, TrialBalanceScope};
 use super::period_close::CloseCheck;
@@ -356,8 +361,8 @@ fn waiting_on(key: &str, relation: &str, sentence: &str) -> CheckResult {
 // (1) The General Ledger against itself
 // ---------------------------------------------------------------------------
 
-/// Total debit equals total credit — for the group, for every entry, and for
-/// every location.
+/// Total debit equals total credit — for the group, for every entry, and in
+/// every unit's books.
 ///
 /// The first foundation. A deferred constraint trigger already refuses an
 /// unbalanced entry at COMMIT, so the per-entry half should never find
@@ -366,12 +371,12 @@ fn waiting_on(key: &str, relation: &str, sentence: &str) -> CheckResult {
 /// `session_replication_role = replica` all go round it, and this is the only
 /// thing that would notice.
 ///
-/// The per-site half is not guarded by anything and is the one that fires. The
-/// client keeps a profit and loss per location and their account codes carry
-/// the location, so a site whose debits and credits disagree is a site whose
-/// statements cannot be produced. It happens when value moves between two
-/// locations without the inter-unit pair: money left the DC and arrived at a
-/// shop, and nothing recorded that one now owes the other.
+/// The per-unit half is guarded only per entry (0605's deferred trigger), so
+/// it is the one that fires when something went round it. The client keeps a
+/// profit and loss per unit, so a unit whose debits and credits disagree is a
+/// unit whose statements cannot be produced. It happens when value moves
+/// between two units without the inter-unit pair: money left head office and
+/// arrived at a store, and nothing recorded that one now owes the other.
 struct GeneralLedgerBalances;
 
 #[async_trait]
@@ -381,16 +386,16 @@ impl IntegrityCheck for GeneralLedgerBalances {
     }
 
     fn title(&self) -> &str {
-        "The General Ledger balances, per entry and per site"
+        "The General Ledger balances, per entry and per unit"
     }
 
     fn scope(&self) -> Scope {
         Scope::Group
     }
 
-    /// Both, and the per-site items route to the shop: a manager whose books do
-    /// not balance is the person who will be asked what happened, even though
-    /// head office is who posts the correction.
+    /// Both, and the per-unit items route to the unit's shop: a manager whose
+    /// books do not balance is the person who will be asked what happened, even
+    /// though head office is who posts the correction.
     fn audience(&self) -> Audience {
         Audience::Both
     }
@@ -426,21 +431,21 @@ impl IntegrityCheck for GeneralLedgerBalances {
         .fetch_all(pool)
         .await?;
 
-        let unbalanced_sites = sqlx::query(
-            "SELECT l.site_id,
+        let unbalanced_units = sqlx::query(
+            "SELECT l.unit_id,
                     COALESCE(SUM(l.debit_minor), 0)::bigint  AS debit,
                     COALESCE(SUM(l.credit_minor), 0)::bigint AS credit
                FROM journal_line l JOIN journal_entry e USING (entry_id)
               WHERE e.posting_date <= $1
-              GROUP BY l.site_id
+              GROUP BY l.unit_id
              HAVING SUM(l.debit_minor) <> SUM(l.credit_minor)
-              ORDER BY l.site_id",
+              ORDER BY l.unit_id",
         )
         .bind(as_of)
         .fetch_all(pool)
         .await?;
 
-        if unbalanced_entries.is_empty() && unbalanced_sites.is_empty() {
+        if unbalanced_entries.is_empty() && unbalanced_units.is_empty() {
             return Ok(CheckResult::compared(
                 self.key(),
                 group.total_debit_minor,
@@ -449,13 +454,13 @@ impl IntegrityCheck for GeneralLedgerBalances {
                 Tolerance::EXACT,
                 Details::say(format!(
                     "As at {as_of} the books hold {} in debits against the same in credits, \
-                     every entry balances, and so does every location on its own.",
+                     every entry balances, and so does every unit's books on their own.",
                     minor(group.total_debit_minor)
                 )),
             ));
         }
 
-        // Whether the fix for a site imbalance is even available. The
+        // Whether the fix for a unit imbalance is even available. The
         // inter-unit accounts are what a correction would be posted to, and
         // until somebody has mapped them the only honest next act is to go and
         // map them.
@@ -484,11 +489,11 @@ impl IntegrityCheck for GeneralLedgerBalances {
                 ),
             ));
         }
-        for row in &unbalanced_sites {
-            let site: String = row.try_get("site_id")?;
+        for row in &unbalanced_units {
+            let unit: String = row.try_get("unit_id")?;
             let debit: i64 = row.try_get("debit")?;
             let credit: i64 = row.try_get("credit")?;
-            detail_rows.push(DetailRow::new(format!("site {site}"), debit, credit));
+            detail_rows.push(DetailRow::new(format!("unit {unit}"), debit, credit));
             let out_by = minor(debit - credit);
             actions.push(SuggestedAction::new(
                 if inter_unit_mapped {
@@ -496,16 +501,16 @@ impl IntegrityCheck for GeneralLedgerBalances {
                 } else {
                     ActionVerb::Investigate
                 },
-                "site",
-                site.clone(),
+                "unit",
+                unit.clone(),
                 if inter_unit_mapped {
                     format!(
-                        "{site} is out by {out_by}. Post the inter-unit pair for whatever moved \
-                         in or out without one."
+                        "The books of {unit} are out by {out_by}. Post the inter-unit pair for \
+                         whatever moved in or out without one."
                     )
                 } else {
                     format!(
-                        "{site} is out by {out_by}, and no account is mapped for \
+                        "The books of {unit} are out by {out_by}, and no account is mapped for \
                          affiliate_receivable or affiliate_payable — until they are, there is \
                          nowhere to post the correction."
                     )
@@ -520,10 +525,10 @@ impl IntegrityCheck for GeneralLedgerBalances {
                 unbalanced_entries.len()
             ));
         }
-        if !unbalanced_sites.is_empty() {
+        if !unbalanced_units.is_empty() {
             told.push(format!(
-                "{} locations do not balance on their own",
-                unbalanced_sites.len()
+                "{} units' books do not balance on their own",
+                unbalanced_units.len()
             ));
         }
         let (actions, summary) = capped(
@@ -543,7 +548,7 @@ impl IntegrityCheck for GeneralLedgerBalances {
             Details::say(summary).with_rows(detail_rows),
         )
         // Blocked and not Exception even when the group total happens to agree,
-        // because an entry or a location that does not balance is a foundation
+        // because an entry or a unit that does not balance is a foundation
         // failing. See `domain::classify_foundation`.
         .in_state(CheckState::Blocked)
         .with_actions(actions))
@@ -558,8 +563,8 @@ impl IntegrityCheck for GeneralLedgerBalances {
 /// control account it is mapped to.
 ///
 /// The second foundation, and the one query in this module written by somebody
-/// else. `payment_ledger_integrity(as_of, site)` is shipped by the Payment
-/// Ledger's own migration, per `(account_key, qualifier, site_id)` and signed to
+/// else. `payment_ledger_integrity(as_of, unit)` is shipped by the Payment
+/// Ledger's own migration, per `(account_key, qualifier, unit_id)` and signed to
 /// the ledger's own side. Calling it rather than writing the same comparison
 /// here is deliberate: two implementations of one control total is exactly how
 /// two screens start disagreeing about a month end, and the half that would
@@ -624,11 +629,12 @@ impl IntegrityCheck for PaymentLedgerControlAccounts {
     }
 }
 
-/// One `(account_key, qualifier, site)` triple as the Payment Ledger reports it.
+/// One `(account_key, qualifier, unit)` triple as the Payment Ledger reports it.
 struct ControlRow {
     account_key: String,
     qualifier: String,
-    site_id: String,
+    /// The books the items sit in (0608).
+    unit_id: String,
     account_code: Option<String>,
     open_items: i64,
     ledger_outstanding_minor: i64,
@@ -644,7 +650,7 @@ impl ControlRow {
         } else {
             format!("{}:{}", self.account_key, self.qualifier)
         };
-        format!("{qualified} at {}", self.site_id)
+        format!("{qualified} at {}", self.unit_id)
     }
 }
 
@@ -653,7 +659,7 @@ async fn payment_ledger_integrity_rows(
     as_of: NaiveDate,
 ) -> Result<Vec<ControlRow>, AppError> {
     let rows = sqlx::query(
-        "SELECT account_key, qualifier, site_id, account_code, open_items,
+        "SELECT account_key, qualifier, unit_id, account_code, open_items,
                 ledger_outstanding_minor, gl_balance_minor, difference_minor
            FROM payment_ledger_integrity($1::date, NULL::text)",
     )
@@ -665,7 +671,7 @@ async fn payment_ledger_integrity_rows(
             Ok(ControlRow {
                 account_key: row.try_get("account_key")?,
                 qualifier: row.try_get("qualifier")?,
-                site_id: row.try_get("site_id")?,
+                unit_id: row.try_get("unit_id")?,
                 account_code: row.try_get("account_code")?,
                 open_items: row.try_get("open_items")?,
                 ledger_outstanding_minor: row.try_get("ledger_outstanding_minor")?,
@@ -712,7 +718,7 @@ fn summarise_control_rows(
                 actions.push(SuggestedAction::new(
                     ActionVerb::CreateDocument,
                     "account_link",
-                    format!("{}|{}|{}", row.account_key, row.site_id, row.qualifier),
+                    format!("{}|{}|{}", row.account_key, row.unit_id, row.qualifier),
                     format!(
                         "{} holds {} across {} open items and no account is mapped to it. \
                          Nothing can be compared until somebody links one on the Account Links \
@@ -744,7 +750,7 @@ fn summarise_control_rows(
                     actions.push(SuggestedAction::new(
                         ActionVerb::Investigate,
                         "account_link",
-                        format!("{}|{}|{}", row.account_key, row.site_id, row.qualifier),
+                        format!("{}|{}|{}", row.account_key, row.unit_id, row.qualifier),
                         format!(
                             "{} says {} is outstanding across {} open items; account {code} \
                              holds {}. They are {} apart, and one of the two is wrong.",
@@ -800,7 +806,7 @@ fn summarise_control_rows(
 // ---------------------------------------------------------------------------
 
 /// What each acquirer still owes us, against the receivable account that says
-/// so, per acquirer and per site.
+/// so, per acquirer and per unit.
 ///
 /// Narrower than equation two and asking a different question. Equation two
 /// proves the Payment Ledger and the books agree; this one is about ageing —
@@ -835,7 +841,7 @@ impl IntegrityCheck for AcquirerReceivablesControl {
                 "payment_ledger_entry",
                 "A card sale opens a receivable on the acquirer and a settlement closes it. \
                  This reads the open ones from payment_ledger_as_of(date) and compares them \
-                 with the mapped control account, per acquirer and site.",
+                 with the mapped control account, per acquirer and unit.",
             ));
         }
 
@@ -844,13 +850,13 @@ impl IntegrityCheck for AcquirerReceivablesControl {
         // keys written into this file would be a second place to update the day
         // somebody adds a scheme.
         let open = sqlx::query(
-            "SELECT i.account_key, i.qualifier, i.site_id, i.party_id, i.party_name,
+            "SELECT i.account_key, i.qualifier, i.unit_id, i.party_id, i.party_name,
                     COUNT(*)::bigint AS items,
                     COALESCE(SUM(i.outstanding_minor), 0)::bigint AS outstanding,
                     MAX(i.age_days)::int AS oldest_days
                FROM payment_ledger_as_of($1::date) i
               WHERE i.party_type = 'ACQUIRER' AND i.outstanding_minor <> 0
-              GROUP BY i.account_key, i.qualifier, i.site_id, i.party_id, i.party_name
+              GROUP BY i.account_key, i.qualifier, i.unit_id, i.party_id, i.party_name
               ORDER BY MAX(i.age_days) DESC",
         )
         .bind(as_of)
@@ -892,7 +898,7 @@ impl IntegrityCheck for AcquirerReceivablesControl {
         let mut actions = Vec::new();
         let mut outstanding_total = 0i64;
         for row in &open {
-            let site: String = row.try_get("site_id")?;
+            let unit: String = row.try_get("unit_id")?;
             let party_id: String = row.try_get("party_id")?;
             let party_name: Option<String> = row.try_get("party_name")?;
             let items: i64 = row.try_get("items")?;
@@ -902,7 +908,7 @@ impl IntegrityCheck for AcquirerReceivablesControl {
             outstanding_total += outstanding;
             ages.push(i64::from(oldest));
             detail_rows.push(DetailRow::new(
-                format!("{acquirer} at {site}"),
+                format!("{acquirer} at {unit}"),
                 outstanding,
                 0,
             ));
@@ -910,9 +916,9 @@ impl IntegrityCheck for AcquirerReceivablesControl {
                 actions.push(SuggestedAction::new(
                     ActionVerb::Investigate,
                     "acquirer",
-                    format!("{party_id}|{site}"),
+                    format!("{party_id}|{unit}"),
                     format!(
-                        "{acquirer} owes {site} {} across {items} batches, the oldest {oldest} \
+                        "{acquirer} owes {unit} {} across {items} batches, the oldest {oldest} \
                          days old against a T+{} settlement. Chase the payout, or match the \
                          one that arrived and was never allocated.",
                         minor(outstanding),
@@ -938,7 +944,7 @@ impl IntegrityCheck for AcquirerReceivablesControl {
                 actions.push(SuggestedAction::new(
                     ActionVerb::Investigate,
                     "account_link",
-                    format!("{}|{}|{}", row.account_key, row.site_id, row.qualifier),
+                    format!("{}|{}|{}", row.account_key, row.unit_id, row.qualifier),
                     match &row.account_code {
                         Some(code) => format!(
                             "{} is out by {}: the Payment Ledger says {} and account {code} \
@@ -975,7 +981,7 @@ impl IntegrityCheck for AcquirerReceivablesControl {
         let (actions, summary) = capped(
             actions,
             format!(
-                "{} is outstanding with acquirers across {} acquirer-and-site pairs as at \
+                "{} is outstanding with acquirers across {} acquirer-and-unit pairs as at \
                  {as_of}; the oldest batch is {oldest} days old against a T+{} settlement.{}",
                 minor(outstanding_total),
                 open.len(),
@@ -1047,11 +1053,11 @@ impl IntegrityCheck for BankReconcilesToStatement {
             // closing balance is current. An older statement's closing figure
             // has already been superseded, and comparing it would report last
             // month's reconciliation forever.
-            "SELECT DISTINCT ON (s.account_code, s.site_id)
-                    s.statement_id, s.account_code, s.site_id, s.period_end, s.closing_minor
+            "SELECT DISTINCT ON (s.account_code, s.unit_id)
+                    s.statement_id, s.account_code, s.unit_id, s.period_end, s.closing_minor
                FROM bank_statement s
               WHERE s.period_end <= $1
-              ORDER BY s.account_code, s.site_id, s.period_end DESC, s.imported_at DESC",
+              ORDER BY s.account_code, s.unit_id, s.period_end DESC, s.imported_at DESC",
         )
         .bind(as_of)
         .fetch_all(pool)
@@ -1069,7 +1075,7 @@ impl IntegrityCheck for BankReconcilesToStatement {
         // Half one: lines the books do not claim.
         let unmatched = sqlx::query(
             "SELECT l.line_id, l.value_date, l.description, l.debit_minor, l.credit_minor,
-                    s.account_code, s.site_id,
+                    s.account_code, s.unit_id,
                     ($1::date - l.value_date)::int AS age_days
                FROM bank_statement_line l
                JOIN bank_statement s ON s.statement_id = l.statement_id
@@ -1131,17 +1137,17 @@ impl IntegrityCheck for BankReconcilesToStatement {
         for row in &statements {
             let statement_id: Uuid = row.try_get("statement_id")?;
             let account: String = row.try_get("account_code")?;
-            let site: String = row.try_get("site_id")?;
+            let unit: String = row.try_get("unit_id")?;
             let period_end: NaiveDate = row.try_get("period_end")?;
             let closing: i64 = row.try_get("closing_minor")?;
 
             let book: i64 = sqlx::query_scalar(
                 "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
                    FROM journal_line l JOIN journal_entry e USING (entry_id)
-                  WHERE l.account_code = $1 AND l.site_id = $2 AND e.posting_date <= $3",
+                  WHERE l.account_code = $1 AND l.unit_id = $2 AND e.posting_date <= $3",
             )
             .bind(&account)
-            .bind(&site)
+            .bind(&unit)
             .bind(period_end)
             .fetch_one(pool)
             .await?;
@@ -1150,11 +1156,11 @@ impl IntegrityCheck for BankReconcilesToStatement {
                 "SELECT COALESCE(SUM(l.credit_minor - l.debit_minor), 0)::bigint
                    FROM bank_statement_line l
                    JOIN bank_statement s ON s.statement_id = l.statement_id
-                  WHERE s.account_code = $1 AND s.site_id = $2 AND l.value_date <= $3
+                  WHERE s.account_code = $1 AND s.unit_id = $2 AND l.value_date <= $3
                     AND NOT EXISTS (SELECT 1 FROM bank_line_match m WHERE m.line_id = l.line_id)",
             )
             .bind(&account)
-            .bind(&site)
+            .bind(&unit)
             .bind(period_end)
             .fetch_one(pool)
             .await?;
@@ -1163,7 +1169,7 @@ impl IntegrityCheck for BankReconcilesToStatement {
             closing_total += closing;
             reconciled_total += reconciled;
             detail_rows.push(DetailRow::new(
-                format!("{account} at {site} to {period_end}"),
+                format!("{account} at {unit} to {period_end}"),
                 closing,
                 reconciled,
             ));
@@ -1180,7 +1186,7 @@ impl IntegrityCheck for BankReconcilesToStatement {
                     "bank_statement",
                     statement_id.to_string(),
                     format!(
-                        "{account} at {site} closes at {} on the statement and at {} in the \
+                        "{account} at {unit} closes at {} on the statement and at {} in the \
                          books once the {} still in transit is allowed for — {} unaccounted \
                          for. Matching more lines will not close this.",
                         minor(closing),
@@ -1226,18 +1232,18 @@ impl IntegrityCheck for BankReconcilesToStatement {
 // (10) The units against each other
 // ---------------------------------------------------------------------------
 
-/// The affiliate accounts at each site, read from the links exactly as the
-/// Inter-unit screen reads them.
+/// The affiliate accounts in each unit's books, read from the links exactly as
+/// the Inter-unit screen reads them.
 ///
 /// A link names only the family (`PEMBIAYAAN`, `BARANG`, `LAIN`); the other
-/// site is on the journal line as `counter_site_id`, so the pair is read off
+/// unit is on the journal line as `counter_unit_id`, so the pair is read off
 /// the line and the link only says which accounts are affiliate accounts.
 /// DISTINCT because a unit's receivable and payable roles land on the same
 /// hutang leaf (I7), and summing that leaf once per role would count every
 /// line twice. Re-deriving it here rather than importing that module keeps
 /// this engine able to run on a database where that lane's code is not
 /// present — the view is the contract.
-const AFFILIATE: &str = "SELECT DISTINCT r.site_id, r.account_code
+const AFFILIATE: &str = "SELECT DISTINCT r.unit_id, r.account_code
        FROM account_resolution r
       WHERE r.role IN ('affiliate_receivable', 'affiliate_payable')
         AND r.source_type = 'COMPANY'";
@@ -1270,7 +1276,7 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
         Scope::Group
     }
 
-    /// Both. A shop's affiliate balance is the shop's own to explain, even
+    /// Both. A store's affiliate balance is the store's own to explain, even
     /// though head office posts whatever correction is agreed.
     fn audience(&self) -> Audience {
         Audience::Both
@@ -1291,24 +1297,24 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
             ));
         }
 
-        // One row per (site, counterparty): debits less credits over every
-        // affiliate account at the site, for the lines that name that
-        // counterparty. Debit-positive is "owed to this site" on both sides —
+        // One row per (unit, counterparty): debits less credits over every
+        // affiliate account in the unit's books, for the lines that name that
+        // counterparty. Debit-positive is "owed to this unit" on both sides —
         // head office's piutang is a debit balance, a unit's hutang a credit
         // one — so a pair that agrees sums to zero, which is what the whole
         // equation is: the same money seen from two sides.
         let sides = sqlx::query(&format!(
             "WITH affiliate AS ({AFFILIATE})
-             SELECT a.site_id, l.counter_site_id,
+             SELECT a.unit_id, l.counter_unit_id,
                     COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint AS net_minor
                FROM affiliate a
                JOIN journal_line l
-                 ON l.account_code = a.account_code AND l.site_id = a.site_id
+                 ON l.account_code = a.account_code AND l.unit_id = a.unit_id
                JOIN journal_entry e ON e.entry_id = l.entry_id
-              WHERE l.counter_site_id IS NOT NULL
+              WHERE l.counter_unit_id IS NOT NULL
                 AND e.posting_date <= $1
-              GROUP BY a.site_id, l.counter_site_id
-              ORDER BY a.site_id, l.counter_site_id"
+              GROUP BY a.unit_id, l.counter_unit_id
+              ORDER BY a.unit_id, l.counter_unit_id"
         ))
         .bind(as_of)
         .fetch_all(pool)
@@ -1317,8 +1323,8 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
         let mut pairs: Vec<(String, String, i64)> = Vec::new();
         for row in &sides {
             pairs.push((
-                row.try_get("site_id")?,
-                row.try_get("counter_site_id")?,
+                row.try_get("unit_id")?,
+                row.try_get("counter_unit_id")?,
                 row.try_get("net_minor")?,
             ));
         }
@@ -1328,20 +1334,20 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
         let mut states = Vec::new();
         let mut seen: Vec<(String, String)> = Vec::new();
         let mut group_net = 0i64;
-        for (site, counter, receivable) in &pairs {
+        for (unit, counter, receivable) in &pairs {
             group_net += receivable;
             // Each unordered pair once. A and B is the same relationship as B
             // and A, and reporting it twice would double every difference on a
             // consolidation screen.
             if seen.iter().any(|(left, right)| {
-                (left == site && right == counter) || (left == counter && right == site)
+                (left == unit && right == counter) || (left == counter && right == unit)
             }) {
                 continue;
             }
-            seen.push((site.clone(), counter.clone()));
+            seen.push((unit.clone(), counter.clone()));
             let mirror = pairs
                 .iter()
-                .find(|(left, right, _)| left == counter && right == site);
+                .find(|(left, right, _)| left == counter && right == unit);
             let (theirs, mirrored) = match mirror {
                 // What B says it owes A. Signed to A's side, so agreement is
                 // equality rather than a sum somebody has to reason about.
@@ -1349,7 +1355,7 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
                 None => (0, false),
             };
             detail_rows.push(DetailRow::new(
-                format!("{site} and {counter}"),
+                format!("{unit} and {counter}"),
                 *receivable,
                 theirs,
             ));
@@ -1361,11 +1367,11 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
             if state.is_open() || unanswered {
                 actions.push(SuggestedAction::new(
                     ActionVerb::Reclassify,
-                    "site",
-                    site.clone(),
+                    "unit",
+                    unit.clone(),
                     if mirrored {
                         format!(
-                            "{site} says {counter} owes it {}; {counter}'s books say {}. They \
+                            "{unit} says {counter} owes it {}; {counter}'s books say {}. They \
                              are {} apart, and only one of the two entries was ever posted in \
                              full.",
                             minor(*receivable),
@@ -1374,8 +1380,8 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
                         )
                     } else {
                         format!(
-                            "{site} carries {} against {counter}, and {counter} has nothing \
-                             on its affiliate accounts against {site}. The other half of every \
+                            "{unit} carries {} against {counter}, and {counter} has nothing \
+                             on its affiliate accounts against {unit}. The other half of every \
                              one of those movements is unrecorded.",
                             minor(*receivable)
                         )
@@ -1413,8 +1419,8 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
         } else {
             format!(
                 "As at {as_of} the inter-unit accounts net to {} across {} pairs rather than to \
-                 nothing. Each difference is one movement posted at one location and not the \
-                 other.",
+                 nothing. Each difference is one movement posted in one unit's books and not \
+                 the other's.",
                 minor(group_net),
                 seen.len()
             )
@@ -1599,13 +1605,21 @@ struct AttentionDraft {
 ///
 /// The routing rule is the one other lanes should know about: **an action whose
 /// `target_kind` is `site` belongs to that location**, so a group-wide check can
-/// put work in a shop's feed without needing an instance per shop. Everything
-/// else takes the result's own scope.
+/// put work in a shop's feed without needing an instance per shop. **An action
+/// whose `target_kind` is `unit` belongs to every premises that unit owns**
+/// (`premises`, read once per run): a finding about a unit's books lands in the
+/// feeds of its places, since `attention_item` is keyed by site and a unit id
+/// is not one. A unit with no premises keeps the result's own scope, and so
+/// does everything else.
 ///
 /// A result with no actions at all still raises one item when it is open — a
 /// Blocked check has nothing to point at and is precisely the thing somebody
 /// most needs to be told.
-fn attention_drafts(check: &dyn IntegrityCheck, result: &CheckResult) -> Vec<AttentionDraft> {
+fn attention_drafts(
+    check: &dyn IntegrityCheck,
+    result: &CheckResult,
+    premises: &[(String, String)],
+) -> Vec<AttentionDraft> {
     if !result.state.is_open() {
         return Vec::new();
     }
@@ -1625,21 +1639,47 @@ fn attention_drafts(check: &dyn IntegrityCheck, result: &CheckResult) -> Vec<Att
     result
         .suggested_actions
         .iter()
-        .map(|action| AttentionDraft {
-            source_kind: result.key.clone(),
-            source_id: action.target_id.clone(),
-            scope: if action.target_kind == "site" {
-                Scope::site(action.target_id.clone())
-            } else {
-                result.scope.clone()
-            },
-            audience: check.audience(),
-            severity: result.state,
-            title: check.title().to_string(),
-            body: action.label.clone(),
-            amount_minor: None,
-            actions: vec![action.clone()],
+        .flat_map(|action| {
+            let scopes: Vec<Scope> = match action.target_kind.as_str() {
+                "site" => vec![Scope::site(action.target_id.clone())],
+                "unit" => {
+                    let places: Vec<Scope> = premises
+                        .iter()
+                        .filter(|(unit, _)| unit == &action.target_id)
+                        .map(|(_, site)| Scope::site(site.clone()))
+                        .collect();
+                    if places.is_empty() {
+                        vec![result.scope.clone()]
+                    } else {
+                        places
+                    }
+                }
+                _ => vec![result.scope.clone()],
+            };
+            scopes.into_iter().map(move |scope| AttentionDraft {
+                source_kind: result.key.clone(),
+                source_id: action.target_id.clone(),
+                scope,
+                audience: check.audience(),
+                severity: result.state,
+                title: check.title().to_string(),
+                body: action.label.clone(),
+                amount_minor: None,
+                actions: vec![action.clone()],
+            })
         })
+        .collect()
+}
+
+/// Every premises with the unit that owns it, as `(unit, site)`: what
+/// [`attention_drafts`] routes a finding about a unit's books by. Read once
+/// per run rather than once per action.
+async fn premises_by_unit(pool: &PgPool) -> Result<Vec<(String, String)>, AppError> {
+    let rows = sqlx::query("SELECT unit_id, id FROM site ORDER BY unit_id, id")
+        .fetch_all(pool)
+        .await?;
+    rows.iter()
+        .map(|row| Ok((row.try_get("unit_id")?, row.try_get("id")?)))
         .collect()
 }
 
@@ -1717,6 +1757,7 @@ pub async fn integrity_run_now(
     // told apart from one that has been there for a fortnight. Only the
     // crossing is news; the standing state is the attention queue's job.
     let previous = previous_states(pool, run_id).await?;
+    let premises = premises_by_unit(pool).await?;
 
     let mut worst = CheckState::Balanced;
     for check in integrity_registry() {
@@ -1734,7 +1775,7 @@ pub async fn integrity_run_now(
         worst = worst.max(result.state);
         write_result(pool, run_id, &result).await?;
 
-        let drafts = attention_drafts(check, &result);
+        let drafts = attention_drafts(check, &result, &premises);
         let mut raised: Vec<(String, String)> = Vec::with_capacity(drafts.len());
         for draft in &drafts {
             upsert_attention(pool, draft).await?;

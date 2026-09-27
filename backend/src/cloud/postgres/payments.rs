@@ -24,15 +24,15 @@
 //!
 //! # Assumptions, stated because they are choices and not facts
 //!
-//! * **One payment, one account, one date — but not one site.** The money
-//!   leaves the PAYMENT's location and the payable is cleared at the BILL's,
-//!   which is where the bill credited it. Head office paying a shop's supplier
-//!   is a real thing an Indonesian retailer does every week, and until the
-//!   inter-unit rule existed `assert_allocation_fits` refused it, because the
-//!   honest entry does not balance per location on its own. It does now:
+//! * **One payment, one account, one date — but not one unit.** The money
+//!   leaves the PAYMENT's unit (the books whose bank paid) and the payable is
+//!   cleared in head office's books, which is where every bill credited it: a
+//!   supplier is head office's counterparty alone (owner rule, 25 Sep; I4). A
+//!   store paying a supplier out of its own bank is a real thing an Indonesian
+//!   retailer does, and the honest entry does not balance per unit on its own.
 //!   `domain::interunit` completes it through the client's affiliate accounts,
-//!   0121 took the refusal off, and the shop's books show its payable cleared
-//!   against what it owes head office instead of against money it never had.
+//!   0121 took the old refusal off, and the store's books show the money it
+//!   paid against its affiliate account with head office (I7).
 //! * **One payment may settle several bills, in part.** Both are ordinary: a
 //!   weekly transfer clears a batch, and a disputed line gets paid short.
 //! * **No foreign exchange.** Bill and payment must agree on currency. Every
@@ -83,12 +83,9 @@ pub struct PaymentAllocation {
     /// a screen listing what a transfer settled should be able to say that one
     /// of the four was the electricity.
     pub kind: String,
-    /// Where the BILL is, which is not always where the payment is.
-    ///
-    /// It decides where the payable is debited, and it has to: a payable
-    /// credited in store 03's books and cleared in head office's would leave
-    /// store 03 owing a supplier for ever while head office's balance sheet
-    /// carried a debt it never had.
+    /// Where the BILL was received — a premises, which is not always in the
+    /// books the payment left. The payable itself is head office's wherever
+    /// the bill was received (I4), so this is for reading, not for posting.
     pub site_id: String,
 }
 
@@ -97,7 +94,8 @@ pub struct PaymentAllocation {
 pub struct SupplierPayment {
     pub payment_id: Uuid,
     pub payment_number: String,
-    pub site_id: String,
+    /// Whose books the money left (0606): the unit whose bank paid.
+    pub unit_id: String,
     pub payment_date: NaiveDate,
     pub method: String,
     /// The meaning the money left by — `bank_giro`, `cash` — and which bank.
@@ -136,7 +134,9 @@ pub struct AllocateToBill {
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct RecordPaymentRequest {
-    pub site_id: String,
+    /// Whose books the money leaves: a unit id (0606). Head office's for
+    /// almost every payment.
+    pub unit_id: String,
     pub payment_date: NaiveDate,
     /// `TRANSFER`, `CASH`, `GIRO` or `OTHER`.
     pub method: String,
@@ -224,7 +224,8 @@ pub struct PaymentScope {
     /// Empty means every status. Passed through unvalidated, for the reason
     /// given on `BillScope::statuses`.
     pub statuses: Vec<String>,
-    pub sites: Vec<String>,
+    /// Units whose books the payments left (0606).
+    pub units: Vec<String>,
     /// Who was paid. It lives on the allocations, not on the payment: one bank
     /// line settling two suppliers is an ordinary Friday, so a payment has no
     /// supplier of its own and this is an EXISTS rather than a column.
@@ -256,7 +257,7 @@ struct PaymentCursor {
     payment_id: Uuid,
 }
 
-const PAYMENT_COLUMNS: &str = "p.payment_id, p.payment_number, p.site_id, p.payment_date,
+const PAYMENT_COLUMNS: &str = "p.payment_id, p.payment_number, p.unit_id, p.payment_date,
      p.method, p.account_key, p.account_qualifier, p.currency, p.total_minor, p.status,
      p.journal_entry_id, p.reference, p.note, p.recorded_by, p.recorded_at,
      p.posted_by, p.posted_at,
@@ -270,7 +271,7 @@ const PAYMENT_COLUMNS: &str = "p.payment_id, p.payment_number, p.site_id, p.paym
 /// be a worse failure than one shown without its account name.
 const PAYMENT_FROM: &str = "FROM supplier_payment p
      LEFT JOIN account_resolution m ON m.role = p.account_key
-                                   AND m.site_id = p.site_id
+                                   AND m.unit_id = p.unit_id
                                    AND m.source_type = 'COMPANY'
                                    AND m.source_id = p.account_qualifier
      LEFT JOIN ledger_account a ON a.account_code = m.account_code";
@@ -279,7 +280,7 @@ fn to_payment(row: &sqlx::postgres::PgRow) -> Result<SupplierPayment, AppError> 
     Ok(SupplierPayment {
         payment_id: row.try_get("payment_id")?,
         payment_number: row.try_get("payment_number")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         payment_date: row.try_get("payment_date")?,
         method: row.try_get("method")?,
         account_key: row.try_get("account_key")?,
@@ -355,7 +356,7 @@ async fn attach_allocations(
 /// Binds: `$1` the search pattern, or NULL for no search.
 ///
 /// It stops at the SEARCH and the date window (`$5`/`$6`, see
-/// `PaymentScope::from`). Status, site and supplier are applied outside it.
+/// `PaymentScope::from`). Status, unit and supplier are applied outside it.
 fn payment_rows() -> String {
     format!(
         "SELECT {PAYMENT_COLUMNS} {PAYMENT_FROM}
@@ -379,7 +380,7 @@ fn payment_rows() -> String {
     )
 }
 
-/// The status, site and supplier filters, written once for both queries.
+/// The status, unit and supplier filters, written once for both queries.
 ///
 /// The supplier clause is an EXISTS over the allocations rather than a column
 /// comparison, because a payment has no supplier of its own — see
@@ -388,7 +389,7 @@ fn payment_rows() -> String {
 /// the table is no longer in scope.
 const PAYMENT_FILTERS: &str = "
     ($2::text[] IS NULL OR status = ANY($2))
-    AND ($3::text[] IS NULL OR site_id = ANY($3))
+    AND ($3::text[] IS NULL OR unit_id = ANY($3))
     AND ($4::text[] IS NULL OR EXISTS (
             SELECT 1 FROM supplier_payment_allocation al
               JOIN supplier_invoice i USING (invoice_id)
@@ -412,7 +413,7 @@ pub async fn payment_page(pool: &PgPool, scope: PaymentScope) -> Result<PaymentP
         .filter(|text| !text.is_empty())
         .map(|text| format!("%{text}%"));
     let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
-    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let units = (!scope.units.is_empty()).then(|| scope.units.clone());
     let suppliers = (!scope.suppliers.is_empty()).then(|| scope.suppliers.clone());
 
     // Every order ends in `payment_id`, so no two rows compare equal and the
@@ -461,7 +462,7 @@ pub async fn payment_page(pool: &PgPool, scope: PaymentScope) -> Result<PaymentP
     let rows = sqlx::query(&sql)
         .bind(&needle)
         .bind(&statuses)
-        .bind(&sites)
+        .bind(&units)
         .bind(&suppliers)
         .bind(scope.from)
         .bind(scope.to)
@@ -493,7 +494,7 @@ pub async fn payment_page(pool: &PgPool, scope: PaymentScope) -> Result<PaymentP
         pool,
         needle.as_deref(),
         &statuses,
-        &sites,
+        &units,
         &suppliers,
         (scope.from, scope.to),
     )
@@ -518,7 +519,7 @@ async fn payment_facets(
     pool: &PgPool,
     needle: Option<&str>,
     statuses: &Option<Vec<String>>,
-    sites: &Option<Vec<String>>,
+    units: &Option<Vec<String>>,
     suppliers: &Option<Vec<String>>,
     (from, to): (Option<NaiveDate>, Option<NaiveDate>),
 ) -> Result<(i64, i64, PaymentFacets), AppError> {
@@ -539,7 +540,7 @@ async fn payment_facets(
     let rows = sqlx::query(&sql)
         .bind(needle)
         .bind(statuses)
-        .bind(sites)
+        .bind(units)
         .bind(suppliers)
         .bind(from)
         .bind(to)
@@ -612,8 +613,8 @@ pub async fn payment(pool: &PgPool, payment_id: Uuid) -> Result<SupplierPayment,
 /// list on its own would trade a sentence naming the four for SQLSTATE 23514
 /// arriving as "database operation failed".
 ///
-/// Funding the float, and taking it back, is a movement between two pots at one
-/// site with no supplier in it. That document does not exist yet; until it does
+/// Funding the float, and taking it back, is a movement between two pots in one
+/// unit's books with no supplier in it. That document does not exist yet; until it does
 /// the act is a manual journal entry, which names account codes directly and so
 /// is not bounded by this list.
 const MONEY_KEYS: [&str; 4] = ["bank_giro", "bank_savings", "cash", "petty_cash"];
@@ -729,18 +730,23 @@ pub async fn record_payment(
         }
     }
 
+    let unit_id = request.unit_id.trim();
+    if !super::sites::unit_exists(pool, unit_id).await? {
+        return Err(AppError::Validation(format!(
+            "'{unit_id}' is not a unit; a payment leaves the bank of head office or a store"
+        )));
+    }
     // Checked here as well as by the table's trigger (0460), so the refusal
     // comes before anything is written rather than as a failed insert.
-    // `resolve_account_code` names the key, the site and the qualifier —
+    // `resolve_account_code` names the key, the unit and the qualifier —
     // which is exactly what somebody has to go and fill in.
     let qualifier = request.account_qualifier.trim();
-    super::ledger::resolve_account_code(pool, &key, &request.site_id, qualifier).await?;
+    super::ledger::resolve_account_code(pool, &key, unit_id, qualifier).await?;
     // And the account the giro will actually be credited to. Checked here
     // rather than at posting, so a bank whose outstanding-giro leaf nobody
     // mapped is refused while somebody is still looking at the form.
     if giro.is_some() {
-        super::ledger::resolve_account_code(pool, "giro_outstanding", &request.site_id, qualifier)
-            .await?;
+        super::ledger::resolve_account_code(pool, "giro_outstanding", unit_id, qualifier).await?;
     }
 
     let mut tx = pool.begin().await?;
@@ -752,14 +758,14 @@ pub async fn record_payment(
 
     sqlx::query(
         "INSERT INTO supplier_payment
-           (payment_id, payment_number, site_id, payment_date, method, account_key,
+           (payment_id, payment_number, unit_id, payment_date, method, account_key,
             account_qualifier, currency, total_minor, reference, note, recorded_by,
             giro_number, giro_due_date)
          VALUES ($1,$2,$3,$4,$5,$6,$7,'IDR',$8,$9,$10,$11,$12,$13)",
     )
     .bind(payment_id)
     .bind(format!("PV-{number:08}"))
-    .bind(&request.site_id)
+    .bind(unit_id)
     .bind(request.payment_date)
     .bind(&method)
     .bind(&key)
@@ -820,8 +826,9 @@ pub async fn post_payment(
     // give for free.
     //
     // No account code is named here. Both payable meanings and the money key
-    // resolve through `account_resolution` for this site, so moving the BCA current
-    // account is a row somebody edits on a screen rather than a release.
+    // resolve through `account_resolution` for their unit, so moving the BCA
+    // current account is a row somebody edits on a screen rather than a release.
+    let head_office = super::sites::head_office_unit_id(pool).await?;
     let mut lines = Vec::with_capacity(existing.allocations.len() + 1);
     for allocation in &existing.allocations {
         let payable = if allocation.kind == "EXPENSE" {
@@ -829,14 +836,14 @@ pub async fn post_payment(
         } else {
             "trade_payable"
         };
-        // At the BILL's location, not the payment's. That is where the bill
-        // credited this payable, and clearing it anywhere else would leave two
-        // sets of books wrong in opposite directions with a trial balance that
-        // still balanced. When the two differ the entry does not balance per
-        // location on its own, and `poster::post` adds the affiliate legs that
-        // make it — which is the whole reason this line is allowed to say
-        // something the payment's site does not.
-        let mut line = PostingLine::debit(payable, &allocation.site_id, allocation.amount_minor)
+        // In head office's books, not the payment's. That is where every bill
+        // credited this payable (I4), and clearing it anywhere else would
+        // leave two sets of books wrong in opposite directions with a trial
+        // balance that still balanced. When a store's bank pays, the entry
+        // does not balance per unit on its own, and `poster::post` adds the
+        // affiliate legs that make it — which is the whole reason this line is
+        // allowed to say something the payment's unit does not.
+        let mut line = PostingLine::debit(payable, &head_office, allocation.amount_minor)
             .for_supplier(&allocation.supplier_id);
         line.memo = Some(format!(
             "{} {}",
@@ -885,7 +892,7 @@ pub async fn post_payment(
         super::payables_flow::payment_money_lines(
             pool,
             payment_id,
-            &existing.site_id,
+            &existing.unit_id,
             credit_key,
             &existing.account_qualifier,
             existing.total_minor,
@@ -943,7 +950,7 @@ pub async fn post_payment(
                         direction: "OUT",
                         number,
                         bank: existing.account_qualifier.clone(),
-                        site_id: existing.site_id.clone(),
+                        unit_id: existing.unit_id.clone(),
                         amount_minor: existing.total_minor,
                         issue_date: existing.payment_date,
                         due_date,
@@ -979,9 +986,9 @@ pub async fn post_payment(
         super::payables_flow::payable_settled(
             &mut tx,
             super::payables_flow::payable_key(allocation.kind == "EXPENSE"),
-            // At the BILL's location, exactly as the debit line above is, and
+            // In head office's books, exactly as the debit line above is, and
             // for the same reason: that is where the bill opened the item.
-            &allocation.site_id,
+            &head_office,
             &allocation.supplier_id,
             allocation.invoice_id,
             "PAYMENT",

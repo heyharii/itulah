@@ -3,7 +3,15 @@
 /**
  * One pair, one column: what each side says, and whether they agree.
  */
-export type InterunitPair = { store_site_id: string, store_name: string, 
+export type InterunitPair = { 
+/**
+ * The store unit. Internal; screens show `store_code` and `store_name`.
+ */
+store_unit_id: string, 
+/**
+ * The client's code for it: `C004`.
+ */
+store_code: string, store_name: string, 
 /**
  * `BARANG` or `PEMBIAYAAN`. The client reconciles the two separately, so a
  * figure that merged them would be one neither side could agree.

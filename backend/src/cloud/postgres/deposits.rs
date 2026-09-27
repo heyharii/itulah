@@ -86,12 +86,11 @@ const TRANSIT_MEANING: &str = "cash_in_transit";
 pub struct StoreDeposit {
     pub deposit_id: Uuid,
     pub deposit_number: String,
-    /// The unit, on the row, as it is on both postings this will make.
+    /// The unit, on the row, as it is on both postings this will make (0607).
     ///
     /// Carried as an id and never as a name: a unit is named from `unit`
-    /// through `book_locations`, which is the one place that knows head office
-    /// is not spelled "DC".
-    pub site_id: String,
+    /// through `book_locations`.
+    pub unit_id: String,
     pub drawer_account_code: String,
     pub drawer_account_name: String,
     /// Which pot the money left, on the accounts that keep several in one.
@@ -140,7 +139,8 @@ pub struct StoreDeposit {
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct RecordDepositRequest {
-    pub site_id: String,
+    /// Whose takings: the unit both postings are booked to.
+    pub unit_id: String,
     /// The client's own account code for the drawer the notes came out of.
     pub drawer_account_code: String,
     /// Which pot, when the account carries several.
@@ -228,7 +228,8 @@ pub struct DepositScope {
     /// carried it.
     pub needle: Option<String>,
     pub statuses: Vec<String>,
-    pub sites: Vec<String>,
+    /// Units whose deposits to keep; empty keeps every unit's.
+    pub units: Vec<String>,
     /// `banked`, `amount`. Anything else is the house order, most recently
     /// banked first.
     pub sort: Option<String>,
@@ -242,7 +243,7 @@ struct DepositCursor {
     deposit_id: Uuid,
 }
 
-const DEPOSIT_COLUMNS: &str = "d.deposit_id, d.deposit_number, d.site_id,
+const DEPOSIT_COLUMNS: &str = "d.deposit_id, d.deposit_number, d.unit_id,
      d.drawer_account_code, da.name AS drawer_account_name, d.drawer_category_code,
      d.bank_account_code, ba.name AS bank_account_name, d.bank_category_code,
      d.amount_minor, d.currency, d.banked_on, d.landed_on, d.carried_by,
@@ -264,7 +265,7 @@ fn to_deposit(row: &sqlx::postgres::PgRow) -> Result<StoreDeposit, AppError> {
     Ok(StoreDeposit {
         deposit_id: row.try_get("deposit_id")?,
         deposit_number: row.try_get("deposit_number")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         drawer_account_code: row.try_get("drawer_account_code")?,
         drawer_account_name: row.try_get("drawer_account_name")?,
         drawer_category_code: row.try_get("drawer_category_code")?,
@@ -295,7 +296,7 @@ fn to_deposit(row: &sqlx::postgres::PgRow) -> Result<StoreDeposit, AppError> {
 /// One deposit row, defined once — the page query and the facet query both read
 /// it, so the counts beside the filters count exactly what the page can show.
 ///
-/// Binds: `$1` the search pattern, or NULL. Status and site are applied outside.
+/// Binds: `$1` the search pattern, or NULL. Status and unit are applied outside.
 fn deposit_rows() -> String {
     format!(
         "SELECT {DEPOSIT_COLUMNS} {DEPOSIT_FROM}
@@ -308,7 +309,7 @@ fn deposit_rows() -> String {
 
 const DEPOSIT_FILTERS: &str = "
     ($2::text[] IS NULL OR status = ANY($2))
-    AND ($3::text[] IS NULL OR site_id = ANY($3))
+    AND ($3::text[] IS NULL OR unit_id = ANY($3))
 ";
 
 pub async fn deposit_page(pool: &PgPool, scope: DepositScope) -> Result<DepositPage, AppError> {
@@ -319,7 +320,7 @@ pub async fn deposit_page(pool: &PgPool, scope: DepositScope) -> Result<DepositP
         .filter(|text| !text.is_empty())
         .map(|text| format!("%{text}%"));
     let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
-    let sites = (!scope.sites.is_empty()).then(|| scope.sites.clone());
+    let units = (!scope.units.is_empty()).then(|| scope.units.clone());
 
     // Every order ends in `deposit_id`, so no two rows compare equal and the
     // keyset can neither repeat nor lose a row that ties.
@@ -354,7 +355,7 @@ pub async fn deposit_page(pool: &PgPool, scope: DepositScope) -> Result<DepositP
     let rows = sqlx::query(&sql)
         .bind(&needle)
         .bind(&statuses)
-        .bind(&sites)
+        .bind(&units)
         .bind(cursor.as_ref().map(|c| c.deposit_id))
         .bind(limit)
         .fetch_all(pool)
@@ -376,7 +377,7 @@ pub async fn deposit_page(pool: &PgPool, scope: DepositScope) -> Result<DepositP
         .map(to_deposit)
         .collect::<Result<_, AppError>>()?;
     let (total, total_minor, in_transit_minor, facets) =
-        deposit_facets(pool, needle.as_deref(), &statuses, &sites).await?;
+        deposit_facets(pool, needle.as_deref(), &statuses, &units).await?;
     Ok(DepositPage {
         rows: deposits,
         next_cursor,
@@ -391,7 +392,7 @@ async fn deposit_facets(
     pool: &PgPool,
     needle: Option<&str>,
     statuses: &Option<Vec<String>>,
-    sites: &Option<Vec<String>>,
+    units: &Option<Vec<String>>,
 ) -> Result<(i64, i64, i64, DepositFacets), AppError> {
     let rows_sql = deposit_rows();
     // The in-transit sum reads the SEARCHED set rather than the filtered one,
@@ -412,12 +413,12 @@ async fn deposit_facets(
          SELECT 'transit', '', COALESCE(SUM(amount_minor), 0)::bigint
            FROM searched
           WHERE status = 'IN_TRANSIT'
-            AND ($3::text[] IS NULL OR site_id = ANY($3))"
+            AND ($3::text[] IS NULL OR unit_id = ANY($3))"
     );
     let rows = sqlx::query(&sql)
         .bind(needle)
         .bind(statuses)
-        .bind(sites)
+        .bind(units)
         .fetch_all(pool)
         .await?;
 
@@ -499,7 +500,7 @@ fn trimmed(value: Option<&str>) -> Option<String> {
 async fn meaning_of(
     pool: &PgPool,
     account_code: &str,
-    site_id: &str,
+    unit_id: &str,
     category_code: Option<&str>,
     allowed: &[&str],
     role: &str,
@@ -508,13 +509,13 @@ async fn meaning_of(
         "SELECT m.role AS semantic_key, m.source_id AS qualifier, a.category_family
            FROM account_resolution m
            JOIN ledger_account a ON a.account_code = m.account_code
-          WHERE m.account_code = $1 AND m.site_id = $2 AND m.role = ANY($3)
+          WHERE m.account_code = $1 AND m.unit_id = $2 AND m.role = ANY($3)
             AND m.source_type = 'COMPANY'
             AND ($4::text IS NULL OR m.category_code = $4)
           ORDER BY m.role, m.source_id",
     )
     .bind(account_code)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(allowed)
     .bind(category_code)
     .fetch_all(pool)
@@ -527,8 +528,8 @@ async fn meaning_of(
 
     match rows.len() {
         0 => Err(AppError::Validation(format!(
-            "{account_code}{under} at {site_id} is not {role}: point one of {} at it on the \
-             Account Links screen, or name the account that is",
+            "{account_code}{under} in the books of {unit_id} is not {role}: point one of {} at \
+             it on the Account Links screen, or name the account that is",
             allowed.join(", ")
         ))),
         1 => Ok((
@@ -543,13 +544,14 @@ async fn meaning_of(
             let family: Option<String> = rows[0].try_get("category_family")?;
             match (family, category_code) {
                 (Some(family), None) => Err(AppError::Validation(format!(
-                    "{account_code} at {site_id} carries {found} of them — it is kept by {family} \
-                     — so the slip has to say which: name the category beside the account"
+                    "{account_code} in the books of {unit_id} carries {found} of them — it is kept \
+                     by {family} — so the slip has to say which: name the category beside the \
+                     account"
                 ))),
                 _ => Err(AppError::Validation(format!(
-                    "{account_code}{under} at {site_id} is mapped by more than one meaning; one \
-                     account and one category carry one meaning, so fix the Account Links before \
-                     banking against it"
+                    "{account_code}{under} in the books of {unit_id} is mapped by more than one \
+                     meaning; one account and one category carry one meaning, so fix the Account \
+                     Links before banking against it"
                 ))),
             }
         }
@@ -591,7 +593,7 @@ pub async fn record_deposit(
                 .into(),
         ));
     }
-    let site = request.site_id.trim();
+    let unit = request.unit_id.trim();
     let drawer_category = trimmed(request.drawer_category_code.as_deref());
     let bank_category = trimmed(request.bank_category_code.as_deref());
     // Checked before the map is read, so a category that does not belong to the
@@ -603,7 +605,7 @@ pub async fn record_deposit(
     meaning_of(
         pool,
         drawer,
-        site,
+        unit,
         drawer_category.as_deref(),
         &DRAWER_MEANINGS,
         "a cash drawer",
@@ -612,7 +614,7 @@ pub async fn record_deposit(
     meaning_of(
         pool,
         bank,
-        site,
+        unit,
         bank_category.as_deref(),
         &BANK_MEANINGS,
         "a bank account",
@@ -627,14 +629,14 @@ pub async fn record_deposit(
         .try_get("n")?;
     sqlx::query(
         "INSERT INTO store_deposit
-           (deposit_id, deposit_number, site_id, drawer_account_code, drawer_category_code,
+           (deposit_id, deposit_number, unit_id, drawer_account_code, drawer_category_code,
             bank_account_code, bank_category_code,
             amount_minor, banked_on, carried_by, slip_reference, note, recorded_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(deposit_id)
     .bind(format!("DP-{number:08}"))
-    .bind(site)
+    .bind(unit)
     .bind(drawer)
     .bind(drawer_category.as_deref())
     .bind(bank)
@@ -681,7 +683,7 @@ pub async fn bank_deposit(
     let (drawer_key, drawer_qualifier) = meaning_of(
         pool,
         &existing.drawer_account_code,
-        &existing.site_id,
+        &existing.unit_id,
         existing.drawer_category_code.as_deref(),
         &DRAWER_MEANINGS,
         "a cash drawer",
@@ -699,8 +701,8 @@ pub async fn bank_deposit(
             existing.deposit_number, existing.drawer_account_name, existing.carried_by
         )),
         lines: vec![
-            PostingLine::debit(TRANSIT_MEANING, &existing.site_id, existing.amount_minor),
-            PostingLine::credit(&drawer_key, &existing.site_id, existing.amount_minor)
+            PostingLine::debit(TRANSIT_MEANING, &existing.unit_id, existing.amount_minor),
+            PostingLine::credit(&drawer_key, &existing.unit_id, existing.amount_minor)
                 .with_qualifier(&drawer_qualifier),
         ],
     };
@@ -761,7 +763,7 @@ pub async fn land_deposit(
     let (bank_key, bank_qualifier) = meaning_of(
         pool,
         &existing.bank_account_code,
-        &existing.site_id,
+        &existing.unit_id,
         existing.bank_category_code.as_deref(),
         &BANK_MEANINGS,
         "a bank account",
@@ -779,9 +781,9 @@ pub async fn land_deposit(
             existing.deposit_number, existing.bank_account_name
         )),
         lines: vec![
-            PostingLine::debit(&bank_key, &existing.site_id, existing.amount_minor)
+            PostingLine::debit(&bank_key, &existing.unit_id, existing.amount_minor)
                 .with_qualifier(&bank_qualifier),
-            PostingLine::credit(TRANSIT_MEANING, &existing.site_id, existing.amount_minor),
+            PostingLine::credit(TRANSIT_MEANING, &existing.unit_id, existing.amount_minor),
         ],
     };
 
