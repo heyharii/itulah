@@ -72,6 +72,10 @@ impl StatusSource {
                 .map(|dir| Journal::new(dir).recent(60))
                 .unwrap_or_default(),
             device_list: self.device_list(),
+            // What this build takes, so head office sends it nothing newer.
+            capabilities: Some(vec![
+                crate::sync::workflow::GOODS_ROUTES_CAPABILITY.to_owned(),
+            ]),
         }
     }
 

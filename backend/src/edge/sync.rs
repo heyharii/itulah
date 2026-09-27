@@ -1020,18 +1020,33 @@ fn require_dc_work_owner(tx: &Transaction<'_>, site_id: &str) -> Result<NodeCont
     Ok(node)
 }
 
+/// The node that owns the site an allotment's goods leave from, whatever its
+/// role: the Gudang for an allotment, a shop for its own return or transfer
+/// (owner, 2026-09-27). Head office decided the route when it raised the
+/// allotment and sends the command only to the owner of the source site.
+fn require_work_owner(tx: &Transaction<'_>, site_id: &str) -> Result<NodeContext, SyncError> {
+    let node = command_node(tx)?;
+    if node.site_id.as_str() != site_id {
+        return Err(err(format!(
+            "inventory work for site {site_id} cannot apply on {}/{}",
+            node.role, node.site_id
+        )));
+    }
+    Ok(node)
+}
+
 fn apply_allotment_activation(
     tx: &Transaction<'_>,
     command_id: Uuid,
     payload: &AllotmentActivationPayload,
 ) -> Result<(), SyncError> {
-    let node = require_dc_work_owner(tx, &payload.source_site_id)?;
+    let node = require_work_owner(tx, &payload.source_site_id)?;
     let mut requested_by_stock = BTreeMap::<(String, String), i64>::new();
     for line in &payload.lines {
         let source = OperationalPool::from_str(&line.source_pool_id).map_err(err)?;
-        if !source.is_dc_fulfillment_source_for(&node.site_id) {
+        if !source.is_fulfillment_source_for(&node.site_id) {
             return Err(err(format!(
-                "allotment source pool {} is not an allowed non-fulfillment pool for {}",
+                "allotment source pool {} is not a pool of goods at rest at {}",
                 line.source_pool_id, node.site_id
             )));
         }
@@ -1148,7 +1163,13 @@ fn apply_allotment_activation(
             payload.allotment_id.to_string(),
             command_id.to_string(),
             payload.allotment_number,
-            payload.allotment_type,
+            // This table's CHECK knows the words before 0611; a head office
+            // that sends the new ones is filed under the old.
+            match payload.allotment_type.as_str() {
+                "TO_SITE" => "TO_STORE",
+                "RETURN_TO_WAREHOUSE" => "RETURN_TO_DC",
+                other => other,
+            },
             payload.source_site_id,
             application_status,
             fulfillment_status,
@@ -1206,7 +1227,7 @@ fn apply_allotment_cancellation(
     command_id: Uuid,
     payload: &AllotmentCancellationPayload,
 ) -> Result<(), SyncError> {
-    let node = require_dc_work_owner(tx, &payload.source_site_id)?;
+    let node = require_work_owner(tx, &payload.source_site_id)?;
     let (application_status, fulfillment_status): (String, String) = tx
         .query_row(
             "SELECT application_status,fulfillment_status

@@ -24,7 +24,7 @@ where
 SELECT c.subject_id,c.place_id,c.ledger_quantity,c.projection_quantity,(c.ledger_quantity-c.projection_quantity)::bigint difference
 FROM compared c JOIN inventory_place ip ON ip.id=c.place_id LEFT JOIN operational_pool op ON op.id=ip.pool_id
 WHERE ip.kind='OPERATIONAL' AND c.ledger_quantity<>c.projection_quantity
-AND ($1::uuid IS NULL OR c.subject_id=$1) AND ($2::text IS NULL OR op.id=$2 OR EXISTS (SELECT 1 FROM operational_pool scope WHERE scope.id=$2 AND NOT scope.is_placement AND scope.outbound_stage IS NOT NULL AND op.is_placement AND op.outbound_stage=scope.outbound_stage)) AND ($3::text IS NULL OR op.site_id=$3)
+AND ($1::uuid IS NULL OR c.subject_id=$1) AND ($2::text IS NULL OR op.id=$2 OR EXISTS (SELECT 1 FROM operational_pool scope WHERE scope.id=$2 AND scope.destination_store_id IS NULL AND scope.outbound_stage IS NOT NULL AND op.is_placement AND op.outbound_stage=scope.outbound_stage AND op.site_id=scope.site_id)) AND ($3::text IS NULL OR op.site_id=$3)
 ORDER BY c.place_id,c.subject_id LIMIT 1000"#)
         .bind(scope.subject_id).bind(&scope.pool_id).bind(&scope.site_id).fetch_all(executor).await?;
     Ok(rows.into_iter().map(|r|json!({"subject_id":r.get::<Uuid,_>("subject_id"),"place_id":r.get::<String,_>("place_id"),"ledger_quantity":r.get::<i64,_>("ledger_quantity"),"projection_quantity":r.get::<i64,_>("projection_quantity"),"difference":r.get::<i64,_>("difference")})).collect())
@@ -39,21 +39,27 @@ where
 {
     let rows = sqlx::query(
         r#"
+-- A stage scope is the stage at its origin (0610), or a retired parent; its
+-- components are itself and the legacy per-destination leaves of the same
+-- stage AT THE SAME SITE.
 WITH parents AS (
     SELECT parent.id,parent.outbound_stage,parent.site_id
     FROM operational_pool parent
-    WHERE parent.active AND NOT parent.is_placement AND parent.outbound_stage IS NOT NULL
+    WHERE parent.active AND parent.destination_store_id IS NULL
+      AND parent.outbound_stage IS NOT NULL
       AND ($1::text IS NULL OR parent.id=$1 OR EXISTS (
           SELECT 1 FROM operational_pool selected
           WHERE selected.id=$1 AND selected.is_placement
             AND selected.outbound_stage=parent.outbound_stage
+            AND selected.site_id=parent.site_id
       ))
       AND ($2::text IS NULL OR parent.site_id=$2)
 ), components AS (
     SELECT parent.id parent_pool_id,component.id component_pool_id
     FROM parents parent
     JOIN operational_pool component ON component.id=parent.id
-      OR (component.is_placement AND component.outbound_stage=parent.outbound_stage)
+      OR (component.is_placement AND component.outbound_stage=parent.outbound_stage
+          AND component.site_id=parent.site_id AND component.destination_store_id IS NOT NULL)
 ), ledger_delta AS (
     SELECT component.parent_pool_id,place.state,movement.quantity delta
     FROM movement
@@ -166,7 +172,7 @@ pub async fn run_repost(pool: &PgPool, request: RepostRequest) -> Result<Value, 
     let differences_before = replay_differences(&mut *tx, &request.scope).await?;
     let outbound_rollup_differences_before =
         outbound_stage_rollup_differences(&mut *tx, &request.scope).await?;
-    sqlx::query("DELETE FROM inventory_projection p USING inventory_place ip LEFT JOIN operational_pool op ON op.id=ip.pool_id WHERE p.place_id=ip.id AND ip.kind='OPERATIONAL' AND ($1::uuid IS NULL OR p.subject_id=$1) AND ($2::text IS NULL OR op.id=$2 OR EXISTS (SELECT 1 FROM operational_pool scope WHERE scope.id=$2 AND NOT scope.is_placement AND scope.outbound_stage IS NOT NULL AND op.is_placement AND op.outbound_stage=scope.outbound_stage)) AND ($3::text IS NULL OR op.site_id=$3)")
+    sqlx::query("DELETE FROM inventory_projection p USING inventory_place ip LEFT JOIN operational_pool op ON op.id=ip.pool_id WHERE p.place_id=ip.id AND ip.kind='OPERATIONAL' AND ($1::uuid IS NULL OR p.subject_id=$1) AND ($2::text IS NULL OR op.id=$2 OR EXISTS (SELECT 1 FROM operational_pool scope WHERE scope.id=$2 AND scope.destination_store_id IS NULL AND scope.outbound_stage IS NOT NULL AND op.is_placement AND op.outbound_stage=scope.outbound_stage AND op.site_id=scope.site_id)) AND ($3::text IS NULL OR op.site_id=$3)")
         .bind(request.scope.subject_id).bind(&request.scope.pool_id).bind(&request.scope.site_id).execute(&mut *tx).await?;
     let inserted=sqlx::query(r#"INSERT INTO inventory_projection(subject_id,place_id,quantity,last_fact_sequence,updated_at)
 WITH d AS (
@@ -176,7 +182,7 @@ WITH d AS (
  SELECT subject_id,place_id,SUM(delta)::bigint quantity,MAX(fact_sequence)::bigint seq FROM d GROUP BY subject_id,place_id HAVING SUM(delta)>0
 )
 SELECT b.subject_id,b.place_id,b.quantity,b.seq,now() FROM b JOIN inventory_place ip ON ip.id=b.place_id LEFT JOIN operational_pool op ON op.id=ip.pool_id
-WHERE ip.kind='OPERATIONAL' AND ($1::uuid IS NULL OR b.subject_id=$1) AND ($2::text IS NULL OR op.id=$2 OR EXISTS (SELECT 1 FROM operational_pool scope WHERE scope.id=$2 AND NOT scope.is_placement AND scope.outbound_stage IS NOT NULL AND op.is_placement AND op.outbound_stage=scope.outbound_stage)) AND ($3::text IS NULL OR op.site_id=$3)
+WHERE ip.kind='OPERATIONAL' AND ($1::uuid IS NULL OR b.subject_id=$1) AND ($2::text IS NULL OR op.id=$2 OR EXISTS (SELECT 1 FROM operational_pool scope WHERE scope.id=$2 AND scope.destination_store_id IS NULL AND scope.outbound_stage IS NOT NULL AND op.is_placement AND op.outbound_stage=scope.outbound_stage AND op.site_id=scope.site_id)) AND ($3::text IS NULL OR op.site_id=$3)
 ON CONFLICT(subject_id,place_id) DO UPDATE SET quantity=EXCLUDED.quantity,last_fact_sequence=EXCLUDED.last_fact_sequence,updated_at=now()"#)
         .bind(request.scope.subject_id).bind(&request.scope.pool_id).bind(&request.scope.site_id).execute(&mut *tx).await?.rows_affected();
     let after = sqlx::query("SELECT count(*)::bigint count FROM movement")
@@ -402,7 +408,7 @@ LEFT JOIN inventory_subject subject ON subject.id=c.subject_id
 LEFT JOIN sku sk ON sk.id=subject.sku_id
 WHERE ip.kind='OPERATIONAL' AND c.ledger_quantity<>c.projection_quantity
 AND ($1::uuid IS NULL OR c.subject_id=$1)
-AND ($2::text IS NULL OR op.id=$2 OR EXISTS (SELECT 1 FROM operational_pool scope WHERE scope.id=$2 AND NOT scope.is_placement AND scope.outbound_stage IS NOT NULL AND op.is_placement AND op.outbound_stage=scope.outbound_stage))
+AND ($2::text IS NULL OR op.id=$2 OR EXISTS (SELECT 1 FROM operational_pool scope WHERE scope.id=$2 AND scope.destination_store_id IS NULL AND scope.outbound_stage IS NOT NULL AND op.is_placement AND op.outbound_stage=scope.outbound_stage AND op.site_id=scope.site_id))
 AND ($3::text IS NULL OR op.site_id=$3)
 AND ($4::text IS NULL OR c.place_id ILIKE $4 OR subject.epc ILIKE $4 OR sk.sku_code ILIKE $4)
 "#;

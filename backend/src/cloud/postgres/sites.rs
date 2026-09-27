@@ -63,6 +63,66 @@ pub async fn site_kind(
     )
 }
 
+/// The site a pool stands at, read from its row (`operational_pool.site_id`),
+/// never from the first segment of its id: a pool id is a label, and the
+/// Gudang's pools kept `dc.…` whatever the site is called. `None` for a pool
+/// the centre does not hold.
+pub async fn pool_site_id(
+    executor: impl sqlx::PgExecutor<'_>,
+    pool_id: &str,
+) -> Result<Option<String>, AppError> {
+    Ok(
+        sqlx::query_scalar::<_, String>("SELECT site_id FROM operational_pool WHERE id = $1")
+            .bind(pool_id)
+            .fetch_optional(executor)
+            .await?,
+    )
+}
+
+/// A site's pool of one role, from the rows (0610): the one its template made,
+/// or the one it always had under an older spelling. A legacy per-destination
+/// leaf and a return pool are never "the" pool of their role. `None` when the
+/// site has none.
+pub async fn pool_of_role(
+    executor: impl sqlx::PgExecutor<'_>,
+    site_id: &str,
+    role: crate::pool_role::PoolRole,
+) -> Result<Option<String>, AppError> {
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT id FROM operational_pool
+          WHERE site_id = $1 AND role = $2 AND active AND is_placement
+            AND destination_store_id IS NULL AND origin_unit_id IS NULL
+          ORDER BY display_order, id
+          LIMIT 1",
+    )
+    .bind(site_id)
+    .bind(role.code())
+    .fetch_optional(executor)
+    .await?)
+}
+
+/// The return pool a warehouse site keeps for the store unit that owns
+/// `origin_site_id` (0610): where that shop's returned goods land, to be
+/// inspected. `None` when the warehouse keeps none for it.
+pub async fn return_pool_for(
+    executor: impl sqlx::PgExecutor<'_>,
+    warehouse_site_id: &str,
+    origin_site_id: &str,
+) -> Result<Option<String>, AppError> {
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT pool.id FROM operational_pool pool
+           JOIN site origin ON origin.unit_id = pool.origin_unit_id
+          WHERE pool.site_id = $1 AND origin.id = $2
+            AND pool.role = 'RETURN' AND pool.active AND pool.is_placement
+          ORDER BY pool.id
+          LIMIT 1",
+    )
+    .bind(warehouse_site_id)
+    .bind(origin_site_id)
+    .fetch_optional(executor)
+    .await?)
+}
+
 /// Minutes east of UTC at one instant, where a site is — its own zone, or
 /// head office's when no site is named or the one named is not held here
 /// (`site_business_timezone`, 0603).

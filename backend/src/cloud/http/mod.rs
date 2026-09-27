@@ -2476,7 +2476,9 @@ async fn move_stock(
     // movement claiming SALE would "sell" stock with no sale, payment, or
     // receipt behind it. Only genuinely manual logistics moves pass here.
     if let Some(cause) = r.cause.as_deref() {
-        let manual_causes = ["NORMAL_MOVE", "RETURN_TO_DC"];
+        // RETURN_TO_DC is the same cause as RETURN_TO_WAREHOUSE, spelled as it
+        // was before 0611.
+        let manual_causes = ["NORMAL_MOVE", "RETURN_TO_WAREHOUSE", "RETURN_TO_DC"];
         if !manual_causes.contains(&cause) {
             return Err(AppError::Validation(format!(
                 "cause {cause} is workflow-owned; manual movements accept only {}",

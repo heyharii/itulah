@@ -1586,6 +1586,18 @@ impl SqliteEdge {
         }
     }
 
+    /// Any site sends goods now: the Gudang an allotment, a shop a return to
+    /// the Gudang or a transfer to another shop (owner, 2026-09-27; postgres
+    /// `0611`). Which site may send what to whom is the route's rule, decided
+    /// by head office when it raises the allotment — a node only ever packs
+    /// against lines it was told about. So outbound work is refused only to a
+    /// role this build does not know, and the match says so.
+    fn require_outbound_origin(&self) -> Result<(), EdgeError> {
+        match self.node.role {
+            EdgeRole::Dc | EdgeRole::Store => Ok(()),
+        }
+    }
+
     /// The shop's name at the head of a receipt: its display name as head
     /// office gave it, or — until this node has heard — its id in capitals, as
     /// it always printed.
@@ -2167,18 +2179,31 @@ impl SqliteEdge {
         })
     }
 
-    /// A destination must be a shop. The id's shape is the id's to check;
-    /// whether it names a shop is head office's to say (`site_profile`), never
-    /// the spelling's. A site head office has not described is taken on trust,
-    /// as every site was before it described any.
-    fn normalized_store_id(connection: &Connection, value: &str) -> Result<SiteId, EdgeError> {
+    /// A destination is another site of ours, of any kind: a shop for an
+    /// allotment or a transfer, the Gudang for a return (postgres `0611`).
+    /// The id's shape is the id's to check; whether the site exists and what
+    /// it is are head office's to say (`site_profile`) — a site head office
+    /// has described with a kind this build does not know is refused, one it
+    /// has not described is taken on trust, as every site was before it
+    /// described any. Which route may go where was decided when head office
+    /// raised the allotment; a koli is only ever packed against those lines.
+    fn normalized_destination_site_id(
+        &self,
+        connection: &Connection,
+        value: &str,
+    ) -> Result<SiteId, EdgeError> {
         let site = SiteId::new(value).map_err(|error| EdgeError::Validation(error.to_string()))?;
-        if crate::edge::site_profile::kind_of(connection, site.as_str())
-            .is_some_and(|kind| kind != SiteKind::Store)
-        {
+        if site == self.node.site_id {
             return Err(EdgeError::Validation(
-                "destination_store_id must identify a Store site".into(),
+                "a koli cannot be sent to the site it stands at".into(),
             ));
+        }
+        if let Some(known) = crate::edge::site_profile::known(connection, site.as_str()) {
+            if known.kind.is_none() {
+                return Err(EdgeError::Validation(format!(
+                    "destination {site} is a kind of site this build does not know"
+                )));
+            }
         }
         Ok(site)
     }
@@ -2190,28 +2215,53 @@ impl SqliteEdge {
         }
     }
 
-    fn fulfillment_pool(
-        source_dc_id: &SiteId,
-        destination_store_id: &SiteId,
+    /// A stage at its ORIGIN: `{origin}.outbound.{stage}`. Where the koli is
+    /// going is the koli's to say, not the pool's (postgres `0610`).
+    fn fulfillment_pool(origin: &SiteId, stage: FulfillmentStage) -> OperationalPool {
+        OperationalPool::Outbound {
+            site_id: origin.clone(),
+            stage: stage.into(),
+        }
+    }
+
+    /// The per-destination leaf an older build packed into. Read so a koli it
+    /// packed can go on; never written.
+    fn legacy_fulfillment_pool(
+        origin: &SiteId,
+        destination: &SiteId,
         stage: FulfillmentStage,
     ) -> OperationalPool {
+        let (dc_id, store_id) = (origin.clone(), destination.clone());
         match stage {
-            FulfillmentStage::Packed => OperationalPool::DcOutboundPacked {
-                dc_id: source_dc_id.clone(),
-                store_id: destination_store_id.clone(),
-            },
-            FulfillmentStage::Shipment => OperationalPool::DcOutboundShipment {
-                dc_id: source_dc_id.clone(),
-                store_id: destination_store_id.clone(),
-            },
-            FulfillmentStage::Loaded => OperationalPool::DcOutboundLoaded {
-                dc_id: source_dc_id.clone(),
-                store_id: destination_store_id.clone(),
-            },
-            FulfillmentStage::InTransit => OperationalPool::DcOutboundInTransit {
-                dc_id: source_dc_id.clone(),
-                store_id: destination_store_id.clone(),
-            },
+            FulfillmentStage::Packed => OperationalPool::DcOutboundPacked { dc_id, store_id },
+            FulfillmentStage::Shipment => OperationalPool::DcOutboundShipment { dc_id, store_id },
+            FulfillmentStage::Loaded => OperationalPool::DcOutboundLoaded { dc_id, store_id },
+            FulfillmentStage::InTransit => OperationalPool::DcOutboundInTransit { dc_id, store_id },
+        }
+    }
+
+    /// Where one unit of a koli stands at `stage`: the stage at this origin,
+    /// or the legacy leaf. Exactly one of them, holding exactly this one.
+    fn fulfillment_place_of(
+        tx: &Transaction<'_>,
+        subject: &SubjectRow,
+        origin: &SiteId,
+        destination: &SiteId,
+        stage: FulfillmentStage,
+    ) -> Result<Place, EdgeError> {
+        let current = Self::normal_place(Self::fulfillment_pool(origin, stage));
+        let legacy = Self::normal_place(Self::legacy_fulfillment_pool(origin, destination, stage));
+        let at_current = Self::operational_balance(tx, subject.id, &current.id())?;
+        let at_legacy = Self::operational_balance(tx, subject.id, &legacy.id())?;
+        match (at_current, at_legacy) {
+            (1, 0) => Ok(current),
+            (0, 1) => Ok(legacy),
+            _ => Err(EdgeError::Conflict(format!(
+                "package EPC {} has quantity {at_current} at {} and {at_legacy} at {}, expected exactly one",
+                subject.epc,
+                current.id(),
+                legacy.id()
+            ))),
         }
     }
 
@@ -2363,11 +2413,7 @@ impl SqliteEdge {
         idempotency_key: String,
         request_json: String,
     ) -> Result<FulfillmentProgressResult, EdgeError> {
-        if self.node.role != EdgeRole::Dc {
-            return Err(EdgeError::Forbidden(
-                "only DC Edge can advance fulfillment packages".into(),
-            ));
-        }
+        self.require_outbound_origin()?;
         Self::validate_command_identity(&idempotency_key, &actor_id)?;
         let expected_previous = stage.previous().ok_or_else(|| {
             EdgeError::Validation("PACKED must be created through the Pack endpoint".into())
@@ -2405,7 +2451,7 @@ impl SqliteEdge {
                 stage.as_str()
             )));
         }
-        let destination_store = Self::normalized_store_id(&tx, &destination_store_id)?;
+        let destination_store = self.normalized_destination_site_id(&tx, &destination_store_id)?;
         let shipment_reference = match stage {
             FulfillmentStage::Shipment => {
                 let reference = shipment_reference
@@ -2440,20 +2486,19 @@ impl SqliteEdge {
                 "package {koli_id} has no active units"
             )));
         }
-        let from_pool =
-            Self::fulfillment_pool(&self.node.site_id, &destination_store, expected_previous);
-        let to_pool = Self::fulfillment_pool(&self.node.site_id, &destination_store, stage);
-        let from = Self::normal_place(from_pool);
-        let to = Self::normal_place(to_pool);
+        // Into the stage at this origin. Out of wherever each unit stands:
+        // the previous stage at this origin, or — for a koli an older build
+        // packed — the legacy leaf that names its destination.
+        let to = Self::normal_place(Self::fulfillment_pool(&self.node.site_id, stage));
+        let mut froms = Vec::with_capacity(units.len());
         for unit in &units {
-            let quantity = Self::operational_balance(&tx, unit.subject.id, &from.id())?;
-            if quantity != 1 {
-                return Err(EdgeError::Conflict(format!(
-                    "package EPC {} has quantity {quantity} at {}, expected exactly one",
-                    unit.subject.epc,
-                    from.id()
-                )));
-            }
+            froms.push(Self::fulfillment_place_of(
+                &tx,
+                &unit.subject,
+                &self.node.site_id,
+                &destination_store,
+                expected_previous,
+            )?);
         }
 
         let occurred_at = self.clock.now();
@@ -2461,7 +2506,8 @@ impl SqliteEdge {
             movement_group_id: MovementGroupId::new(),
             lines: units
                 .iter()
-                .map(|unit| MovementLine {
+                .zip(&froms)
+                .map(|(unit, from)| MovementLine {
                     subject_id: unit.subject.id,
                     quantity: 1,
                     from: from.clone(),
@@ -3062,16 +3108,16 @@ impl SqliteEdge {
                 OperationalPool::DcPendingUntagged {
                     dc_id: node.site_id.clone(),
                 },
-                OperationalPool::DcWarehouse {
-                    dc_id: node.site_id.clone(),
+                OperationalPool::Stockroom {
+                    site_id: node.site_id.clone(),
                 },
                 OperationalPool::DcRejectDc {
                     dc_id: node.site_id.clone(),
                 },
             ],
             EdgeRole::Store => vec![
-                OperationalPool::StoreWarehouse {
-                    store_id: node.site_id.clone(),
+                OperationalPool::Stockroom {
+                    site_id: node.site_id.clone(),
                 },
                 OperationalPool::StoreFloor {
                     store_id: node.site_id.clone(),
@@ -3378,7 +3424,7 @@ impl EdgeInventory for SqliteEdge {
         kind: crate::edge::outbound::SessionKind,
         request: crate::edge::outbound::OpenSessionRequest,
     ) -> Result<crate::edge::outbound::Session, EdgeError> {
-        self.require_dc("outbound work happens at a DC")?;
+        self.require_outbound_origin()?;
         let mut connection = self.lock()?;
         crate::edge::outbound::open_session(&mut connection, kind, request)
     }
@@ -3388,7 +3434,7 @@ impl EdgeInventory for SqliteEdge {
         kind: crate::edge::outbound::SessionKind,
         session_id: &str,
     ) -> Result<crate::edge::outbound::Session, EdgeError> {
-        self.require_dc("outbound work happens at a DC")?;
+        self.require_outbound_origin()?;
         let mut connection = self.lock()?;
         crate::edge::outbound::close_session(&mut connection, kind, session_id)
     }
@@ -3398,7 +3444,7 @@ impl EdgeInventory for SqliteEdge {
         koli_id: &str,
         session_id: &str,
     ) -> Result<crate::edge::outbound::Koli, EdgeError> {
-        self.require_dc("outbound work happens at a DC")?;
+        self.require_outbound_origin()?;
         let mut connection = self.lock()?;
         crate::edge::outbound::assign_koli_to_session(&mut connection, koli_id, session_id)
     }
@@ -3407,7 +3453,7 @@ impl EdgeInventory for SqliteEdge {
         &self,
         request: crate::edge::outbound::OpenPackingBoxRequest,
     ) -> Result<crate::edge::outbound::PackingBox, EdgeError> {
-        self.require_dc("packing happens at a DC")?;
+        self.require_outbound_origin()?;
         let mut connection = self.lock()?;
         crate::edge::outbound::open_packing_box(&mut connection, request)
     }
@@ -3443,7 +3489,7 @@ impl EdgeInventory for SqliteEdge {
         actor_id: &str,
     ) -> Result<crate::edge::outbound::CaptureOutcome, EdgeError> {
         use crate::edge::outbound;
-        self.require_dc("packing happens at a DC")?;
+        self.require_outbound_origin()?;
 
         let outcome = {
             let mut connection = self.lock()?;
@@ -3481,7 +3527,7 @@ impl EdgeInventory for SqliteEdge {
         koli_id: &str,
         sealed_by: &str,
     ) -> Result<crate::edge::outbound::KoliManifest, EdgeError> {
-        self.require_dc("outbound work happens at a DC")?;
+        self.require_outbound_origin()?;
         let mut connection = self.lock()?;
         crate::edge::outbound::seal_koli(&mut connection, koli_id, sealed_by)
     }
@@ -3499,7 +3545,7 @@ impl EdgeInventory for SqliteEdge {
         koli_id: &str,
         request: crate::edge::outbound::PrintKoliLabelRequest,
     ) -> Result<crate::edge::outbound::KoliManifest, EdgeError> {
-        self.require_dc("outbound work happens at a DC")?;
+        self.require_outbound_origin()?;
         // The sticker is rendered from a read; the socket is opened without the
         // connection lock in hand, same as the label queue does.
         let manifest = {
@@ -3518,7 +3564,7 @@ impl EdgeInventory for SqliteEdge {
         &self,
         request: crate::edge::outbound::CreateShipmentRequest,
     ) -> Result<crate::edge::outbound::Shipment, EdgeError> {
-        self.require_dc("outbound work happens at a DC")?;
+        self.require_outbound_origin()?;
         let site = self.node.site_id.to_string();
         let mut connection = self.lock()?;
         crate::edge::outbound::create_shipment(&mut connection, &site, request)
@@ -3528,7 +3574,7 @@ impl EdgeInventory for SqliteEdge {
         &self,
         request: crate::edge::outbound::CreateDispatchRequest,
     ) -> Result<crate::edge::outbound::Dispatch, EdgeError> {
-        self.require_dc("outbound work happens at a DC")?;
+        self.require_outbound_origin()?;
         let site = self.node.site_id.to_string();
         let mut connection = self.lock()?;
         crate::edge::outbound::create_dispatch(&mut connection, &site, request)
@@ -3538,7 +3584,7 @@ impl EdgeInventory for SqliteEdge {
         &self,
         dispatch_id: &str,
     ) -> Result<crate::edge::outbound::Dispatch, EdgeError> {
-        self.require_dc("outbound work happens at a DC")?;
+        self.require_outbound_origin()?;
         let mut connection = self.lock()?;
         crate::edge::outbound::depart_dispatch(&mut connection, dispatch_id)
     }
@@ -3693,11 +3739,7 @@ impl EdgeInventory for SqliteEdge {
     }
 
     fn pick_stock(&self, mut request: PickRequest) -> Result<PickResult, EdgeError> {
-        if self.node.role != EdgeRole::Dc {
-            return Err(EdgeError::Forbidden(
-                "only DC Edge can Pick Allotment quantities".into(),
-            ));
-        }
+        self.require_outbound_origin()?;
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
         if request.quantity <= 0 {
             return Err(EdgeError::Validation(
@@ -3706,7 +3748,7 @@ impl EdgeInventory for SqliteEdge {
         }
         let pool = OperationalPool::from_str(request.source_pool_id.trim())
             .map_err(|error| EdgeError::Validation(error.to_string()))?;
-        if !pool.is_dc_fulfillment_source_for(&self.node.site_id) {
+        if !pool.is_fulfillment_source_for(&self.node.site_id) {
             return Err(EdgeError::Forbidden(format!(
                 "node {} cannot Pick from non-source pool {}",
                 self.node.node_id,
@@ -3743,9 +3785,18 @@ impl EdgeInventory for SqliteEdge {
         // which piece serves which shop is settled when it goes into a carton,
         // and a pick that had already chosen would be making that decision
         // invisibly, on the strength of nothing but an allotment's age.
+        // The shelf the pick comes off: the one named, when goods rest there
+        // (a shop picks a return off its floor or its reject), else the
+        // stockroom, as every pick at the Gudang always was.
         let warehouse = Place::Operational {
-            pool: OperationalPool::DcWarehouse {
-                dc_id: self.node.site_id.clone(),
+            pool: match pool.role() {
+                crate::pool_role::PoolRole::Stockroom
+                | crate::pool_role::PoolRole::Floor
+                | crate::pool_role::PoolRole::Reject
+                | crate::pool_role::PoolRole::Return => pool.clone(),
+                _ => OperationalPool::Stockroom {
+                    site_id: self.node.site_id.clone(),
+                },
             },
             state: InventoryState::Normal,
         };
@@ -3917,14 +3968,12 @@ impl EdgeInventory for SqliteEdge {
         &self,
         mut request: PackKoliRequest,
     ) -> Result<FulfillmentProgressResult, EdgeError> {
-        if self.node.role != EdgeRole::Dc {
-            return Err(EdgeError::Forbidden(
-                "only DC Edge can Pack fulfillment packages".into(),
-            ));
-        }
+        self.require_outbound_origin()?;
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
-        let destination_store =
-            Self::normalized_store_id(&self.lock()?, &request.destination_store_id)?;
+        let destination_store = self.normalized_destination_site_id(
+            &self.lock()?,
+            &request.destination_store_id,
+        )?;
         if request.epcs.is_empty() {
             return Err(EdgeError::Validation(
                 "Pack requires at least one scanned EPC".into(),
@@ -3963,11 +4012,8 @@ impl EdgeInventory for SqliteEdge {
         let koli_id = Uuid::new_v4();
         let occurred_at = self.clock.now();
         let updated_at = time_text(occurred_at);
-        let packed_pool = Self::fulfillment_pool(
-            &self.node.site_id,
-            &destination_store,
-            FulfillmentStage::Packed,
-        );
+        // The stage at this origin; the destination is the koli's.
+        let packed_pool = Self::fulfillment_pool(&self.node.site_id, FulfillmentStage::Packed);
         let packed_place = Self::normal_place(packed_pool);
         let mut units = Vec::with_capacity(request.epcs.len());
         let mut movement_lines = Vec::with_capacity(request.epcs.len());
@@ -4016,10 +4062,10 @@ impl EdgeInventory for SqliteEdge {
                 Place::Operational {
                     pool,
                     state: InventoryState::Normal,
-                } if pool.is_dc_fulfillment_source_for(&self.node.site_id) => pool,
+                } if pool.is_fulfillment_source_for(&self.node.site_id) => pool,
                 _ => {
                     return Err(EdgeError::Conflict(format!(
-                        "EPC {epc} is not in an allowed normal source pool for this DC"
+                        "EPC {epc} is not in an allowed normal source pool at this site"
                     )));
                 }
             };
@@ -4036,12 +4082,15 @@ impl EdgeInventory for SqliteEdge {
                     // the garment is standing: it has been picked, so it is in
                     // the outbound area rather than on the rack the allotment
                     // named.
+                    // Any site of ours the line goes to — a shop, or the
+                    // Gudang a return goes back to. The supplier is a place,
+                    // not a destination a koli is packed for.
                     "SELECT work.allotment_id,line.allotment_line_id
                      FROM dc_allotment_work_line line
                      JOIN dc_allotment_work work ON work.allotment_id=line.allotment_id
                      WHERE work.application_status='ACCEPTED'
                        AND work.fulfillment_status IN ('OPEN','IN_PROGRESS')
-                       AND line.destination_type='STORE' AND line.destination_id=?1
+                       AND line.destination_type<>'SUPPLIER' AND line.destination_id=?1
                        AND line.sku_code=?2
                        AND line.accepted_quantity-line.packed_quantity-line.cancelled_quantity>0
                      ORDER BY work.created_at,work.allotment_id,line.allotment_line_id
@@ -4192,7 +4241,7 @@ impl EdgeInventory for SqliteEdge {
         &self,
         mut request: CreatePicklistRequest,
     ) -> Result<PicklistResult, EdgeError> {
-        self.require_dc("outbound work happens at a DC")?;
+        self.require_outbound_origin()?;
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
         let pool = OperationalPool::from_str(request.source_pool_id.trim())
             .map_err(|error| EdgeError::Validation(error.to_string()))?;
@@ -4368,10 +4417,12 @@ impl EdgeInventory for SqliteEdge {
         &self,
         mut request: PackRequest,
     ) -> Result<crate::edge::outbound::KoliManifest, EdgeError> {
-        self.require_dc("outbound work happens at a DC")?;
+        self.require_outbound_origin()?;
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
-        let destination_store =
-            Self::normalized_store_id(&self.lock()?, &request.destination_store_id)?;
+        let destination_store = self.normalized_destination_site_id(
+            &self.lock()?,
+            &request.destination_store_id,
+        )?;
         request.destination_store_id = destination_store.to_string();
         request.actor_id = request.actor_id.trim().to_owned();
         request.idempotency_key = request.idempotency_key.trim().to_owned();
@@ -4636,8 +4687,8 @@ impl EdgeInventory for SqliteEdge {
                     place: SystemPlace::Opening,
                 },
                 to: Place::Operational {
-                    pool: OperationalPool::StoreWarehouse {
-                        store_id: self.node.site_id.clone(),
+                    pool: OperationalPool::Stockroom {
+                        site_id: self.node.site_id.clone(),
                     },
                     state: InventoryState::Normal,
                 },
@@ -4774,8 +4825,8 @@ impl EdgeInventory for SqliteEdge {
                     place: SystemPlace::Opening,
                 },
                 to: Place::Operational {
-                    pool: OperationalPool::StoreWarehouse {
-                        store_id: self.node.site_id.clone(),
+                    pool: OperationalPool::Stockroom {
+                        site_id: self.node.site_id.clone(),
                     },
                     state: InventoryState::Normal,
                 },
@@ -5018,8 +5069,8 @@ impl EdgeInventory for SqliteEdge {
                         place: SystemPlace::Opening,
                     },
                     to: Place::Operational {
-                        pool: OperationalPool::StoreWarehouse {
-                            store_id: self.node.site_id.clone(),
+                        pool: OperationalPool::Stockroom {
+                            site_id: self.node.site_id.clone(),
                         },
                         state: InventoryState::Normal,
                     },
@@ -5151,16 +5202,9 @@ impl EdgeInventory for SqliteEdge {
         let to = Place::from_str(&request.to)
             .map_err(|error| EdgeError::Validation(error.to_string()))?;
         let is_fulfillment_pool = |place: &Place| {
-            matches!(
-                place.pool(),
-                Some(
-                    OperationalPool::DcOutboundPicked { .. }
-                        | OperationalPool::DcOutboundPacked { .. }
-                        | OperationalPool::DcOutboundShipment { .. }
-                        | OperationalPool::DcOutboundLoaded { .. }
-                        | OperationalPool::DcOutboundInTransit { .. }
-                )
-            )
+            place
+                .pool()
+                .is_some_and(|pool| pool.role().is_outbound_stage() || pool.is_legacy_leaf())
         };
         if is_fulfillment_pool(&from) || is_fulfillment_pool(&to) {
             return Err(EdgeError::Validation(
@@ -10220,8 +10264,8 @@ impl SqliteEdge {
                         place: SystemPlace::Identification,
                     },
                     to: Place::Operational {
-                        pool: OperationalPool::DcWarehouse {
-                            dc_id: self.node.site_id.clone(),
+                        pool: OperationalPool::Stockroom {
+                            site_id: self.node.site_id.clone(),
                         },
                         state: InventoryState::Normal,
                     },

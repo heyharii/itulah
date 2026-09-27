@@ -286,12 +286,18 @@ WITH ledger_deltas AS (
 ), pool_scope AS (
     SELECT output.id output_pool_id,component.id component_pool_id
     FROM operational_pool output
+    -- A placement is itself — the stage at its origin included (0610): it
+    -- holds stock and is counted, so it must not also count the legacy
+    -- leaves beside it. Only a parent that is no placement gathers a stage,
+    -- and only at its own site.
     JOIN operational_pool component ON
         (output.is_placement AND component.id=output.id)
         OR (
             NOT output.is_placement
             AND output.outbound_stage IS NOT NULL
-            AND (component.id=output.id OR (component.is_placement AND component.outbound_stage=output.outbound_stage))
+            AND (component.id=output.id
+                 OR (component.is_placement AND component.outbound_stage=output.outbound_stage
+                     AND component.site_id=output.site_id))
         )
 ), balance_rollup AS (
     SELECT scope.output_pool_id,balance.state,COALESCE(SUM(balance.quantity),0)::bigint quantity
@@ -332,17 +338,15 @@ WITH ledger_deltas AS (
     WHERE $4
     GROUP BY commitment.source_pool_id
 )
--- Two id spaces meet in this SELECT. `pool.id` is a POOL id and still spells
--- the warehouse `dc.…` (the pool grammar, a later step's to change). Whether a
--- pool stands at head office is NOT read off `pool.site_id`: it is the kind on
--- the site row it joins (0603), so a head office with any id sorts first and
--- keeps its allotted column.
+-- Which pools can be allotted from is their ROLE (0610) — goods at rest —
+-- never their id. Whether a pool stands at head office is the kind on the
+-- site row it joins (0603), so a head office with any id sorts first.
 SELECT pool.id,pool.site_id,site.name site_name,site.kind site_kind,pool.group_code,pool.pool_code,pool.label,
        pool.store_origin_site_id,pool.display_order,pool.is_placement,pool.outbound_stage,pool.destination_store_id,
        COALESCE(normal.quantity,0)::bigint normal,
        COALESCE(missing.quantity,0)::bigint missing,
        COALESCE(observed.quantity,0)::bigint observed,
-       CASE WHEN $4 AND pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR site.kind<>'HO')
+       CASE WHEN $4 AND pool.is_placement AND pool.role IN ('STOCKROOM','FLOOR','REJECT','RETURN')
             THEN COALESCE(allotted.quantity,0) ELSE NULL END::bigint allotted,
        risk.lost::bigint lost_quantity,
        CASE WHEN GREATEST(risk.opening,0)+risk.inbound > 0
@@ -353,7 +357,7 @@ SELECT pool.id,pool.site_id,site.name site_name,site.kind site_kind,pool.group_c
        -- Sort keys. Every one non-null: see the note above the constant.
        (COALESCE(normal.quantity,0)+COALESCE(missing.quantity,0))::bigint stock_key,
        (COALESCE(normal.quantity,0)
-        - CASE WHEN $4 AND pool.is_placement AND (pool.id IN ('dc.warehouse','dc.reject.dc') OR site.kind<>'HO')
+        - CASE WHEN $4 AND pool.is_placement AND pool.role IN ('STOCKROOM','FLOOR','REJECT','RETURN')
                THEN COALESCE(allotted.quantity,0) ELSE 0 END)::bigint on_hand_key,
        COALESCE(missing.quantity,0)::bigint missing_key,
        COALESCE(observed.quantity,0)::bigint observed_key,
@@ -742,8 +746,11 @@ async fn pool_facets(
     Ok((total, facets))
 }
 
+/// How an Edge pool is shown. `at_a_shop` says which room a stockroom is —
+/// read from the owner node's enrolled role, never from the pool id.
 fn edge_pool_metadata(
     pool: &EdgeOperationalPool,
+    at_a_shop: bool,
 ) -> (
     &'static str,
     &'static str,
@@ -751,11 +758,13 @@ fn edge_pool_metadata(
     i32,
     Option<&'static str>,
 ) {
+    use crate::pool_role::OutboundStage;
     use EdgeOperationalPool::*;
     match pool {
         DcPendingUnidentified { .. } => ("PENDING", "UNIDENTIFIED", "Unidentified", 10, None),
         DcPendingUntagged { .. } => ("PENDING", "UNTAGGED", "Untagged", 20, None),
-        DcWarehouse { .. } => ("WAREHOUSE", "WAREHOUSE", "Warehouse", 30, None),
+        Stockroom { .. } if at_a_shop => ("STORE_INVENTORY", "WAREHOUSE", "Warehouse", 10, None),
+        Stockroom { .. } => ("WAREHOUSE", "WAREHOUSE", "Warehouse", 30, None),
         // Off the racks, not yet in a box, and not yet anyone's. It sorts
         // before the destination-scoped leaves because that is the order the
         // goods actually pass through.
@@ -771,11 +780,31 @@ fn edge_pool_metadata(
             81,
             Some("IN_TRANSIT"),
         ),
+        // The stage at its origin (0610): a leaf like any other, whose
+        // destination is on the koli rather than in its id.
+        Outbound {
+            stage: OutboundStage::Packed,
+            ..
+        } => ("OUTBOUND", "PACKED", "Packed", 50, Some("PACKED")),
+        Outbound {
+            stage: OutboundStage::Shipment,
+            ..
+        } => ("OUTBOUND", "SHIPMENT", "Shipment", 60, Some("SHIPMENT")),
+        Outbound {
+            stage: OutboundStage::Loaded,
+            ..
+        } => ("OUTBOUND", "LOADED", "Loaded", 70, Some("LOADED")),
+        Outbound {
+            stage: OutboundStage::InTransit,
+            ..
+        } => ("OUTBOUND", "IN_TRANSIT", "In Transit", 80, Some("IN_TRANSIT")),
         DcRejectDc { .. } => ("REJECT", "DC_REJECT", "DC Reject", 90, None),
-        DcRejectStore { .. } => ("REJECT", "STORE_REJECT", "Store Reject", 100, None),
-        StoreWarehouse { .. } => ("STORE_INVENTORY", "WAREHOUSE", "Warehouse", 10, None),
+        DcRejectStore { .. } | Return { .. } => {
+            ("REJECT", "STORE_REJECT", "Store Return", 100, None)
+        }
         StoreFloor { .. } => ("STORE_INVENTORY", "FLOOR", "Floor", 20, None),
-        StoreReject { .. } => ("REJECT", "REJECT", "Reject", 30, None),
+        StoreReject { .. } if at_a_shop => ("REJECT", "REJECT", "Reject", 30, None),
+        StoreReject { .. } => ("REJECT", "DC_REJECT", "Reject", 90, None),
     }
 }
 
@@ -1534,7 +1563,9 @@ pub async fn list_fleet_pools(
                 credential.label,credential.active_generation,
                 scope.pool_id,COALESCE(balance.normal,0)::bigint AS normal,
                 COALESCE(balance.missing,0)::bigint AS missing,
-                CASE WHEN credential.node_role='DC'
+                -- A shop that sends goods (a return, a transfer) reserves
+                -- them too; a pool nothing was ever allotted from stays `—`.
+                CASE WHEN credential.node_role='DC' OR reservation.pool_id IS NOT NULL
                      THEN COALESCE(reservation.allotted,0) ELSE NULL END::bigint AS allotted,
                 watermark.applied_seq AS fact_applied_seq,
                 watermark.updated_at AS fact_applied_at,
@@ -1574,7 +1605,7 @@ pub async fn list_fleet_pools(
             AppError::Conflict(format!("invalid fact-derived Edge pool {pool_id}: {error}"))
         })?;
         let (group, pool_code, base_label, display_order, outbound_stage) =
-            edge_pool_metadata(&operational);
+            edge_pool_metadata(&operational, row.get::<String, _>("node_role") == "STORE");
         let destination_store_id = operational.outbound_destination().map(ToString::to_string);
         let label = destination_store_id
             .as_ref()
@@ -1818,6 +1849,17 @@ pub async fn list_fleet_pools(
                 )
             });
             let site_id = owner.get("site_id").and_then(Value::as_str).unwrap_or("");
+            // Since 0610 the stage at the origin is a pool of its own with
+            // this very id, counted as a leaf above. Two rows with one id
+            // would be one too many: the derived row is only for an origin
+            // whose stage stands in legacy leaves alone.
+            let stage_id = format!("{site_id}.outbound.{slug}");
+            if items.iter().any(|item| {
+                item.get("origin_id").and_then(Value::as_str) == Some(origin_id.as_str())
+                    && item.get("id").and_then(Value::as_str) == Some(stage_id.as_str())
+            }) {
+                continue;
+            }
             let fact_age = owner.get("age_seconds").and_then(Value::as_f64);
             let checkpoint_age = owner.get("checkpoint_age_seconds").and_then(Value::as_f64);
             let checkpoint_generation = owner

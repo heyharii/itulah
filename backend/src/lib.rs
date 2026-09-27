@@ -34,6 +34,8 @@ pub mod edge;
 /// The ids both nodes share. They know their shape and nothing else: what a
 /// site IS is read from data, never from how its id is spelled.
 pub mod ids;
+/// What a pool is for, fixed in code; which pools exist is data (`0610`).
+pub mod pool_role;
 /// Splitting a refund back across the tenders that paid. Pure: no clock, no
 /// database, no provider. See the module note for why it measures against
 /// what each tender has LEFT rather than recomputing the original split.

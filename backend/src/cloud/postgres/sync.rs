@@ -1624,11 +1624,14 @@ fn validate_allotment_application_binding(
         .node_role
         .as_deref()
         .ok_or_else(|| "inventory origin has no registered node_role".to_string())?;
-    if expected_role != "DC" || payload.source_site_id != expected_site {
-        return Err("allotment application must come from its exact registered DC site".into());
+    // The node that owns the source site, whatever its role: a shop answers
+    // for its own return or transfer (0611).
+    if payload.source_site_id != expected_site {
+        return Err("allotment application must come from its exact registered source site".into());
     }
+    let role = EdgeRole::from_str(expected_role).map_err(|error| error.to_string())?;
     let site_id = SiteId::new(expected_site).map_err(|error| error.to_string())?;
-    NodeContext::new(batch_origin_id, EdgeRole::Dc, site_id).map_err(|error| error.to_string())
+    NodeContext::new(batch_origin_id, role, site_id).map_err(|error| error.to_string())
 }
 
 fn validate_allotment_cancellation_binding(
@@ -1661,11 +1664,12 @@ fn validate_allotment_cancellation_binding(
         .node_role
         .as_deref()
         .ok_or_else(|| "inventory origin has no registered node_role".to_string())?;
-    if expected_role != "DC" || payload.source_site_id != expected_site {
-        return Err("allotment cancellation must come from its exact registered DC site".into());
+    if payload.source_site_id != expected_site {
+        return Err("allotment cancellation must come from its exact registered source site".into());
     }
+    let role = EdgeRole::from_str(expected_role).map_err(|error| error.to_string())?;
     let site_id = SiteId::new(expected_site).map_err(|error| error.to_string())?;
-    NodeContext::new(batch_origin_id, EdgeRole::Dc, site_id).map_err(|error| error.to_string())
+    NodeContext::new(batch_origin_id, role, site_id).map_err(|error| error.to_string())
 }
 
 fn validate_official_count_owner_binding(
@@ -1776,15 +1780,16 @@ fn validate_allotment_pick_binding(
         .node_role
         .as_deref()
         .ok_or_else(|| "inventory origin has no registered node_role".to_string())?;
-    if expected_role != "DC" || payload.source_site_id != expected_site {
-        return Err("allotment Pick must come from its exact registered DC site".into());
+    if payload.source_site_id != expected_site {
+        return Err("allotment Pick must come from its exact registered source site".into());
     }
+    let role = EdgeRole::from_str(expected_role).map_err(|error| error.to_string())?;
     let site_id = SiteId::new(expected_site).map_err(|error| error.to_string())?;
-    let node = NodeContext::new(batch_origin_id, EdgeRole::Dc, site_id)
-        .map_err(|error| error.to_string())?;
+    let node =
+        NodeContext::new(batch_origin_id, role, site_id).map_err(|error| error.to_string())?;
     let pool =
         OperationalPool::from_str(&payload.source_pool_id).map_err(|error| error.to_string())?;
-    if pool.id() != payload.source_pool_id || !pool.is_dc_fulfillment_source_for(&node.site_id) {
+    if pool.id() != payload.source_pool_id || !pool.is_fulfillment_source_for(&node.site_id) {
         return Err(format!(
             "allotment Pick pool {} is not a canonical non-fulfillment source for registered site {}",
             payload.source_pool_id, node.site_id
@@ -1842,19 +1847,27 @@ fn validate_fulfillment_progress_binding(
         .node_role
         .as_deref()
         .ok_or_else(|| "inventory origin has no registered node_role".to_string())?;
-    if expected_role != "DC" || payload.source_site_id != expected_site {
-        return Err("fulfillment progress must come from its exact registered DC site".into());
+    // Any site sends goods now (0611): the origin is the node that owns the
+    // source site, whatever its role, and the destination is another site of
+    // ours of any kind the centre knows.
+    if payload.source_site_id != expected_site {
+        return Err("fulfillment progress must come from its exact registered source site".into());
     }
+    let role = EdgeRole::from_str(expected_role).map_err(|error| error.to_string())?;
     let site_id = SiteId::new(expected_site).map_err(|error| error.to_string())?;
-    let node = NodeContext::new(batch_origin_id, EdgeRole::Dc, site_id)
-        .map_err(|error| error.to_string())?;
+    let node =
+        NodeContext::new(batch_origin_id, role, site_id).map_err(|error| error.to_string())?;
     let destination =
         SiteId::new(&payload.destination_store_id).map_err(|error| error.to_string())?;
-    if destination_kind.is_some_and(|kind| kind != SiteKind::Store)
-        || destination.to_string() != payload.destination_store_id
-    {
-        return Err("fulfillment destination_store_id must be a canonical Store site".into());
+    if destination.to_string() != payload.destination_store_id || destination == node.site_id {
+        return Err(
+            "fulfillment destination must be a canonical site other than its origin".into(),
+        );
     }
+    // A site the centre holds a row for is one of ours, whatever its kind; one
+    // it holds none for (a node's own spelling of the Gudang) is taken on
+    // trust, as it always was.
+    let _ = destination_kind;
     Ok(node)
 }
 
@@ -1893,35 +1906,33 @@ fn validate_transfer_binding(
     let node =
         NodeContext::new(batch_origin_id, role, site_id).map_err(|error| error.to_string())?;
 
+    // A claim belongs to the SITE it is about (0612): IN_TRANSIT to the
+    // origin, RECEIVED to the destination — a shop's return is received at the
+    // Gudang, a transfer at another shop. The kinds were read to refuse a
+    // shop as an origin and a warehouse as a destination; both are routes now.
+    let _ = (destination_kind, source_kind);
     let destination =
         SiteId::new(&payload.destination_store_id).map_err(|error| error.to_string())?;
-    if destination_kind.is_some_and(|kind| kind != SiteKind::Store) {
-        return Err("transfer destination_store_id must identify a Store".into());
-    }
     let source = payload
         .source_dc_id
         .as_deref()
         .map(SiteId::new)
         .transpose()
         .map_err(|error| error.to_string())?;
-    if source.is_some() && source_kind == Some(SiteKind::Store) {
-        return Err("transfer source_dc_id must identify a DC".into());
+    if source.as_ref() == Some(&destination) {
+        return Err("transfer claim source and destination must be different sites".into());
     }
 
     match payload.claim_kind {
         TransferClaimKind::InTransit
-            if role != EdgeRole::Dc
-                || source.as_ref() != Some(&node.site_id)
-                || payload.receipt_id.is_some() =>
+            if source.as_ref() != Some(&node.site_id) || payload.receipt_id.is_some() =>
         {
-            Err("IN_TRANSIT claim must be owned by its registered source DC".into())
+            Err("IN_TRANSIT claim must be owned by its registered source site".into())
         }
         TransferClaimKind::Received
-            if role != EdgeRole::Store
-                || destination != node.site_id
-                || payload.receipt_id.is_none() =>
+            if destination != node.site_id || payload.receipt_id.is_none() =>
         {
-            Err("RECEIVED claim must be owned by its registered destination Store".into())
+            Err("RECEIVED claim must be owned by its registered destination site".into())
         }
         _ => Ok(node),
     }
@@ -3286,7 +3297,7 @@ async fn apply_allotment_application_result(
             ))
         }
     };
-    if inventory_dc_owner_tx(tx, &authored_site).await?.as_deref() != Some(origin_id) {
+    if inventory_owner_tx(tx, &authored_site).await?.as_deref() != Some(origin_id) {
         return Err(AppError::Validation(format!(
             "application result came from {origin_id}, which does not own authored source site {authored_site}"
         )));
@@ -3894,26 +3905,35 @@ async fn apply_fulfillment_progress(
 
     let destination_store = SiteId::new(&progress.destination_store_id)
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    let stage_pool = |stage: FulfillmentStage| match stage {
-        FulfillmentStage::Packed => OperationalPool::DcOutboundPacked {
-            dc_id: node.site_id.clone(),
-            store_id: destination_store.clone(),
-        },
-        FulfillmentStage::Shipment => OperationalPool::DcOutboundShipment {
-            dc_id: node.site_id.clone(),
-            store_id: destination_store.clone(),
-        },
-        FulfillmentStage::Loaded => OperationalPool::DcOutboundLoaded {
-            dc_id: node.site_id.clone(),
-            store_id: destination_store.clone(),
-        },
-        FulfillmentStage::InTransit => OperationalPool::DcOutboundInTransit {
-            dc_id: node.site_id.clone(),
-            store_id: destination_store.clone(),
-        },
+    // A stage stands at its origin since 0610 and the destination is the
+    // koli's. A node on an older build still writes the per-destination leaf;
+    // both spellings of a stage are that stage, and a koli may go from a leaf
+    // on to the stage at its origin but never back.
+    let stage_place_id = |stage: FulfillmentStage| {
+        format!(
+            "{}:on_hand",
+            OperationalPool::Outbound {
+                site_id: node.site_id.clone(),
+                stage: stage.into(),
+            }
+            .id()
+        )
     };
-    let stage_place_id = |stage| format!("{}:on_hand", stage_pool(stage).id());
-    let target_place_id = stage_place_id(progress.stage);
+    let legacy_stage_place_id = |stage: FulfillmentStage| {
+        let (dc_id, store_id) = (node.site_id.clone(), destination_store.clone());
+        let pool = match stage {
+            FulfillmentStage::Packed => OperationalPool::DcOutboundPacked { dc_id, store_id },
+            FulfillmentStage::Shipment => OperationalPool::DcOutboundShipment { dc_id, store_id },
+            FulfillmentStage::Loaded => OperationalPool::DcOutboundLoaded { dc_id, store_id },
+            FulfillmentStage::InTransit => {
+                OperationalPool::DcOutboundInTransit { dc_id, store_id }
+            }
+        };
+        format!("{}:on_hand", pool.id())
+    };
+    let is_stage_place = |place_id: &str, stage: FulfillmentStage| {
+        place_id == stage_place_id(stage) || place_id == legacy_stage_place_id(stage)
+    };
     let mut touched_allotments = BTreeSet::new();
 
     if progress.stage == FulfillmentStage::Packed {
@@ -3929,7 +3949,10 @@ async fn apply_fulfillment_progress(
             )));
         }
         for (movement_line, unit) in movement_lines.iter().zip(&progress.units) {
-            if movement_line.get::<String, _>("to_place_id") != target_place_id {
+            if !is_stage_place(
+                &movement_line.get::<String, _>("to_place_id"),
+                FulfillmentStage::Packed,
+            ) {
                 return Err(AppError::Validation(format!(
                     "PACKED EPC {} moved to the wrong destination pool",
                     unit.epc
@@ -3941,10 +3964,10 @@ async fn apply_fulfillment_progress(
                 Place::Operational {
                     pool,
                     state: InventoryState::Normal,
-                } if pool.is_dc_fulfillment_source_for(&node.site_id) => pool.id(),
+                } if pool.is_fulfillment_source_for(&node.site_id) => pool.id(),
                 _ => {
                     return Err(AppError::Validation(format!(
-                        "PACKED EPC {} did not leave an allowed normal source pool for its DC",
+                        "PACKED EPC {} did not leave an allowed normal source pool at its origin",
                         unit.epc
                     )));
                 }
@@ -3963,7 +3986,7 @@ async fn apply_fulfillment_progress(
                  JOIN allotment header ON header.id=line.allotment_id
                  WHERE line.origin_id=$1 AND line.source_site_id=$2
                    AND line.sku_code=$3
-                   AND line.destination_type='STORE' AND line.destination_id=$4
+                   AND line.destination_type<>'SUPPLIER' AND line.destination_id=$4
                    AND line.accepted_quantity-line.packed_quantity-line.cancelled_quantity>0
                    AND header.activation_target_origin_id=$1
                    AND header.edge_application_status='ACCEPTED'
@@ -4088,7 +4111,6 @@ async fn apply_fulfillment_progress(
                 "fulfillment progress changed package membership".into(),
             ));
         }
-        let expected_from_place_id = stage_place_id(expected_previous);
         for ((stored, movement_line), unit) in persisted_units
             .iter()
             .zip(&movement_lines)
@@ -4100,8 +4122,16 @@ async fn apply_fulfillment_progress(
                 || stored.get::<Uuid, _>("allotment_line_id") != unit.allotment_line_id
                 || stored.get::<String, _>("current_stage") != expected_previous.as_str()
                 || stored.get::<i16, _>("stage_rank") != expected_previous.rank()
-                || movement_line.get::<String, _>("from_place_id") != expected_from_place_id
-                || movement_line.get::<String, _>("to_place_id") != target_place_id
+                || !is_stage_place(
+                    &movement_line.get::<String, _>("from_place_id"),
+                    expected_previous,
+                )
+                || !is_stage_place(&movement_line.get::<String, _>("to_place_id"), progress.stage)
+                // Never back into a legacy leaf out of the stage at the origin.
+                || (movement_line.get::<String, _>("from_place_id")
+                    == stage_place_id(expected_previous)
+                    && movement_line.get::<String, _>("to_place_id")
+                        == legacy_stage_place_id(progress.stage))
             {
                 return Err(AppError::Validation(format!(
                     "fulfillment EPC {} changed membership or skipped a custody stage",
@@ -5100,6 +5130,51 @@ pub(super) fn pool_id_for_site(pool_id: &str, site_id: &str) -> String {
         // parser downstream is the one that refuses it, with its own message.
         None => pool_id.to_string(),
     }
+}
+
+/// The origin entitled to write the ledger of `site_id`, whatever its role:
+/// the Gudang's node, or a shop's node for its own return or transfer (0611).
+/// Head office's site with no node of its own resolves to the one registered
+/// DC, as [`inventory_dc_owner_tx`] does; a site no node owns is `None`.
+pub(super) async fn inventory_owner_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    site_id: &str,
+) -> Result<Option<String>, AppError> {
+    let owner: Option<String> = sqlx::query_scalar(
+        "SELECT origin_id FROM sync_origin_credential
+         WHERE inventory_enabled AND site_id = $1 FOR SHARE",
+    )
+    .bind(site_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if owner.is_some() {
+        return Ok(owner);
+    }
+    if super::sites::site_kind(&mut **tx, site_id).await?
+        == Some(crate::ids::SiteKind::HeadOffice)
+    {
+        return sole_dc_origin_tx(tx).await;
+    }
+    Ok(None)
+}
+
+/// Whether a node's build understands the goods-route commands — a shop's
+/// allotment activation, a return announced to a warehouse, the in-transit
+/// release — as its latest heartbeat says (`sync::workflow`). An older build
+/// that were sent one would block its whole command stream on it.
+pub(super) async fn origin_takes_goods_routes_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+) -> Result<bool, AppError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT COALESCE(status->'capabilities' ? $2, false)
+           FROM node_heartbeat WHERE origin_id = $1",
+    )
+    .bind(origin_id)
+    .bind(crate::sync::workflow::GOODS_ROUTES_CAPABILITY)
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or(false))
 }
 
 pub(super) async fn inventory_dc_owner_tx(
