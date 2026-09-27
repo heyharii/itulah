@@ -35,6 +35,15 @@ export const keys = {
     ["dc", "goods-receipt", receiptId, "invoice-document"] as const,
   verifyQueue: () => ["dc", "purchase-counts"] as const,
 
+  // ── Intake: a store's return, received blind and then inspected ─────────
+  storeInbound: (status?: string) =>
+    ["dc", "store-inbound", status ?? "ALL"] as const,
+  storeInboundDetail: (deliveryId: string) =>
+    ["dc", "store-inbound", "delivery", deliveryId] as const,
+  returnInspections: () => ["dc", "return-inspections"] as const,
+  returnInspection: (deliveryId: string) =>
+    ["dc", "return-inspections", deliveryId] as const,
+
   // ── Tagging ──────────────────────────────────────────────────────────────
   taggingJobs: () => ["dc", "tagging-jobs"] as const,
   /// Keyed by the **job**, not by the session: a job is given exactly one run
@@ -64,6 +73,9 @@ export const keys = {
       skuCode ?? "first",
       language,
     ] as const,
+  /// Tagged jobs whose goods are on the racks in the ledger but not yet
+  /// recorded as put away — the flow's Putaway stage.
+  putawayWork: () => ["dc", "putaway-work"] as const,
 
   // ── Picking ──────────────────────────────────────────────────────────────
   /// What is still owed, by SKU. Recomputed on every read — nobody authors it,

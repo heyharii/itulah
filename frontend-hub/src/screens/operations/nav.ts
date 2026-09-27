@@ -1,10 +1,13 @@
 import {
+  ArchiveRestore,
   Boxes,
   FileText,
   ListChecks,
   RefreshCw,
+  Search,
   Tags,
   Truck,
+  Undo2,
   UserCog,
 } from "lucide-react"
 
@@ -159,6 +162,38 @@ export const operationsNav: AppModule = {
           icon: Tags,
           useCount: useTagging,
           badge: "warn",
+        },
+      ],
+    },
+    {
+      /// **A store's return, the other way goods enter this building.**
+      ///
+      /// Receiving is a purchase order; a return is a shop sending stock
+      /// back. Both are announced by head office and both are counted blind
+      /// — the same ceremony, on a different document — so it stands beside
+      /// Receiving rather than inside it: one row is a delivery from a
+      /// supplier, the next is a delivery from a shop, and neither list
+      /// should have to explain the other's rows to be read.
+      ///
+      /// Inspect and Putaway are what a received return, and a tagged job,
+      /// do next: good goods to the racks, damaged to reject; goods already
+      /// on the racks recorded as physically shelved.
+      label: "Returns",
+      items: [
+        {
+          path: "/operations/intake/returns",
+          label: "Receive store return",
+          icon: Undo2,
+        },
+        {
+          path: "/operations/intake/inspect",
+          label: "Inspect returns",
+          icon: Search,
+        },
+        {
+          path: "/operations/intake/putaway",
+          label: "Putaway",
+          icon: ArchiveRestore,
         },
       ],
     },

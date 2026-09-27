@@ -12,6 +12,8 @@ import type {
   EdgeOfficialCountSummary,
   FulfillmentProgressResult,
   GoodsReceiptView,
+  InspectReturnRequest,
+  InspectReturnResult,
   IntakeRequest,
   InvoiceDocumentView,
   Koli,
@@ -49,12 +51,23 @@ import type {
   PurchaseVerifyRequest,
   PurchaseVerifyResult,
   PurchaseWorkLine,
+  PutawayJob,
+  PutawayRequest,
+  PutawayResult,
+  PutawayWork,
   RecordInvoiceRequest,
   RepointPrinterRequest,
   ReprintRequest,
+  ReturnInspectionDetail,
+  ReturnInspectionList,
+  ReturnToInspect,
   Session,
   Shipment,
   ShipmentDetail,
+  StoreInboundDelivery,
+  StoreInboundDetail,
+  StoreInboundList,
+  StoreInboundReceiveRequest,
   TaggingConfirmRequest,
   TaggingConfirmResult,
   TaggingWorkJob,
@@ -872,5 +885,102 @@ export class Dc {
       request,
       { signal },
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // A store's return, received here blind and then inspected — 0625/0626.
+  // ---------------------------------------------------------------------------
+
+  /// Deliveries head office has announced to this warehouse: blind while
+  /// IN_TRANSIT, compared once RECEIVED. `status` narrows the list;
+  /// omit it (or pass `"ALL"`) for every delivery.
+  async storeInboundList(
+    status?: string,
+    signal?: AbortSignal,
+  ): Promise<StoreInboundDelivery[]> {
+    const body = await this.node.get<StoreInboundList>(
+      `/api/v1/dc/inbound${status ? `?status=${encodeURIComponent(status)}` : ""}`,
+      { signal },
+    );
+    return body.deliveries;
+  }
+
+  /// One delivery; its per-SKU comparison is only there once RECEIVED.
+  storeInboundDetail(
+    deliveryId: string,
+    signal?: AbortSignal,
+  ): Promise<StoreInboundDetail> {
+    return this.node.get<StoreInboundDetail>(
+      `/api/v1/dc/inbound/${encodeURIComponent(deliveryId)}`,
+      { signal },
+    );
+  }
+
+  /// Receive an announced delivery from what the handheld swept.
+  receiveStoreInbound(
+    deliveryId: string,
+    request: StoreInboundReceiveRequest,
+    signal?: AbortSignal,
+  ): Promise<StoreInboundDetail> {
+    return this.node.post<StoreInboundDetail>(
+      `/api/v1/dc/inbound/${encodeURIComponent(deliveryId)}/receive`,
+      request,
+      { signal },
+    );
+  }
+
+  /// Received returns with units still standing in their store's return pool.
+  async returnInspections(signal?: AbortSignal): Promise<ReturnToInspect[]> {
+    const body = await this.node.get<ReturnInspectionList>(
+      "/api/v1/dc/inspections",
+      { signal },
+    );
+    return body.deliveries;
+  }
+
+  /// One received return and the units still waiting in its return pool.
+  returnInspection(
+    deliveryId: string,
+    signal?: AbortSignal,
+  ): Promise<ReturnInspectionDetail> {
+    return this.node.get<ReturnInspectionDetail>(
+      `/api/v1/dc/inbound/${encodeURIComponent(deliveryId)}/inspection`,
+      { signal },
+    );
+  }
+
+  /// Inspect a received return: good goods to the racks, damaged to reject.
+  inspectReturn(
+    deliveryId: string,
+    request: InspectReturnRequest,
+    signal?: AbortSignal,
+  ): Promise<InspectReturnResult> {
+    return this.node.post<InspectReturnResult>(
+      `/api/v1/dc/inbound/${encodeURIComponent(deliveryId)}/inspection`,
+      request,
+      { signal },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tagged goods, put away on the racks — the goods flow's Putaway stage.
+  // ---------------------------------------------------------------------------
+
+  /// Tagged jobs whose goods are not yet recorded as put away.
+  async putawayWork(signal?: AbortSignal): Promise<PutawayJob[]> {
+    const body = await this.node.get<PutawayWork>("/api/v1/dc/putaways", {
+      signal,
+    });
+    return body.jobs;
+  }
+
+  /// Record a tagged job's goods as put away on the racks.
+  putAway(
+    request: PutawayRequest,
+    signal?: AbortSignal,
+  ): Promise<PutawayResult> {
+    return this.node.post<PutawayResult>("/api/v1/dc/putaways", request, {
+      signal,
+    });
   }
 }
