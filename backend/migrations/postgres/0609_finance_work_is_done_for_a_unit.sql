@@ -22,6 +22,9 @@
 --     was the literal `'dc'`; it is head office's unit, asked by its kind.
 --   * `payment_batch` — head office paying many parties from one bank
 --     account (0153): the account is a unit's, so the batch is.
+--   * `finance_journal_draft.lines` and `journal_template.lines` — lines
+--     Finance saved to post later, kept as the poster reads them; each
+--     line's `site_id` becomes `unit_id` the way the journal's did.
 --
 -- What stays at a site is said in 0608's header, and why.
 
@@ -98,6 +101,49 @@ SELECT pg_temp.move_column_to_unit('payment_batch', 'site_id', 'unit_id');
 
 -- A rule that names no book reads head office's statements, found by kind.
 ALTER TABLE bank_rule ALTER COLUMN unit_id SET DEFAULT head_office_unit_id();
+
+-- ---------------------------------------------------------------------------
+-- Lines Finance saved but has not posted say which unit, too
+-- ---------------------------------------------------------------------------
+--
+-- A journal draft (0319) and a journal template (0473) keep their lines as the
+-- poster reads them — `PostingLine` as JSON — and the poster's line now names
+-- `unit_id` and `counter_unit_id` (0605). A saved line that still said
+-- `site_id: "dc"` would no longer be readable at all. Each is re-spelled the
+-- way the journal was: through the site's unit, and left as it was when it
+-- names no site this database holds.
+
+CREATE OR REPLACE FUNCTION pg_temp.lines_name_units(lines jsonb) RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+    SELECT COALESCE(jsonb_agg(
+               CASE WHEN jsonb_typeof(t.line) <> 'object' THEN t.line
+                    ELSE (t.line - 'site_id' - 'counter_site_id')
+                         || CASE WHEN t.line ? 'site_id'
+                                 THEN jsonb_build_object('unit_id',
+                                          COALESCE(unit_of_site(t.line ->> 'site_id'),
+                                                   t.line ->> 'site_id'))
+                                 ELSE '{}'::jsonb END
+                         || CASE WHEN t.line ? 'counter_site_id'
+                                 THEN jsonb_build_object('counter_unit_id',
+                                          COALESCE(unit_of_site(t.line ->> 'counter_site_id'),
+                                                   t.line ->> 'counter_site_id'))
+                                 ELSE '{}'::jsonb END
+               END
+               ORDER BY t.n), '[]'::jsonb)
+      FROM jsonb_array_elements(lines) WITH ORDINALITY AS t (line, n)
+$$;
+
+ALTER TABLE finance_journal_draft DISABLE TRIGGER USER;
+UPDATE finance_journal_draft
+   SET lines = pg_temp.lines_name_units(lines)
+ WHERE jsonb_path_exists(lines, '$[*] ? (exists(@.site_id) || exists(@.counter_site_id))');
+ALTER TABLE finance_journal_draft ENABLE TRIGGER USER;
+
+ALTER TABLE journal_template DISABLE TRIGGER USER;
+UPDATE journal_template
+   SET lines = pg_temp.lines_name_units(lines)
+ WHERE jsonb_path_exists(lines, '$[*] ? (exists(@.site_id) || exists(@.counter_site_id))');
+ALTER TABLE journal_template ENABLE TRIGGER USER;
 
 COMMENT ON COLUMN tender_reconciliation.unit_id IS
     'Whose takings are being proved (0609). The sales are read from every shop of the unit, each dated by its own site''s clock.';
