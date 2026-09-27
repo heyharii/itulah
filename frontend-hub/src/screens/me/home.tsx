@@ -102,7 +102,7 @@ export function Home() {
         <p className="text-meta text-body">
           {/* Both halves are absent until a contract is signed and a posting
               made, and "null · null" is worse than the username. */}
-          {[profile.data?.job_title, profile.data?.place_name]
+          {[profile.data?.job_title, profile.data?.unit_name]
             .filter(Boolean)
             .join(" · ") || session.identity.username}
         </p>

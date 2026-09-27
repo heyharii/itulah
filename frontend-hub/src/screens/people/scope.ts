@@ -13,7 +13,7 @@ import { employerScope, useReach } from "@/lib/queries/people"
 /// The answer comes from the server, which resolves it from the caller's rung
 /// and their own posting: the Admin rung reaches every place, any posting
 /// reaches that one place, and no posting reaches nothing. Deriving it here
-/// from `place_id === "ho"` would put the rule in two files, and the day they
+/// from `unit_id === "ho"` would put the rule in two files, and the day they
 /// disagreed the sidebar would be the one that looked right — which is exactly
 /// how head office stopped being a pass to every place without this file
 /// noticing. See `domain::employment::reach`: head office employs buyers and

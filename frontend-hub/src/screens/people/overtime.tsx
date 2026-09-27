@@ -313,7 +313,7 @@ function OrderSheet({
         <Fact term="Employee">
           <span className="font-mono text-id">{order.employee_id}</span>
         </Fact>
-        <Fact term="Place">{order.place_id}</Fact>
+        <Fact term="Unit">{order.unit_id}</Fact>
         <Fact term="Day">{order.day_kind.toLowerCase()}</Fact>
         <Fact term="Ordered">{readMinutesSpan(order.planned_minutes)}</Fact>
         {/* The figure anything downstream may act on. Absent until agreed. */}

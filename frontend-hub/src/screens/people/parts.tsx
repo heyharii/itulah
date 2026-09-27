@@ -30,7 +30,7 @@ export function Quiet({ children }: { children: React.ReactNode }) {
 /// # Why this exists
 ///
 /// The roster and the period close are screens about **one place**, and both
-/// took that place from `reach.place_id` — the caller's own posting. For a
+/// took that place from `reach.unit_id` — the caller's own posting. For a
 /// store manager that is right and is the whole rule. For head office it was
 /// wrong in a way nothing on the screen admitted: an HR officer posted to `ho`
 /// was served head office's own roster and head office's own months, and no
@@ -69,7 +69,7 @@ export function useUnit(): {
   readonly choosing: boolean
 } {
   const reach = useReach()
-  const posted = reach.data?.place_id ?? null
+  const posted = reach.data?.unit_id ?? null
   const employer = employerScope(reach.data) === true
   const places = usePlaces()
   const [chosen, setChosen] = useState<string | null>(null)
@@ -91,7 +91,7 @@ export function useUnit(): {
     places: offered,
     name:
       offered.find((one) => one.id === place)?.name ??
-      reach.data?.place_name ??
+      reach.data?.unit_name ??
       place,
     employer,
     choosing: offered.length > 1,

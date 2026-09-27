@@ -111,11 +111,11 @@ const queueColumns: ColumnDef<TableSetup, GrievanceRow>[] = [
   },
   {
     id: "place",
-    accessorFn: (row) => row.place_name ?? row.place_id,
-    header: "Place",
+    accessorFn: (row) => row.unit_name ?? row.unit_id,
+    header: "Unit",
     size: 160,
     meta: { filter: { kind: "option" } },
-    cell: ({ row }) => row.original.place_name ?? row.original.place_id,
+    cell: ({ row }) => row.original.unit_name ?? row.original.unit_id,
   },
   {
     id: "filed",
@@ -177,11 +177,11 @@ const listColumns: ColumnDef<TableSetup, GrievanceRow>[] = [
   },
   {
     id: "place",
-    accessorFn: (row) => row.place_name ?? row.place_id,
-    header: "Place",
+    accessorFn: (row) => row.unit_name ?? row.unit_id,
+    header: "Unit",
     size: 150,
     meta: { filter: { kind: "option" } },
-    cell: ({ row }) => row.original.place_name ?? row.original.place_id,
+    cell: ({ row }) => row.original.unit_name ?? row.original.unit_id,
   },
   {
     id: "filed",
@@ -662,7 +662,7 @@ function GrievanceSheet({
           {row.against_name ??
             row.against_employee ?? <span className="text-mute">—</span>}
         </Fact>
-        <Fact term="Place">{row.place_name ?? row.place_id}</Fact>
+        <Fact term="Unit">{row.unit_name ?? row.unit_id}</Fact>
         <Fact term="Kind">{row.type_name}</Fact>
         <Fact term="Filed">{moment(row.created_at)}</Fact>
         {row.investigated_at !== null && (

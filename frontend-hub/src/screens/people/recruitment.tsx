@@ -166,7 +166,7 @@ export function Recruitment() {
                   {(plans.data ?? []).map((plan) => (
                     <div key={plan.id} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
                       <span className="text-body">
-                        <span className="font-mono text-id">{plan.place_id}</span> ·{" "}
+                        <span className="font-mono text-id">{plan.unit_id}</span> ·{" "}
                         {plan.position}
                       </span>
                       <span className="text-meta text-body">

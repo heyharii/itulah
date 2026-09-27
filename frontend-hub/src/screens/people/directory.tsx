@@ -176,7 +176,7 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
   },
   {
     id: "place",
-    accessorFn: (row) => row.place_name ?? row.place_id ?? "",
+    accessorFn: (row) => row.unit_name ?? row.unit_id ?? "",
     header: "Posted to",
     size: 160,
     /// Faceted from the rows the server already bounded to this caller's own
@@ -185,8 +185,8 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
     /// ask for exactly them.
     meta: { filter: { kind: "option" } },
     cell: ({ row }) =>
-      row.original.place_id ? (
-        (row.original.place_name ?? row.original.place_id)
+      row.original.unit_id ? (
+        (row.original.unit_name ?? row.original.unit_id)
       ) : (
         <span className="text-mute">Unposted</span>
       ),
@@ -560,7 +560,7 @@ function EmployeeSheetBody({
 
       <Facts>
         <Fact term="Posted to">
-          {person.current_place_name ?? person.current_place_id ?? "—"}
+          {person.current_unit_name ?? person.current_unit_id ?? "—"}
         </Fact>
         <Fact term="Login">
           {person.account === null ? (
@@ -612,11 +612,11 @@ function EmployeeSheetBody({
                 >
                   {person.assignments.map((assignment) => (
                     <MiniRow
-                      key={`${assignment.place_id}-${assignment.valid_from}`}
+                      key={`${assignment.unit_id}-${assignment.valid_from}`}
                     >
                       <MiniCell>
                         <span className="block text-[0.875rem] text-ink">
-                          {assignment.place_name ?? assignment.place_id}
+                          {assignment.unit_name ?? assignment.unit_id}
                         </span>
                         <span className="font-mono text-[0.875rem] text-mute">
                           {assignment.actor} · {assignment.reason}

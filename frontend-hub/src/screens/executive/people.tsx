@@ -63,12 +63,12 @@ export function ExecutivePeople() {
   })
 
   const here = <
-    T extends { site_id?: string | null; place_id?: string | null },
+    T extends { site_id?: string | null; unit_id?: string | null },
   >(
     row: T
   ) =>
     scope.store === undefined ||
-    (row.site_id ?? row.place_id ?? null) === scope.store
+    (row.site_id ?? row.unit_id ?? null) === scope.store
 
   const rows = (locations.data ?? []).filter(here)
   const repairs = rows.reduce((sum, row) => sum + row.open_repair_count, 0)
@@ -196,7 +196,7 @@ export function ExecutivePeople() {
                           </span>
                         </MiniCell>
                         <MiniCell align="right">
-                          {row.place_id === null ? "—" : nameOf(row.place_id)}
+                          {row.unit_id === null ? "—" : nameOf(row.unit_id)}
                         </MiniCell>
                         <MiniCell align="right">{day(row.ends_on)}</MiniCell>
                         <MiniCell align="right">

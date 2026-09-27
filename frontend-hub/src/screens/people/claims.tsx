@@ -90,13 +90,13 @@ const queueColumns: ColumnDef<TableSetup, ClaimRow>[] = [
   },
   {
     id: "place",
-    accessorFn: (row) => row.place_name ?? row.place_id,
-    header: "Place",
+    accessorFn: (row) => row.unit_name ?? row.unit_id,
+    header: "Unit",
     size: 160,
     /// Faceted from the rows the server already bounded to this caller's own
     /// reach — the only list of places that can be right here.
     meta: { filter: { kind: "option" } },
-    cell: ({ row }) => row.original.place_name ?? row.original.place_id,
+    cell: ({ row }) => row.original.unit_name ?? row.original.unit_id,
   },
   {
     id: "posted",
@@ -155,11 +155,11 @@ const listColumns: ColumnDef<TableSetup, ClaimRow>[] = [
   },
   {
     id: "place",
-    accessorFn: (row) => row.place_name ?? row.place_id,
-    header: "Place",
+    accessorFn: (row) => row.unit_name ?? row.unit_id,
+    header: "Unit",
     size: 150,
     meta: { filter: { kind: "option" } },
-    cell: ({ row }) => row.original.place_name ?? row.original.place_id,
+    cell: ({ row }) => row.original.unit_name ?? row.original.unit_id,
   },
   {
     id: "posted",
@@ -632,7 +632,7 @@ function ClaimSheet({
         <Fact term="Employee">
           <span className="font-mono text-id">{row.employee_id}</span>
         </Fact>
-        <Fact term="Place">{row.place_name ?? row.place_id}</Fact>
+        <Fact term="Unit">{row.unit_name ?? row.unit_id}</Fact>
         <Fact term="Filed">{day(row.posted_on)}</Fact>
         <Fact term="Filed by">{row.claimed_by}</Fact>
         <Fact term="Claimed">{money(row.claimed_minor)}</Fact>

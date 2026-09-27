@@ -112,7 +112,7 @@ export interface EmployeeFilters {
   readonly q?: string
   readonly status?: string
   readonly placeId?: string
-  /// `code`, `name`, `contract_end` or `place` — the closed set the server
+  /// `code`, `name`, `contract_end` or `unit` — the closed set the server
   /// names. Anything else is the house order rather than an error.
   readonly sort?: string
   /// `desc`, or left out for ascending.
@@ -181,19 +181,19 @@ export const peopleKeys = {
 ///
 /// The envelope is the shape `GET /finance/money` established — the rows, an
 /// opaque `next_cursor`, the `total` of everything MATCHED rather than of the
-/// page, and facet counts to fill a filter panel with. `place_id` is the place
+/// page, and facet counts to fill a filter panel with. `unit_id` is the place
 /// the server actually answered about, which for a caller posted to one shop is
 /// their shop whether or not they asked: a directory that silently showed eight
 /// people where the company has ninety would read as a company of eight.
 ///
-/// `facets.places` is empty for such a caller. That is not "no places matched"
+/// `facets.units` is empty for such a caller. That is not "no places matched"
 /// — it is "you reach one place, so there is no choice to offer".
 ///
 /// Typed structurally rather than against the generated `EmployeeList`, only
 /// until `make contract` is next run. When it is, this becomes that import and
 /// the shape below goes.
 interface WorkforcePage {
-  readonly place_id: string | null
+  readonly unit_id: string | null
   readonly rows: EmployeeSummary[]
   readonly next_cursor: string | null
   readonly total: number
@@ -203,7 +203,7 @@ interface WorkforcePage {
       readonly label: string | null
       readonly count: number
     }>
-    readonly places: ReadonlyArray<{
+    readonly units: ReadonlyArray<{
       readonly value: string
       readonly label: string | null
       readonly count: number
@@ -218,7 +218,7 @@ export function listWorkforce(
   const params = new URLSearchParams()
   if (filters.q) params.set("q", filters.q)
   if (filters.status) params.set("status", filters.status)
-  if (filters.placeId) params.set("place_id", filters.placeId)
+  if (filters.placeId) params.set("unit_id", filters.placeId)
   if (filters.sort) params.set("sort", filters.sort)
   if (filters.dir) params.set("dir", filters.dir)
   if (filters.cursor) params.set("cursor", filters.cursor)
@@ -283,7 +283,7 @@ export function readAttendancePolicy(
 
 /// Which places this caller may act in, and where they are posted.
 ///
-/// Answered by the server rather than derived here from `place_id`. The rule —
+/// Answered by the server rather than derived here from `unit_id`. The rule —
 /// head office reaches everywhere, a shop reaches itself, no posting reaches
 /// nothing — is enforced on every route, and a browser that re-implemented it
 /// would be a second place it is decided. When the two disagreed, the screen
@@ -340,7 +340,7 @@ export function assignToPlace(
   return node.post<EmployeeView>(
     `/api/v1/employees/${encodeURIComponent(employeeId)}/assignments`,
     {
-      place_id: placeId,
+      unit_id: placeId,
       valid_from: validFrom,
       valid_to: validTo && validTo !== "" ? validTo : null,
       reason,
@@ -582,7 +582,7 @@ export interface PlaceChoice {
 /// facets are wanted — the rows are the part this call throws away.
 ///
 /// **Empty is the honest answer for a bounded caller**, by the server's own
-/// design: `facets.places` is empty when the caller reaches one place, because
+/// design: `facets.units` is empty when the caller reaches one place, because
 /// a filter offering a single value is a control that cannot change anything.
 /// So a store manager gets no picker, which is what should happen — they were
 /// never choosing.
@@ -591,7 +591,7 @@ export function usePlaces() {
     queryKey: peopleKeys.places(),
     queryFn: ({ signal }) =>
       listWorkforce({ limit: 1 }, signal).then((page) =>
-        page.facets.places.map((facet) => ({
+        page.facets.units.map((facet) => ({
           id: facet.value,
           name: facet.label ?? facet.value,
           employees: facet.count,
@@ -616,8 +616,8 @@ export function employerScope(reach: ReachView | undefined): boolean | null {
 /// The place a bounded caller is posted to, for a screen that has to say whose
 /// list this is. `null` for head office, which is not standing in one shop.
 export function boundedTo(reach: ReachView | undefined): string | null {
-  if (reach === undefined || reach.scope !== "ONE_PLACE") return null
-  return reach.place_name ?? reach.place_id
+  if (reach === undefined || reach.scope !== "ONE_UNIT") return null
+  return reach.unit_name ?? reach.unit_id
 }
 
 // ── issuing a login ────────────────────────────────────────────────────────
@@ -899,7 +899,7 @@ export function publishCalendar(
       date: holiday.date,
       name: holiday.name,
       kind: holiday.kind,
-      places: holiday.places,
+      units: holiday.places,
     })),
     reason,
   })
@@ -924,7 +924,7 @@ export function amendCalendar(
         date: holiday.date,
         name: holiday.name,
         kind: holiday.kind,
-        places: holiday.places,
+        units: holiday.places,
       },
       reason,
     }
@@ -1115,7 +1115,7 @@ export function placeRoster(
   to: string,
   signal?: AbortSignal
 ): Promise<RosterDayView[]> {
-  const params = new URLSearchParams({ place, from, to })
+  const params = new URLSearchParams({ unit: place, from, to })
   return node.get<RosterDayView[]>(`/api/v1/roster?${params.toString()}`, {
     signal,
   })
@@ -1148,7 +1148,7 @@ export function attendancePeriods(
   signal?: AbortSignal
 ): Promise<PeriodView[]> {
   return node.get<PeriodView[]>(
-    `/api/v1/attendance-periods?place=${encodeURIComponent(place)}`,
+    `/api/v1/attendance-periods?unit=${encodeURIComponent(place)}`,
     { signal }
   )
 }
@@ -1276,7 +1276,7 @@ export function openRun(
   reason: string
 ): Promise<PayrollRunView> {
   return node.post<PayrollRunView>("/api/v1/payroll/runs", {
-    place_id: placeId,
+    unit_id: placeId,
     period,
     reason,
   })
@@ -1410,7 +1410,7 @@ export function handoverLabel(state: string): string {
 /// below goes.
 export interface PayrollAdjustmentRow {
   readonly id: string
-  readonly place_id: string
+  readonly unit_id: string
   /// `YYYY-MM`.
   readonly period: string
   readonly employee_id: string
@@ -1455,7 +1455,7 @@ export function listAdjustments(
   signal?: AbortSignal
 ): Promise<PayrollAdjustmentRow[]> {
   const params = new URLSearchParams()
-  if (options.place) params.set("place", options.place)
+  if (options.place) params.set("unit", options.place)
   if (options.period) params.set("period", options.period)
   const suffix = params.size > 0 ? `?${params.toString()}` : ""
   return node.get<PayrollAdjustmentRow[]>(
@@ -1482,7 +1482,7 @@ export function fileAdjustment(ask: {
   readonly advanceId?: string
 }): Promise<PayrollAdjustmentRow[]> {
   return node.post<PayrollAdjustmentRow[]>("/api/v1/payroll/adjustments", {
-    place_id: ask.placeId,
+    unit_id: ask.placeId,
     period: ask.period,
     employee_id: ask.employeeId,
     component_code: ask.componentCode,
@@ -1557,7 +1557,7 @@ export interface HireAsk extends HireTerms {
 
 /// Everything a revision may change — which is everything except where.
 ///
-/// `ReviseBody` on the server is `deny_unknown_fields` and has no `place_id`,
+/// `ReviseBody` on the server is `deny_unknown_fields` and has no `unit_id`,
 /// deliberately: *"a proposal that changed shops would be a different
 /// proposal"*. So sending one is not a harmless extra field, it is a rejected
 /// request — and the shape here says so rather than leaving the caller to find
@@ -1578,7 +1578,7 @@ function termsBody(terms: HireTerms) {
 
 export function proposeHire(ask: HireAsk): Promise<HireProposalView> {
   return node.post<HireProposalView>("/api/v1/hire-proposals", {
-    place_id: ask.placeId,
+    unit_id: ask.placeId,
     ...termsBody(ask),
   })
 }
@@ -1648,7 +1648,7 @@ export function readToday(
   date?: string,
   signal?: AbortSignal
 ): Promise<TodayView> {
-  const params = new URLSearchParams({ place })
+  const params = new URLSearchParams({ unit: place })
   if (date) params.set("date", date)
   return node.get<TodayView>(`/api/v1/attendance/today?${params.toString()}`, {
     signal,
@@ -1673,7 +1673,7 @@ export function punchReadiness(
   period: string,
   signal?: AbortSignal
 ): Promise<PunchReadinessView> {
-  const params = new URLSearchParams({ place, period })
+  const params = new URLSearchParams({ unit: place, period })
   return node.get<PunchReadinessView>(
     `/api/v1/attendance/punch-readiness?${params.toString()}`,
     { signal }
@@ -1687,7 +1687,7 @@ export function listCorrections(
   signal?: AbortSignal
 ): Promise<CorrectionRow[]> {
   const params = new URLSearchParams()
-  if (options.place) params.set("place", options.place)
+  if (options.place) params.set("unit", options.place)
   params.set("pending", String(options.pending ?? false))
   return node.get<CorrectionRow[]>(
     `/api/v1/attendance-corrections?${params.toString()}`,
@@ -1757,21 +1757,23 @@ export function listTerminals(
   place?: string,
   signal?: AbortSignal
 ): Promise<TerminalRow[]> {
-  const suffix = place ? `?place=${encodeURIComponent(place)}` : ""
+  const suffix = place ? `?unit=${encodeURIComponent(place)}` : ""
   return node.get<TerminalRow[]>(`/api/v1/attendance-terminals${suffix}`, {
     signal,
   })
 }
 
+/// Register a station **at a site**: it is a machine on a wall, so the server
+/// asks where it is installed and reads the unit it attests for off the site.
 export function registerTerminal(body: {
   terminalId: string
-  placeId: string
+  siteId: string
   name: string
   reason: string
 }): Promise<TerminalRow[]> {
   return node.post<TerminalRow[]>("/api/v1/attendance-terminals", {
     terminal_id: body.terminalId,
-    place_id: body.placeId,
+    site_id: body.siteId,
     name: body.name,
     reason: body.reason,
   })
@@ -1816,7 +1818,7 @@ export function withdrawFinger(
 /// terminal with the line down still greets by name and knows the shift.
 export function publishEmployeeBook(placeId: string): Promise<BookPublished> {
   return node.post<BookPublished>("/api/v1/attendance/employee-book", {
-    place_id: placeId,
+    unit_id: placeId,
   })
 }
 
@@ -1875,8 +1877,8 @@ export interface ClaimLineRow {
 export interface ClaimRow {
   readonly claim_id: string
   readonly claim_number: string
-  readonly place_id: string
-  readonly place_name: string | null
+  readonly unit_id: string
+  readonly unit_name: string | null
   readonly employee_id: string
   readonly employee_code: string | null
   readonly employee_name: string | null
@@ -2038,7 +2040,7 @@ export function listClaims(
   signal?: AbortSignal
 ): Promise<ClaimRow[]> {
   const params = new URLSearchParams()
-  if (filters.place) params.set("place", filters.place)
+  if (filters.place) params.set("unit", filters.place)
   if (filters.state) params.set("state", filters.state)
   if (filters.employee) params.set("employee", filters.employee)
   const suffix = params.size > 0 ? `?${params.toString()}` : ""
@@ -2281,8 +2283,8 @@ export interface GrievanceEventRow {
 
 export interface GrievanceRow {
   readonly grievance_id: string
-  readonly place_id: string
-  readonly place_name: string | null
+  readonly unit_id: string
+  readonly unit_name: string | null
   readonly type_code: string
   /// Resolved from the catalogue on the server, falling back to the code —
   /// the words survive even if the kind is retired.
@@ -2520,8 +2522,8 @@ export interface ExitInterviewRow {
   readonly employee_id: string
   readonly employee_code: string | null
   readonly employee_name: string | null
-  readonly place_id: string
-  readonly place_name: string | null
+  readonly unit_id: string
+  readonly unit_name: string | null
   readonly state: ExitInterviewState
   readonly employee_stance: ExitStance
   readonly interview_summary: string | null
@@ -2550,8 +2552,8 @@ export interface FnFRow {
   readonly employee_id: string
   readonly employee_code: string | null
   readonly employee_name: string | null
-  readonly place_id: string
-  readonly place_name: string | null
+  readonly unit_id: string
+  readonly unit_name: string | null
   readonly transaction_on: string
   readonly state: FnFState
   /// The aggregated reads, frozen at creation and compared again at settle.
@@ -2784,7 +2786,7 @@ export type RosterSwapView = {
   id: string
   employee_id: string
   with_employee_id: string
-  place_id: string
+  unit_id: string
   on_date: string
   reason: string
   state: "PENDING" | "APPROVED" | "REJECTED" | "WITHDRAWN"
@@ -2795,7 +2797,7 @@ export type RosterSwapView = {
 export type ChangeProposalView = {
   id: string
   employee_id: string
-  place_id: string
+  unit_id: string
   kind: "PROMOTION" | "TRANSFER" | "SALARY" | "SEPARATION"
   props: { field: string; from: string; to: string }[]
   effective_on: string
@@ -2821,7 +2823,7 @@ export type LifecycleTaskView = {
 
 export type StaffingPlanView = {
   id: string
-  place_id: string
+  unit_id: string
   position: string
   span: string
   headcount: number
@@ -2831,7 +2833,7 @@ export type StaffingPlanView = {
 export type ApplicantView = {
   id: string
   proposal_id: string
-  place_id: string
+  unit_id: string
   name: string
   phone: string | null
   source: string
@@ -2987,12 +2989,12 @@ export function decideSwap(
 // ── employment change proposals ─────────────────────────────────────────────
 
 export function listChangeProposals(
-  query: { state?: string; place_id?: string } = {},
+  query: { state?: string; unit_id?: string } = {},
   signal?: AbortSignal
 ): Promise<ChangeProposalView[]> {
   const params = new URLSearchParams()
   if (query.state) params.set("state", query.state)
-  if (query.place_id) params.set("place_id", query.place_id)
+  if (query.unit_id) params.set("unit_id", query.unit_id)
   const suffix = params.size > 0 ? `?${params.toString()}` : ""
   return node.get<ChangeProposalView[]>(`/api/v1/change-proposals${suffix}`, {
     signal,
@@ -3059,7 +3061,7 @@ export function listStaffingPlans(
 }
 
 export function defineStaffingPlan(body: {
-  place_id: string
+  unit_id: string
   position: string
   span: string
   headcount: number
@@ -3184,12 +3186,12 @@ export function listPerformanceTemplates(
 }
 
 export function listPerformanceScores(
-  query: { period?: string; place_id?: string } = {},
+  query: { period?: string; unit_id?: string } = {},
   signal?: AbortSignal
 ): Promise<PerformanceScoreView[]> {
   const params = new URLSearchParams()
   if (query.period) params.set("period", query.period)
-  if (query.place_id) params.set("place_id", query.place_id)
+  if (query.unit_id) params.set("unit_id", query.unit_id)
   const suffix = params.size > 0 ? `?${params.toString()}` : ""
   return node.get<PerformanceScoreView[]>(
     `/api/v1/performance/scores${suffix}`,

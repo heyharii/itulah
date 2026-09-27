@@ -365,7 +365,7 @@ const columns: ColumnDef<TableSetup, HireProposalView>[] = [
     /// The unit's own name, falling back to its id. `store-07` is a primary key
     /// and the server sends `Store 07` beside it; a screen showing the key is an
     /// identifier that has escaped into the interface.
-    accessorFn: (row) => row.place_name ?? row.place_id,
+    accessorFn: (row) => row.unit_name ?? row.unit_id,
     header: "Unit",
     size: 140,
     meta: { filter: { kind: "option" }, priority: 2 },
@@ -908,7 +908,7 @@ function ProposalSheet({
       caption={
         proposal === null
           ? undefined
-          : `${proposal.place_name ?? proposal.place_id} · version ${proposal.current_version} of ${proposal.versions.length} · last moved ${moment(proposal.updated_at)}`
+          : `${proposal.unit_name ?? proposal.unit_id} · version ${proposal.current_version} of ${proposal.versions.length} · last moved ${moment(proposal.updated_at)}`
       }
       tabs={
         proposal === null
@@ -986,7 +986,7 @@ function Request({
       )}
 
       <Facts>
-        <Fact term="Unit">{proposal.place_name ?? proposal.place_id}</Fact>
+        <Fact term="Unit">{proposal.unit_name ?? proposal.unit_id}</Fact>
         <Fact term="Position">{version.position}</Fact>
         <Fact term="Why the job exists">{needLabel(version.need)}</Fact>
         <Fact term="Asked for">{count(version.headcount)}</Fact>
@@ -1156,7 +1156,7 @@ function Revise({
     /// The unit does not travel. A revision may change the pay or the start
     /// date; a proposal that changed shops would be a different proposal, and
     /// the server has no field for one.
-    mutationFn: () => reviseHire(proposal.id, askOf(terms, proposal.place_id)),
+    mutationFn: () => reviseHire(proposal.id, askOf(terms, proposal.unit_id)),
     onSuccess: () => {
       setFailed(null)
       void client.invalidateQueries({ queryKey: hireKeys.all })

@@ -35,9 +35,9 @@ import {
   readEnrolment,
   registerTerminal,
   setTerminalStatus,
-  usePlaces,
   withdrawFinger,
 } from "@/lib/queries/people"
+import { siteChoices, useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -205,7 +205,7 @@ function stationColumns(monday: number): ColumnDef<TableSetup, TerminalRow>[] {
     },
     {
       id: "unit",
-      accessorFn: (row) => row.place_name ?? row.place_id,
+      accessorFn: (row) => row.unit_name ?? row.unit_id,
       header: "Unit",
       size: 150,
       meta: { card: "meta" },
@@ -452,7 +452,7 @@ export function Terminals() {
 
   const standing = enrolments.rows
   const here = useMemo(
-    () => rows.filter((row) => row.place_id === place),
+    () => rows.filter((row) => row.unit_id === place),
     [rows, place]
   )
   const open = rows.find((row) => row.id === sheet.value)
@@ -543,7 +543,7 @@ export function Terminals() {
       .forEach((row) => {
         const how = silence(row, monday)
         if (how === null) return
-        const where = row.place_name ?? row.place_id
+        const where = row.unit_name ?? row.unit_id
         out.push({
           id: `quiet-${row.id}`,
           severity: "medium",
@@ -573,7 +573,7 @@ export function Terminals() {
       .filter(
         (row) =>
           row.status === "ACTIVE" &&
-          row.place_id !== place &&
+          row.unit_id !== place &&
           row.enrolled_people === 0
       )
       .forEach((row) => {
@@ -581,10 +581,10 @@ export function Terminals() {
           id: `empty-${row.id}`,
           severity: "high",
           icon: <Fingerprint className="size-4 stroke-[1.7]" />,
-          title: `Nobody is enrolled at ${row.place_name ?? row.place_id}`,
+          title: `Nobody is enrolled at ${row.unit_name ?? row.unit_id}`,
           detail: `${row.name} is active and holds no fingers, so the whole unit is locked out. Pick the unit above to see who.`,
           amount: "0 on file",
-          onOpen: () => unit.setPlace(row.place_id),
+          onOpen: () => unit.setPlace(row.unit_id),
         })
       })
 
@@ -1118,7 +1118,7 @@ function StationSheet({
       caption={
         station === undefined
           ? undefined
-          : `${station.place_name ?? station.place_id} · registered by ${station.registered_by} on ${day(station.registered_at)}`
+          : `${station.unit_name ?? station.unit_id} · registered by ${station.registered_by} on ${day(station.registered_at)}`
       }
       badge={
         station === undefined ? undefined : (
@@ -1142,7 +1142,8 @@ function StationSheet({
       ) : (
         <div className="flex flex-col gap-4">
           <Facts>
-            <Fact term="Unit">{station.place_name ?? station.place_id}</Fact>
+            <Fact term="Unit">{station.unit_name ?? station.unit_id}</Fact>
+            <Fact term="Installed at">{station.site_name ?? station.site_id}</Fact>
             <Fact term="How it identifies">
               {station.method === "FINGERPRINT" ? "Fingerprint" : station.method}
             </Fact>
@@ -1258,7 +1259,9 @@ function StationSheet({
 /// linkable.
 interface StationDraft {
   readonly terminalId: string
-  readonly placeId: string
+  /// Where it is installed. A site, not a unit: the unit it attests for is the
+  /// one that owns the site, and the server reads it from there.
+  readonly siteId: string
   readonly name: string
   readonly reason: string
 }
@@ -1275,15 +1278,25 @@ function RegisterSheet({
   onDone: () => void
 }) {
   const client = useQueryClient()
-  const places = usePlaces()
+  const units = useUnits()
+  const sites = useMemo(() => siteChoices(units.data ?? []), [units.data])
   const [draft, setDraft] = useState<StationDraft>({
     terminalId: "",
-    placeId: "",
+    siteId: "",
     name: "",
     reason: "",
   })
 
-  const chosenPlace = draft.placeId === "" ? (place ?? "") : draft.placeId
+  // The unit being looked at, when it has exactly one site, is the default:
+  // a store's only premises is its shop. Head office has one today too (the
+  // Gudang), but a unit with two sites makes somebody choose.
+  const onlySiteHere = sites.filter((one) => one.unitId === place)
+  const chosenSite =
+    draft.siteId !== ""
+      ? draft.siteId
+      : onlySiteHere.length === 1
+        ? (onlySiteHere[0]?.siteId ?? "")
+        : ""
 
   const register = useMutation({
     // Wrapped rather than passed by reference: v5 hands a mutation context as
@@ -1291,14 +1304,14 @@ function RegisterSheet({
     mutationFn: () =>
       registerTerminal({
         terminalId: draft.terminalId.trim(),
-        placeId: chosenPlace,
+        siteId: chosenSite,
         name: draft.name.trim(),
         reason: draft.reason.trim(),
       }),
     onSuccess: () => {
       onDone()
       void client.invalidateQueries({ queryKey: punchKeys.terminals(null) })
-      setDraft({ terminalId: "", placeId: "", name: "", reason: "" })
+      setDraft({ terminalId: "", siteId: "", name: "", reason: "" })
       register.reset()
       onClose()
     },
@@ -1306,7 +1319,7 @@ function RegisterSheet({
 
   const ready =
     draft.terminalId.trim() !== "" &&
-    chosenPlace !== "" &&
+    chosenSite !== "" &&
     draft.name.trim() !== "" &&
     draft.reason.trim() !== "" &&
     !register.isPending
@@ -1355,17 +1368,17 @@ function RegisterSheet({
         </Field>
 
         <Field
-          label="Unit"
-          hint="One unit, never a blank one: a station whose place can be left empty is a station that can punch anywhere."
+          label="Installed at"
+          hint="One site, never a blank one: a station whose site can be left empty is a station that can punch anywhere. It attests for the unit that owns the site."
         >
           <Select
-            value={chosenPlace}
-            onChange={(next) => setDraft({ ...draft, placeId: next })}
+            value={chosenSite}
+            onChange={(next) => setDraft({ ...draft, siteId: next })}
           >
-            <option value="">Choose a unit…</option>
-            {(places.data ?? []).map((one) => (
-              <option key={one.id} value={one.id}>
-                {one.name}
+            <option value="">Choose a site…</option>
+            {sites.map((one) => (
+              <option key={one.siteId} value={one.siteId}>
+                {one.label}
               </option>
             ))}
           </Select>

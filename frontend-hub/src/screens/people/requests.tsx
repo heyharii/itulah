@@ -154,8 +154,8 @@ const columns: ColumnDef<TableSetup, LeaveRow>[] = [
     cell: ({ row }) => row.original.chargeable_days,
   },
   {
-    accessorKey: "place_id",
-    header: "Place",
+    accessorKey: "unit_id",
+    header: "Unit",
     size: 130,
     /// Faceted from the queue itself, never from a places list: the server has
     /// already bounded these rows to the caller's own reach, so the places
@@ -200,7 +200,7 @@ const correctionColumns: ColumnDef<TableSetup, CorrectionRow>[] = [
     cell: ({ row }) => correctedTime(row.original.corrected_departure),
   },
   { accessorKey: "reason", header: "Reason", size: 240 },
-  { accessorKey: "place_id", header: "Place", size: 130 },
+  { accessorKey: "unit_id", header: "Unit", size: 130 },
 ]
 
 const swapColumns: ColumnDef<TableSetup, SwapRow>[] = [
@@ -230,7 +230,7 @@ const swapColumns: ColumnDef<TableSetup, SwapRow>[] = [
     cell: ({ row }) => day(row.original.on_date),
   },
   { accessorKey: "reason", header: "Reason", size: 240 },
-  { accessorKey: "place_id", header: "Place", size: 130 },
+  { accessorKey: "unit_id", header: "Unit", size: 130 },
 ]
 
 export function Requests() {
@@ -651,7 +651,7 @@ function RequestSheet({
         <Fact term="Employee">
           <Who id={request.employee_id} name={request.name} />
         </Fact>
-        <Fact term="Place">{request.place_id}</Fact>
+        <Fact term="Unit">{request.unit_id}</Fact>
         <Fact term="From">{day(request.from_date)}</Fact>
         <Fact term="To">{day(request.to_date)}</Fact>
         {/* Not the length of the span. The server settled which days this
@@ -726,7 +726,7 @@ function CorrectionSheet({
 
       <Facts>
         <Fact term="Employee">{correction.display_name}</Fact>
-        <Fact term="Place">{correction.place_id}</Fact>
+        <Fact term="Unit">{correction.unit_id}</Fact>
         <Fact term="Day">{day(correction.business_date)}</Fact>
         <Fact term="Claims">{effectLabel(correction.effect)}</Fact>
         {correction.corrected_arrival !== null && (
@@ -817,7 +817,7 @@ function SwapSheet({
         <Fact term="Swaps with">
           <Who id={swap.with_employee_id} name={swap.withName} />
         </Fact>
-        <Fact term="Place">{swap.place_id}</Fact>
+        <Fact term="Unit">{swap.unit_id}</Fact>
         <Fact term="Day">{day(swap.on_date)}</Fact>
         <Fact term="Asked by">{swap.requested_by}</Fact>
         <Fact term="Reason">{swap.reason}</Fact>

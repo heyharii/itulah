@@ -249,7 +249,7 @@ function FileSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
           kind === "SALARY"
             ? [{ field: "base_minor", to_minor: Number(toMinor) }]
             : kind === "TRANSFER"
-              ? [{ field: "place_id", to_text: toText }]
+              ? [{ field: "unit_id", to_text: toText }]
               : [{ field, to_text: toText }],
         effective_on: effectiveOn,
         reason,

@@ -96,8 +96,8 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
       ) : (
         <span className="text-ink">
           {row.original.employee_name ?? row.original.employee_code}
-          {row.original.place_name && (
-            <span className="text-mute"> · {row.original.place_name}</span>
+          {row.original.unit_name && (
+            <span className="text-mute"> · {row.original.unit_name}</span>
           )}
         </span>
       ),
