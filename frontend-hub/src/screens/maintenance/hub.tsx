@@ -22,7 +22,8 @@ import {
   moveGaRepair,
   moveGaReplacement,
 } from "@/lib/queries/ga"
-import { financeKeys, siteAccounts } from "@/lib/queries/finance"
+import { financeKeys, unitAccounts } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import { searchDocuments, uploadDocument } from "@/lib/queries/workplace"
 import { useIdentity } from "@/lib/session"
 import { cn } from "@/lib/utils"
@@ -690,11 +691,20 @@ function ReplacementAccounts({ row }: { row: GaReplacementRow }) {
     queryFn: ({ signal }) => gaAssetHub(row.old_asset_id, signal),
     staleTime: 5 * 60 * 1000,
   })
+  // The asset stays at its site; its accounts are the books of the unit
+  // owning that site (0605).
   const site = oldAsset.data?.asset.site_id ?? null
+  const units = useUnits()
+  const unit =
+    site === null
+      ? null
+      : ((units.data ?? []).find((one) =>
+          one.sites.some((premises) => premises.id === site)
+        )?.id ?? null)
   const map = useQuery({
-    queryKey: financeKeys.siteAccounts(site),
-    queryFn: ({ signal }) => siteAccounts(site, signal),
-    enabled: site !== null,
+    queryKey: financeKeys.unitAccounts(unit),
+    queryFn: ({ signal }) => unitAccounts(unit, signal),
+    enabled: unit !== null,
     staleTime: 5 * 60 * 1000,
   })
 
