@@ -664,8 +664,12 @@ pub async fn open_run(
          decided — never what was worked"
             .to_owned(),
     );
+    // Named by the unit's client code (`PR-2026-09-C004`), never its internal
+    // id. Runs are looked up by the whole id, so ones opened under the old
+    // spelling keep theirs; one run per unit and month is the database's rule.
+    let printed = infrastructure::unit_code(&state.db, unit.as_str()).await?;
     let run = PayrollRun::draft(
-        format!("PR-{}-{}", body.period, body.unit_id),
+        format!("PR-{}-{printed}", body.period),
         unit,
         &body.period,
         incomplete,

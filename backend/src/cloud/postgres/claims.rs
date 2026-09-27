@@ -426,10 +426,13 @@ pub async fn insert_claim(pool: &PgPool, claim: &ExpenseClaim) -> Result<String,
     let history = serde_json::to_value(claim.history())
         .map_err(|error| corrupt("claim history", error.to_string()))?;
     let mut tx = pool.begin().await?;
+    // Counted under the unit's internal id, printed under its client code
+    // (`KLC-C004-…`), never the id.
+    let printed = super::unit_code(&mut *tx, claim.unit().as_str()).await?;
     let claim_number = next_document_number(
         &mut tx,
         &format!("KLC:{}", claim.unit().as_str()),
-        &format!("KLC-{}", claim.unit().as_str().to_uppercase()),
+        &format!("KLC-{printed}"),
         claim.posted_on(),
     )
     .await?;

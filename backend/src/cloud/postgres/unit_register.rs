@@ -178,6 +178,21 @@ pub async fn unit_kind_of(pool: &PgPool, unit: &str) -> Result<Option<String>, A
         .await?)
 }
 
+/// What paper prints for a unit: its client code (`HO`, `C004`), never the
+/// internal id. For document numbers — a claim's `KLC-`, a payroll run's
+/// `PR-` — which are looked up whole and never parsed, so the ones already
+/// issued under the id keep working beside the new ones.
+pub async fn unit_code(
+    executor: impl sqlx::PgExecutor<'_>,
+    unit: &str,
+) -> Result<String, AppError> {
+    sqlx::query_scalar("SELECT code FROM unit WHERE id = $1")
+        .bind(unit)
+        .fetch_optional(executor)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("unit {unit}")))
+}
+
 /// Is this employee the PIC in force at `unit` on `on`?
 pub async fn is_pic_of(
     pool: &PgPool,
