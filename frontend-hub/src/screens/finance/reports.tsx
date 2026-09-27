@@ -37,9 +37,9 @@ import { useAsOf, useWindow } from "@/screens/finance/hooks"
 import {
   Amount,
   AsOfControl,
-  LocationSelect,
   RankedBars,
-  SiteName,
+  UnitName,
+  UnitSelect,
   WindowControl,
 } from "@/screens/finance/parts"
 import type { BalanceRow, StatementSection } from "@itulah/contract"
@@ -100,7 +100,7 @@ const SECTION_SERIES: readonly ChartSeries[] = [
 /// not.
 export function Reports() {
   const [kind, setKind] = useState<StatementKind>("BALANCE_SHEET")
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [perLocation, setPerLocation] = useState(false)
 
   // The two tabs ask different shapes of question, so they carry different
@@ -127,7 +127,7 @@ export function Reports() {
       kind,
       from || null,
       to || null,
-      site || null
+      unit || null
     ),
     queryFn: ({ signal }) =>
       statement(
@@ -135,7 +135,7 @@ export function Reports() {
         {
           from: from || undefined,
           to: to || undefined,
-          site: site || undefined,
+          unit: unit || undefined,
         },
         signal
       ),
@@ -169,16 +169,16 @@ export function Reports() {
         ) : (
           <AsOfControl asOf={asOf} />
         )}
-        {/* One location, or every location broken out — asking for both at once
-            is a filter fighting the thing it filters, so the select goes away.
-            It is a select and not a box: the ids are `ho` and `store-01`, which
-            nothing on the page ever said, so typing was a quiz. */}
+        {/* One unit, or every unit broken out — asking for both at once is a
+            filter fighting the thing it filters, so the select goes away. It
+            is a select and not a box: the ids are ours, which nothing on the
+            page ever said, so typing was a quiz. */}
         {!spread && (
-          <LocationSelect
-            value={site}
-            onChange={setSite}
+          <UnitSelect
+            value={unit}
+            onChange={setUnit}
             className="h-8 w-44"
-            aria-label="Location"
+            aria-label="Unit"
           />
         )}
         <Checkbox
@@ -211,13 +211,13 @@ export function Reports() {
         <span className="text-[0.875rem] text-mute">
           {kind === "PROFIT_LOSS" ? range.chip : asOf.chip}
           {spread ? (
-            " · every location, broken out"
-          ) : site === "" ? (
-            " · every location"
+            " · every unit, broken out"
+          ) : unit === "" ? (
+            " · every unit"
           ) : (
             <>
               {" · "}
-              <SiteName id={site} />
+              <UnitName id={unit} />
             </>
           )}
         </span>
@@ -500,7 +500,7 @@ function LocationSpread({
     return codes
   }, [children.data])
 
-  const locations = useMemo(() => matrix.data?.locations ?? [], [matrix.data])
+  const units = useMemo(() => matrix.data?.units ?? [], [matrix.data])
   const columnTotals = useMemo(
     () => matrix.data?.column_totals ?? [],
     [matrix.data]
@@ -556,22 +556,19 @@ function LocationSpread({
           </span>
         ),
       },
-      ...locations.map((site, index): ColumnDef<TableSetup, BalanceRow> => ({
-        id: `site-${site}`,
+      ...units.map((unit, index): ColumnDef<TableSetup, BalanceRow> => ({
+        id: `unit-${unit}`,
         // The cells are read by index and not by key, because that is how the
-        // server sends them: aligned with `locations`, so a location with
-        // nothing posted is a zero and never a gap. "No cash at store 07" and
-        // "we never asked about store 07" look the same in a sparse map and
-        // are very different things to an accountant.
+        // server sends them: aligned with `units`, so a unit with nothing
+        // posted is a zero and never a gap. "No cash in C007's books" and "we
+        // never asked about C007" look the same in a sparse map and are very
+        // different things to an accountant.
         accessorFn: (row) => row.cells[index] ?? 0,
-        // The client's own name for the location — "Store 07", not
-        // `store-07`. The id is what the account codes carry and what a
-        // support call will be about, so `<SiteName>` keeps it in `title`
-        // rather than dropping it. Under the name, the server's total for
-        // the column.
+        // The client's code and name for the unit — "C007 · Brebes", never
+        // the id. Under it, the server's total for the column.
         header: () => (
           <span className="inline-flex flex-col items-end leading-tight">
-            <SiteName id={site} />
+            <UnitName id={unit} />
             <span className="text-[0.875rem] font-normal text-faint tabular-nums">
               {money(columnTotals[index] ?? 0)}
             </span>
@@ -595,7 +592,7 @@ function LocationSpread({
         ),
       },
     ],
-    [locations, columnTotals, groups]
+    [units, columnTotals, groups]
   )
 
   const table = useTable(
@@ -696,7 +693,7 @@ function LocationSpread({
                       By location, largest first
                     </h4>
                     <LocationBars
-                      locations={data.locations}
+                      units={data.units}
                       totals={data.column_totals}
                     />
                   </div>
@@ -744,23 +741,22 @@ function LocationSpread({
 /// in `parts.tsx` and this is what is left: turning a pair of parallel arrays
 /// into named rows, which is the only part of it that was ever about balances.
 function LocationBars({
-  locations,
+  units,
   totals,
 }: {
-  locations: readonly string[]
+  units: readonly string[]
   totals: readonly number[]
 }) {
   const rows = useMemo(
     () =>
-      locations.map((site, index) => ({
-        key: site,
-        // The client's own name for the shop, with the id in `title` — the
-        // same reading every other location on every other finance screen
-        // gets.
-        label: <SiteName id={site} className="text-mute" />,
+      units.map((unit, index) => ({
+        key: unit,
+        // The client's code and name for the unit — the same reading every
+        // other unit on every other finance screen gets.
+        label: <UnitName id={unit} className="text-mute" />,
         value: totals[index] ?? 0,
       })),
-    [locations, totals]
+    [units, totals]
   )
 
   return (

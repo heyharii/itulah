@@ -49,7 +49,7 @@ export function ExpenseCategories() {
   }, [list.data, needle, inactive])
 
   const unlinked = (list.data ?? []).filter(
-    (row) => row.is_active && row.linked_sites === 0
+    (row) => row.is_active && row.linked_units === 0
   ).length
 
   return (
@@ -138,7 +138,7 @@ export function ExpenseCategories() {
                             <YesNo on={row.for_claims} />
                           </Td>
                           <Td>
-                            <Reach sites={row.linked_sites} />
+                            <Reach units={row.linked_units} />
                           </Td>
                           <Td align="right">
                             <LinkAccountsButton

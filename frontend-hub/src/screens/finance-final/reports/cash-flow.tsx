@@ -19,7 +19,7 @@ import {
 } from "@/screens/finance-final/parts"
 import { MONEY_FAMILIES } from "@/screens/finance/chart"
 import { useMeaningLabel, useWindow } from "@/screens/finance/hooks"
-import { LocationSelect, SiteName, WindowControl } from "@/screens/finance/parts"
+import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
 import type { GeneralLedger, MoneyAccountRow } from "@itulah/contract"
 
 /// Where cash came from and where it went, over a window.
@@ -62,7 +62,7 @@ import type { GeneralLedger, MoneyAccountRow } from "@itulah/contract"
 /// and this page follows it.
 export function CashFlow() {
   const range = useWindow()
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const meaning = useMeaningLabel()
 
   /// The account map, read through the ledger. Asked without an as-at date on
@@ -71,9 +71,9 @@ export function CashFlow() {
   /// would fork the cache away from every other screen asking the same
   /// question.
   const map = useQuery({
-    queryKey: financeKeys.money(null, site || null),
+    queryKey: financeKeys.money(null, unit || null),
     queryFn: ({ signal }) =>
-      moneyOverview({ site: site || undefined }, signal),
+      moneyOverview({ unit: unit || undefined }, signal),
   })
 
   const families = useMemo(
@@ -105,14 +105,14 @@ export function CashFlow() {
     queries: askable.map((family) => ({
       queryKey: financeKeys.ledger(
         family.code,
-        site || null,
+        unit || null,
         range.from,
         range.to
       ),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         accountLedger(
           family.code,
-          { site: site || undefined, from: range.from, to: range.to },
+          { unit: unit || undefined, from: range.from, to: range.to },
           signal
         ),
     })),
@@ -150,11 +150,11 @@ export function CashFlow() {
 
       <Toolbar>
         <WindowControl range={range} />
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         <Toolbar.Spacer />
         {/* The effective answer, in words, always. A date box left blank and a
@@ -162,12 +162,12 @@ export function CashFlow() {
             sentence is what tells them which report they are looking at. */}
         <span className="text-[0.875rem] text-mute">
           {range.chip}
-          {site === "" ? (
+          {unit === "" ? (
             " · every unit"
           ) : (
             <>
               {" · "}
-              <SiteName id={site} />
+              <UnitName id={unit} />
             </>
           )}
         </span>
@@ -184,7 +184,7 @@ export function CashFlow() {
       ) : held.length === 0 ? (
         <EmptyState>
           No account is mapped as cash or bank
-          {site === "" ? "" : " at this unit"}, so there is nothing whose
+          {unit === "" ? "" : " in this unit"}, so there is nothing whose
           movement a cash flow could be read from. A place money can sit is a
           meaning bound to an account on the Account map.
         </EmptyState>

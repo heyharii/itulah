@@ -855,8 +855,8 @@ export interface UserScope {
   readonly role?: string
   /// `ACTIVE`, `LEFT_OPEN` (open, but its employee has left) or `DISABLED`.
   readonly state?: string
-  /// Where the person behind the login is posted.
-  readonly place_id?: string
+  /// The unit the person behind the login is posted to.
+  readonly unit_id?: string
   /// `username`, `role`, `created` or `last_login`.
   readonly sort?: string
   readonly desc?: boolean
@@ -871,7 +871,7 @@ export function usersPage(
   if (scope.q) params.set("q", scope.q)
   if (scope.role) params.set("role", scope.role)
   if (scope.state) params.set("state", scope.state)
-  if (scope.place_id) params.set("place_id", scope.place_id)
+  if (scope.unit_id) params.set("unit_id", scope.unit_id)
   if (scope.sort) params.set("sort", scope.sort)
   if (scope.desc === true) params.set("dir", "desc")
   if (scope.cursor) params.set("cursor", scope.cursor)

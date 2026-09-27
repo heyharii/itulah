@@ -55,6 +55,7 @@ import {
   returnBill,
   unbilledReceipts,
 } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { useSheet, type SheetKey } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -70,8 +71,8 @@ import {
   accountChoiceReady,
   type AccountChoice,
   AsOfControl,
-  LocationSelect,
   SiteName,
+  SiteSelect,
   SupplierName,
   SupplierPicker,
 } from "@/screens/finance/parts"
@@ -774,10 +775,24 @@ export function SupplierBills() {
     queryKey: financeKeys.unbilled(),
     queryFn: ({ signal }) => unbilledReceipts(signal),
   })
+  /// The ageing reads the books, and books are a unit's (0605): a bill counts
+  /// in the unit owning the site it was received at. So the chosen site asks
+  /// for its unit's ageing, and waits for the register to say which that is.
+  const units = useUnits()
+  const agingUnit =
+    site === ""
+      ? null
+      : ((units.data ?? []).find((unit) =>
+          unit.sites.some((one) => one.id === site)
+        )?.id ?? null)
   const aging = useQuery({
-    queryKey: financeKeys.payablesAging(asOf.value, site || null),
+    queryKey: financeKeys.payablesAging(asOf.value, agingUnit),
     queryFn: ({ signal }) =>
-      payablesAging({ as_of: asOf.value, site: site || undefined }, signal),
+      payablesAging(
+        { as_of: asOf.value, unit: agingUnit ?? undefined },
+        signal
+      ),
+    enabled: site === "" || agingUnit !== null,
   })
 
   const billRows = useMemo(
@@ -975,11 +990,11 @@ export function SupplierBills() {
 
       <Toolbar>
         <AsOfControl asOf={asOf} />
-        <LocationSelect
+        <SiteSelect
           value={site}
           onChange={setSite}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Site"
         />
         {/* Whichever list is on screen. Location is not among the questions
             inside it: the select beside this already narrows all three, and
@@ -1010,7 +1025,7 @@ export function SupplierBills() {
             is what says which report is on screen. */}
         <span className="text-[0.875rem] text-mute">
           {asOf.chip}
-          {site === "" ? " · every location" : " · "}
+          {site === "" ? " · every site" : " · "}
           {site !== "" && <SiteName id={site} />}
         </span>
       </Toolbar>
@@ -2328,14 +2343,15 @@ function RecordSheet({
           </form.Field>
           <form.Field name="siteId">
             {(field) => (
-              <Field label="Location" required>
+              <Field label="Site" required>
                 {/* Was a text box placeheld "e.g. DC01", which no site id in
                     the data resembles. The server refuses an unknown one; this
-                    is how nobody has to meet that refusal. */}
-                <LocationSelect
+                    is how nobody has to meet that refusal. A bill stays at the
+                    site it was received at. */}
+                <SiteSelect
                   value={field.state.value}
                   onChange={(next) => field.handleChange(next)}
-                  emptyLabel="Choose a location"
+                  emptyLabel="Choose a site"
                 />
               </Field>
             )}

@@ -19,9 +19,9 @@ import {
 import { useAsOf } from "@/screens/finance/hooks"
 import {
   AsOfControl,
-  LocationSelect,
-  SiteName,
   SupplierName,
+  UnitName,
+  UnitSelect,
 } from "@/screens/finance/parts"
 import type { AgingBuckets, PayablesAgingRow } from "@itulah/contract"
 
@@ -125,16 +125,16 @@ const COLUMNS = 3 + BUCKETS.length
 /// counts, which is a tally and not a re-derivation of money.
 export function Ageing() {
   const asOf = useAsOf()
-  // A plain `useState` and not a slice of anything already loaded: `site` goes
+  // A plain `useState` and not a slice of anything already loaded: `unit` goes
   // on the wire. The unit is a dimension on the ledger row here, not a piece
   // of the account code, so "which store is late" is a different request and
   // never a filter applied to an answer the browser is already holding.
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
 
   const payable = useQuery({
-    queryKey: financeKeys.payablesAging(asOf.value, site || null),
+    queryKey: financeKeys.payablesAging(asOf.value, unit || null),
     queryFn: ({ signal }) =>
-      payablesAging({ as_of: asOf.value, site: site || undefined }, signal),
+      payablesAging({ as_of: asOf.value, unit: unit || undefined }, signal),
   })
 
   const rows = payable.data?.suppliers ?? []
@@ -156,16 +156,16 @@ export function Ageing() {
 
       <Toolbar>
         <AsOfControl asOf={asOf} />
-        {/* The location filter is the point of this report, not a convenience
+        {/* The unit filter is the point of this report, not a convenience
             on it. "We are two months late" is a sentence nobody can act on;
-            "Store 07 is two months late" sends somebody to a store. It is a
-            select and not a box because the ids are `ho` and `store-01`, which
-            nothing on this page ever says out loud. */}
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+            "C007 is two months late" sends somebody to a store. It is a
+            select and not a box because the ids are ours, and nothing on
+            this page ever says them out loud. */}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         <Toolbar.Spacer />
         {/* The effective answer, in words. A date box filled with today and a
@@ -173,12 +173,12 @@ export function Ageing() {
             ageing is meaningless until you know the day it was struck. */}
         <span className="text-[0.875rem] text-mute">
           {asOf.chip}
-          {site === "" ? (
-            " · every location"
+          {unit === "" ? (
+            " · every unit"
           ) : (
             <>
               {" · "}
-              <SiteName id={site} />
+              <UnitName id={unit} />
             </>
           )}
         </span>
@@ -220,9 +220,9 @@ export function Ageing() {
 
           {rows.length === 0 ? (
             <EmptyState>
-              {site === ""
+              {unit === ""
                 ? `Nothing is outstanding to any supplier as at ${day(asOf.value)}. Every posted bill has been paid in full.`
-                : `Nothing is outstanding to any supplier at this location as at ${day(asOf.value)}. Another location may still owe — the filter is a server filter, so this answer is about this unit alone.`}
+                : `Nothing is outstanding to any supplier in this unit's books as at ${day(asOf.value)}. Another unit may still owe — the filter is a server filter, so this answer is about this unit alone.`}
             </EmptyState>
           ) : (
             <Grid>

@@ -49,7 +49,7 @@ import type {
 ///
 /// # Two routes that both sound like a profile
 ///
-/// `/profile` is who somebody is **at work**: number, job, place, joining date.
+/// `/profile` is who somebody is **at work**: number, job, unit, joining date.
 /// `/personal-data` is NIK, address and date of birth. They are separate
 /// because they are separate privileges — a supervisor reading a rota gets the
 /// first and never the second — and mixing them is how a national identity
@@ -111,7 +111,7 @@ export interface EmployeeFilters {
   /// Free text over the employee number and the person's name.
   readonly q?: string
   readonly status?: string
-  readonly placeId?: string
+  readonly unitId?: string
   /// `PKWT`, `PKWTT` or `NONE` — the latest contract's kind.
   readonly contractKind?: string
   /// The latest contract's position, compared whole.
@@ -148,7 +148,7 @@ export const peopleKeys = {
       "employees",
       filters.q ?? null,
       filters.status ?? null,
-      filters.placeId ?? null,
+      filters.unitId ?? null,
       filters.contractKind ?? null,
       filters.position ?? null,
       filters.login ?? null,
@@ -174,7 +174,7 @@ export const peopleKeys = {
       "pages",
       filters.q ?? null,
       filters.status ?? null,
-      filters.placeId ?? null,
+      filters.unitId ?? null,
       filters.contractKind ?? null,
       filters.position ?? null,
       filters.login ?? null,
@@ -197,9 +197,9 @@ export const peopleKeys = {
   /// fact about the session, and signing out drops it with the rest of the
   /// module's answers by prefix.
   reach: () => ["people", "reach"] as const,
-  /// The places the caller may act in. Derived from the workforce list's own
-  /// facets rather than from a register of its own — see `usePlaces`.
-  places: () => ["people", "places"] as const,
+  /// The units the caller may act in. Derived from the workforce list's own
+  /// facets rather than from a register of its own — see `useReachableUnits`.
+  units: () => ["people", "units"] as const,
 }
 
 // ── reads ──────────────────────────────────────────────────────────────────
@@ -212,13 +212,13 @@ export const peopleKeys = {
 ///
 /// The envelope is the shape `GET /finance/money` established — the rows, an
 /// opaque `next_cursor`, the `total` of everything MATCHED rather than of the
-/// page, and facet counts to fill a filter panel with. `unit_id` is the place
+/// page, and facet counts to fill a filter panel with. `unit_id` is the unit
 /// the server actually answered about, which for a caller posted to one shop is
 /// their shop whether or not they asked: a directory that silently showed eight
 /// people where the company has ninety would read as a company of eight.
 ///
-/// `facets.units` is empty for such a caller. That is not "no places matched"
-/// — it is "you reach one place, so there is no choice to offer".
+/// `facets.units` is empty for such a caller. That is not "no units matched"
+/// — it is "you reach one unit, so there is no choice to offer".
 ///
 /// Typed structurally rather than against the generated `EmployeeList`, only
 /// until `make contract` is next run. When it is, this becomes that import and
@@ -266,7 +266,7 @@ export function listWorkforce(
   const params = new URLSearchParams()
   if (filters.q) params.set("q", filters.q)
   if (filters.status) params.set("status", filters.status)
-  if (filters.placeId) params.set("unit_id", filters.placeId)
+  if (filters.unitId) params.set("unit_id", filters.unitId)
   if (filters.contractKind) params.set("contract_kind", filters.contractKind)
   if (filters.position) params.set("position", filters.position)
   if (filters.login) params.set("login", filters.login)
@@ -332,7 +332,7 @@ export function readAttendancePolicy(
   })
 }
 
-/// Which places this caller may act in, and where they are posted.
+/// Which units this caller may act in, and where they are posted.
 ///
 /// Answered by the server rather than derived here from `unit_id`. The rule —
 /// head office reaches everywhere, a shop reaches itself, no posting reaches
@@ -375,15 +375,15 @@ export function correctCode(
   )
 }
 
-/// Post somebody to a place, for a span.
+/// Post somebody to a unit, for a span.
 ///
 /// The overlap rule fires on the whole timeline rather than on the row being
 /// written, so a posting that collides with an existing one comes back as a
 /// conflict naming both — which is why the screen shows the server's sentence
 /// rather than checking for overlaps itself.
-export function assignToPlace(
+export function assignToUnit(
   employeeId: string,
-  placeId: string,
+  unitId: string,
   validFrom: string,
   reason: string,
   validTo?: string
@@ -391,7 +391,7 @@ export function assignToPlace(
   return node.post<EmployeeView>(
     `/api/v1/employees/${encodeURIComponent(employeeId)}/assignments`,
     {
-      unit_id: placeId,
+      unit_id: unitId,
       valid_from: validFrom,
       valid_to: validTo && validTo !== "" ? validTo : null,
       reason,
@@ -602,7 +602,7 @@ export function expiringContracts(
 ///
 /// It is deliberately not part of `/auth/me`. A session says who signed in and
 /// which rung they hold; where somebody is posted is HR data with a history and
-/// an authorising officer behind every change, so a place stamped into the
+/// an authorising officer behind every change, so a unit stamped into the
 /// session would be wrong from the transfer until the next sign-in.
 export function useReach() {
   return useQuery({
@@ -612,8 +612,8 @@ export function useReach() {
   })
 }
 
-/// One place head office may act in.
-export interface PlaceChoice {
+/// One unit head office may act in.
+export interface ReachableUnit {
   readonly id: string
   readonly name: string
   /// How many people are posted there. Head office chooses a unit out of
@@ -622,8 +622,12 @@ export interface PlaceChoice {
   readonly employees: number
 }
 
-/// The places the caller may act in, for the screens that are *about* one
-/// place rather than about the caller.
+/// The units the caller may act in, for the screens that are *about* one
+/// unit rather than about the caller.
+///
+/// Not `useUnits` (`lib/queries/organisation`): that is the organisation's
+/// whole register, and this is the part of it this caller reaches, with a
+/// headcount on each.
 ///
 /// **This is the workforce list's own facets, not a second register.** The
 /// server already computes them, already bounds them by the caller's reach, and
@@ -633,13 +637,13 @@ export interface PlaceChoice {
 /// facets are wanted — the rows are the part this call throws away.
 ///
 /// **Empty is the honest answer for a bounded caller**, by the server's own
-/// design: `facets.units` is empty when the caller reaches one place, because
+/// design: `facets.units` is empty when the caller reaches one unit, because
 /// a filter offering a single value is a control that cannot change anything.
 /// So a store manager gets no picker, which is what should happen — they were
 /// never choosing.
-export function usePlaces() {
+export function useReachableUnits() {
   return useQuery({
-    queryKey: peopleKeys.places(),
+    queryKey: peopleKeys.units(),
     queryFn: ({ signal }) =>
       listWorkforce({ limit: 1 }, signal).then((page) =>
         page.facets.units.map((facet) => ({
@@ -652,7 +656,7 @@ export function usePlaces() {
   })
 }
 
-/// Whether this caller is the *employer* — head office — or one place's
+/// Whether this caller is the *employer* — head office — or one unit's
 /// manager.
 ///
 /// `null` while the answer is in flight, which the sidebar reads as "not yet",
@@ -664,7 +668,7 @@ export function employerScope(reach: ReachView | undefined): boolean | null {
   return reach.scope === "EVERYWHERE"
 }
 
-/// The place a bounded caller is posted to, for a screen that has to say whose
+/// The unit a bounded caller is posted to, for a screen that has to say whose
 /// list this is. `null` for head office, which is not standing in one shop.
 export function boundedTo(reach: ReachView | undefined): string | null {
   if (reach === undefined || reach.scope !== "ONE_UNIT") return null
@@ -699,12 +703,12 @@ export interface NewAccount {
 }
 
 export const accountKeys = {
-  /// Which tills a person's place is served by. Read only by the form that
-  /// issues a login, so it is keyed by the person rather than by the place.
+  /// Which tills a person's unit is served by. Read only by the form that
+  /// issues a login, so it is keyed by the person rather than by the unit.
   targets: (employeeId: string) =>
     ["people", "accounts", "targets", employeeId] as const,
 }
-/// Which nodes this person's place is served by, and whether they already have
+/// Which nodes this person's unit is served by, and whether they already have
 /// a grant at each.
 export function accountTargets(
   employeeId: string,
@@ -772,7 +776,7 @@ export function provisionAccount(
 export const leaveKeys = {
   types: () => ["people", "leave", "types"] as const,
   policy: () => ["people", "leave", "policy"] as const,
-  /// Everything waiting on a decision. No place in the key: the server bounds
+  /// Everything waiting on a decision. No unit in the key: the server bounds
   /// it by the caller's own posting, so two managers never share an answer.
   pending: () => ["people", "leave", "pending"] as const,
   balances: (employeeId: string) =>
@@ -932,9 +936,10 @@ export interface NewHoliday {
   readonly date: string
   readonly name: string
   readonly kind: "NATIONAL" | "CUTI_BERSAMA" | "REGIONAL"
-  /// Empty means nationwide. Required for a regional day and refused for the
-  /// other two — the server says which, and names the date.
-  readonly places: readonly string[]
+  /// The units it is observed at. Empty means nationwide. Required for a
+  /// regional day and refused for the other two — the server says which, and
+  /// names the date.
+  readonly units: readonly string[]
 }
 
 /// Publish a year. Once only: a year is changed by amendment after that,
@@ -950,7 +955,7 @@ export function publishCalendar(
       date: holiday.date,
       name: holiday.name,
       kind: holiday.kind,
-      units: holiday.places,
+      units: holiday.units,
     })),
     reason,
   })
@@ -975,7 +980,7 @@ export function amendCalendar(
         date: holiday.date,
         name: holiday.name,
         kind: holiday.kind,
-        units: holiday.places,
+        units: holiday.units,
       },
       reason,
     }
@@ -997,7 +1002,7 @@ export function amendCalendar(
 
 export const overtimeKeys = {
   policy: () => ["people", "overtime", "policy"] as const,
-  /// What is waiting on an answer. No place in the key: the server bounds it by
+  /// What is waiting on an answer. No unit in the key: the server bounds it by
   /// the caller's own posting, so two managers never share an answer.
   awaiting: () => ["people", "overtime", "awaiting"] as const,
   of: (employeeId: string) => ["people", "overtime", employeeId] as const,
@@ -1113,15 +1118,15 @@ function newOvertimeId(): string {
 /// month refuses both a new day and a change to an existing one.
 
 export const rosterKeys = {
-  /// Every roster answer, whichever place or person it was asked about — what
+  /// Every roster answer, whichever unit or person it was asked about — what
   /// a write that moves two people's days at once has to drop.
   all: () => ["people", "roster"] as const,
   shifts: () => ["people", "shifts"] as const,
-  place: (place: string, from: string, to: string) =>
-    ["people", "roster", place, from, to] as const,
+  unit: (unit: string, from: string, to: string) =>
+    ["people", "roster", unit, from, to] as const,
   of: (employeeId: string, from: string, to: string) =>
     ["people", "roster", "employee", employeeId, from, to] as const,
-  periods: (place: string) => ["people", "periods", place] as const,
+  periods: (unit: string) => ["people", "periods", unit] as const,
 }
 
 export function listShifts(signal?: AbortSignal): Promise<ShiftView[]> {
@@ -1160,13 +1165,13 @@ export function retireShift(id: string): Promise<ShiftView[]> {
   )
 }
 
-export function placeRoster(
-  place: string,
+export function unitRoster(
+  unit: string,
   from: string,
   to: string,
   signal?: AbortSignal
 ): Promise<RosterDayView[]> {
-  const params = new URLSearchParams({ unit: place, from, to })
+  const params = new URLSearchParams({ unit, from, to })
   return node.get<RosterDayView[]>(`/api/v1/roster?${params.toString()}`, {
     signal,
   })
@@ -1195,42 +1200,42 @@ export function planDay(
 }
 
 export function attendancePeriods(
-  place: string,
+  unit: string,
   signal?: AbortSignal
 ): Promise<PeriodView[]> {
   return node.get<PeriodView[]>(
-    `/api/v1/attendance-periods?unit=${encodeURIComponent(place)}`,
+    `/api/v1/attendance-periods?unit=${encodeURIComponent(unit)}`,
     { signal }
   )
 }
 
 export function closePeriod(
-  place: string,
+  unit: string,
   period: string,
   reason: string
 ): Promise<PeriodView> {
   return node.post<PeriodView>(
-    `/api/v1/attendance-periods/${encodeURIComponent(place)}/${encodeURIComponent(period)}/closure`,
+    `/api/v1/attendance-periods/${encodeURIComponent(unit)}/${encodeURIComponent(period)}/closure`,
     { reason }
   )
 }
 
-/// Head office's. A place that could reopen its own sign-off has not signed
+/// Head office's. A unit that could reopen its own sign-off has not signed
 /// anything off.
 export function reopenPeriod(
-  place: string,
+  unit: string,
   period: string,
   reason: string
 ): Promise<PeriodView> {
   return node.post<PeriodView>(
-    `/api/v1/attendance-periods/${encodeURIComponent(place)}/${encodeURIComponent(period)}/reopening`,
+    `/api/v1/attendance-periods/${encodeURIComponent(unit)}/${encodeURIComponent(period)}/reopening`,
     { reason }
   )
 }
 
 // ── pay and payroll ────────────────────────────────────────────────────────
 
-/// Head office only, all of it. A place manager's whole contribution to payroll
+/// Head office only, all of it. A unit manager's whole contribution to payroll
 /// is closing their attendance period.
 ///
 /// Nothing here computes tax or BPJS, and no field carries one: a slip is the
@@ -1244,8 +1249,8 @@ export const payKeys = {
   reconciliation: (runId: string) =>
     ["people", "payroll", runId, "reconciliation"] as const,
   components: () => ["people", "payroll", "components"] as const,
-  adjustments: (placeId: string, period: string) =>
-    ["people", "payroll", "adjustments", placeId, period] as const,
+  adjustments: (unitId: string, period: string) =>
+    ["people", "payroll", "adjustments", unitId, period] as const,
   pay: (employeeId: string) => ["people", "pay", employeeId] as const,
   identity: (employeeId: string) =>
     ["people", "pay", employeeId, "identity"] as const,
@@ -1322,12 +1327,12 @@ export function listRuns(signal?: AbortSignal): Promise<PayrollRunView[]> {
 }
 
 export function openRun(
-  placeId: string,
+  unitId: string,
   period: string,
   reason: string
 ): Promise<PayrollRunView> {
   return node.post<PayrollRunView>("/api/v1/payroll/runs", {
-    unit_id: placeId,
+    unit_id: unitId,
     period,
     reason,
   })
@@ -1338,7 +1343,7 @@ export function openRun(
 /// Move a run along. Three steps, not five.
 ///
 /// `verify` and `seal` are gone by the owner's decision of 2026-09-13: the
-/// first act moved to the place as `submission`, and approval is final — a
+/// first act moved to the unit as `submission`, and approval is final — a
 /// state whose only content is "and we mean it" cannot be told from the one
 /// before it. The path segment for submitting is `submission` rather than
 /// `submit`, because it is the thing rather than the verb.
@@ -1368,7 +1373,7 @@ export function readHandover(
   )
 }
 
-/// Hand an approved run over. Idempotent per (place, period) on the server, so
+/// Hand an approved run over. Idempotent per (unit, period) on the server, so
 /// sending it twice cannot double what the company owes.
 export function handOverRun(
   runId: string,
@@ -1416,7 +1421,7 @@ export function runReconciliation(
 /// What a run's state means in a sentence.
 ///
 /// Three states, since the owner's decision of 2026-09-13 removed both `verify`
-/// and `seal`: the place builds it, the place sends it, head office answers.
+/// and `seal`: the unit builds it, the unit sends it, head office answers.
 /// The two-person rule did not go with them — it moved, and is now *submitter
 /// is not approver*, which is why the sentences name who is waiting rather
 /// than which button is next.
@@ -1445,12 +1450,12 @@ export function handoverLabel(state: string): string {
   }
 }
 
-// ── the one-offs a place files ─────────────────────────────────────────────
+// ── the one-offs a unit files ──────────────────────────────────────────────
 
-/// What one place has filed for one month, as the batch screen needs it.
+/// What one unit has filed for one month, as the batch screen needs it.
 ///
 /// The employee's code and name are joined because a list of employee ids is
-/// not a list a person can check, and checking is what the place is for.
+/// not a list a person can check, and checking is what the unit is for.
 ///
 /// # Structural until the next `make contract`
 ///
@@ -1478,7 +1483,7 @@ export interface PayrollAdjustmentRow {
   /// Why. Not decoration: this is the one figure on a payslip head office did
   /// not agree in advance, so the reason is the whole of what it approves.
   readonly reason: string
-  /// Whether it can still be withdrawn — false once the place has submitted
+  /// Whether it can still be withdrawn — false once the unit has submitted
   /// the batch carrying it.
   readonly withdrawable: boolean
   /// The advance this filing repays, when it is one. The settlement head
@@ -1498,15 +1503,15 @@ export function payComponents(
   return node.get<PayComponentView[]>("/api/v1/payroll/components", { signal })
 }
 
-/// What has been filed, for one place or everywhere the caller reaches,
-/// narrowed to one month when asked. Bounded by reach on the server: a place
+/// What has been filed, for one unit or everywhere the caller reaches,
+/// narrowed to one month when asked. Bounded by reach on the server: a unit
 /// manager reads their own unit and nothing else.
 export function listAdjustments(
-  options: { place?: string; period?: string } = {},
+  options: { unit?: string; period?: string } = {},
   signal?: AbortSignal
 ): Promise<PayrollAdjustmentRow[]> {
   const params = new URLSearchParams()
-  if (options.place) params.set("unit", options.place)
+  if (options.unit) params.set("unit", options.unit)
   if (options.period) params.set("period", options.period)
   const suffix = params.size > 0 ? `?${params.toString()}` : ""
   return node.get<PayrollAdjustmentRow[]>(
@@ -1515,7 +1520,7 @@ export function listAdjustments(
   )
 }
 
-/// File one. **The place's act**, for its own unit and its own month.
+/// File one. **The unit's act**, for its own people and its own month.
 ///
 /// The id is minted on the server, and the figure is frozen the moment this
 /// lands — head office decides it with the batch. `advanceId` present makes
@@ -1524,7 +1529,7 @@ export function listAdjustments(
 /// at filing and again at approval — filings sit while months move — and its
 /// answer is the one that counts.
 export function fileAdjustment(ask: {
-  readonly placeId: string
+  readonly unitId: string
   readonly period: string
   readonly employeeId: string
   readonly componentCode: string
@@ -1533,7 +1538,7 @@ export function fileAdjustment(ask: {
   readonly advanceId?: string
 }): Promise<PayrollAdjustmentRow[]> {
   return node.post<PayrollAdjustmentRow[]>("/api/v1/payroll/adjustments", {
-    unit_id: ask.placeId,
+    unit_id: ask.unitId,
     period: ask.period,
     employee_id: ask.employeeId,
     component_code: ask.componentCode,
@@ -1545,7 +1550,7 @@ export function fileAdjustment(ask: {
   })
 }
 
-/// Take one back, while the batch is still the place's. The reason is the
+/// Take one back, while the batch is still the unit's. The reason is the
 /// audit entry — the server refuses a blank one before anything is removed.
 export function withdrawAdjustment(
   id: string,
@@ -1561,7 +1566,7 @@ export function withdrawAdjustment(
 
 export const hireKeys = {
   all: ["people", "hire"] as const,
-  list: (place?: string) => ["people", "hire", place ?? "all"] as const,
+  list: (unit?: string) => ["people", "hire", unit ?? "all"] as const,
   one: (id: string) => ["people", "hire", "proposal", id] as const,
 }
 
@@ -1603,7 +1608,7 @@ export interface HireTerms {
 
 /// The terms, plus the unit. Only a *proposal* carries one.
 export interface HireAsk extends HireTerms {
-  readonly placeId: string
+  readonly unitId: string
 }
 
 /// Everything a revision may change — which is everything except where.
@@ -1629,7 +1634,7 @@ function termsBody(terms: HireTerms) {
 
 export function proposeHire(ask: HireAsk): Promise<HireProposalView> {
   return node.post<HireProposalView>("/api/v1/hire-proposals", {
-    unit_id: ask.placeId,
+    unit_id: ask.unitId,
     ...termsBody(ask),
   })
 }
@@ -1677,29 +1682,29 @@ export function openHiredEmployment(
 
 export const punchKeys = {
   all: ["people", "attendance"] as const,
-  today: (place: string, date: string) =>
-    ["people", "attendance", "today", place, date] as const,
+  today: (unit: string, date: string) =>
+    ["people", "attendance", "today", unit, date] as const,
   of: (employeeId: string, from: string, to: string) =>
     ["people", "attendance", "employee", employeeId, from, to] as const,
-  corrections: (place: string | null, pending: boolean) =>
-    ["people", "attendance", "corrections", place ?? "all", pending] as const,
-  readiness: (place: string, period: string) =>
-    ["people", "attendance", "readiness", place, period] as const,
-  terminals: (place: string | null) =>
-    ["people", "attendance", "terminals", place ?? "all"] as const,
+  corrections: (unit: string | null, pending: boolean) =>
+    ["people", "attendance", "corrections", unit ?? "all", pending] as const,
+  readiness: (unit: string, period: string) =>
+    ["people", "attendance", "readiness", unit, period] as const,
+  terminals: (unit: string | null) =>
+    ["people", "attendance", "terminals", unit ?? "all"] as const,
   enrolment: (employeeId: string) =>
     ["people", "attendance", "fingerprints", employeeId] as const,
 }
 
-/// One place, one day. `punch_source_connected` is the field to read FIRST:
+/// One unit, one day. `punch_source_connected` is the field to read FIRST:
 /// false means no station has ever reported, and every zero under it is an
 /// absence of evidence rather than evidence of absence.
 export function readToday(
-  place: string,
+  unit: string,
   date?: string,
   signal?: AbortSignal
 ): Promise<TodayView> {
-  const params = new URLSearchParams({ unit: place })
+  const params = new URLSearchParams({ unit })
   if (date) params.set("date", date)
   return node.get<TodayView>(`/api/v1/attendance/today?${params.toString()}`, {
     signal,
@@ -1720,11 +1725,11 @@ export function readAttendance(
 }
 
 export function punchReadiness(
-  place: string,
+  unit: string,
   period: string,
   signal?: AbortSignal
 ): Promise<PunchReadinessView> {
-  const params = new URLSearchParams({ unit: place, period })
+  const params = new URLSearchParams({ unit, period })
   return node.get<PunchReadinessView>(
     `/api/v1/attendance/punch-readiness?${params.toString()}`,
     { signal }
@@ -1734,11 +1739,11 @@ export function punchReadiness(
 // ── a correction sits on top of a punch, never over it ─────────────────────
 
 export function listCorrections(
-  options: { place?: string; pending?: boolean } = {},
+  options: { unit?: string; pending?: boolean } = {},
   signal?: AbortSignal
 ): Promise<CorrectionRow[]> {
   const params = new URLSearchParams()
-  if (options.place) params.set("unit", options.place)
+  if (options.unit) params.set("unit", options.unit)
   params.set("pending", String(options.pending ?? false))
   return node.get<CorrectionRow[]>(
     `/api/v1/attendance-corrections?${params.toString()}`,
@@ -1805,10 +1810,10 @@ export function withdrawCorrection(
 // ── the stations, and whose fingers they know ──────────────────────────────
 
 export function listTerminals(
-  place?: string,
+  unit?: string,
   signal?: AbortSignal
 ): Promise<TerminalRow[]> {
-  const suffix = place ? `?unit=${encodeURIComponent(place)}` : ""
+  const suffix = unit ? `?unit=${encodeURIComponent(unit)}` : ""
   return node.get<TerminalRow[]>(`/api/v1/attendance-terminals${suffix}`, {
     signal,
   })
@@ -1867,9 +1872,9 @@ export function withdrawFinger(
 
 /// Push a unit's roster and its people down to that unit's station, so a
 /// terminal with the line down still greets by name and knows the shift.
-export function publishEmployeeBook(placeId: string): Promise<BookPublished> {
+export function publishEmployeeBook(unitId: string): Promise<BookPublished> {
   return node.post<BookPublished>("/api/v1/attendance/employee-book", {
-    unit_id: placeId,
+    unit_id: unitId,
   })
 }
 
@@ -1879,7 +1884,7 @@ export function publishEmployeeBook(placeId: string): Promise<BookPublished> {
 ///
 /// A claim is filed — by the person themselves, or by a manager for one of
 /// their staff — submitted exactly once, decided exactly once by somebody who
-/// did not file it, and paid exactly once out of the place's petty cash.
+/// did not file it, and paid exactly once out of the unit's petty cash.
 /// Approving one posts what the company owes the moment it is approved, so the
 /// ledger carries the debt during the days a claim sits approved and unpaid;
 /// the payout only moves the money.
@@ -1955,7 +1960,7 @@ export interface ClaimRow {
 
 export const claimsKeys = {
   types: () => ["people", "claims", "types"] as const,
-  /// What is waiting on a decision. No place in the key: the server bounds it
+  /// What is waiting on a decision. No unit in the key: the server bounds it
   /// by the caller's own posting, so two managers never share an answer.
   queue: () => ["people", "claims", "queue"] as const,
   list: (filters: ClaimFilters = {}) =>
@@ -1963,7 +1968,7 @@ export const claimsKeys = {
       "people",
       "claims",
       "list",
-      filters.place ?? null,
+      filters.unit ?? null,
       filters.state ?? null,
       filters.employee ?? null,
     ] as const,
@@ -1976,7 +1981,7 @@ export const claimsKeys = {
 }
 
 export interface ClaimFilters {
-  readonly place?: string
+  readonly unit?: string
   readonly state?: string
   readonly employee?: string
 }
@@ -2083,7 +2088,7 @@ export function retireClaimType(
 
 // ── reading and writing claims ─────────────────────────────────────────────
 
-/// The claims the caller may see — a place's, or every place's — narrowed by
+/// The claims the caller may see — a unit's, or every unit's — narrowed by
 /// whichever of the three the caller asked for. The queue is this same route
 /// asked for SUBMITTED and nothing else.
 export function listClaims(
@@ -2091,7 +2096,7 @@ export function listClaims(
   signal?: AbortSignal
 ): Promise<ClaimRow[]> {
   const params = new URLSearchParams()
-  if (filters.place) params.set("unit", filters.place)
+  if (filters.unit) params.set("unit", filters.unit)
   if (filters.state) params.set("state", filters.state)
   if (filters.employee) params.set("employee", filters.employee)
   const suffix = params.size > 0 ? `?${params.toString()}` : ""
@@ -2130,8 +2135,8 @@ export interface NewClaimLine {
 
 /// File a claim on behalf of one of the caller's staff, or on the caller's own
 /// behalf — the server checks which of the two the caller may do, and the body
-/// is the same either way. The place is not asked for because it is not the
-/// filer's to choose: the claim belongs to the place the *employee* is posted
+/// is the same either way. The unit is not asked for because it is not the
+/// filer's to choose: the claim belongs to the unit the *employee* is posted
 /// to, and the server knows where that is.
 export function fileClaim(
   employeeId: string,
@@ -2216,7 +2221,7 @@ export function returnClaim(
   )
 }
 
-/// Pay an approved claim out of the place's petty cash.
+/// Pay an approved claim out of the unit's petty cash.
 ///
 /// No body: there is nothing to decide here and nothing to explain — the
 /// decision was the previous act, and this one only moves the money it
@@ -2253,7 +2258,7 @@ export interface EmployeeAdvanceRow {
   /// Cash the person paid back.
   readonly refunded_minor: number
   /// Repaid out of a wage: the settlements an approved run posts, one per
-  /// recovery the place filed against this advance.
+  /// recovery the unit filed against this advance.
   readonly recovered_minor: number
   /// The amount minus the three legs — what is still out.
   readonly outstanding_minor: number
@@ -2294,7 +2299,7 @@ export function openAdvances(
 /// The confidential channel, and the reason it is head office's.
 ///
 /// A grievance against a store manager cannot be investigated by that store
-/// manager, and in a thirteen-store estate the only place that is nobody's
+/// manager, and in a thirteen-store estate the only unit that is nobody's
 /// posting is head office. So the queue is HO's — reading it is its own key,
 /// finer than the ladder, precisely so the accused supervisor who holds
 /// `people.employee.read` does not therefore read the queue.
@@ -2366,7 +2371,7 @@ export interface GrievanceRow {
 
 export const grievanceKeys = {
   types: () => ["people", "grievances", "types"] as const,
-  /// One state's rows, or every row the caller may see. No place in the key:
+  /// One state's rows, or every row the caller may see. No unit in the key:
   /// reading is head office's, bounded by nothing — and for a caller without
   /// the read key the same key holds their own filings, which is the server's
   /// branch to make, not the browser's.
@@ -2489,9 +2494,9 @@ export function listGrievances(
 /// File one, for a member of staff or for yourself.
 ///
 /// `employeeId` absent means the caller's own — the server checks which of the
-/// two the caller may do, and the body is the same either way. The place is
+/// two the caller may do, and the body is the same either way. The unit is
 /// not asked for because it is not the filer's to choose: the grievance
-/// belongs to the place the *employee* is posted to, and the server knows
+/// belongs to the unit the *employee* is posted to, and the server knows
 /// where that is.
 export function fileGrievance(ask: {
   readonly employeeId?: string

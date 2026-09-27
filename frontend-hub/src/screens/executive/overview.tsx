@@ -4,7 +4,12 @@ import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { EmptyState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
 import { queryState } from "@/lib/query-state"
-import { cashAt, useCash, useProfit } from "@/screens/executive/books"
+import {
+  cashAt,
+  useCash,
+  useProfit,
+  useScopeUnit,
+} from "@/screens/executive/books"
 import {
   change,
   changeLabel,
@@ -34,6 +39,7 @@ export function ExecutiveOverview() {
   const trade = useTrade(scope)
   const profit = useProfit(scope)
   const cash = useCash(scope)
+  const unit = useScopeUnit(scope)
 
   const total = trade.query.data?.total
 
@@ -60,7 +66,9 @@ export function ExecutiveOverview() {
         />
         <Figure
           label="Kas & bank"
-          value={cash.data ? rupiah(cashAt(cash.data, scope.store)) : "—"}
+          value={
+            cash.data && unit !== null ? rupiah(cashAt(cash.data, unit)) : "—"
+          }
           note={`Saldo per ${scope.asOfLabel}`}
         />
       </Figures>

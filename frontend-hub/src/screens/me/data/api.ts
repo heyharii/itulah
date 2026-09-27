@@ -356,11 +356,11 @@ export async function requestCorrection(
 /// otherwise the most recent, then reads that year. No year published is not
 /// an error — it is an empty calendar, and the screen says so.
 ///
-/// A regional day names the places it applies to, and a day off in another
+/// A regional day names the units it applies to, and a day off in another
 /// province is not a day off here: those are dropped against the caller's own
 /// posting rather than shown to every shop.
 export async function holidays(
-  placeId: string | null,
+  unitId: string | null,
   signal?: AbortSignal
 ): Promise<HolidayCalendar> {
   const index = await node.get<CalendarYearsView>("/api/v1/holiday-calendars", {
@@ -380,8 +380,7 @@ export async function holidays(
     year: calendar.year,
     days: calendar.holidays.filter(
       (day) =>
-        day.units === null ||
-        (placeId !== null && day.units.includes(placeId))
+        day.units === null || (unitId !== null && day.units.includes(unitId))
     ),
   }
 }

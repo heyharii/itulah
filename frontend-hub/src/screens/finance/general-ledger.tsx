@@ -27,8 +27,8 @@ import { useAsOf, useWindow } from "@/screens/finance/hooks"
 import {
   AccountPicker,
   AsOfControl,
-  LocationSelect,
-  SiteName,
+  UnitName,
+  UnitSelect,
   WindowControl,
 } from "@/screens/finance/parts"
 import type { GeneralLedgerRow, TrialBalanceRow } from "@itulah/contract"
@@ -169,14 +169,14 @@ const trialColumns: ColumnDef<TableSetup, TrialBalanceRow>[] = [
     ),
   },
   {
-    accessorKey: "site_id",
-    header: "Location",
+    accessorKey: "unit_id",
+    header: "Unit",
     size: 130,
     enableSorting: false,
-    // Nullable on purpose: an account that is not scoped to a location has no
-    // site, which is a different thing from one whose site we could not name.
+    // Nullable on purpose: a line in no unit's books has no unit, which is a
+    // different thing from one whose unit we could not name.
     cell: ({ row }) => (
-      <SiteName id={row.original.site_id} className="text-body" />
+      <UnitName id={row.original.unit_id} className="text-body" />
     ),
   },
   {
@@ -247,7 +247,7 @@ const TRIAL_SORTS: Record<string, string> = {
 
 function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
   const [query, setQuery] = useState("")
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const asOf = useAsOf()
   const [sorting, setSorting] = useState<SortingState>([
     { id: "net", desc: true },
@@ -269,7 +269,7 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
   )
   const scope = {
     as_of: asOf.value,
-    site: site || undefined,
+    unit: unit || undefined,
     q: needle === "" ? undefined : needle,
     class: classes?.values.join(","),
     sort: known,
@@ -282,7 +282,7 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
   // those. The totals and `balanced` are the whole ledger's on every page.
   const pages = useInfiniteQuery({
     queryKey: [
-      ...financeKeys.trialBalance(asOf.value, site || null),
+      ...financeKeys.trialBalance(asOf.value, unit || null),
       "pages",
       scope,
     ],
@@ -312,10 +312,10 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
         features: tableSetup,
         data: rows,
         columns: filters.columns,
-        // An account can be posted to at more than one location and each is its
-        // own line, so the code alone is not a key here.
+        // An account can be posted to in more than one unit's books and each is
+        // its own line, so the code alone is not a key here.
         getRowId: (row: TrialBalanceRow) =>
-          `${row.account_code}-${row.site_id ?? ""}`,
+          `${row.account_code}-${row.unit_id ?? ""}`,
         state: {
           columnFilters: filters.columnFilters,
           sorting,
@@ -364,11 +364,11 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
 
       <Toolbar>
         <AsOfControl asOf={asOf} />
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         {/* Location is asked on the WIRE by the select beside this, and the
             totals under the table belong to that narrowing — a second,
@@ -381,8 +381,8 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
         {balance.data && (
           <span className="text-[0.875rem] text-mute">
             As at {day(balance.data.as_of)}
-            {balance.data.site_id ? " · " : ""}
-            {balance.data.site_id && <SiteName id={balance.data.site_id} />}
+            {balance.data.unit_id ? " · " : ""}
+            {balance.data.unit_id && <UnitName id={balance.data.unit_id} />}
           </span>
         )}
       </Toolbar>
@@ -491,7 +491,7 @@ const movementColumns: ColumnDef<TableSetup, GeneralLedgerRow>[] = [
     size: 150,
     enableSorting: false,
     // What wrote the movement. Unlike the Journal, this list has no source
-    // select above it — `GET /finance/ledger/{code}` takes a site and a
+    // select above it — `GET /finance/ledger/{code}` takes a unit and a
     // window and nothing else — so this column is the only place to ask.
     meta: { filter: { kind: "option", format: label } },
     cell: ({ row }) => (
@@ -528,12 +528,12 @@ const movementColumns: ColumnDef<TableSetup, GeneralLedgerRow>[] = [
       ),
   },
   {
-    accessorKey: "site_id",
-    header: "Location",
+    accessorKey: "unit_id",
+    header: "Unit",
     size: 120,
     enableSorting: false,
     cell: ({ row }) => (
-      <SiteName id={row.original.site_id} className="text-body" />
+      <UnitName id={row.original.unit_id} className="text-body" />
     ),
   },
   {
@@ -612,7 +612,7 @@ function AccountMovements({
   onClear: () => void
 }) {
   const [query, setQuery] = useState("")
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const range = useWindow()
 
   /// Debounced, because every keystroke is a round trip over the window.
@@ -624,7 +624,7 @@ function AccountMovements({
   // searched in the browser over only those.
   const pages = useInfiniteQuery({
     queryKey: [
-      ...financeKeys.ledger(code, site || null, range.from, range.to),
+      ...financeKeys.ledger(code, unit || null, range.from, range.to),
       "pages",
       needle,
     ],
@@ -632,7 +632,7 @@ function AccountMovements({
       accountLedger(
         code,
         {
-          site: site || undefined,
+          unit: unit || undefined,
           from: range.from,
           to: range.to,
           q: needle === "" ? undefined : needle,
@@ -744,11 +744,11 @@ function AccountMovements({
       <Toolbar>
         <Tag tone="accent">{code}</Tag>
         <WindowControl range={range} />
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         {/* Running is not offered, and it is the one refusal worth stating: it
             is a level and every figure in it already contains the rows above.

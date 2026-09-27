@@ -21,7 +21,7 @@ import {
   financeKeys,
   listCompanyBankAccounts,
 } from "@/lib/queries/finance"
-import { useSiteName } from "@/screens/finance/hooks"
+import { useUnitName } from "@/screens/finance/hooks"
 import { BANK_POTS, useMoneyRows } from "@/screens/finance-lab-2/hooks"
 import { Grid, LabNote, Td, Th } from "@/screens/finance-lab-2/parts"
 
@@ -38,14 +38,14 @@ import { Grid, LabNote, Td, Th } from "@/screens/finance-lab-2/parts"
 /// somebody paying a bill is already standing.
 export function BankAccounts() {
   const { rows: ledger, pending } = useMoneyRows(BANK_POTS)
-  const siteName = useSiteName()
+  const unitName = useUnitName()
   const described = useQuery({
     queryKey: financeKeys.companyBankAccounts(null),
     queryFn: ({ signal }) => listCompanyBankAccounts(signal),
   })
   const [editing, setEditing] = useState<{
     ledger_account_code: string
-    site_id: string
+    unit_id: string
     label: string
     existing: CompanyBankAccount | null
   } | null>(null)
@@ -54,7 +54,7 @@ export function BankAccounts() {
     const table = new Map<string, CompanyBankAccount>()
     for (const account of described.data ?? []) {
       if (account.retired_at !== null) continue
-      table.set(`${account.ledger_account_code}@${account.site_id}`, account)
+      table.set(`${account.ledger_account_code}@${account.unit_id}`, account)
     }
     return table
   }, [described.data])
@@ -70,7 +70,7 @@ export function BankAccounts() {
   })
 
   const undescribed = ledger.filter(
-    (row) => !byBinding.has(`${row.account_code}@${row.site_id}`)
+    (row) => !byBinding.has(`${row.account_code}@${row.unit_id}`)
   ).length
 
   return (
@@ -134,10 +134,10 @@ export function BankAccounts() {
                 <tbody>
                   {ledger.map((row) => {
                     const known = byBinding.get(
-                      `${row.account_code}@${row.site_id}`
+                      `${row.account_code}@${row.unit_id}`
                     )
                     return (
-                      <tr key={`${row.account_code}-${row.site_id}`}>
+                      <tr key={`${row.account_code}-${row.unit_id}`}>
                         <Td>
                           <span className="font-medium text-ink">
                             {known?.bank_name ?? (row.qualifier || "—")}
@@ -177,7 +177,7 @@ export function BankAccounts() {
                           )}
                         </Td>
                         <Td>
-                          {siteName(row.site_id)}
+                          {unitName(row.unit_id)}
                           {known?.is_primary && (
                             <span className="block text-[0.875rem] text-ok-fg">
                               primary here
@@ -216,13 +216,13 @@ export function BankAccounts() {
       >
         {editing !== null && (
           <DescribeForm
-            key={`${editing.ledger_account_code}@${editing.site_id}`}
+            key={`${editing.ledger_account_code}@${editing.unit_id}`}
             existing={editing.existing}
             busy={save.isPending}
             onSave={(form) =>
               save.mutate({
                 ledger_account_code: editing.ledger_account_code,
-                site_id: editing.site_id,
+                unit_id: editing.unit_id,
                 ...form,
               })
             }

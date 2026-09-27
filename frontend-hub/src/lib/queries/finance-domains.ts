@@ -60,10 +60,10 @@ export const domainKeys = {
   controls: (asOf?: string) => ["finance", "controls", asOf ?? null] as const,
   closeReadiness: (year: number, month: number) =>
     ["finance", "close", year, month] as const,
-  balanceSheet: (asOf?: string, site?: string) =>
-    ["finance", "balance-sheet", asOf ?? null, site ?? null] as const,
-  profitAndLoss: (from: string, to: string, site?: string) =>
-    ["finance", "profit-and-loss", from, to, site ?? null] as const,
+  balanceSheet: (asOf?: string, unit?: string) =>
+    ["finance", "balance-sheet", asOf ?? null, unit ?? null] as const,
+  profitAndLoss: (from: string, to: string, unit?: string) =>
+    ["finance", "profit-and-loss", from, to, unit ?? null] as const,
   unitResults: (from: string, to: string) =>
     ["finance", "unit-results", from, to] as const,
   saleDays: (from: string, to: string, site?: string) =>
@@ -266,9 +266,11 @@ export function softCloseMonth(
 
 // ── statements ─────────────────────────────────────────────────────────────
 
+/// The position, in one unit's books when `unit` names one and the company's
+/// when it does not.
 export function balanceSheet(
   signal?: AbortSignal,
-  options: { as_of?: string; site?: string } = {}
+  options: { as_of?: string; unit?: string } = {}
 ): Promise<BalanceSheet> {
   return node.get<BalanceSheet>(
     `/api/v1/finance/reports/balance-sheet${search(options)}`,
@@ -276,11 +278,12 @@ export function balanceSheet(
   )
 }
 
+/// The result over a window, narrowed to one unit's books the same way.
 export function profitAndLoss(
   from: string,
   to: string,
   signal?: AbortSignal,
-  options: { site?: string } = {}
+  options: { unit?: string } = {}
 ): Promise<ProfitAndLoss> {
   return node.get<ProfitAndLoss>(
     `/api/v1/finance/reports/profit-and-loss${search({ from, to, ...options })}`,
@@ -305,6 +308,8 @@ export function saleDayTotals(
   )
 }
 
+/// One row per unit — head office and each store, with its client code and
+/// name — whose sum is the company's result.
 export function unitResults(
   from: string,
   to: string,

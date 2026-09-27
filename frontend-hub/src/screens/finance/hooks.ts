@@ -9,10 +9,11 @@ import {
   listBills,
   listLineCategories,
   listPeriods,
-  siteAccounts,
+  unitAccounts,
   type AssetClass,
   type LineCategory,
 } from "@/lib/queries/finance"
+import { unitLabel } from "@/lib/queries/organisation"
 import { listSuppliers, procurementKeys } from "@/lib/queries/procurement"
 import {
   categoryFamilyLabel,
@@ -30,18 +31,18 @@ import {
 /// screens both call.
 ///
 /// Nothing here fetches anything a screen was not already fetching. Every query
-/// key is one some screen in this module owns, so a location select on six
-/// screens is one request, and the date default reuses the calendar the sidebar
-/// badge already holds.
+/// key is one some screen in this module owns, so a unit select on six screens
+/// is one request, and the date default reuses the calendar the sidebar badge
+/// already holds.
 
-/// The locations the books are kept for.
+/// The units the books are kept for: head office and each store (0605).
 ///
-/// Read off `GET /account-links`, which carries them beside the roles the
-/// posting rules name — the same list the Account links screen and the
-/// readiness matrix draw their columns from. Every caller shares that screen's
-/// key, so a module full of location pickers is still one request.
+/// Read off `GET /account-links`, which carries them as `locations` beside the
+/// roles the posting rules name — the same list the Account links screen and
+/// the readiness matrix draw their columns from. Every caller shares that
+/// screen's key, so a module full of unit pickers is still one request.
 ///
-/// Held for five minutes: the client opens a shop about once a year.
+/// Held for five minutes: the client opens a store about once a year.
 export function useLocations() {
   return useQuery({
     queryKey: financeKeys.accountLinks(null, null),
@@ -50,25 +51,28 @@ export function useLocations() {
   })
 }
 
-/// A `site_id` as the client says it: "Store 07", not `store-07`.
+/// A `unit_id` as the client says it: "C007 · Brebes", never `store-07`.
 ///
-/// Falls back to the id, which is the only honest thing to draw for a location
-/// the link list does not carry — inventing a label for an id nobody
-/// recognises would be worse than showing the id.
-export function useSiteName(): (siteId: string | null | undefined) => string {
+/// While the list is on its way an id reads as "…"; after, an id the list
+/// does not carry reads as itself — the only honest thing to draw for a unit
+/// the links do not know, and inventing a label for an id nobody recognises
+/// would be worse. A SITE id (a bill's, an asset's) is not a unit id: those
+/// are `useSiteLabel` in `@/lib/queries/organisation`.
+export function useUnitName(): (unitId: string | null | undefined) => string {
   const map = useLocations()
   const byId = useMemo(() => {
     const table = new Map<string, string>()
     for (const location of map.data?.locations ?? []) {
-      table.set(location.site_id, location.name)
+      table.set(location.unit_id, unitLabel(location))
     }
     return table
   }, [map.data])
+  const loading = map.isPending
 
-  return (siteId) =>
-    siteId === null || siteId === undefined || siteId === ""
+  return (unitId) =>
+    unitId === null || unitId === undefined || unitId === ""
       ? "—"
-      : (byId.get(siteId) ?? siteId)
+      : (byId.get(unitId) ?? (loading ? "…" : unitId))
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +223,7 @@ export function useCategoriesByFamily() {
 /// A `category_code` as the client's chart says it.
 ///
 /// Falls back to the code, which is the only honest thing to draw for a
-/// category this browser has not read — the same bargain `useSiteName` makes,
+/// category this browser has not read — the same bargain `useUnitName` makes,
 /// and for the same reason.
 export function useCategoryName(): (code: string | null | undefined) => string {
   const all = useCategoriesByFamily()
@@ -280,8 +284,8 @@ export function useMeaningLabel(): (key: string | null | undefined) => string {
       : (byKey.get(key) ?? label(key))
 }
 
-/// The meanings money can leave a location by, and which accounts they resolve
-/// to there.
+/// The meanings money can leave a unit's books by, and which accounts they
+/// resolve to there.
 ///
 /// Derived from the mappings rather than from a hard-coded list of four keys,
 /// so a payment can only be offered an account somebody has actually mapped —
@@ -289,9 +293,9 @@ export function useMeaningLabel(): (key: string | null | undefined) => string {
 /// the moment it is tried, which is the refusal the account links exist to stop
 /// anybody meeting.
 ///
-/// The qualifier is part of the identity and not a note: `bank_savings` at one
-/// site legitimately has one mapping per bank, and "which bank the money left
-/// by" is exactly what somebody recording a payment is choosing.
+/// The qualifier is part of the identity and not a note: `bank_savings` in one
+/// unit's books legitimately has one link per bank, and "which bank the money
+/// left by" is exactly what somebody recording a payment is choosing.
 export interface MoneyAccount {
   readonly account_key: string
   readonly account_qualifier: string
@@ -310,17 +314,18 @@ const MONEY_KEYS: readonly string[] = [
   "petty_cash",
 ]
 
-export function useMoneyAccounts(siteId: string): readonly MoneyAccount[] {
-  // What each money role resolves to AT this site — resolved by the server,
-  // most specific link winning, and not by this browser walking the links.
+export function useMoneyAccounts(unitId: string): readonly MoneyAccount[] {
+  // What each money role resolves to in this unit's books — resolved by the
+  // server, most specific link winning, and not by this browser walking the
+  // links.
   const resolved = useQuery({
-    queryKey: financeKeys.siteAccounts(siteId),
-    queryFn: ({ signal }) => siteAccounts(siteId, signal),
-    enabled: siteId !== "",
+    queryKey: financeKeys.unitAccounts(unitId),
+    queryFn: ({ signal }) => unitAccounts(unitId, signal),
+    enabled: unitId !== "",
     staleTime: 5 * 60 * 1000,
   })
   return useMemo(() => {
-    if (siteId === "") return []
+    if (unitId === "") return []
     return (resolved.data ?? [])
       .filter((row) => MONEY_KEYS.includes(row.role))
       .map((row) => ({
@@ -335,7 +340,7 @@ export function useMoneyAccounts(siteId: string): readonly MoneyAccount[] {
             MONEY_KEYS.indexOf(b.account_key) ||
           a.account_qualifier.localeCompare(b.account_qualifier)
       )
-  }, [resolved.data, siteId])
+  }, [resolved.data, unitId])
 }
 
 /// The value a `<Select>` carries for one of these, and the way back.

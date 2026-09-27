@@ -22,10 +22,11 @@ import { Banner } from "@/components/ui/states"
 import {
   financeKeys,
   listAssets,
-  siteAccounts,
-  type SiteAccount,
+  unitAccounts,
+  type UnitAccount,
 } from "@/lib/queries/finance"
 import { gaKeys, gaContractTypes, recordGaContract } from "@/lib/queries/ga"
+import { useUnits } from "@/lib/queries/organisation"
 import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
 import { CONTRACT_GROUPS } from "@/screens/contracts/groups"
 import { FinanceMark } from "@/screens/contracts/parts"
@@ -109,13 +110,21 @@ export function ContractComposer({
     staleTime: 5 * 60 * 1000,
   })
 
-  // What every role resolves to at the chosen site: the proposed accounts
-  // below are FILTERED out of this one read. No new route — the account links
-  // are the source.
+  // What every role resolves to in the books of the unit owning the chosen
+  // site — books are a unit's (0605), a contract stays at its site: the
+  // proposed accounts below are FILTERED out of this one read. No new route —
+  // the account links are the source.
+  const units = useUnits()
+  const unit =
+    site === null
+      ? null
+      : ((units.data ?? []).find((one) =>
+          one.sites.some((premises) => premises.id === site)
+        )?.id ?? null)
   const map = useQuery({
-    queryKey: financeKeys.siteAccounts(site),
-    queryFn: ({ signal }) => siteAccounts(site, signal),
-    enabled: open,
+    queryKey: financeKeys.unitAccounts(unit),
+    queryFn: ({ signal }) => unitAccounts(unit, signal),
+    enabled: open && (site === null || unit !== null),
     staleTime: 5 * 60 * 1000,
   })
 
@@ -608,7 +617,7 @@ function typeTag(type: GaContractType): string {
 /// when the source vocabulary is not the type code's. `undefined` map =
 /// still loading; the code stands alone until the name arrives.
 function mapName(
-  map: readonly SiteAccount[] | undefined,
+  map: readonly UnitAccount[] | undefined,
   role: string,
   code: string
 ): string {

@@ -16,6 +16,7 @@ import {
   listDeposits,
   moneyOverview,
 } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import {
   CardRow,
@@ -27,7 +28,7 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import { LocationSelect, SiteName, WindowControl } from "@/screens/finance/parts"
+import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
 import { useWindow } from "@/screens/finance/hooks"
 import type {
   BankStatementLineRow,
@@ -71,7 +72,7 @@ import type {
 ///
 /// `in_transit_minor` comes off the list envelope, computed over everything the
 /// unit filter matches rather than over the rows drawn — so filtering the table
-/// to what has landed leaves it unchanged, because it is a fact about the place
+/// to what has landed leaves it unchanged, because it is a fact about the unit
 /// and not about which boxes are ticked. It agrees with the `cash_in_transit`
 /// balance, because both move only when this document posts.
 ///
@@ -93,43 +94,53 @@ import type {
 /// through the bank reconciliation that already exists and with no special case
 /// for deposits anywhere in it.
 export function Deposits() {
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const range = useWindow()
-  const scoped = site === "" ? null : site
+  const scoped = unit === "" ? null : unit
 
   /// The document. Unpaged and narrowed on the server, like every list in this
   /// module.
   const deposits = useQuery({
     queryKey: financeKeys.deposits(null, scoped),
     queryFn: ({ signal }) =>
-      listDeposits(scoped === null ? {} : { site }, signal),
+      listDeposits(scoped === null ? {} : { unit }, signal),
   })
 
   const overview = useQuery({
     queryKey: financeKeys.money(null, scoped),
     queryFn: ({ signal }) =>
-      moneyOverview(scoped === null ? {} : { site }, signal),
+      moneyOverview(scoped === null ? {} : { unit }, signal),
   })
 
-  /// Every statement ever imported, unfiltered — and deliberately so.
+  /// The statements, narrowed to the unit on the server.
   ///
-  /// `financeKeys.bankStatements()` takes no arguments while
-  /// `listBankStatements` accepts `site`, `account` and `state`. Asking the
-  /// server for one unit under that key would overwrite the whole-company list
-  /// that Finance's Cash & bank screen and the reconciliation tool read from
-  /// the same cache, and they would then draw one shop's statements as if they
-  /// were the company's. Until the key carries the filter, the filtering
-  /// happens here — over a whole answer, never over a page of one.
+  /// `financeKeys.bankStatements` carries the unit, so asking for one unit's
+  /// statements no longer overwrites the whole-company list that Finance's
+  /// Cash & bank screen and the reconciliation tool read from the same cache —
+  /// and a unit's statements are the unit's first page, never a slice of the
+  /// company's.
   const statements = useQuery({
-    queryKey: financeKeys.bankStatements(),
-    queryFn: ({ signal }) => listBankStatements(signal),
+    queryKey: financeKeys.bankStatements(scoped),
+    queryFn: ({ signal }) =>
+      listBankStatements(signal, scoped === null ? {} : { unit }),
   })
 
+  /// Every count, under the key the Cash Counts screen reads its whole list
+  /// by. A count was taken at a site and keeps it, so it cannot be narrowed to
+  /// a unit on the server: each is matched to its drawer through the unit
+  /// that owns its site, and one outside the chosen unit meets no drawer.
   const counts = useQuery({
-    queryKey: financeKeys.cashCounts(null, scoped),
-    queryFn: ({ signal }) =>
-      listCashCounts(signal, scoped === null ? {} : { site }),
+    queryKey: financeKeys.cashCounts(null, null),
+    queryFn: ({ signal }) => listCashCounts(signal),
   })
+  const register = useUnits()
+  const owner = useMemo(() => {
+    const table = new Map<string, string>()
+    for (const one of register.data ?? []) {
+      for (const site of one.sites) table.set(site.id, one.id)
+    }
+    return table
+  }, [register.data])
 
   /// The statements that overlap the window, narrowed before their lines are
   /// asked for — which is what keeps this from being one request per statement
@@ -138,11 +149,10 @@ export function Deposits() {
     () =>
       (statements.data?.rows ?? []).filter(
         (statement) =>
-          (scoped === null || statement.site_id === scoped) &&
           statement.period_start <= range.to &&
           statement.period_end >= range.from
       ),
-    [statements.data, scoped, range.from, range.to]
+    [statements.data, range.from, range.to]
   )
 
   const lines = useQueries({
@@ -174,18 +184,21 @@ export function Deposits() {
       overview.isPending ||
       statements.isPending ||
       counts.isPending ||
+      register.isPending ||
       lines.isPending,
     isError:
       deposits.isError ||
       overview.isError ||
       statements.isError ||
       counts.isError ||
+      register.isError ||
       lines.isError,
     error:
       deposits.error ??
       overview.error ??
       statements.error ??
       counts.error ??
+      register.error ??
       lines.error,
     data: deposits.data,
     refetch: () => {
@@ -193,6 +206,7 @@ export function Deposits() {
       void overview.refetch()
       void statements.refetch()
       void counts.refetch()
+      void register.refetch()
     },
   }
 
@@ -206,7 +220,7 @@ export function Deposits() {
       !(counts.data ?? []).some(
         (count) =>
           count.account_code === row.account_code &&
-          count.site_id === row.site_id
+          owner.get(count.site_id) === row.unit_id
       )
   ).length
 
@@ -233,7 +247,7 @@ export function Deposits() {
       />
 
       <Toolbar>
-        <LocationSelect value={site} onChange={setSite} className="w-52" />
+        <UnitSelect value={unit} onChange={setUnit} className="w-52" />
         <WindowControl range={range} />
       </Toolbar>
 
@@ -307,7 +321,7 @@ export function Deposits() {
                           "anywhere"
                         ) : (
                           <>
-                            at <SiteName id={site} />
+                            by <UnitName id={unit} />
                           </>
                         )}{" "}
                         yet. The document exists —{" "}
@@ -508,7 +522,7 @@ function DepositRow({ row }: { row: StoreDeposit }) {
       </Td>
       <Td className="whitespace-nowrap">{day(row.banked_on)}</Td>
       <Td>
-        <SiteName id={row.site_id} />
+        <UnitName id={row.unit_id} />
       </Td>
       <Td>
         <span className="text-ink">{row.drawer_account_name}</span>
@@ -571,7 +585,7 @@ function ArrivalRow({
         </span>
       </Td>
       <Td>
-        <SiteName id={statement.site_id} />
+        <UnitName id={statement.unit_id} />
       </Td>
       <Td className="text-body">
         {line.description}

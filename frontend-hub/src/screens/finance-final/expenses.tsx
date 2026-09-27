@@ -15,6 +15,7 @@ import { edge } from "@/lib/api"
 import { useEdgeNodeIdentity } from "@/lib/edge-session"
 import { money, moment } from "@/lib/format"
 import { financeKeys, moneyOverview } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import {
   CardRow,
   Code,
@@ -28,8 +29,9 @@ import {
 } from "@/screens/finance-final/parts"
 import { useWindow } from "@/screens/finance/hooks"
 import {
-  LocationSelect,
   SiteName,
+  UnitName,
+  UnitSelect,
   WindowControl,
 } from "@/screens/finance/parts"
 import type {
@@ -76,24 +78,30 @@ import type {
 /// the foot of the screen.
 export function Expenses() {
   const range = useWindow()
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
 
   // Which shop's node this hub is actually proxied to. Resolves to `null` for
   // an unreachable node rather than throwing, which is the honest reading: a
   // shop whose box is off is a fact about the shop, not a failure of the hub.
   const where = useEdgeNodeIdentity()
   const nodeSite = where.data?.site_id ?? null
+  // The node answers for a SITE; the position table and the filter are
+  // units' books. The unit owning the node's site is the row its tin is.
+  const register = useUnits()
+  const nodeUnit =
+    register.data?.find((one) => one.sites.some((s) => s.id === nodeSite))
+      ?.id ?? null
   // A DC edge serves no `/store/*` routes at all — `store_router_with_sync`
   // refuses to build on anything but a Store node — so asking one for a petty
   // cash book is a guaranteed 404 dressed up as an error state.
   const onAShop = where.data?.node_role === "STORE"
 
   // Where the money sits, per unit, as at today. The centre's own figure and
-  // the centre's own `site` filter: narrowing here is a narrower REQUEST, never
+  // the centre's own `unit` filter: narrowing here is a narrower REQUEST, never
   // a slice of a wider answer held in the browser.
   const positions = useQuery({
-    queryKey: financeKeys.money(null, site === "" ? null : site),
-    queryFn: ({ signal }) => moneyOverview(site === "" ? {} : { site }, signal),
+    queryKey: financeKeys.money(null, unit === "" ? null : unit),
+    queryFn: ({ signal }) => moneyOverview(unit === "" ? {} : { unit }, signal),
   })
 
   const tin = useQuery({
@@ -142,7 +150,7 @@ export function Expenses() {
 
   // Whether the unit the reader picked is the unit whose receipts this hub can
   // actually read. Everything below the position table belongs to ONE node.
-  const showingBook = onAShop && (site === "" || site === nodeSite)
+  const showingBook = onAShop && (unit === "" || unit === nodeUnit)
 
   return (
     <PageContent>
@@ -154,23 +162,23 @@ export function Expenses() {
 
       <Toolbar>
         <WindowControl range={range} />
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         <Toolbar.Spacer />
         {/* The effective answer in words, always. A date box filled with today
             and a date box the server defaulted look identical to a reader. */}
         <span className="text-[0.875rem] text-mute">
           {range.chip}
-          {site === "" ? (
-            " · every location"
+          {unit === "" ? (
+            " · every unit"
           ) : (
             <>
               {" · "}
-              <SiteName id={site} />
+              <UnitName id={unit} />
             </>
           )}
         </span>
@@ -289,7 +297,7 @@ export function Expenses() {
                   // different claims and a float screen may not render them the
                   // same.
                   const counted =
-                    unit.site_id === nodeSite &&
+                    unit.unit_id === nodeUnit &&
                     tin.data !== undefined &&
                     tin.data !== null
                       ? tin.data.balance_minor
@@ -297,19 +305,10 @@ export function Expenses() {
                   const difference =
                     counted === null ? null : counted - unit.petty
                   return (
-                    <tr key={unit.site_id}>
+                    <tr key={unit.unit_id}>
                       <Td>
-                        <SiteName id={unit.site_id} className="text-ink" />
-                        {/* Under the name, not beside it. Head office's row is
-                            the reason the id is drawn at all: the client's
-                            chart calls it `HO` and so, since 0256, does this
-                            system — `ho`, one row for the office and the
-                            warehouse that shares its building. The id is still
-                            worth drawing because the shops do NOT agree that
-                            way: the client's `C001` is our `store-01`. */}
-                        <span className="block">
-                          <Code>{unit.site_id}</Code>
-                        </span>
+                        {/* The client's code and name, never our id. */}
+                        <UnitName id={unit.unit_id} className="text-ink" />
                       </Td>
                       {/* The two pots a shop may not spend from, drawn quietly
                           on purpose: they are context for the third column, not
@@ -395,7 +394,7 @@ export function Expenses() {
             </EmptyState>
           ) : !showingBook ? (
             <EmptyState>
-              The location filter is on <SiteName id={site} />, and the only
+              The unit filter is on <UnitName id={unit} />, and the only
               petty cash book this hub can read is <SiteName id={nodeSite} />
               &rsquo;s — one node per unit, and the hub is proxied to one node.
               Clear the filter to see it.
@@ -484,7 +483,7 @@ export function Expenses() {
 
         <Note>
           <b>What is real here and what is not.</b> The position table is the
-          centre&rsquo;s ledger, filtered by <Code>site</Code> on the server.
+          centre&rsquo;s ledger, filtered by <Code>unit</Code> on the server.
           The tin and the book are one shop&rsquo;s own SQLite, read over{" "}
           <Code>GET /api/v1/store/petty-cash</Code> and{" "}
           <Code>GET /api/v1/store/expenses</Code> — edge routes, one node per
@@ -546,7 +545,7 @@ const BOOK_PAGE = 100
 
 /// One unit's three pots, from the centre's own money rows.
 interface UnitFloat {
-  readonly site_id: string
+  readonly unit_id: string
   /// The day's takings. Banked daily, never spent from.
   readonly cash: number
   /// The imprest float — the only pot a receipt may come out of.
@@ -581,12 +580,12 @@ function unitsOf(rows: readonly MoneyAccountRow[]): UnitFloat[] {
     ) {
       continue
     }
-    let unit = table.get(row.site_id)
+    let unit = table.get(row.unit_id)
     if (unit === undefined) {
-      unit = { site_id: row.site_id, cash: 0, petty: 0, float: 0 }
-      table.set(row.site_id, unit)
+      unit = { unit_id: row.unit_id, cash: 0, petty: 0, float: 0 }
+      table.set(row.unit_id, unit)
     }
-    // Summed rather than assigned: one meaning at one site may legitimately be
+    // Summed rather than assigned: one meaning in one unit may legitimately be
     // mapped to more than one account, and the last one written would otherwise
     // silently win.
     if (row.pot === "CASH") unit.cash += row.per_books_minor

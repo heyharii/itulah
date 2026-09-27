@@ -20,8 +20,8 @@ import {
 } from "@/screens/finance-final/parts"
 import { useWindow } from "@/screens/finance/hooks"
 import {
-  LocationSelect,
   SiteName,
+  SiteSelect,
   WindowControl,
 } from "@/screens/finance/parts"
 
@@ -111,12 +111,12 @@ export function SalesRegister() {
 
       <Toolbar>
         <WindowControl range={range} />
-        <LocationSelect
+        {/* A sale happens at a site — a shop — and the report takes one. */}
+        <SiteSelect
           value={site}
           onChange={setSite}
-          emptyLabel="Every location"
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Site"
         />
         <Toolbar.Spacer />
         {/* The effective answer, in words, always. A date box left blank and a
@@ -125,7 +125,7 @@ export function SalesRegister() {
         <span className="text-[0.875rem] text-mute">
           {range.chip}
           {site === "" ? (
-            " · every unit"
+            " · every site"
           ) : (
             <>
               {" · "}
@@ -178,7 +178,7 @@ export function SalesRegister() {
                       <Th width="11rem">Date</Th>
                       <Th width="14rem">Document</Th>
                       <Th width="10rem">Customer</Th>
-                      <Th width="9rem">Unit</Th>
+                      <Th width="9rem">Site</Th>
                       <Th width="10rem">Mode of payment</Th>
                       <Th align="right" width="9rem">
                         Net

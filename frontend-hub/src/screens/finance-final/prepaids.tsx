@@ -26,7 +26,7 @@ import {
   TotalRow,
 } from "@/screens/finance-final/parts"
 import { useWindow } from "@/screens/finance/hooks"
-import { LocationSelect, SiteName, WindowControl } from "@/screens/finance/parts"
+import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
 import type { FiscalPeriod, LedgerAccount } from "@itulah/contract"
 
 /// Prepaids & Accruals — costs paid before the months they belong to, and
@@ -69,9 +69,9 @@ import type { FiscalPeriod, LedgerAccount } from "@itulah/contract"
 export function PrepaidsAndAccruals() {
   const range = useWindow()
   // On the wire. A prepayment belongs to the unit that will consume it — a
-  // shop's rent is that shop's cost — so "what is Store 07 carrying" is a
+  // shop's rent is that store's cost — so "what is C007 carrying" is a
   // different request, not a slice of a wider answer.
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
 
   // One query per ACCOUNT, folded back into one row per family. Three of the
   // four families are still a single code; the prepaid one is six, because the
@@ -84,7 +84,7 @@ export function PrepaidsAndAccruals() {
     queries: asked.map(({ code: askedCode }) => ({
       queryKey: financeKeys.ledger(
         askedCode,
-        site || null,
+        unit || null,
         range.from,
         range.to
       ),
@@ -92,7 +92,7 @@ export function PrepaidsAndAccruals() {
         accountLedger(
           askedCode,
           {
-            site: site || undefined,
+            unit: unit || undefined,
             from: range.from,
             to: range.to,
             // The movements are not drawn here — four families times a
@@ -171,21 +171,21 @@ export function PrepaidsAndAccruals() {
 
       <Toolbar>
         <WindowControl range={range} />
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">
           {range.chip}
-          {site === "" ? (
-            " · every location"
+          {unit === "" ? (
+            " · every unit"
           ) : (
             <>
               {" · "}
-              <SiteName id={site} />
+              <UnitName id={unit} />
             </>
           )}
         </span>
@@ -286,7 +286,7 @@ export function PrepaidsAndAccruals() {
             balance and a balance does not decide for itself.
           </Note>
 
-          <Schedule to={range.to} site={site} />
+          <Schedule to={range.to} unit={unit} />
 
           <ChartShape />
         </div>
@@ -547,7 +547,7 @@ function Figure({ minor, strong }: { minor: number | null; strong?: boolean }) {
 /// could post into, and a schedule that lists it is a schedule promising
 /// something the database will refuse. The period list is the honest domain
 /// of this table.
-function Schedule({ to, site }: { to: string; site: string }) {
+function Schedule({ to, unit }: { to: string; unit: string }) {
   const periods = useQuery({
     // The same key `useWindow()` already reads the period list under, so the
     // toolbar above and this table are one request.
@@ -574,7 +574,7 @@ function Schedule({ to, site }: { to: string; site: string }) {
       </h2>
       <p className="-mt-2 text-[0.875rem] text-mute">
         What a release run would post, month by month
-        {site === "" ? "" : ", at this location"}
+        {unit === "" ? "" : ", in this unit"}
       </p>
 
       {periods.isPending ? (
@@ -782,8 +782,8 @@ const MONTHS: readonly string[] = [
 /// The mapping check is structural and not arithmetic: a mapped account code
 /// like `101130100100` begins with the bucket's own `1011301001`, which is the
 /// same prefix rule the server itself sums by. The account map is already in
-/// the cache — `<LocationSelect>` above reads it to know what a location is —
-/// so this costs no request.
+/// the cache — `<UnitSelect>` above reads it to know what a unit is — so this
+/// costs no request.
 function ChartShape() {
   const prepaid = useQuery({
     // `10113` and then narrowed, because the family's own group code no longer

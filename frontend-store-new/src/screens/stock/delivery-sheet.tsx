@@ -13,15 +13,14 @@ import {
   useInboundDelivery,
   verdictOf,
 } from "@/screens/stock/inbound"
-// TEMPORARY: from `@itulah/contract` once the backend generates them.
+import { Code, Fact, Facts } from "@/screens/stock/parts"
+import { useRange } from "@/screens/stock/shared"
 import type {
+  CatalogRow,
   StoreInboundDelivery,
   StoreInboundLine,
   StoreInboundResult,
-} from "@/screens/stock/inbound-types"
-import { Code, Fact, Facts } from "@/screens/stock/parts"
-import { useRange } from "@/screens/stock/shared"
-import type { CatalogRow } from "@itulah/contract"
+} from "@itulah/contract"
 
 /// One delivery, opened over the list.
 ///

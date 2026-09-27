@@ -18,9 +18,9 @@ import {
   listEmployees,
   listShifts,
   peopleKeys,
-  placeRoster,
   planDay,
   rosterKeys,
+  unitRoster,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { UnitChoice, useUnit } from "@/screens/people/parts"
@@ -114,7 +114,7 @@ function todayIso(): string {
 export function Roster() {
   const client = useQueryClient()
   const unit = useUnit()
-  const place = unit.place
+  const unitId = unit.unitId
   const [from, setFrom] = useState(() => mondayOf(new Date()))
   const [reason, setReason] = useState("")
   const [chosen, setChosen] = useState<string | null>(null)
@@ -128,32 +128,32 @@ export function Roster() {
   const to = week[6]
 
   const days = useQuery({
-    queryKey: rosterKeys.place(place ?? "", from, to),
-    queryFn: ({ signal }) => placeRoster(place ?? "", from, to, signal),
-    enabled: place !== null,
+    queryKey: rosterKeys.unit(unitId ?? "", from, to),
+    queryFn: ({ signal }) => unitRoster(unitId ?? "", from, to, signal),
+    enabled: unitId !== null,
   })
   const shifts = useQuery({
     queryKey: rosterKeys.shifts(),
     queryFn: ({ signal }) => listShifts(signal),
   })
-  /// **Bounded to the place the grid is about**, not to the caller.
+  /// **Bounded to the unit the grid is about**, not to the caller.
   ///
   /// It used to ask for every active employee, which is right by accident for
   /// a store manager — the server bounds them to their own posting — and wrong
   /// for head office, who was served the whole company's names against one
-  /// place's plan. Thirty-three rows of dashes is not a roster.
+  /// unit's plan. Thirty-three rows of dashes is not a roster.
   const team = useQuery({
     queryKey: peopleKeys.employees({
       status: "ACTIVE",
-      placeId: place ?? undefined,
+      unitId: unitId ?? undefined,
       limit: 1000,
     }),
     queryFn: ({ signal }) =>
       listEmployees(
-        { status: "ACTIVE", placeId: place ?? undefined, limit: 1000 },
+        { status: "ACTIVE", unitId: unitId ?? undefined, limit: 1000 },
         signal
       ),
-    enabled: place !== null,
+    enabled: unitId !== null,
   })
 
   const live = shifts.data ?? []
@@ -192,7 +192,7 @@ export function Roster() {
     onSuccess: () => {
       setFailed(null)
       void client.invalidateQueries({
-        queryKey: rosterKeys.place(place ?? "", from, to),
+        queryKey: rosterKeys.unit(unitId ?? "", from, to),
       })
     },
     onError: (error: Error) => setFailed(error.message),
@@ -202,7 +202,7 @@ export function Roster() {
   // instruction somebody gave. So the reason is asked ONCE for the sitting
   // rather than once per day, and the grid stays inert until it is given —
   // which is the honest version of a click that would have been a 400.
-  const ready = reason.trim() !== "" && brush !== null && place !== null
+  const ready = reason.trim() !== "" && brush !== null && unitId !== null
 
   return (
     <PageContent>
@@ -217,9 +217,9 @@ export function Roster() {
         actions={
           <>
             <UnitChoice
-              place={place}
-              places={unit.places}
-              onChange={unit.setPlace}
+              unitId={unitId}
+              units={unit.units}
+              onChange={unit.setUnitId}
             />
             {/* A week at a time, because that is how a roster is built — and
                 the date picker stays for the jump to a month away. */}
@@ -261,7 +261,7 @@ export function Roster() {
         }
       />
 
-      {place === null && !unit.choosing && (
+      {unitId === null && !unit.choosing && (
         <Banner tone="warn" className="mb-4">
           You are not posted anywhere, so there is no week to build.
         </Banner>
@@ -271,7 +271,7 @@ export function Roster() {
           {failed}
         </Banner>
       )}
-      {place !== null && live.length === 0 && (
+      {unitId !== null && live.length === 0 && (
         <Banner tone="warn" className="mb-4">
           No shift pattern is defined, so there is nothing to put anybody on.
           Head office defines them under Setup › Shift patterns.

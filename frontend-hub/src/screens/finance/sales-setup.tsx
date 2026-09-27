@@ -8,6 +8,7 @@ import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Banner } from "@/components/ui/states"
 import { node } from "@/lib/api"
+import { SiteName, SiteSelect } from "@/screens/finance/parts"
 import type {
   AcquirerFeeRate,
   AddBankOutcome,
@@ -185,7 +186,7 @@ export function SalesSetup() {
                   debit_card: bank.debit_card,
                   account_no: bank.account_no || null,
                   account_holder: bank.account_holder || null,
-                  account_site_id: null,
+                  account_unit_id: null,
                   terminals: [],
                 })
               }
@@ -213,7 +214,9 @@ export function SalesSetup() {
             <tbody>
               {(terminals.data ?? []).map((row) => (
                 <tr key={`${row.site_id}/${row.terminal_id}`}>
-                  <td>{row.site_id}</td>
+                  <td>
+                    <SiteName id={row.site_id} />
+                  </td>
                   <td>{row.terminal_id}</td>
                   <td>{row.bank_code}</td>
                 </tr>
@@ -221,12 +224,10 @@ export function SalesSetup() {
             </tbody>
           </table>
           <div className="grid grid-cols-3 gap-2">
-            <Input
-              placeholder="store-01"
+            <SiteSelect
               value={terminal.site_id}
-              onChange={(e) =>
-                setTerminal({ ...terminal, site_id: e.target.value })
-              }
+              onChange={(site_id) => setTerminal({ ...terminal, site_id })}
+              emptyLabel="Shop"
             />
             <Input
               placeholder="Terminal id"

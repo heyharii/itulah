@@ -1,10 +1,15 @@
 import { node } from "@/lib/api"
-// TEMPORARY: from `@itulah/contract` once the backend generates them.
 import type {
+  CatalogRow,
+  DestinationDemand,
+  MovementView,
+  OutstandingLine,
+  PickRequest,
+  PickResult,
   StoreInboundDetail,
   StoreInboundList,
-} from "@/screens/stock/inbound-types"
-import type { CatalogRow, MovementView, StoreOffers } from "@itulah/contract"
+  StoreOffers,
+} from "@itulah/contract"
 
 /// Every read this till makes, and the key it is cached under.
 ///
@@ -230,6 +235,62 @@ export function fetchInboundDelivery(
     `/api/v1/store/inbound/${encodeURIComponent(deliveryId)}`,
     { signal },
   )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sending goods out: a return to the Gudang, or a transfer to another shop
+//
+// The same pick, koli, surat jalan and lorry the Gudang uses for its own
+// outbound — one path for every site, served by the same handlers
+// (`edge/http.rs`'s `store_router`, mounted under `/api/v1/store/outbound`
+// rather than the Gudang's `/api/v1/dc`). This shop only picks; koli, sealing
+// and dispatch stay a DC's job today.
+
+export const destinationsKey = () => ["outbound", "destinations"] as const
+
+export const outstandingKey = (destinationStoreId: string) =>
+  ["outbound", "outstanding", destinationStoreId] as const
+
+/// Every site this shop still owes something to — the send screen's queue.
+export function fetchDestinations(
+  signal?: AbortSignal,
+): Promise<DestinationDemand[]> {
+  return node
+    .get<{ items: DestinationDemand[] }>(
+      "/api/v1/store/outbound/destinations",
+      {
+        signal,
+      },
+    )
+    .then((body) => body.items)
+}
+
+/// What can honestly go to one destination right now: what it still has
+/// coming, what is off this shop's racks, and the smaller of the two.
+export function fetchOutstanding(
+  destinationStoreId: string,
+  signal?: AbortSignal,
+): Promise<OutstandingLine[]> {
+  return node
+    .get<{
+      lines: OutstandingLine[]
+    }>(
+      `/api/v1/store/outbound/destinations/${encodeURIComponent(destinationStoreId)}/outstanding`,
+      { signal },
+    )
+    .then((body) => body.lines)
+}
+
+/// Pick a quantity off one of this shop's three places. The server assigns it
+/// to accepted allotment lines in FIFO order — there is no line or EPC to
+/// choose, the same as a DC's quantity-only pick.
+export function pick(
+  request: PickRequest,
+  signal?: AbortSignal,
+): Promise<PickResult> {
+  return node.post<PickResult>("/api/v1/store/outbound/picks", request, {
+    signal,
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

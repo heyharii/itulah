@@ -17,6 +17,7 @@ import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
 import { parseMinor } from "@/screens/finance/chart"
+import { useUnitName } from "@/screens/finance/hooks"
 import {
   AccountAndCategory,
   accountChoiceReady,
@@ -82,6 +83,7 @@ export function BankReconciliation({
 } = {}) {
   const statements = useStatements()
   const money_ = useMoney()
+  const unitName = useUnitName()
   const [chosen, setChosen] = useState<string | null>(statementId ?? null)
   const [exact, setExact] = useState(true)
   // The dates start as the statement's own period, which is what somebody
@@ -124,7 +126,7 @@ export function BankReconciliation({
       money_.data?.rows.find(
         (row) =>
           row.account_code === statement.account_code &&
-          row.site_id === statement.site_id
+          row.unit_id === statement.unit_id
       ) ?? null
     )
   }, [money_.data, statement])
@@ -305,7 +307,7 @@ export function BankReconciliation({
             >
               {rows.map((row) => (
                 <option key={row.statement_id} value={row.statement_id}>
-                  {row.account_name} — {row.site_id}
+                  {row.account_name} — {unitName(row.unit_id)}
                 </option>
               ))}
             </Select>

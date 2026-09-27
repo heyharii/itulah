@@ -20,7 +20,7 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import { LocationSelect, SiteName, SupplierName } from "@/screens/finance/parts"
+import { SiteName, SiteSelect, SupplierName } from "@/screens/finance/parts"
 import type { PaymentInstruction } from "@itulah/contract"
 
 /// A shop asking head office to pay something, and what happened to the ask.
@@ -127,11 +127,11 @@ export function PaymentInstructions() {
       />
 
       <Toolbar>
-        <LocationSelect
+        <SiteSelect
           value={site}
           onChange={setSite}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Site"
         />
         <Segmented
           options={RUNGS.map((rung) => ({
@@ -153,7 +153,7 @@ export function PaymentInstructions() {
         />
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">
-          {site === "" ? "every location" : <SiteName id={site} />}
+          {site === "" ? "every site" : <SiteName id={site} />}
         </span>
       </Toolbar>
 
@@ -250,7 +250,7 @@ export function PaymentInstructions() {
                     <tr>
                       <Th width="9rem">Number</Th>
                       <Th width="7rem">Raised</Th>
-                      <Th width="8rem">Unit</Th>
+                      <Th width="8rem">Site</Th>
                       <Th width="12rem">Pay to</Th>
                       <Th>What for</Th>
                       <Th width="7.5rem">Needed by</Th>

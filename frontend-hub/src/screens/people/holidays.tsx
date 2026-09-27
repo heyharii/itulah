@@ -210,7 +210,7 @@ function HolidayFields({
               // A national day narrowed to some shops is a day the law gives
               // everybody, withheld from most of them by a data-entry slip.
               // The server refuses the pair; the form does not offer it.
-              places: next === "REGIONAL" ? draft.places : [],
+              units: next === "REGIONAL" ? draft.units : [],
             })
           }
         >
@@ -228,14 +228,14 @@ function HolidayFields({
           hint="Comma-separated place ids. A regional day that names nowhere is not a holiday, and is refused."
         >
           <Input
-            value={draft.places.join(", ")}
+            value={draft.units.join(", ")}
             onChange={(event) =>
               onChange({
                 ...draft,
-                places: event.target.value
+                units: event.target.value
                   .split(",")
-                  .map((place) => place.trim())
-                  .filter((place) => place !== ""),
+                  .map((unit) => unit.trim())
+                  .filter((unit) => unit !== ""),
               })
             }
             placeholder="store-07, store-09"
@@ -247,7 +247,7 @@ function HolidayFields({
 }
 
 function emptyDay(): NewHoliday {
-  return { date: "", name: "", kind: "NATIONAL", places: [] }
+  return { date: "", name: "", kind: "NATIONAL", units: [] }
 }
 
 /// One line of a pasted or uploaded calendar that could not be read.
@@ -376,11 +376,11 @@ function parseCalendar(
       })
       return
     }
-    const places = (parts[3] ?? "")
+    const units = (parts[3] ?? "")
       .split(/[;|]/)
-      .map((place) => place.trim())
-      .filter((place) => place !== "")
-    if (kind === "REGIONAL" && places.length === 0) {
+      .map((unit) => unit.trim())
+      .filter((unit) => unit !== "")
+    if (kind === "REGIONAL" && units.length === 0) {
       rejected.push({
         line: at,
         text: line,
@@ -388,7 +388,7 @@ function parseCalendar(
       })
       return
     }
-    if (kind !== "REGIONAL" && places.length > 0) {
+    if (kind !== "REGIONAL" && units.length > 0) {
       rejected.push({
         line: at,
         text: line,
@@ -405,7 +405,7 @@ function parseCalendar(
       return
     }
     seen.add(date)
-    days.push({ date, name, kind, places })
+    days.push({ date, name, kind, units })
   })
 
   days.sort((a, b) => a.date.localeCompare(b.date))

@@ -7,6 +7,7 @@ import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { money } from "@/lib/format"
 import { financeKeys, statement } from "@/lib/queries/finance"
+import { unitLabel } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import {
   CardRow,
@@ -20,7 +21,7 @@ import {
 } from "@/screens/finance-final/parts"
 import { asPresented, ladderLevel, periodResult } from "@/screens/finance/chart"
 import { useLocations, useWindow } from "@/screens/finance/hooks"
-import { LocationSelect, SiteName, WindowControl } from "@/screens/finance/parts"
+import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
 import type { Statement } from "@itulah/contract"
 
 /// What was earned and what it cost, over a window, by unit.
@@ -56,9 +57,9 @@ import type { Statement } from "@itulah/contract"
 /// keep them straight.
 ///
 /// This module rejected that arrangement. One chart, and the unit is a
-/// dimension on the ledger row (`journal_line.site_id`), so both comparisons
+/// dimension on the ledger row (`journal_line.unit_id`), so both comparisons
 /// are askable here — a column is one more request to
-/// `GET /finance/statement` with its own `from`, `to` and `site`, and never a
+/// `GET /finance/statement` with its own `from`, `to` and `unit`, and never a
 /// slice of a wider answer cut up in the browser. A per-unit profit and loss
 /// is the thing this model does *better* than the reference, and it costs one
 /// round trip per shop.
@@ -76,9 +77,10 @@ import type { Statement } from "@itulah/contract"
 /// disagree about a figure they both got right.
 export function ProfitAndLoss() {
   const range = useWindow()
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [compare, setCompare] = useState<CompareAxis>("NONE")
 
+  // The units the books are kept for: head office and each store.
   const locations = useLocations()
 
   // Comparing units and filtering to one unit is a filter fighting the thing
@@ -86,17 +88,17 @@ export function ProfitAndLoss() {
   // that vanishes between modes reads as a bug. The consolidated reading is
   // then the last column, which is what "all units" means.
   const byUnit = compare === "UNIT"
-  const effectiveSite = byUnit ? "" : site
+  const effectiveUnit = byUnit ? "" : unit
 
   const columns = useMemo<readonly ReportColumn[]>(() => {
     if (compare === "NONE") return []
     if (compare === "UNIT") {
       return (locations.data?.locations ?? []).map((location) => ({
-        key: `site:${location.site_id}`,
-        label: location.name,
+        key: `unit:${location.unit_id}`,
+        label: unitLabel(location),
         from: range.from,
         to: range.to,
-        site: location.site_id,
+        unit: location.unit_id,
       }))
     }
     return periodColumns(range.from, range.to, compare).map((period) => ({
@@ -104,9 +106,9 @@ export function ProfitAndLoss() {
       label: period.label,
       from: period.from,
       to: period.to,
-      site: effectiveSite,
+      unit: effectiveUnit,
     }))
-  }, [compare, locations.data, range.from, range.to, effectiveSite])
+  }, [compare, locations.data, range.from, range.to, effectiveUnit])
 
   // Past this many the table stops being readable and the fan-out stops being
   // polite. Refused outright rather than silently truncated: a report that
@@ -124,12 +126,12 @@ export function ProfitAndLoss() {
       "PROFIT_LOSS",
       range.from,
       range.to,
-      effectiveSite || null
+      effectiveUnit || null
     ),
     queryFn: ({ signal }) =>
       statement(
         "PROFIT_LOSS",
-        { from: range.from, to: range.to, site: effectiveSite || undefined },
+        { from: range.from, to: range.to, unit: effectiveUnit || undefined },
         signal
       ),
   })
@@ -145,12 +147,12 @@ export function ProfitAndLoss() {
         "PROFIT_LOSS",
         column.from,
         column.to,
-        column.site || null
+        column.unit || null
       ),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         statement(
           "PROFIT_LOSS",
-          { from: column.from, to: column.to, site: column.site || undefined },
+          { from: column.from, to: column.to, unit: column.unit || undefined },
           signal
         ),
     })),
@@ -169,12 +171,12 @@ export function ProfitAndLoss() {
 
       <Toolbar>
         <WindowControl range={range} />
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           disabled={byUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         <Segmented
           value={compare}
@@ -189,12 +191,12 @@ export function ProfitAndLoss() {
           {range.chip}
           {byUnit ? (
             " · every unit, side by side"
-          ) : site === "" ? (
+          ) : unit === "" ? (
             " · every unit"
           ) : (
             <>
               {" · "}
-              <SiteName id={site} />
+              <UnitName id={unit} />
             </>
           )}
         </span>
@@ -421,7 +423,7 @@ interface ReportColumn {
   readonly label: string
   readonly from: string
   readonly to: string
-  readonly site: string
+  readonly unit: string
 }
 
 /// One reading of the statement, and every figure a row can ask it for.

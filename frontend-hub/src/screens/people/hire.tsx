@@ -32,7 +32,7 @@ import {
   readHireProposal,
   reviseHire,
   type HireAsk,
-  type PlaceChoice,
+  type ReachableUnit,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useIdentity } from "@/lib/session"
@@ -318,9 +318,9 @@ function complete(terms: Terms): boolean {
   )
 }
 
-function askOf(terms: Terms, placeId: string): HireAsk {
+function askOf(terms: Terms, unitId: string): HireAsk {
   return {
-    placeId,
+    unitId,
     position: terms.position.trim(),
     headcount: Number(terms.headcount),
     need: terms.need,
@@ -542,7 +542,7 @@ export function NewEmployees() {
         <AppLink to="/people">Directory</AppLink>.
       </Banner>
 
-      {unit.place === null && !unit.choosing && (
+      {unit.unitId === null && !unit.choosing && (
         <Banner tone="bad" className="mb-4">
           You are not posted anywhere, so there is no unit whose hiring is yours
           to ask about.
@@ -588,7 +588,7 @@ export function NewEmployees() {
         })}
       </Card>
 
-      <Ask place={unit.place} places={unit.places} choosing={unit.choosing} />
+      <Ask unit={unit.unitId} units={unit.units} choosing={unit.choosing} />
 
       <ProposalSheet
         id={proposal.value ?? null}
@@ -791,12 +791,12 @@ function TermsFields({
 /// actor and not on the rung. So this card is offered to both faces; what
 /// differs is whether there is a unit to choose.
 function Ask({
-  place,
-  places,
+  unit,
+  units,
   choosing,
 }: {
-  place: string | null
-  places: readonly PlaceChoice[]
+  unit: string | null
+  units: readonly ReachableUnit[]
   choosing: boolean
 }) {
   const client = useQueryClient()
@@ -805,8 +805,8 @@ function Ask({
   const [failed, setFailed] = useState<string | null>(null)
 
   /// Their own posting, until they pick another. A bounded caller is served no
-  /// places by the server and therefore never picks — they were not choosing.
-  const unitId = chosen ?? place ?? ""
+  /// units by the server and therefore never picks — they were not choosing.
+  const unitId = chosen ?? unit ?? ""
 
   const ask = useMutation({
     mutationFn: () => proposeHire(askOf(terms, unitId)),
@@ -843,7 +843,7 @@ function Ask({
             <PickOne
               label="Unit"
               placeholder="Choose a unit…"
-              choices={places.map((one) => ({
+              choices={units.map((one) => ({
                 value: one.id,
                 label: `${one.name} · ${one.employees}`,
               }))}
@@ -853,7 +853,7 @@ function Ask({
           </Field>
         ) : (
           <KeyValue term="Unit">
-            {places.find((one) => one.id === unitId)?.name ??
+            {units.find((one) => one.id === unitId)?.name ??
               (unitId === "" ? "—" : unitId)}
           </KeyValue>
         )}

@@ -378,7 +378,7 @@ function personColumns(): ColumnDef<TableSetup, Standing>[] {
 export function Terminals() {
   const client = useQueryClient()
   const unit = useUnit()
-  const place = unit.place
+  const unitId = unit.unitId
   const sheet = useSheet("terminal")
   const [tab, setTab] = useState<Tab>("stations")
   const [query, setQuery] = useState("")
@@ -407,15 +407,15 @@ export function Terminals() {
   const team = useQuery({
     queryKey: peopleKeys.employees({
       status: "ACTIVE",
-      placeId: place ?? undefined,
+      unitId: unitId ?? undefined,
       limit: 500,
     }),
     queryFn: ({ signal }) =>
       listEmployees(
-        { status: "ACTIVE", placeId: place ?? undefined, limit: 500 },
+        { status: "ACTIVE", unitId: unitId ?? undefined, limit: 500 },
         signal
       ),
-    enabled: place !== null,
+    enabled: unitId !== null,
   })
 
   // Memoised, not `stations.data ?? []` inline: while a query is in flight the
@@ -457,8 +457,8 @@ export function Terminals() {
 
   const standing = enrolments.rows
   const here = useMemo(
-    () => rows.filter((row) => row.unit_id === place),
-    [rows, place]
+    () => rows.filter((row) => row.unit_id === unitId),
+    [rows, unitId]
   )
   const open = rows.find((row) => row.id === sheet.value)
 
@@ -477,12 +477,12 @@ export function Terminals() {
   /// cost nothing next to the table below.
   const exceptions = ((): Exception[] => {
     const out: Exception[] = []
-    const unitName = unit.name ?? place ?? "this unit"
+    const unitName = unit.name ?? unitId ?? "this unit"
 
     // A unit with no station at all, or none that is trusted. The most
     // consequential row on the screen: a suspended station attests nothing, so
     // every punch it believes it took is refused on the way in.
-    if (place !== null && !team.isPending) {
+    if (unitId !== null && !team.isPending) {
       const active = here.filter((row) => row.status === "ACTIVE")
       if (here.length === 0) {
         out.push({
@@ -579,7 +579,7 @@ export function Terminals() {
       .filter(
         (row) =>
           row.status === "ACTIVE" &&
-          row.unit_id !== place &&
+          row.unit_id !== unitId &&
           row.enrolled_people === 0
       )
       .forEach((row) => {
@@ -590,7 +590,7 @@ export function Terminals() {
           title: `Nobody is enrolled at ${row.unit_name ?? row.unit_id}`,
           detail: `${row.name} is active and holds no fingers, so the whole unit is locked out. Pick the unit above to see who.`,
           amount: "0 on file",
-          onOpen: () => unit.setPlace(row.unit_id),
+          onOpen: () => unit.setUnitId(row.unit_id),
         })
       })
 
@@ -598,7 +598,7 @@ export function Terminals() {
   })()
 
   const publish = useMutation({
-    mutationFn: () => publishEmployeeBook(place ?? ""),
+    mutationFn: () => publishEmployeeBook(unitId ?? ""),
     onSuccess: () => setFailed(null),
     onError: (error) => setFailed(problemOf(error)),
   })
@@ -612,9 +612,9 @@ export function Terminals() {
         actions={
           <>
             <UnitChoice
-              place={place}
-              places={unit.places}
-              onChange={unit.setPlace}
+              unitId={unitId}
+              units={unit.units}
+              onChange={unit.setUnitId}
             />
             <Button variant="primary" onClick={() => setRegistering(true)}>
               Register a station
@@ -628,7 +628,7 @@ export function Terminals() {
           {failed}
         </Banner>
       )}
-      {place === null && !unit.choosing && (
+      {unitId === null && !unit.choosing && (
         <Banner tone="warn" className="mb-3">
           You are not posted anywhere, so no unit's stations are yours to see.
         </Banner>
@@ -672,7 +672,7 @@ export function Terminals() {
             <Button
               variant="ghost"
               pending={publish.isPending}
-              disabled={place === null}
+              disabled={unitId === null}
               onClick={() => publish.mutate()}
             >
               {publish.isPending
@@ -721,7 +721,7 @@ export function Terminals() {
         </>
       ) : (
         <PeopleTab
-          place={place}
+          unitId={unitId}
           unitName={unit.name}
           standing={standing}
           chosen={chosen}
@@ -740,7 +740,7 @@ export function Terminals() {
       />
       <RegisterSheet
         open={registering}
-        place={place}
+        unitId={unitId}
         onClose={() => setRegistering(false)}
         onDone={() => setFailed(null)}
       />
@@ -816,7 +816,7 @@ function StationTable({
 
 /// Whose fingers this unit's station knows, and who it does not know at all.
 function PeopleTab({
-  place,
+  unitId,
   unitName,
   standing,
   chosen,
@@ -824,7 +824,7 @@ function PeopleTab({
   onWithdraw,
   state,
 }: {
-  place: string | null
+  unitId: string | null
   unitName: string | null
   standing: readonly Standing[]
   chosen: string | null
@@ -878,7 +878,7 @@ function PeopleTab({
             only the people posted here — a station pulls no other templates
           </span>
         </CardHeader>
-        {place === null ? (
+        {unitId === null ? (
           <EmptyState>
             Pick a unit above. Enrolment is a fact about one unit's station, so
             there is no company-wide list of fingers to show.
@@ -1280,12 +1280,12 @@ interface StationDraft {
 
 function RegisterSheet({
   open,
-  place,
+  unitId,
   onClose,
   onDone,
 }: {
   open: boolean
-  place: string | null
+  unitId: string | null
   onClose: () => void
   onDone: () => void
 }) {
@@ -1302,7 +1302,7 @@ function RegisterSheet({
   // The unit being looked at, when it has exactly one site, is the default:
   // a store's only premises is its shop. Head office has one today too (the
   // Gudang), but a unit with two sites makes somebody choose.
-  const onlySiteHere = sites.filter((one) => one.unitId === place)
+  const onlySiteHere = sites.filter((one) => one.unitId === unitId)
   const chosenSite =
     draft.siteId !== ""
       ? draft.siteId

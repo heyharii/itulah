@@ -12,6 +12,7 @@ import {
   listCashCounts,
   moneyOverview,
 } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import {
   CardRow,
@@ -23,7 +24,7 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import { LocationSelect, SiteName } from "@/screens/finance/parts"
+import { UnitName, UnitSelect } from "@/screens/finance/parts"
 import type { CashCountRow, MoneyAccountRow, MoneyPot } from "@itulah/contract"
 
 /// Every place notes and coins sit, per unit, and what the books say each
@@ -41,21 +42,27 @@ import type { CashCountRow, MoneyAccountRow, MoneyPot } from "@itulah/contract"
 ///
 /// # Why the unit is a group and not a column
 ///
-/// The client's chart carries the location inside the account name — `Cash on
-/// Hand C003` — so a Location column repeated down every row restates what the
-/// account already says and still leaves the reader adding up fourteen shops
+/// The client's chart carries the unit inside the account name — `Cash on
+/// Hand C003` — so a Unit column repeated down every row restates what the
+/// account already says and still leaves the reader adding up fourteen units
 /// in their head. Grouping by unit puts the name once and the unit's **total**
 /// where a total belongs, in the balance column, so "how much cash is standing
-/// at Store 03" is read rather than computed. `finance-lab-2` draws the same
-/// endpoints as one flat list with a Location column and one grand total; this
-/// is that screen with the unit dimension taken seriously.
+/// in C003's books" is read rather than computed. `finance-lab-2` draws the
+/// same endpoints as one flat list with a unit column and one grand total;
+/// this is that screen with the unit dimension taken seriously.
 ///
 /// # Why the picker narrows the request and not the list
 ///
-/// `site` is a server filter on both endpoints. Slicing a fourteen-unit answer
-/// in the browser would give the same fourteen rows to look at and a different
+/// `unit` is a server filter on the money. Slicing a fourteen-unit answer in
+/// the browser would give the same fourteen rows to look at and a different
 /// number in the cards, which is the way a finance screen quietly starts
 /// disagreeing with itself.
+///
+/// The counts are read whole, and that is not a slice: a count was taken at a
+/// site (the Gudang, a shop) and keeps it, while the picker chooses a unit's
+/// books. Each count is matched to its drawer through the unit that owns its
+/// site; one outside the chosen unit meets no drawer here, and the cards are
+/// figured from the drawers alone.
 
 /// The three pots that hold notes and coins.
 ///
@@ -76,60 +83,69 @@ const POT_LABEL: Readonly<Record<string, string>> = {
 /// One drawer, and the last time anybody opened it.
 interface Drawer {
   readonly account: MoneyAccountRow
-  /// The most recent count of THIS account at THIS unit, or nothing — which is
-  /// the finding, not a gap in the data.
+  /// The most recent count of THIS account in THIS unit's books, or nothing —
+  /// which is the finding, not a gap in the data.
   readonly last: CashCountRow | null
 }
 
 interface Unit {
-  readonly siteId: string
+  readonly unitId: string
   readonly drawers: readonly Drawer[]
   readonly held: number
 }
 
 export function Cash() {
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
 
   const overview = useQuery({
-    queryKey: financeKeys.money(null, site === "" ? null : site),
-    queryFn: ({ signal }) => moneyOverview(site === "" ? {} : { site }, signal),
+    queryKey: financeKeys.money(null, unit === "" ? null : unit),
+    queryFn: ({ signal }) => moneyOverview(unit === "" ? {} : { unit }, signal),
   })
   // The same list the Cash Counts screen reads, under its own key: one request
   // for both screens, and no chance of the two disagreeing about when a drawer
-  // was last counted.
+  // was last counted. Never narrowed — the header says why.
   const counts = useQuery({
-    queryKey: financeKeys.cashCounts(null, site === "" ? null : site),
-    queryFn: ({ signal }) =>
-      listCashCounts(signal, site === "" ? {} : { site }),
+    queryKey: financeKeys.cashCounts(null, null),
+    queryFn: ({ signal }) => listCashCounts(signal),
   })
+  // Which unit owns each site: what puts a count, taken at a site, beside the
+  // drawer it counted in that unit's books.
+  const register = useUnits()
 
-  /// Loading and error for BOTH reads, in one place.
+  /// Loading and error for EVERY read, in one place.
   ///
   /// The count history is not decoration here — it is the column the screen was
   /// built for — so drawing the balances while it silently fails would leave
   /// every drawer reading "never counted" and send somebody to a till that was
-  /// counted this morning. A screen that can lie that way has to wait for both
-  /// answers or show neither.
+  /// counted this morning. A screen that can lie that way has to wait for all
+  /// the answers or show none — the unit register too, without which no count
+  /// finds its drawer.
   const view = {
-    isPending: overview.isPending || counts.isPending,
-    isError: overview.isError || counts.isError,
-    error: overview.error ?? counts.error,
+    isPending: overview.isPending || counts.isPending || register.isPending,
+    isError: overview.isError || counts.isError || register.isError,
+    error: overview.error ?? counts.error ?? register.error,
     data:
-      overview.data === undefined || counts.data === undefined
+      overview.data === undefined ||
+      counts.data === undefined ||
+      register.data === undefined
         ? undefined
         : ([overview.data.rows, counts.data] as const),
     refetch: () => {
       void overview.refetch()
       void counts.refetch()
+      void register.refetch()
     },
   }
 
-  // Keyed on the two query results and not on `view.data`, which is rebuilt
-  // every render and would make the memo never hold.
-  const units = useMemo(
-    () => group(overview.data?.rows ?? [], counts.data ?? []),
-    [overview.data, counts.data]
-  )
+  // Keyed on the query results and not on `view.data`, which is rebuilt every
+  // render and would make the memo never hold.
+  const units = useMemo(() => {
+    const owner = new Map<string, string>()
+    for (const one of register.data ?? []) {
+      for (const site of one.sites) owner.set(site.id, one.id)
+    }
+    return group(overview.data?.rows ?? [], counts.data ?? [], owner)
+  }, [overview.data, counts.data, register.data])
 
   const drawers = units.flatMap((unit) => unit.drawers)
   const held = drawers.reduce(
@@ -160,7 +176,7 @@ export function Cash() {
       />
 
       <Toolbar>
-        <LocationSelect value={site} onChange={setSite} className="w-52" />
+        <UnitSelect value={unit} onChange={setUnit} className="w-52" />
       </Toolbar>
 
       {queryState(view, {
@@ -168,7 +184,7 @@ export function Cash() {
         render: () =>
           drawers.length === 0 ? (
             <EmptyState>
-              {site === ""
+              {unit === ""
                 ? "No cash account is mapped yet. A place money can sit is a meaning bound to an account on the Account map."
                 : "This unit has no cash account mapped. A drawer becomes visible here once a meaning is bound to an account for it."}
             </EmptyState>
@@ -210,7 +226,7 @@ export function Cash() {
               <Grid>
                 <thead>
                   <tr>
-                    <Th>Place</Th>
+                    <Th>Unit / drawer</Th>
                     <Th width="9rem">Type</Th>
                     <Th width="10rem">Account</Th>
                     <Th align="right" width="11rem">
@@ -223,13 +239,13 @@ export function Cash() {
                   </tr>
                 </thead>
                 {units.map((unit) => (
-                  <tbody key={unit.siteId}>
+                  <tbody key={unit.unitId}>
                     {/* The unit's name once, and its total in the column the
                         eye is already scanning — the thing a flat list with a
-                        Location column cannot give you without arithmetic. */}
+                        unit column cannot give you without arithmetic. */}
                     <tr>
                       <Td className="bg-soft font-medium text-ink">
-                        <SiteName id={unit.siteId} />
+                        <UnitName id={unit.unitId} />
                       </Td>
                       <Td className="bg-soft" />
                       <Td className="bg-soft" />
@@ -333,36 +349,42 @@ function DrawerRow({ drawer }: { drawer: Drawer }) {
   )
 }
 
-/// Drawers under the unit they stand in, with the latest count found for each.
+/// Drawers under the unit whose books they are in, with the latest count found
+/// for each.
 ///
 /// The counts arrive newest first from the server, so the first one seen for a
-/// drawer is its latest and nothing needs sorting here. Units come out in the
-/// order the chart names them — `moneyOverview` is ordered by account code and
-/// the code ends in the unit — which is the order the client's own reports
-/// print and therefore the order somebody is looking for a shop in.
+/// drawer is its latest and nothing needs sorting here. A count carries the
+/// site it was taken at, and `owner` says which unit that site belongs to; a
+/// count at a site the register does not know meets no drawer. Units come out
+/// in the order the chart names them — `moneyOverview` is ordered by account
+/// code and the code ends in the unit — which is the order the client's own
+/// reports print and therefore the order somebody is looking for a store in.
 function group(
   rows: readonly MoneyAccountRow[],
-  counts: readonly CashCountRow[]
+  counts: readonly CashCountRow[],
+  owner: ReadonlyMap<string, string>
 ): readonly Unit[] {
   const latest = new Map<string, CashCountRow>()
   for (const count of counts) {
-    const key = `${count.account_code}@${count.site_id}`
+    const unitId = owner.get(count.site_id)
+    if (unitId === undefined) continue
+    const key = `${count.account_code}@${unitId}`
     if (!latest.has(key)) latest.set(key, count)
   }
 
-  const bySite = new Map<string, Drawer[]>()
+  const byUnit = new Map<string, Drawer[]>()
   for (const account of rows) {
     if (!CASH_POTS.includes(account.pot)) continue
-    const drawers = bySite.get(account.site_id) ?? []
+    const drawers = byUnit.get(account.unit_id) ?? []
     drawers.push({
       account,
-      last: latest.get(`${account.account_code}@${account.site_id}`) ?? null,
+      last: latest.get(`${account.account_code}@${account.unit_id}`) ?? null,
     })
-    bySite.set(account.site_id, drawers)
+    byUnit.set(account.unit_id, drawers)
   }
 
-  return [...bySite.entries()].map(([siteId, drawers]) => ({
-    siteId,
+  return [...byUnit.entries()].map(([unitId, drawers]) => ({
+    unitId,
     drawers,
     held: drawers.reduce(
       (sum, drawer) => sum + drawer.account.per_books_minor,

@@ -45,6 +45,7 @@ import {
   registerAsset,
   transferAsset,
 } from "@/lib/queries/finance"
+import { useSiteLabel, useUnits } from "@/lib/queries/organisation"
 import { problemOf } from "@/lib/problem"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
@@ -62,11 +63,10 @@ import {
 import {
   moneyAccountValue,
   parseMoneyAccountValue,
-  useLocations,
   useMeaningLabel,
   useMoneyAccounts,
 } from "@/screens/finance/hooks"
-import { LocationSelect, RankedBars, SiteName } from "@/screens/finance/parts"
+import { RankedBars, SiteName, SiteSelect } from "@/screens/finance/parts"
 import type { AssetRow, SupplierBillLine } from "@itulah/contract"
 
 /// What the business owns, what Finance has decided about it, and how it
@@ -491,11 +491,11 @@ export function AssetRegister() {
       />
 
       <Toolbar>
-        <LocationSelect
+        <SiteSelect
           value={site}
           onChange={setSite}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Site"
         />
         {/* Location is not among the questions inside: the select beside this
             asks it on the wire, and the figure to the right is the answer for
@@ -506,7 +506,7 @@ export function AssetRegister() {
             the server found, and what they are worth — the same figure the
             chart below totals, so the two cannot disagree. */}
         <span className="text-[0.875rem] text-mute">
-          {site === "" ? "Every location" : <SiteName id={site} />}
+          {site === "" ? "Every site" : <SiteName id={site} />}
           {" · "}
           {count(held)} registered ·{" "}
           <span className="font-medium text-ink tabular-nums">
@@ -1553,10 +1553,10 @@ function TransferForm({ asset }: { asset: AssetRow }) {
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="To" required>
-          <LocationSelect
+          <SiteSelect
             value={to}
             onChange={setTo}
-            emptyLabel="Choose a location"
+            emptyLabel="Choose a site"
             // Where it already is, taken out of the list rather than left in to
             // be refused.
             exclude={[asset.site_id]}
@@ -1630,7 +1630,14 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
   const [confirming, setConfirming] = useState(false)
   const [receipt, setReceipt] = useState(false)
 
-  const accounts = useMoneyAccounts(asset.site_id)
+  // The proceeds land in the books of the unit owning the asset's site: an
+  // asset stays at a site, and books are a unit's (0605).
+  const units = useUnits()
+  const unit =
+    (units.data ?? []).find((one) =>
+      one.sites.some((site) => site.id === asset.site_id)
+    )?.id ?? ""
+  const accounts = useMoneyAccounts(unit)
   const meaning = useMeaningLabel()
 
   const proceedsMinor = parseMinor(proceeds)
@@ -1817,17 +1824,6 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
 // Registering one
 // ---------------------------------------------------------------------------
 
-/// A `site_id` as the client says it, for a receipt written after the fact.
-///
-/// `<SiteName>` is the component and covers every other case; this is the one
-/// place a *string* is wanted — a sentence that has already happened, held in
-/// state rather than rendered from a row.
-function useSiteLabel(): (siteId: string) => string {
-  const map = useLocations()
-  return (siteId) =>
-    map.data?.locations.find((row) => row.site_id === siteId)?.name ?? siteId
-}
-
 interface RegistrationDraft {
   assetNumber: string
   name: string
@@ -1966,14 +1962,14 @@ function RegisterSheet({
           </form.Field>
           <form.Field name="siteId">
             {(field) => (
-              <Field label="Location" required>
+              <Field label="Site" required>
                 {/* Where the thing physically is. A typed id put an asset at a
                     location that does not exist, which the register then
                     happily listed. */}
-                <LocationSelect
+                <SiteSelect
                   value={field.state.value}
                   onChange={(next) => field.handleChange(next)}
-                  emptyLabel="Choose a location"
+                  emptyLabel="Choose a site"
                 />
               </Field>
             )}

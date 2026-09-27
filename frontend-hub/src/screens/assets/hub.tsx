@@ -21,7 +21,8 @@ import { Banner, LoadingState } from "@/components/ui/states"
 import { Pill } from "@/components/ui/pill"
 import { buildOf } from "@/lib/builds"
 import { day } from "@/lib/format"
-import { financeKeys, listAssets, siteAccounts } from "@/lib/queries/finance"
+import { financeKeys, listAssets, unitAccounts } from "@/lib/queries/finance"
+import { unitLabel, useUnits } from "@/lib/queries/organisation"
 import {
   gaAssetHub,
   gaAssetBuilds,
@@ -1006,23 +1007,32 @@ function AttachForm({
 /// is the person who can tell whether the class is right, and the account is
 /// how they check.
 function AccountsTab({ asset }: { asset: GaAssetRow }) {
+  // The asset stays at its site; its accounts are the books of the unit
+  // owning that site (0605).
+  const units = useUnits()
+  const unit = (units.data ?? []).find((one) =>
+    one.sites.some((premises) => premises.id === asset.site_id)
+  )
   const map = useQuery({
-    queryKey: financeKeys.siteAccounts(asset.site_id),
-    queryFn: ({ signal }) => siteAccounts(asset.site_id, signal),
+    queryKey: financeKeys.unitAccounts(unit?.id ?? null),
+    queryFn: ({ signal }) => unitAccounts(unit?.id ?? null, signal),
+    enabled: unit !== undefined,
   })
 
   const rows = (map.data ?? []).filter(
     (row) => row.source_id === asset.class_code
   )
 
-  if (map.isLoading) return <LoadingState>Reading Finance accounts…</LoadingState>
+  if (units.isLoading || map.isLoading)
+    return <LoadingState>Reading Finance accounts…</LoadingState>
 
   if (rows.length === 0) {
     return (
       <p className="text-meta text-body">
-        This class doesn't have an account at site {asset.site_id} yet.
-        Finance maps it; until then, depreciation for this class will be
-        rejected with a message naming the class and its site.
+        This class doesn't have an account in{" "}
+        {unit === undefined ? "its unit's books" : `${unitLabel(unit)}'s books`}{" "}
+        yet. Finance maps it; until then, depreciation for this class will be
+        rejected with a message naming the class and its unit.
       </p>
     )
   }

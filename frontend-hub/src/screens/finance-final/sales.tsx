@@ -20,6 +20,7 @@ import {
   type SaleTenderTotal,
   type SalesTotals,
 } from "@/lib/queries/analytics"
+import { siteChoices, useUnits } from "@/lib/queries/organisation"
 import {
   CardRow,
   Grid,
@@ -29,12 +30,8 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import { useLocations, useWindow } from "@/screens/finance/hooks"
-import {
-  LocationSelect,
-  SiteName,
-  WindowControl,
-} from "@/screens/finance/parts"
+import { useWindow } from "@/screens/finance/hooks"
+import { SiteName, SiteSelect, WindowControl } from "@/screens/finance/parts"
 import type { PaymentMethod } from "@itulah/contract"
 
 /// What each shop took, day by day, and how it was paid.
@@ -67,16 +64,22 @@ import type { PaymentMethod } from "@itulah/contract"
 /// So the screen fans out, and which way it fans depends on what is being
 /// asked:
 ///
-/// - **No unit chosen** — one `window` per location; a row is a shop.
-/// - **A unit chosen** — one `daily` per date in the span; a row is a day.
+/// - **No site chosen** — one `window` per site; a row is a shop.
+/// - **A site chosen** — one `daily` per date in the span; a row is a day.
 ///
 /// That is a fan-out, not a slice. Every figure here is the server's own
-/// answer for one unit over one span, which is the rule this module is built
-/// on: the unit is a filter the server applies, never a wider answer narrowed
-/// in the browser.
+/// answer for one site over one span, which is the rule this module is built
+/// on: the filter is one the server applies, never a wider answer narrowed
+/// in the browser. A sale happens at a site, so the filter is a site.
 export function Sales() {
   const range = useWindow()
-  const locations = useLocations()
+  // Every site, in the register's order — head office's first, then the
+  // stores' — which is the order the fleet rows are drawn in.
+  const register = useUnits()
+  const sites = useMemo(
+    () => siteChoices(register.data ?? []).map((choice) => choice.siteId),
+    [register.data]
+  )
   const [site, setSite] = useState("")
 
   const dates = useMemo(() => datesIn(range.from, range.to), [range])
@@ -88,7 +91,7 @@ export function Sales() {
   // Exactly one of these two fans out; the other is handed an empty list, so
   // `useQueries` makes no request and answers `[]`. Both hooks are still
   // called on every render, which is what the rules of hooks require.
-  const fleet = useTakingsBySite(site === "" ? locations.data?.locations : [], {
+  const fleet = useTakingsBySite(site === "" ? sites : [], {
     from: range.from,
     to: range.to,
   })
@@ -96,8 +99,8 @@ export function Sales() {
 
   const rows = site === "" ? fleet.rows : byDay.rows
   const pending =
-    site === "" ? locations.isPending || fleet.pending : byDay.pending
-  const failure = site === "" ? (locations.error ?? fleet.error) : byDay.error
+    site === "" ? register.isPending || fleet.pending : byDay.pending
+  const failure = site === "" ? (register.error ?? fleet.error) : byDay.error
 
   const total = useMemo(() => sum(rows), [rows])
 
@@ -110,12 +113,7 @@ export function Sales() {
       />
 
       <Toolbar>
-        <LocationSelect
-          value={site}
-          onChange={setSite}
-          emptyLabel="Every location"
-          className="h-8 w-44"
-        />
+        <SiteSelect value={site} onChange={setSite} className="h-8 w-44" />
         <WindowControl range={range} />
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">{range.chip}</span>
@@ -126,13 +124,13 @@ export function Sales() {
       ) : pending ? (
         <LoadingState>
           {site === ""
-            ? "Asking every location what it took…"
+            ? "Asking every site what it took…"
             : "Adding up the tills, one day at a time…"}
         </LoadingState>
       ) : rows.length === 0 && !tooWide ? (
         <EmptyState>
-          No location keeps books here yet, so there is nothing that could have
-          sold anything. Locations come from the Account map.
+          No site is registered yet, so there is nothing that could have sold
+          anything. Sites come from the units in Organisation.
         </EmptyState>
       ) : (
         <div className="flex flex-col gap-5">
@@ -249,20 +247,20 @@ export function Sales() {
 
           <section className="flex flex-col gap-2">
             <h2 className="text-[0.875rem] font-semibold text-ink">
-              {site === "" ? "By location" : "Day by day"}
+              {site === "" ? "By site" : "Day by day"}
             </h2>
             {tooWide ? (
               <Note>
                 This span is {count(dates.length)} days. A day-by-day split
                 costs one request per day, so it is drawn for spans up to{" "}
-                {DAY_LIMIT} days — narrow the window, or leave the location on{" "}
-                <b>Every location</b> to see the same span one row per shop.
+                {DAY_LIMIT} days — narrow the window, or leave the site on{" "}
+                <b>Every site</b> to see the same span one row per shop.
               </Note>
             ) : (
               <Grid>
                 <thead>
                   <tr>
-                    <Th width="9rem">{site === "" ? "Location" : "Date"}</Th>
+                    <Th width="9rem">{site === "" ? "Site" : "Date"}</Th>
                     <Th align="right" width="4.5rem">
                       Sales
                     </Th>
@@ -324,7 +322,7 @@ export function Sales() {
                     </tr>
                   ))}
                   <TotalRow>
-                    <Td>{site === "" ? "All locations" : "Whole span"}</Td>
+                    <Td>{site === "" ? "All sites" : "Whole span"}</Td>
                     <Td align="right">{count(total.sales)}</Td>
                     <Td align="right">{money(total.net)}</Td>
                     <Td align="right">{money(total.tax)}</Td>
@@ -347,12 +345,12 @@ export function Sales() {
           )}
 
           <Note>
-            Every figure above is the server&rsquo;s own answer for one unit
+            Every figure above is the server&rsquo;s own answer for one site
             over one span — one{" "}
             <code className="font-mono text-[0.875rem]">
               {site === "" ? "/reports/sales/window" : "/reports/sales/daily"}
             </code>{" "}
-            per {site === "" ? "location" : "date"}, added together here only to
+            per {site === "" ? "site" : "date"}, added together here only to
             make the total row. Nothing on this page is a fleet answer sliced by
             the browser. The business day boundary is the shop&rsquo;s, not the
             server&rsquo;s: WIB, UTC+7, as the report endpoints default to.
@@ -418,8 +416,8 @@ const TENDERS: readonly {
 /// One row of the takings table: a shop over a span, or a day at one shop.
 interface Takings {
   readonly key: string
-  /// Exactly one of these is set. `siteId` makes the row a location in the
-  /// fleet table; `date` makes it a day in one shop's table.
+  /// Exactly one of these is set. `siteId` makes the row a site in the fleet
+  /// table; `date` makes it a day in one shop's table.
   readonly siteId: string | null
   readonly date: string | null
   readonly sales: number
@@ -535,48 +533,43 @@ function sum(rows: readonly Takings[]) {
   }
 }
 
-/// One `window` request per location, each narrowed by the server.
+/// One `window` request per site, each narrowed by the server.
 function useTakingsBySite(
-  locations: readonly { site_id: string }[] | undefined,
+  sites: readonly string[],
   range: { from: string; to: string }
 ) {
   return useQueries({
-    queries: (locations ?? []).map((location) => ({
+    queries: sites.map((siteId) => ({
       // The key the sales module already owns, so a reader who has just come
       // from Sales pays for none of this twice and the two screens can never
       // print different figures for the same shop and span.
-      queryKey: analyticsKeys.window(location.site_id, range.from, range.to),
+      queryKey: analyticsKeys.window(siteId, range.from, range.to),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
-        salesWindow(
-          { siteId: location.site_id, from: range.from, to: range.to },
-          signal
-        ),
+        salesWindow({ siteId, from: range.from, to: range.to }, signal),
       staleTime: 60_000,
     })),
     // `combine` rather than a `useMemo` over the results: `useQueries` hands
     // back a fresh array every render, so a memo over it would recompute
     // constantly. React Query memoises this against the results themselves.
+    // The rows come out in the order the sites were asked in — the register's,
+    // which is the order the client reads their own units in — however the
+    // answers land. Never sorted by id: an id is ours and orders nothing.
     combine: (results) => ({
-      rows: results
-        .flatMap((result) =>
-          result.data === undefined
-            ? []
-            : [
-                // `site_id` became nullable when `GET /reports/sales/window`
-                // stopped requiring a unit — null is its answer for a
-                // chain-wide read. Every request here names one, so the server
-                // always echoes one back and the fallback is unreachable.
-                read(result.data, {
-                  key: result.data.site_id ?? "",
-                  siteId: result.data.site_id ?? "",
-                  date: null,
-                }),
-              ]
-        )
-        // The account map's own order is the chart's, which is the order the
-        // client reads their own locations in. Sorting by id keeps it when a
-        // request lands out of turn.
-        .sort((a, b) => (a.key < b.key ? -1 : 1)),
+      rows: results.flatMap((result) =>
+        result.data === undefined
+          ? []
+          : [
+              // `site_id` became nullable when `GET /reports/sales/window`
+              // stopped requiring a site — null is its answer for a
+              // chain-wide read. Every request here names one, so the server
+              // always echoes one back and the fallback is unreachable.
+              read(result.data, {
+                key: result.data.site_id ?? "",
+                siteId: result.data.site_id ?? "",
+                date: null,
+              }),
+            ]
+      ),
       // A partial total is a wrong total, so nothing is drawn until every
       // location has answered.
       pending: results.some((result) => result.isPending),
@@ -659,7 +652,7 @@ function Receipts({
   if (transactions.length === 0) {
     return (
       <Note>
-        No sale was completed at this location in this span, so there is no
+        No sale was completed at this site in this span, so there is no
         receipt to show.
       </Note>
     )

@@ -61,9 +61,9 @@ import {
   type AccountChoice,
   Amount,
   AsOfControl,
-  LocationSelect,
   RankedBars,
-  SiteName,
+  UnitName,
+  UnitSelect,
 } from "@/screens/finance/parts"
 import type {
   BankStatementLineRow,
@@ -154,12 +154,11 @@ const columns: ColumnDef<TableSetup, MoneyAccountRow>[] = [
     ),
   },
   {
-    accessorKey: "site_id",
-    header: "Location",
+    accessorKey: "unit_id",
+    header: "Unit",
     size: 120,
-    // The client's own name for it. The id stays in `title`, because that is
-    // what the account codes carry and what a support call will be about.
-    cell: ({ row }) => <SiteName id={row.original.site_id} />,
+    // Whose books the account is in, as the client's code and name.
+    cell: ({ row }) => <UnitName id={row.original.unit_id} />,
   },
   {
     accessorKey: "per_books_minor",
@@ -260,7 +259,7 @@ const columns: ColumnDef<TableSetup, MoneyAccountRow>[] = [
 
 export function BankReconciliation() {
   const [query, setQuery] = useState("")
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [importing, setImporting] = useState(false)
   const asOf = useAsOf()
   // The money account whose statements are open. `account` and not a key of
@@ -273,9 +272,9 @@ export function BankReconciliation() {
   const statement = useSheet("statement")
 
   const money = useQuery({
-    queryKey: financeKeys.money(asOf.value, site || null),
+    queryKey: financeKeys.money(asOf.value, unit || null),
     queryFn: ({ signal }) =>
-      moneyOverview({ as_of: asOf.value, site: site || undefined }, signal),
+      moneyOverview({ as_of: asOf.value, unit: unit || undefined }, signal),
   })
 
   const rows = useMemo(() => money.data?.rows ?? [], [money.data])
@@ -345,11 +344,11 @@ export function BankReconciliation() {
 
       <Toolbar>
         <AsOfControl asOf={asOf} />
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         <FilterPanel model={filters} />
         <Toolbar.Spacer />
@@ -359,8 +358,8 @@ export function BankReconciliation() {
             period ended on or before it. */}
         <span className="text-[0.875rem] text-mute">
           {asOf.chip}
-          {site === "" ? " · every location" : " · "}
-          {site !== "" && <SiteName id={site} />}
+          {unit === "" ? " · every unit" : " · "}
+          {unit !== "" && <UnitName id={unit} />}
           {" · "}
           <span
             className={
@@ -391,9 +390,9 @@ export function BankReconciliation() {
           rows.length === 0 ? (
             <Card>
               <EmptyState>
-                {site === ""
+                {unit === ""
                   ? "No meaning that money sits under has an account behind it yet. Until the account map answers cash and bank, there is nowhere for this screen to look."
-                  : "Nothing is mapped for this location. Widen the location filter to see the rest."}
+                  : "Nothing is mapped in this unit's books. Widen the unit filter to see the rest."}
               </EmptyState>
             </Card>
           ) : (
@@ -545,7 +544,7 @@ function MoneyFamily({
         .slice(0, 10)
         .map((row) => ({
           key: row.account_code,
-          label: <SiteName id={row.site_id} className="text-mute" />,
+          label: <UnitName id={row.unit_id} className="text-mute" />,
           value: row.per_books_minor,
         })),
     [mine]
@@ -661,12 +660,12 @@ function AccountSheet({
       ...financeKeys.bankStatements(),
       "account",
       code,
-      account?.site_id ?? null,
+      account?.unit_id ?? null,
     ],
     queryFn: ({ pageParam, signal }) =>
       listBankStatements(signal, {
         account: code ?? undefined,
-        site: account?.site_id,
+        unit: account?.unit_id,
         limit: STATEMENT_PAGE,
         cursor: pageParam,
       }),
@@ -726,8 +725,8 @@ function AccountSheet({
             <Fact term="Meaning">
               <Meaning row={account} />
             </Fact>
-            <Fact term="Location">
-              <SiteName id={account.site_id} />
+            <Fact term="Unit">
+              <UnitName id={account.unit_id} />
             </Fact>
             <Fact term="Account">{account.account_name}</Fact>
             <Fact term="Ledger">
@@ -1268,7 +1267,7 @@ function BookLine({
 interface StatementDraft {
   accountCode: string
   accountName: string
-  siteId: string
+  unitId: string
   start: string
   end: string
   opening: string
@@ -1277,12 +1276,12 @@ interface StatementDraft {
   paste: string
 }
 
-/// The account, the site, the window, two readable balances, and at least one
+/// The account, the unit, the window, two readable balances, and at least one
 /// line to load. A statement missing any of those is not a statement.
 function statementReady(draft: StatementDraft): boolean {
   return (
     draft.accountCode !== "" &&
-    draft.siteId.trim() !== "" &&
+    draft.unitId.trim() !== "" &&
     draft.start !== "" &&
     draft.end !== "" &&
     parseMinor(draft.opening) !== null &&
@@ -1307,7 +1306,7 @@ function ImportSheet({
     mutationFn: (draft: StatementDraft) =>
       importBankStatement({
         account_code: draft.accountCode,
-        site_id: draft.siteId.trim(),
+        unit_id: draft.unitId.trim(),
         period_start: draft.start,
         period_end: draft.end,
         opening_minor: parseMinor(draft.opening) ?? 0,
@@ -1318,7 +1317,7 @@ function ImportSheet({
         })),
       }),
     onSuccess: () => {
-      // Only the paste is cleared: the account, the site and the period are the
+      // Only the paste is cleared: the account, the unit and the period are the
       // next month's too, and re-picking them is the tedious half of this.
       form.setFieldValue("paste", "")
       // Importing writes no journal entry — it only gives the reconciler
@@ -1333,7 +1332,7 @@ function ImportSheet({
     defaultValues: {
       accountCode: "",
       accountName: "",
-      siteId: "",
+      unitId: "",
       start: "",
       end: todayIso(),
       opening: "",
@@ -1439,15 +1438,15 @@ function ImportSheet({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <form.Field name="siteId">
+          <form.Field name="unitId">
             {(field) => (
-              <Field label="Location" required>
-                {/* The statement belongs to one bank account at one location,
-                    and the id is not a thing anybody knows by heart. */}
-                <LocationSelect
+              <Field label="Unit" required>
+                {/* The statement belongs to one bank account in one unit's
+                    books, and the id is not a thing anybody knows by heart. */}
+                <UnitSelect
                   value={field.state.value}
                   onChange={(next) => field.handleChange(next)}
-                  emptyLabel="Choose a location"
+                  emptyLabel="Choose a unit"
                 />
               </Field>
             )}

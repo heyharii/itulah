@@ -56,8 +56,8 @@ import {
   type DraftLine,
 } from "@/screens/finance/journal-lines"
 import {
-  LocationSelect,
-  SiteName,
+  UnitName,
+  UnitSelect,
   WindowControl,
 } from "@/screens/finance/parts"
 import { idempotencyKey } from "@itulah/contract/client"
@@ -82,7 +82,7 @@ import type { JournalEntryRow, JournalLineView } from "@itulah/contract"
 /// It is the module's whole argument. The client's legacy chart carries the
 /// location inside the account code — fourteen copies of `Cash on Hand`, and a
 /// 14×14 grid of accounts for the entries that move money between two units.
-/// Here `journal_line.site_id` is a dimension on the posting, so one account
+/// Here `journal_line.unit_id` is a dimension on the posting, so one account
 /// serves all fourteen and an entry that touches two units is simply an entry
 /// whose lines carry two different units. That is a fact about the lines, and
 /// there is no honest way to print it as one value on the header: an entry
@@ -115,7 +115,7 @@ const PAGE = 100
 export function Journals() {
   const range = useWindow()
   const [kind, setKind] = useState("")
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [needle, setNeedle] = useState("")
   // In the URL rather than in state, so a link from a bill, a deposit or a
   // money movement (`?entry=`) opens the entry it names.
@@ -156,7 +156,7 @@ export function Journals() {
   const q = useDebounced(needle.trim(), 300)
   const entries = useInfiniteQuery({
     queryKey: [
-      ...financeKeys.journal(range.from, range.to, kind || null, site || null),
+      ...financeKeys.journal(range.from, range.to, kind || null, unit || null),
       "pages",
       q,
     ],
@@ -166,7 +166,7 @@ export function Journals() {
           from: range.from,
           to: range.to,
           kind: kind || undefined,
-          site: site || undefined,
+          unit: unit || undefined,
           q: q || undefined,
           limit: PAGE,
           cursor: pageParam,
@@ -229,19 +229,18 @@ export function Journals() {
             ))}
           </Select>
         </span>
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          emptyLabel="Every unit"
           aria-label="Unit"
         />
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">
           {range.chip}
           {kind !== "" && ` · ${label(kind)}`}
-          {site !== "" && " · "}
-          {site !== "" && <SiteName id={site} />}
+          {unit !== "" && " · "}
+          {unit !== "" && <UnitName id={unit} />}
           {` · ${count(matched)} ${matched === 1 ? "entry" : "entries"}`}
         </span>
       </Toolbar>
@@ -388,14 +387,14 @@ export function Journals() {
         <Note>
           <b>The unit is on the line, not on the entry.</b> Open any row and the
           lines carry a <b>Unit</b> column — that is{" "}
-          <code>journal_line.site_id</code>, not null on any posting. An entry
+          <code>journal_line.unit_id</code>, not null on any posting. An entry
           whose lines name two units is the case the client&rsquo;s legacy chart
           expressed with a 14×14 grid of inter-unit accounts; here it is one
-          account and two units. Note what the ledger does <i>not</i> have:
-          there is no <code>counter_site_id</code> column on{" "}
-          <code>journal_line</code> — the counter unit is the other lines of the
-          same entry, read off the form — and the balance check is per entry,
-          not per unit, so an entry can balance overall and still leave each
+          account and two units. The affiliate legs the poster adds also name
+          the unit on the other side (<code>counter_unit_id</code>), drawn
+          under the line&rsquo;s own unit. Note what the ledger does{" "}
+          <i>not</i> do: the balance check is per entry, not per unit, so an
+          entry written by hand can balance overall and still leave each
           unit&rsquo;s own books short. The composer says so while it is being
           written.
         </Note>
@@ -628,7 +627,13 @@ function EntryPanel({
                           {/* One account, named once; the unit beside it. Never
                               "Cash on Hand — Store 04", which is the shape of
                               chart this module exists to stop. */}
-                          <SiteName id={line.site_id} />
+                          <UnitName id={line.unit_id} />
+                          {/* Who the balance is with, on an affiliate leg. */}
+                          {line.counter_unit_id !== null && (
+                            <span className="block text-[0.875rem] text-mute">
+                              with <UnitName id={line.counter_unit_id} />
+                            </span>
+                          )}
                         </Td>
                         <DebitCredit
                           debit={line.debit_minor}
@@ -651,9 +656,9 @@ function EntryPanel({
                 <Note>
                   <b>This entry moves money between units.</b>{" "}
                   {units.map((unit, index) => (
-                    <span key={unit.site_id}>
+                    <span key={unit.unit_id}>
                       {index > 0 && ", "}
-                      <SiteName id={unit.site_id} />{" "}
+                      <UnitName id={unit.unit_id} />{" "}
                       {unit.net_minor > 0 ? "up" : "down"}{" "}
                       {money(Math.abs(unit.net_minor))}
                     </span>
@@ -748,8 +753,8 @@ function EntryPanel({
 /// Because the server allows it. `journal_entry_balances` checks the entry, not
 /// the unit, so an entry may debit head office and credit Store 04 and be
 /// perfectly postable while neither unit's own books foot. ERPNext's answer is
-/// an offsetting account posted automatically per dimension; we have no such
-/// rule and no `counter_site_id`, so the honest thing is to show the reader
+/// an offsetting account posted automatically per dimension; a hand-written
+/// entry gets no such leg here, so the honest thing is to show the reader
 /// what they are about to leave behind and let them decide.
 function ComposerPanel({
   open,
@@ -796,7 +801,7 @@ function ComposerPanel({
               // line carrying a category its account cannot take.
               category_code: row.line.account!.category_code,
             },
-            site_id: row.line.site_id,
+            unit_id: row.line.unit_id,
             debit_minor: row.debit,
             credit_minor: row.credit,
             memo: null,
@@ -874,9 +879,9 @@ function ComposerPanel({
           <Note>
             <b>This would be an inter-unit entry.</b> It leaves{" "}
             {totals.adrift.map((unit, index) => (
-              <span key={unit.site_id}>
+              <span key={unit.unit_id}>
                 {index > 0 && ", "}
-                <SiteName id={unit.site_id} />{" "}
+                <UnitName id={unit.unit_id} />{" "}
                 {unit.net_minor > 0 ? "up" : "down"}{" "}
                 {money(Math.abs(unit.net_minor))}
               </span>

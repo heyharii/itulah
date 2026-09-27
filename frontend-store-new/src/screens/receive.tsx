@@ -22,9 +22,8 @@ import {
   useInbound,
   verdictOf,
 } from "@/screens/stock/inbound"
-// TEMPORARY: from `@itulah/contract` once the backend generates them.
-import type { StoreInboundDelivery } from "@/screens/stock/inbound-types"
 import { StockStrip, Toolbar } from "@/screens/stock/parts"
+import type { StoreInboundDelivery } from "@itulah/contract"
 
 /// Receive — the deliveries on their way to this shop, and what arrived.
 ///

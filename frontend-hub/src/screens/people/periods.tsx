@@ -35,9 +35,9 @@ import type { PeriodView } from "@itulah/contract"
 /// of zeros is exactly how a month gets signed off as clean when half of it was
 /// never examined.
 ///
-/// # Closing is the place's; reopening is head office's
+/// # Closing is the unit's; reopening is head office's
 ///
-/// A place that could reopen its own sign-off has not signed anything off. The
+/// A unit that could reopen its own sign-off has not signed anything off. The
 /// two buttons are therefore never both available to one person, and the server
 /// refuses either way round.
 
@@ -47,13 +47,13 @@ function statusTone(status: string) {
 
 export function Periods() {
   const unit = useUnit()
-  const place = unit.place
+  const unitId = unit.unitId
   const employer = unit.employer
 
   const periods = useQuery({
-    queryKey: rosterKeys.periods(place ?? ""),
-    queryFn: ({ signal }) => attendancePeriods(place ?? "", signal),
-    enabled: place !== null,
+    queryKey: rosterKeys.periods(unitId ?? ""),
+    queryFn: ({ signal }) => attendancePeriods(unitId ?? "", signal),
+    enabled: unitId !== null,
   })
 
   return (
@@ -68,9 +68,9 @@ export function Periods() {
         }
         actions={
           <UnitChoice
-            place={place}
-            places={unit.places}
-            onChange={unit.setPlace}
+            unitId={unitId}
+            units={unit.units}
+            onChange={unit.setUnitId}
           />
         }
       />
@@ -82,7 +82,7 @@ export function Periods() {
         decided. A close records that the punch checks were not made.
       </Banner>
 
-      {place === null && !unit.choosing && (
+      {unitId === null && !unit.choosing && (
         <Banner tone="bad" className="mb-4">
           You are not posted anywhere, so there is no month to close.
         </Banner>
@@ -108,7 +108,7 @@ export function Periods() {
                     key={period.period}
                     period={period}
                     employer={employer}
-                    place={place ?? ""}
+                    unitId={unitId ?? ""}
                   />
                 ))}
               </div>
@@ -116,7 +116,7 @@ export function Periods() {
         })}
       </Card>
 
-      {place !== null && !employer && <CloseMonth place={place} />}
+      {unitId !== null && !employer && <CloseMonth unitId={unitId} />}
     </PageContent>
   )
 }
@@ -124,22 +124,22 @@ export function Periods() {
 function Month({
   period,
   employer,
-  place,
+  unitId,
 }: {
   period: PeriodView
   employer: boolean
-  place: string
+  unitId: string
 }) {
   const client = useQueryClient()
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
 
   const reopen = useMutation({
-    mutationFn: () => reopenPeriod(place, period.period, reason.trim()),
+    mutationFn: () => reopenPeriod(unitId, period.period, reason.trim()),
     onSuccess: () => {
       setFailed(null)
       setReason("")
-      void client.invalidateQueries({ queryKey: rosterKeys.periods(place) })
+      void client.invalidateQueries({ queryKey: rosterKeys.periods(unitId) })
     },
     onError: (error: Error) => setFailed(error.message),
   })
@@ -222,7 +222,7 @@ function Month({
   )
 }
 
-function CloseMonth({ place }: { place: string }) {
+function CloseMonth({ unitId }: { unitId: string }) {
   const client = useQueryClient()
   const [period, setPeriod] = useState(() =>
     new Date().toISOString().slice(0, 7)
@@ -231,11 +231,11 @@ function CloseMonth({ place }: { place: string }) {
   const [failed, setFailed] = useState<string | null>(null)
 
   const close = useMutation({
-    mutationFn: () => closePeriod(place, period, reason.trim()),
+    mutationFn: () => closePeriod(unitId, period, reason.trim()),
     onSuccess: () => {
       setFailed(null)
       setReason("")
-      void client.invalidateQueries({ queryKey: rosterKeys.periods(place) })
+      void client.invalidateQueries({ queryKey: rosterKeys.periods(unitId) })
     },
     onError: (error: Error) => setFailed(error.message),
   })

@@ -14,7 +14,7 @@ import { financeKeys, listCompanyBankAccounts } from "@/lib/queries/finance"
 import { BankReconciliation as ReconcileTool } from "@/screens/finance-lab-2/bank-reconciliation"
 import { BANK_POTS, useMoney, useStatements } from "@/screens/finance-lab-2/hooks"
 import { Grid, Td, Th } from "@/screens/finance-lab-2/parts"
-import { useSiteName } from "@/screens/finance/hooks"
+import { useUnitName } from "@/screens/finance/hooks"
 
 /// Reconciliation, as a list of accounts before it is a table of lines.
 ///
@@ -33,7 +33,7 @@ export function BankReconciliationList() {
   const [open, setOpen] = useState<string | null>(null)
   const statements = useStatements()
   const overview = useMoney()
-  const siteName = useSiteName()
+  const unitName = useUnitName()
   const [account, setAccount] = useState("")
   const [month, setMonth] = useState("")
   const [year, setYear] = useState("")
@@ -50,13 +50,13 @@ export function BankReconciliationList() {
   /// doubt — the same rule Bank Transactions follows, for the same reason: a
   /// statement does not carry its bank account id on the wire, so a unit with
   /// two institutions cannot be named without guessing.
-  const bankOfSite = useMemo(() => {
+  const bankOfUnit = useMemo(() => {
     const seen = new Map<string, string | null>()
     for (const one of described.data ?? []) {
       if (one.status === "CLOSED") continue
-      const had = seen.get(one.site_id)
-      if (had === undefined) seen.set(one.site_id, one.bank_name)
-      else if (had !== one.bank_name) seen.set(one.site_id, null)
+      const had = seen.get(one.unit_id)
+      if (had === undefined) seen.set(one.unit_id, one.bank_name)
+      else if (had !== one.bank_name) seen.set(one.unit_id, null)
     }
     return seen
   }, [described.data])
@@ -66,7 +66,7 @@ export function BankReconciliationList() {
     const table = new Map<string, number>()
     for (const row of overview.data?.rows ?? []) {
       if (!BANK_POTS.includes(row.pot)) continue
-      table.set(`${row.account_code}@${row.site_id}`, row.per_books_minor)
+      table.set(`${row.account_code}@${row.unit_id}`, row.per_books_minor)
     }
     return table
   }, [overview.data])
@@ -91,7 +91,7 @@ export function BankReconciliationList() {
       string,
       {
         key: string
-        site_id: string
+        unit_id: string
         account_code: string
         account_name: string
         bank: string | null
@@ -106,16 +106,16 @@ export function BankReconciliationList() {
     for (const row of rows) {
       if (month !== "" && row.period_start.slice(5, 7) !== month) continue
       if (year !== "" && row.period_start.slice(0, 4) !== year) continue
-      const key = `${row.account_code}@${row.site_id}`
-      if (account !== "" && row.site_id !== account) continue
+      const key = `${row.account_code}@${row.unit_id}`
+      if (account !== "" && row.unit_id !== account) continue
       const had = table.get(key)
       if (had === undefined) {
         table.set(key, {
           key,
-          site_id: row.site_id,
+          unit_id: row.unit_id,
           account_code: row.account_code,
           account_name: row.account_name,
-          bank: bankOfSite.get(row.site_id) ?? null,
+          bank: bankOfUnit.get(row.unit_id) ?? null,
           statements: 1,
           lines: row.line_count,
           reconciled: row.matched_count,
@@ -137,9 +137,9 @@ export function BankReconciliationList() {
     }
     return [...table.values()].sort((a, b) =>
       (a.bank ?? "").localeCompare(b.bank ?? "") ||
-      siteName(a.site_id).localeCompare(siteName(b.site_id))
+      unitName(a.unit_id).localeCompare(unitName(b.unit_id))
     )
-  }, [rows, bankOfSite, siteName, account, month, year])
+  }, [rows, bankOfUnit, unitName, account, month, year])
 
   const narrowed = account !== "" || month !== "" || year !== ""
 
@@ -177,13 +177,13 @@ export function BankReconciliationList() {
             className="h-8 w-56"
           >
             <option value="">All accounts</option>
-            {[...new Set(rows.map((row) => row.site_id))]
+            {[...new Set(rows.map((row) => row.unit_id))]
               .map((id) => ({
                 value: id,
                 label:
-                  bankOfSite.get(id) == null
-                    ? siteName(id)
-                    : `${bankOfSite.get(id)} — ${siteName(id)}`,
+                  bankOfUnit.get(id) == null
+                    ? unitName(id)
+                    : `${bankOfUnit.get(id)} — ${unitName(id)}`,
               }))
               .sort((a, b) => a.label.localeCompare(b.label))
               .map((one) => (
@@ -268,7 +268,7 @@ export function BankReconciliationList() {
                       <Td>
                         <span className="text-ink">
                           {row.bank ?? row.account_name} ·{" "}
-                          {siteName(row.site_id)}
+                          {unitName(row.unit_id)}
                         </span>
                       </Td>
                       <Td align="right">{count(row.lines)}</Td>

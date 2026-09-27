@@ -26,8 +26,8 @@ import {
   TotalRow,
 } from "@/screens/finance-final/parts"
 import {
-  LocationSelect,
-  SiteName,
+  UnitName,
+  UnitSelect,
   WindowControl,
 } from "@/screens/finance/parts"
 import { useWindow } from "@/screens/finance/hooks"
@@ -102,14 +102,14 @@ interface Movement {
 }
 
 export function Transactions() {
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const range = useWindow()
-  const scoped = site === "" ? null : site
+  const scoped = unit === "" ? null : unit
 
   const overview = useQuery({
     queryKey: financeKeys.money(null, scoped),
     queryFn: ({ signal }) =>
-      moneyOverview(scoped === null ? {} : { site }, signal),
+      moneyOverview(scoped === null ? {} : { unit }, signal),
     enabled: scoped !== null,
   })
 
@@ -123,7 +123,7 @@ export function Transactions() {
     queries: accounts.map((account) => ({
       queryKey: financeKeys.ledger(
         account.account_code,
-        account.site_id,
+        account.unit_id,
         range.from,
         range.to
       ),
@@ -131,7 +131,7 @@ export function Transactions() {
         accountLedger(
           account.account_code,
           {
-            site: account.site_id,
+            unit: account.unit_id,
             from: range.from,
             to: range.to,
             limit: 500,
@@ -254,9 +254,9 @@ export function Transactions() {
       />
 
       <Toolbar>
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           emptyLabel="Choose a unit"
           className="w-52"
         />
@@ -408,7 +408,7 @@ function MovementRow({
         </span>
       </Td>
       <Td>
-        <SiteName id={row.site_id} />
+        <UnitName id={row.unit_id} />
       </Td>
       <Td>
         <AppLink

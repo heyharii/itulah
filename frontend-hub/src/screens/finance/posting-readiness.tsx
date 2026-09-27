@@ -19,16 +19,17 @@ import {
 } from "@/screens/finance/master-data"
 import type { ReadinessRow } from "@itulah/contract"
 
-/// "If this happened now at this site, would it post?" — for every role and
-/// every source, at every site.
+/// "If this happened now in this unit's books, would it post?" — for every
+/// role and every source, in every unit.
 ///
 /// # Why a matrix
 ///
-/// A gap is a (role, source, site), and the question somebody brings here is
-/// never "which role" alone — it is "which shop cannot post rent". The rows
-/// are the roles, the columns are the sites, and a red dash is exactly one
-/// posting that will be refused. The cell is the account the server resolved,
-/// most specific link winning, and not something this screen worked out.
+/// A gap is a (role, source, unit), and the question somebody brings here is
+/// never "which role" alone — it is "which store cannot post rent". The rows
+/// are the roles, the columns are the units (head office and each store, by
+/// the client's code), and a red dash is exactly one posting that will be
+/// refused. The cell is the account the server resolved, most specific link
+/// winning, and not something this screen worked out.
 ///
 /// # Why only gaps by default
 ///
@@ -83,7 +84,7 @@ export function PostingReadinessScreen() {
       <PageHeader
         crumb="Finance"
         title="Posting readiness"
-        sub="Every role the posting rules use, against every site: the account a posting would land on now, or a gap where it would be refused."
+        sub="Every role the posting rules use, against every unit: the account a posting would land on now, or a gap where it would be refused."
         actions={
           <Input
             value={needle}
@@ -111,21 +112,18 @@ export function PostingReadinessScreen() {
         <KpiStrip className="md:grid-cols-3 xl:grid-cols-3">
           <Kpi label="Gaps" value={count(gaps)} />
           <Kpi label="Roles with a gap" value={count(rolesWithGaps)} />
-          <Kpi
-            label="Locations"
-            value={count(readiness.data.locations.length)}
-          />
+          <Kpi label="Units" value={count(readiness.data.locations.length)} />
         </KpiStrip>
       )}
 
       <Card className="overflow-hidden">
         {queryState(readiness, {
-          loading: "Asking every site…",
+          loading: "Asking every unit…",
           render: (data) =>
             rows.length === 0 ? (
               <EmptyState>
                 {onlyGaps && needle.trim() === ""
-                  ? "Every role reaches an account at every site. Everything the rules post can post."
+                  ? "Every role reaches an account in every unit. Everything the rules post can post."
                   : "No row matches the search."}
               </EmptyState>
             ) : (
@@ -144,11 +142,11 @@ export function PostingReadinessScreen() {
                       </th>
                       {data.locations.map((location) => (
                         <th
-                          key={location.site_id}
+                          key={location.unit_id}
                           title={location.name}
                           className="border-b border-hairline-2 px-2 py-2 text-left font-medium whitespace-nowrap text-mute"
                         >
-                          {location.site_id}
+                          {location.code}
                         </th>
                       ))}
                     </tr>
@@ -190,11 +188,11 @@ export function PostingReadinessScreen() {
                         </td>
                         {data.locations.map((location) => {
                           const cell = row.cells.find(
-                            (one) => one.site_id === location.site_id
+                            (one) => one.unit_id === location.unit_id
                           )
                           return (
                             <td
-                              key={location.site_id}
+                              key={location.unit_id}
                               className="border-b border-hairline px-2 py-2"
                             >
                               {cell === undefined ||
@@ -204,7 +202,7 @@ export function PostingReadinessScreen() {
                                 <span
                                   className={cn(
                                     "font-mono",
-                                    cell.scope_type === "SITE"
+                                    cell.scope_type === "UNIT"
                                       ? "text-info-fg"
                                       : "text-body"
                                   )}

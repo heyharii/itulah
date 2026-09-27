@@ -11,15 +11,21 @@ import { Tag } from "@/components/ui/tag"
 import { ITEM, POPUP } from "@/lib/filter-chrome"
 import { money } from "@/lib/format"
 import { financeKeys, searchAccounts } from "@/lib/queries/finance"
+import {
+  siteChoices,
+  unitLabel,
+  useSiteLabel,
+  useUnits,
+} from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
 import {
   useLineCategories,
   useLocations,
   useMeaningLabel,
-  useSiteName,
   useSupplierName,
   useSuppliers,
+  useUnitName,
   type AsOf,
   type DateWindow,
 } from "@/screens/finance/hooks"
@@ -41,8 +47,8 @@ import type { LedgerAccount, Supplier } from "@itulah/contract"
 /// module boundary.
 ///
 /// Everything else here is bound to a finance endpoint and belongs nowhere
-/// else. `<AccountPicker>`, `<CategoryPicker>`, `<LocationSelect>` and
-/// `<SiteName>` each fetch a specific URL, and a shared component that fetches
+/// else. `<AccountPicker>`, `<CategoryPicker>`, `<UnitSelect>` and
+/// `<UnitName>` each fetch a specific URL, and a shared component that fetches
 /// a specific URL is a shared component with a module hidden inside it.
 ///
 /// `<AccountAndCategory>` is the one to reach for in a form. Since the chart
@@ -61,11 +67,11 @@ import type { LedgerAccount, Supplier } from "@itulah/contract"
 
 /// Money, with a zero that gets out of the way.
 ///
-/// Most cells in most of these grids are zero — fourteen locations, and a given
-/// account is live at three of them. Printing "Rp 0" fourteen times a row makes
+/// Most cells in most of these grids are zero — fourteen units, and a given
+/// account is live in three of them. Printing "Rp 0" fourteen times a row makes
 /// the numbers that matter impossible to find, so a zero is a dash wherever the
 /// caller says the grid is dense. It is still a rendered zero and never a gap:
-/// "no cash at store 07" and "we never asked" are different facts.
+/// "no cash in C007's books" and "we never asked" are different facts.
 export function Amount({
   minor,
   muteZero,
@@ -96,31 +102,71 @@ export function Amount({
 }
 
 // ---------------------------------------------------------------------------
-// Locations
+// Units and sites
 // ---------------------------------------------------------------------------
 
-/// Choose a location, or every location.
+/// The two things a finance filter can be about, and they are not the same.
 ///
-/// This replaced a free-text box on six screens. The box was not a filter, it
-/// was a quiz: the site ids are `ho`, `store-01`… and nothing on any screen
-/// said so, so an accountant typing "HO" or "Store 07" got an empty report
-/// and no reason for it. A list of fourteen names cannot be typed wrong.
+/// A UNIT keeps books: head office and each store (0605). Everything read off
+/// the journal — a ledger, a balance, a statement, money, payments, deposits,
+/// bank accounts — is a unit's, and its filter is a `<UnitSelect>`.
 ///
-/// The value on the wire is still the `site_id` — the names are the client's
-/// and are for reading, never for sending.
-export function LocationSelect({
+/// A SITE is premises — the Gudang, a shop. A bill, an asset, a cash count, a
+/// payment instruction or a trading day happened at one, and keeps it; its
+/// filter is a `<SiteSelect>`. A store's unit and its shop share an id today,
+/// head office's unit and the Gudang do not, so the two are never swapped.
+///
+/// Both replaced a free-text box that was a quiz — the ids are ours and
+/// nothing on any screen said what they were. The value on the wire is still
+/// the id; the client's code and name are for reading, never for sending.
+
+/// Choose a unit, or every unit.
+export function UnitSelect({
   value,
   onChange,
-  /// What the empty option says. A filter means "every location"; a form field
+  /// What the empty option says. A filter means "every unit"; a form field
   /// that must be answered says so instead, and the caller's own validation is
   /// what refuses the empty string.
-  emptyLabel = "Every location",
-  /// Locations this particular field cannot take. One caller so far: an asset
-  /// transfer, whose destination is every location *but* the one it is at —
-  /// the database refuses a move to where a thing already is, because that
-  /// entry debits and credits the same account at the same location, which
-  /// balances perfectly and is a lie. An option whose only outcome is a refusal
-  /// is better not offered.
+  emptyLabel = "Every unit",
+  /// Units this particular field cannot take. An option whose only outcome is
+  /// a refusal is better not offered.
+  exclude,
+  className,
+  ...props
+}: Omit<React.SelectHTMLAttributes<HTMLSelectElement>, "value" | "onChange"> & {
+  value: string
+  onChange: (unitId: string) => void
+  emptyLabel?: string
+  exclude?: readonly string[]
+}) {
+  const map = useLocations()
+  const units = (map.data?.locations ?? []).filter(
+    (row) => !(exclude ?? []).includes(row.unit_id)
+  )
+  return (
+    <PickerSelect
+      value={value}
+      onChange={onChange}
+      emptyLabel={emptyLabel}
+      options={units.map((unit) => ({
+        value: unit.unit_id,
+        label: unitLabel(unit),
+      }))}
+      loading={map.isPending}
+      className={className}
+      {...props}
+    />
+  )
+}
+
+/// Choose a site, or every site — for the documents that happened at one.
+export function SiteSelect({
+  value,
+  onChange,
+  emptyLabel = "Every site",
+  /// Sites this field cannot take. One caller so far: an asset transfer,
+  /// whose destination is every site *but* the one it is at — the database
+  /// refuses a move to where a thing already is.
   exclude,
   className,
   ...props
@@ -130,23 +176,50 @@ export function LocationSelect({
   emptyLabel?: string
   exclude?: readonly string[]
 }) {
-  const map = useLocations()
-  const locations = (map.data?.locations ?? []).filter(
-    (row) => !(exclude ?? []).includes(row.site_id)
+  const units = useUnits()
+  const sites = siteChoices(units.data ?? []).filter(
+    (site) => !(exclude ?? []).includes(site.siteId)
   )
-  // A value the list does not carry — a site that has been renamed away, or a
-  // draft reopened before the list arrived — is shown as itself rather than
-  // silently reset to "every location". Losing somebody's answer while a
-  // request is in flight is worse than an ugly option for one render.
-  const unknown =
-    value !== "" && !locations.some((row) => row.site_id === value)
+  return (
+    <PickerSelect
+      value={value}
+      onChange={onChange}
+      emptyLabel={emptyLabel}
+      options={sites.map((site) => ({ value: site.siteId, label: site.label }))}
+      loading={units.isPending}
+      className={className}
+      {...props}
+    />
+  )
+}
+
+function PickerSelect({
+  value,
+  onChange,
+  emptyLabel,
+  options,
+  loading,
+  className,
+  ...props
+}: Omit<React.SelectHTMLAttributes<HTMLSelectElement>, "value" | "onChange"> & {
+  value: string
+  onChange: (value: string) => void
+  emptyLabel: string
+  options: readonly { readonly value: string; readonly label: string }[]
+  loading: boolean
+}) {
+  // A value the list does not carry — one retired since, or a draft reopened
+  // before the list arrived — is kept rather than silently reset to "every":
+  // losing somebody's answer while a request is in flight is worse than an
+  // odd option for one render.
+  const unknown = value !== "" && !options.some((row) => row.value === value)
 
   return (
     // Wrapped, and the wrapper is the whole point of this element.
     //
     // `<Select>` draws a `w-full` span around the native control so that a
     // `<Field>` gets a full-width picker. In a `<Toolbar>` — which is
-    // `flex-wrap` — that `w-full` claims the entire row, so a location select
+    // `flex-wrap` — that `w-full` claims the entire row, so a unit select
     // beside a date box pushed itself onto a line of its own and floated its
     // chevron out at the far right of the page. Every finance toolbar with
     // both was three rows tall.
@@ -163,23 +236,38 @@ export function LocationSelect({
         {...props}
       >
         <option value="">{emptyLabel}</option>
-        {locations.map((location) => (
-          <option key={location.site_id} value={location.site_id}>
-            {location.name}
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
           </option>
         ))}
-        {unknown && <option value={value}>{value}</option>}
+        {unknown && <option value={value}>{loading ? "…" : value}</option>}
       </Select>
     </span>
   )
 }
 
-/// One site id, printed as its name.
+/// One unit id, printed as the client's code and name.
 ///
 /// A component rather than a call so a table's column definitions can stay
 /// module-level constants: a cell is a React element, and the lookup belongs
-/// inside it. The id stays in `title` — it is what the account codes carry and
-/// what a support conversation will be about, so it must remain findable.
+/// inside it.
+export function UnitName({
+  id,
+  className,
+}: {
+  id: string | null | undefined
+  className?: string
+}) {
+  const name = useUnitName()
+  if (id === null || id === undefined || id === "") {
+    return <span className={cn("text-faint", className)}>—</span>
+  }
+  return <span className={className}>{name(id)}</span>
+}
+
+/// One site id, printed the way `siteLabel` says it — the owning unit's code
+/// and name, and the site's own name where the unit keeps more than one.
 export function SiteName({
   id,
   className,
@@ -187,15 +275,11 @@ export function SiteName({
   id: string | null | undefined
   className?: string
 }) {
-  const name = useSiteName()
+  const name = useSiteLabel()
   if (id === null || id === undefined || id === "") {
     return <span className={cn("text-faint", className)}>—</span>
   }
-  return (
-    <span className={className} title={id}>
-      {name(id)}
-    </span>
-  )
+  return <span className={className}>{name(id)}</span>
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +288,7 @@ export function SiteName({
 
 /// One supplier id, printed as the client's name for it.
 ///
-/// The sibling of `<SiteName>`, and here for the same reason: a `supplier_id`
+/// The sibling of `<UnitName>`, and here for the same reason: a `supplier_id`
 /// is a uuid, and a uuid in a column headed "Supplier" is a cell nobody can
 /// read. The id stays in `title`, because that is what a support conversation
 /// and every other screen's URL will be about.
@@ -406,7 +490,7 @@ export function SupplierPicker({
 /// them is worth drawing large: the meaning is what somebody chose, the
 /// qualifier is which bank, and the code is the thing an accountant will quote
 /// down a telephone. So the code goes in `title` beside the account's own
-/// name, exactly as a site id does.
+/// name.
 export function AccountMeaning({
   meaning,
   qualifier,
@@ -446,7 +530,7 @@ export function AccountMeaning({
 ///
 /// `<BarSeries>` next door is vertical and belongs to a time axis or to five
 /// fixed buckets. This is the other shape finance keeps needing — fourteen
-/// locations, seven asset families — where the categories are names rather
+/// units, seven asset families — where the categories are names rather
 /// than an order, and where a vertical axis would thin its own tick labels out
 /// and drop the very row somebody was looking for.
 ///
@@ -473,7 +557,7 @@ export function RankedBars({
     /// The client's class names run to "BEBAN USAHA LAINNYA" and their account
     /// names are longer still, so the column is sized for the ordinary case and
     /// this is what stops the long ones from being a mystery. `title` and not a
-    /// wider column: fourteen locations of two-word names should not each take
+    /// wider column: fourteen units of two-word names should not each take
     /// two lines because one class is nineteen characters.
     readonly title?: string
     readonly value: number

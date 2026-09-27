@@ -20,7 +20,7 @@ import {
 } from "@/screens/finance-final/parts"
 import { isoDay, ladderLevel } from "@/screens/finance/chart"
 import { useWindow } from "@/screens/finance/hooks"
-import { LocationSelect, SiteName, WindowControl } from "@/screens/finance/parts"
+import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
 import type { TrialBalanceRow } from "@itulah/contract"
 
 /// Opening, movement and closing for every account that moved — and the proof
@@ -32,7 +32,7 @@ import type { TrialBalanceRow } from "@itulah/contract"
 /// code — fourteen copies of `Cash on Hand`, and a 14×14 grid of inter-unit
 /// accounts on top — so "the trial balance for Store 04" was a question their
 /// system could only answer by somebody adding up five hundred account codes by
-/// hand, and in practice nobody ever did. Here `site` is a dimension on the
+/// hand, and in practice nobody ever did. Here `unit` is a dimension on the
 /// ledger row and a query parameter on this endpoint, so one store's trial
 /// balance is a control, not an afternoon.
 ///
@@ -65,7 +65,7 @@ import type { TrialBalanceRow } from "@itulah/contract"
 /// mean a report that balances because of what it left out.
 export function TrialBalance() {
   const range = useWindow()
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [grain, setGrain] = useState<"unit" | "account">("unit")
 
   // The day before the window opens. A balance "as at 31 August" is what the
@@ -74,14 +74,14 @@ export function TrialBalance() {
   const before = useMemo(() => dayBefore(range.from), [range.from])
 
   const opening = useQuery({
-    queryKey: financeKeys.trialBalance(before, site || null),
+    queryKey: financeKeys.trialBalance(before, unit || null),
     queryFn: ({ signal }) =>
-      trialBalance({ as_of: before, site: site || undefined, limit: 2000 }, signal),
+      trialBalance({ as_of: before, unit: unit || undefined, limit: 2000 }, signal),
   })
   const closing = useQuery({
-    queryKey: financeKeys.trialBalance(range.to, site || null),
+    queryKey: financeKeys.trialBalance(range.to, unit || null),
     queryFn: ({ signal }) =>
-      trialBalance({ as_of: range.to, site: site || undefined, limit: 2000 }, signal),
+      trialBalance({ as_of: range.to, unit: unit || undefined, limit: 2000 }, signal),
   })
 
   const lines = useMemo(
@@ -126,9 +126,9 @@ export function TrialBalance() {
       />
 
       <Toolbar>
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
           aria-label="Unit"
         />
@@ -147,10 +147,10 @@ export function TrialBalance() {
         {closing.data && (
           <span className="text-[0.875rem] text-mute">
             {day(before)} → {day(closing.data.as_of)} ·{" "}
-            {closing.data.site_id === null ? (
+            {closing.data.unit_id === null ? (
               "every unit"
             ) : (
-              <SiteName id={closing.data.site_id} />
+              <UnitName id={closing.data.unit_id} />
             )}
           </span>
         )}
@@ -247,7 +247,7 @@ export function TrialBalance() {
                 lines.length === 0 ? (
                   <EmptyState>
                     Nothing has been posted as at {day(range.to)}
-                    {site === "" ? ", at any unit" : " at this unit"}. There is
+                    {unit === "" ? ", in any unit" : " in this unit"}. There is
                     no trial balance to draw yet.
                   </EmptyState>
                 ) : (
@@ -317,8 +317,8 @@ export function TrialBalance() {
                               </Td>
                               {grain === "unit" && (
                                 <Td>
-                                  <SiteName
-                                    id={line.siteId}
+                                  <UnitName
+                                    id={line.unitId}
                                     className="text-body"
                                   />
                                 </Td>
@@ -434,7 +434,7 @@ interface Line {
   readonly name: string
   readonly rootClass: string
   readonly depth: number
-  readonly siteId: string | null
+  readonly unitId: string | null
   readonly openDebit: number
   readonly openCredit: number
   readonly periodDebit: number
@@ -454,7 +454,7 @@ function side(net: number): { debit: number; credit: number } {
 }
 
 function keyOf(row: TrialBalanceRow): string {
-  return `${row.account_code}@${row.site_id ?? ""}`
+  return `${row.account_code}@${row.unit_id ?? ""}`
 }
 
 /// The two snapshots, made into one set of lines.
@@ -497,7 +497,7 @@ function lineOf(now: TrialBalanceRow, was: TrialBalanceRow | undefined): Line {
     name: now.name,
     rootClass: now.root_class,
     depth: now.depth,
-    siteId: now.site_id,
+    unitId: now.unit_id,
     openDebit: opened.debit,
     openCredit: opened.credit,
     // Gross movement inside the window, which is the difference of two gross
@@ -538,7 +538,7 @@ function rollUp(lines: readonly Line[]): Line[] {
       name: line.name,
       rootClass: line.rootClass,
       depth: line.depth,
-      siteId: null,
+      unitId: null,
       openDebit: o.debit,
       openCredit: o.credit,
       periodDebit: (held?.periodDebit ?? 0) + line.periodDebit,
@@ -569,7 +569,7 @@ function group(
     .map(([rootClass, rows]) => ({ rootClass, lines: rows }))
 }
 
-function total(lines: readonly Line[]): Omit<Line, "key" | "code" | "name" | "rootClass" | "depth" | "siteId"> {
+function total(lines: readonly Line[]): Omit<Line, "key" | "code" | "name" | "rootClass" | "depth" | "unitId"> {
   return lines.reduce(
     (sum, line) => ({
       openDebit: sum.openDebit + line.openDebit,

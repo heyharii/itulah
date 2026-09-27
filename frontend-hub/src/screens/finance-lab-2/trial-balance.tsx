@@ -19,7 +19,8 @@ import {
   Td,
   Th,
 } from "@/screens/finance-lab-2/parts"
-import { useLocations, useSiteName } from "@/screens/finance/hooks"
+import { useUnitName } from "@/screens/finance/hooks"
+import { UnitSelect } from "@/screens/finance/parts"
 
 /// Every account with a balance, and the proof that they agree.
 ///
@@ -38,25 +39,16 @@ import { useLocations, useSiteName } from "@/screens/finance/hooks"
 /// **General Ledger**, which is the screen built for reading postings in order.
 export function TrialBalance() {
   const [asOf, setAsOf] = useState(today)
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [needle, setNeedle] = useState("")
   const [root, setRoot] = useState("")
-  const places = useLocations()
-  const siteName = useSiteName()
-
-  const units = useMemo(
-    () =>
-      [
-        ...new Set((places.data?.locations ?? []).map((row) => row.site_id)),
-      ].sort(),
-    [places.data]
-  )
+  const unitName = useUnitName()
 
   const balance = useQuery({
-    queryKey: financeKeys.trialBalance(asOf, site || null),
+    queryKey: financeKeys.trialBalance(asOf, unit || null),
     queryFn: ({ signal }) =>
       trialBalance(
-        { as_of: asOf, site: site || undefined, limit: 500 },
+        { as_of: asOf, unit: unit || undefined, limit: 500 },
         signal
       ),
   })
@@ -102,19 +94,12 @@ export function TrialBalance() {
             clearable={false}
             className="h-8 w-36"
           />
-          <Select
+          <UnitSelect
             aria-label="Unit"
-            value={site}
-            onChange={setSite}
+            value={unit}
+            onChange={setUnit}
             className="h-8 w-44"
-          >
-            <option value="">Every location</option>
-            {units.map((one) => (
-              <option key={one} value={one}>
-                {siteName(one)}
-              </option>
-            ))}
-          </Select>
+          />
           <Select
             aria-label="Class"
             value={root}
@@ -190,7 +175,7 @@ export function TrialBalance() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={`${row.account_code}@${row.site_id ?? "-"}`}>
+                  <tr key={`${row.account_code}@${row.unit_id ?? "-"}`}>
                     <Td>
                       <span className="text-ink">{row.name}</span>
                       <span className="ml-2 font-mono text-[0.875rem] text-mute">
@@ -198,10 +183,10 @@ export function TrialBalance() {
                       </span>
                     </Td>
                     <Td>
-                      {row.site_id === null ? (
+                      {row.unit_id === null ? (
                         <span className="text-mute">—</span>
                       ) : (
-                        siteName(row.site_id)
+                        unitName(row.unit_id)
                       )}
                     </Td>
                     {/* A zero on one side is not a figure, it is the absence of

@@ -37,7 +37,7 @@ import {
   runSlips,
   runStateLabel,
   stepRun,
-  usePlaces,
+  useReachableUnits,
   withdrawAdjustment,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
@@ -93,16 +93,16 @@ function stateTone(state: string) {
 /// once it has: `store-07` is a primary key, and the list beside it says
 /// `Store 07`.
 function unitName(
-  places: readonly { readonly id: string; readonly name: string }[],
+  units: readonly { readonly id: string; readonly name: string }[],
   id: string
 ): string {
-  return places.find((one) => one.id === id)?.name ?? id
+  return units.find((one) => one.id === id)?.name ?? id
 }
 
 export function PayrollRuns() {
   const run = useSheet("payrollRun")
-  const units = usePlaces()
-  const places = units.data ?? []
+  const reachable = useReachableUnits()
+  const units = reachable.data ?? []
   const runs = useQuery({
     queryKey: payKeys.runs(),
     queryFn: ({ signal }) => listRuns(signal),
@@ -150,7 +150,7 @@ export function PayrollRuns() {
                   >
                     <span className="w-24 shrink-0 text-ink">{row.period}</span>
                     <span className="min-w-0 flex-1 truncate text-body">
-                      {unitName(places, row.unit_id)}
+                      {unitName(units, row.unit_id)}
                     </span>
                     <Pill tone={stateTone(row.state)}>
                       {runStateLabel(row.state)}
@@ -477,9 +477,9 @@ function Handover({ run }: { run: PayrollRunView }) {
 
 function OpenRun() {
   const client = useQueryClient()
-  const units = usePlaces()
-  const places = units.data ?? []
-  const [placeId, setPlaceId] = useState("")
+  const reachable = useReachableUnits()
+  const units = reachable.data ?? []
+  const [unitId, setUnitId] = useState("")
   const [period, setPeriod] = useState(() =>
     new Date().toISOString().slice(0, 7)
   )
@@ -487,7 +487,7 @@ function OpenRun() {
   const [failed, setFailed] = useState<string | null>(null)
 
   const open = useMutation({
-    mutationFn: () => openRun(placeId.trim(), period, reason.trim()),
+    mutationFn: () => openRun(unitId.trim(), period, reason.trim()),
     onSuccess: () => {
       setFailed(null)
       setReason("")
@@ -516,12 +516,12 @@ function OpenRun() {
           <PickOne
             label="Unit"
             placeholder="Choose a unit…"
-            choices={places.map((one) => ({
+            choices={units.map((one) => ({
               value: one.id,
               label: `${one.name} · ${one.employees}`,
             }))}
-            value={placeId === "" ? null : placeId}
-            onChange={(next) => setPlaceId(next ?? "")}
+            value={unitId === "" ? null : unitId}
+            onChange={(next) => setUnitId(next ?? "")}
           />
         </Field>
         <Field label="Month" required>
@@ -543,7 +543,7 @@ function OpenRun() {
             variant="primary"
             pending={open.isPending}
             disabled={
-              placeId.trim() === "" || period === "" || reason.trim() === ""
+              unitId.trim() === "" || period === "" || reason.trim() === ""
             }
             onClick={() => open.mutate()}
           >
@@ -575,9 +575,9 @@ function OpenRun() {
 /// approval, because filings sit while months move.
 function Adjustments() {
   const client = useQueryClient()
-  const units = usePlaces()
-  const places = units.data ?? []
-  const [placeId, setPlaceId] = useState("")
+  const reachable = useReachableUnits()
+  const units = reachable.data ?? []
+  const [unitId, setUnitId] = useState("")
   const [period, setPeriod] = useState(() =>
     new Date().toISOString().slice(0, 7)
   )
@@ -590,26 +590,26 @@ function Adjustments() {
   const [failed, setFailed] = useState<string | null>(null)
 
   const rows = useQuery({
-    queryKey: payKeys.adjustments(placeId, period),
+    queryKey: payKeys.adjustments(unitId, period),
     queryFn: ({ signal }) =>
       listAdjustments(
-        { place: placeId === "" ? undefined : placeId, period },
+        { unit: unitId === "" ? undefined : unitId, period },
         signal
       ),
     // Hidden until a unit is chosen, so it fetches nothing before that.
-    enabled: placeId !== "",
+    enabled: unitId !== "",
   })
   const team = useQuery({
     queryKey: peopleKeys.employees({
       status: "ACTIVE",
-      placeId: placeId === "" ? undefined : placeId,
+      unitId: unitId === "" ? undefined : unitId,
       limit: 1000,
     }),
     queryFn: ({ signal }) =>
       listEmployees(
         {
           status: "ACTIVE",
-          placeId: placeId === "" ? undefined : placeId,
+          unitId: unitId === "" ? undefined : unitId,
           limit: 1000,
         },
         signal
@@ -658,7 +658,7 @@ function Adjustments() {
   const file = useMutation({
     mutationFn: () =>
       fileAdjustment({
-        placeId,
+        unitId,
         period,
         employeeId,
         componentCode: componentChosen,
@@ -673,7 +673,7 @@ function Adjustments() {
       setAdvanceId(null)
       setComponentCode("")
       void client.invalidateQueries({
-        queryKey: payKeys.adjustments(placeId, period),
+        queryKey: payKeys.adjustments(unitId, period),
       })
     },
     onError: (error: Error) => setFailed(error.message),
@@ -685,7 +685,7 @@ function Adjustments() {
       setFailed(null)
       setWithdrawReason("")
       void client.invalidateQueries({
-        queryKey: payKeys.adjustments(placeId, period),
+        queryKey: payKeys.adjustments(unitId, period),
       })
     },
     onError: (error: Error) => setFailed(error.message),
@@ -702,13 +702,13 @@ function Adjustments() {
           <PickOne
             label="Unit"
             placeholder="Choose a unit…"
-            choices={places.map((one) => ({
+            choices={units.map((one) => ({
               value: one.id,
               label: `${one.name} · ${one.employees}`,
             }))}
-            value={placeId === "" ? null : placeId}
+            value={unitId === "" ? null : unitId}
             onChange={(next) => {
-              setPlaceId(next ?? "")
+              setUnitId(next ?? "")
               setEmployeeId("")
             }}
           />
@@ -721,7 +721,7 @@ function Adjustments() {
           />
         </Field>
 
-        {placeId !== "" && (
+        {unitId !== "" && (
           <div>
             <SubHead>Filed</SubHead>
             <Field
@@ -887,7 +887,7 @@ function Adjustments() {
             variant="primary"
             pending={file.isPending}
             disabled={
-              placeId === "" ||
+              unitId === "" ||
               employeeId === "" ||
               componentChosen === "" ||
               amountMinor <= 0 ||

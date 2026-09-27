@@ -13,6 +13,7 @@ import {
   payablesAging,
   unbilledPage,
 } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import {
   CardRow,
@@ -27,9 +28,10 @@ import {
 import { useAsOf } from "@/screens/finance/hooks"
 import {
   AsOfControl,
-  LocationSelect,
   SiteName,
   SupplierName,
+  UnitName,
+  UnitSelect,
 } from "@/screens/finance/parts"
 import type {
   AgingBuckets,
@@ -66,16 +68,16 @@ import type {
 /// counts. Neither re-derives an amount.
 export function AccountsPayable() {
   const asOf = useAsOf()
-  // `site` goes on the wire, never across a list already in hand. The unit is
+  // `unit` goes on the wire, never across a list already in hand. The unit is
   // a dimension on the ledger row here rather than a slice of the account
-  // code, so "what does Store 07 owe" is a different request.
-  const [site, setSite] = useState("")
+  // code, so "what does C007 owe" is a different request.
+  const [unit, setUnit] = useState("")
   const [view, setView] = useState<View>("supplier")
 
   const aging = useQuery({
-    queryKey: financeKeys.payablesAging(asOf.value, site || null),
+    queryKey: financeKeys.payablesAging(asOf.value, unit || null),
     queryFn: ({ signal }) =>
-      payablesAging({ as_of: asOf.value, site: site || undefined }, signal),
+      payablesAging({ as_of: asOf.value, unit: unit || undefined }, signal),
   })
 
   // The books' own answer to the same question, for the reconciliation card,
@@ -116,11 +118,11 @@ export function AccountsPayable() {
 
       <Toolbar>
         <AsOfControl asOf={asOf} />
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         <Segmented options={VIEWS} value={view} onChange={setView} />
         <Toolbar.Spacer />
@@ -129,12 +131,12 @@ export function AccountsPayable() {
             ageing means nothing until you know the day it was struck. */}
         <span className="text-[0.875rem] text-mute">
           {asOf.chip}
-          {site === "" ? (
-            " · every location"
+          {unit === "" ? (
+            " · every unit"
           ) : (
             <>
               {" · "}
-              <SiteName id={site} />
+              <UnitName id={unit} />
             </>
           )}
         </span>
@@ -188,13 +190,13 @@ export function AccountsPayable() {
             loading: "Adding up what each supplier is owed…",
             render: (data) =>
               data.suppliers.length === 0 ? (
-                <NothingOwed site={site} asOf={asOf.value} />
+                <NothingOwed unit={unit} asOf={asOf.value} />
               ) : (
                 <SupplierTable rows={data.suppliers} total={data.total} />
               ),
           })}
 
-        {view === "bill" && <BillTable asOf={asOf.value} site={site} />}
+        {view === "bill" && <BillTable asOf={asOf.value} unit={unit} />}
 
         {view === "unbilled" && <UnbilledTable />}
       </div>
@@ -367,19 +369,28 @@ function SupplierTable({
 /// no `as_of` at all: `outstanding_minor`, `days_overdue` and `next_due_date`
 /// are derived on read, as at now. So this is the register as it stands today,
 /// and the `<Note>` beneath it says that in words rather than letting the date
-/// box above imply otherwise. The unit does reach it: `site` goes on the wire
-/// and the key carries it.
+/// box above imply otherwise. The unit does reach it: a bill stays at the site
+/// it was received at, so the unit's own sites go on the wire — one `site`,
+/// comma-separated, which the server reads as a list — and the key carries
+/// them. Nothing is asked until the register says which sites those are.
 ///
 /// It pages — the list scrolls on — and the total row is the server's own
 /// sum over every posted bill it matches, not a sum of the pages loaded.
-function BillTable({ asOf, site }: { asOf: string; site: string }) {
+function BillTable({ asOf, unit }: { asOf: string; unit: string }) {
+  const units = useUnits()
+  const sites =
+    unit === ""
+      ? ""
+      : (units.data?.find((one) => one.id === unit)?.sites ?? [])
+          .map((site) => site.id)
+          .join(",")
   const bills = useInfiniteQuery({
-    queryKey: [...financeKeys.bills("POSTED", site || null), "pages"],
+    queryKey: [...financeKeys.bills("POSTED", sites || null), "pages"],
     queryFn: ({ pageParam, signal }) =>
       listBills(
         {
           status: "POSTED",
-          site: site || undefined,
+          site: sites || undefined,
           limit: PAGE,
           cursor: pageParam,
         },
@@ -388,6 +399,8 @@ function BillTable({ asOf, site }: { asOf: string; site: string }) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     placeholderData: (previous) => previous,
+    // A unit whose sites are not known yet must not read as every site.
+    enabled: unit === "" || sites !== "",
   })
 
   return queryState(bills, {
@@ -408,7 +421,7 @@ function BillTable({ asOf, site }: { asOf: string; site: string }) {
               <tr>
                 <Th>Supplier</Th>
                 <Th width="11rem">Bill</Th>
-                <Th width="8rem">Unit</Th>
+                <Th width="8rem">Site</Th>
                 <Th width="7rem">Invoiced</Th>
                 <Th width="7rem">
                   <span title="The earliest instalment this bill has not paid for">
@@ -733,15 +746,15 @@ function OldestAge({ days }: { days: number }) {
 
 /// Nothing outstanding — and which kind of nothing.
 ///
-/// At one location the sentence has to say the filter is a server filter,
+/// In one unit the sentence has to say the filter is a server filter,
 /// because "nothing is owed" and "nothing is owed HERE" are different findings
 /// and a reader who has forgotten the select is set will take the first.
-function NothingOwed({ site, asOf }: { site: string; asOf: string }) {
+function NothingOwed({ unit, asOf }: { unit: string; asOf: string }) {
   return (
     <EmptyState>
-      {site === ""
+      {unit === ""
         ? `Nothing is outstanding to any supplier as at ${day(asOf)}. Every posted bill has been paid in full.`
-        : `Nothing is outstanding to any supplier at this location as at ${day(asOf)}. Another location may still owe — the filter is a server filter, so this answer is about this unit alone.`}
+        : `Nothing is outstanding to any supplier in this unit's books as at ${day(asOf)}. Another unit may still owe — the filter is a server filter, so this answer is about this unit alone.`}
     </EmptyState>
   )
 }

@@ -52,7 +52,7 @@ export function PayComponents() {
   }, [list.data, needle, retired])
 
   const unlinked = (list.data ?? []).filter(
-    (row) => !row.retired && row.linked_sites === 0
+    (row) => !row.retired && row.linked_units === 0
   ).length
 
   return (
@@ -140,7 +140,7 @@ export function PayComponents() {
                             <Tag>{row.role}</Tag>
                           </Td>
                           <Td>
-                            <Reach sites={row.linked_sites} />
+                            <Reach units={row.linked_units} />
                           </Td>
                           <Td align="right">
                             <LinkAccountsButton
@@ -218,7 +218,7 @@ function ComponentForm({
         onChange={setAccrual}
       />
       <div className="flex items-center justify-between gap-2 border-t border-hairline pt-3">
-        <Reach sites={component.linked_sites} />
+        <Reach units={component.linked_units} />
         <span className="flex items-center gap-2">
           <LinkAccountsButton
             role={component.role}

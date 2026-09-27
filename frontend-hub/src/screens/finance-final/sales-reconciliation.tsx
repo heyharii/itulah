@@ -18,8 +18,9 @@ import {
   financeKeys,
   listBankStatements,
   listCashCounts,
-  siteAccounts,
+  unitAccounts,
 } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import {
   CardRow,
   Grid,
@@ -30,7 +31,7 @@ import {
   TotalRow,
 } from "@/screens/finance-final/parts"
 import { useWindow } from "@/screens/finance/hooks"
-import { LocationSelect, WindowControl } from "@/screens/finance/parts"
+import { SiteSelect, WindowControl } from "@/screens/finance/parts"
 import type {
   BankStatementRow,
   CashCountRow,
@@ -80,13 +81,21 @@ import type {
 /// cannot be booked.
 export function SalesReconciliation() {
   const range = useWindow()
+  // The shop is a SITE — the till and the drawer are the premises' — and
+  // its books, bank statements included, are the unit's that owns it. Each
+  // read below is asked with the one it takes.
   const [site, setSite] = useState("")
   const scoped = site !== ""
-  // What each role resolves to at this unit, as the server resolves it.
+  const register = useUnits()
+  const unit =
+    register.data?.find((one) => one.sites.some((s) => s.id === site))?.id ??
+    ""
+  // What each role resolves to in that unit's books, as the server resolves
+  // it.
   const map = useQuery({
-    queryKey: financeKeys.siteAccounts(site),
-    queryFn: ({ signal }) => siteAccounts(site, signal),
-    enabled: scoped,
+    queryKey: financeKeys.unitAccounts(unit),
+    queryFn: ({ signal }) => unitAccounts(unit, signal),
+    enabled: unit !== "",
     staleTime: 5 * 60 * 1000,
   })
 
@@ -116,21 +125,19 @@ export function SalesReconciliation() {
 
   // ---- 3. What the bank said ---------------------------------------------
   //
-  // The whole directory of imports, under the key Cash & Bank already holds
-  // it under. `financeKeys.bankStatements()` takes no unit, so a unit-filtered
-  // request could not be cached without inventing a key — and inventing one
-  // would give this module a second, staler opinion about what has been
-  // imported. What is narrowed here is only *which statement to open*; every
+  // The unit's imports, narrowed by the server under the key that carries the
+  // unit. What is narrowed here is only *which statement to open*; every
   // figure below comes from that statement's own lines, addressed by id.
   const statements = useQuery({
-    queryKey: financeKeys.bankStatements(),
-    queryFn: ({ signal }) => listBankStatements(signal),
+    queryKey: financeKeys.bankStatements(unit),
+    queryFn: ({ signal }) => listBankStatements(signal, { unit }),
+    enabled: unit !== "",
     staleTime: 60_000,
   })
 
   const imports = useMemo(
-    () => statementsFor(statements.data?.rows, site, range.from, range.to),
-    [statements.data, site, range.from, range.to]
+    () => statementsFor(statements.data?.rows, unit, range.from, range.to),
+    [statements.data, unit, range.from, range.to]
   )
 
   const lines = useQueries({
@@ -172,8 +179,8 @@ export function SalesReconciliation() {
   )
 
   const ledgers = useQueries({
-    queries: (scoped ? codes : []).map((code) => ({
-      queryKey: financeKeys.ledger(code, site, range.from, range.to),
+    queries: (unit !== "" ? codes : []).map((code) => ({
+      queryKey: financeKeys.ledger(code, unit, range.from, range.to),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         accountLedger(
           code,
@@ -182,7 +189,7 @@ export function SalesReconciliation() {
           // moved — are properties of the WINDOW and are unmoved by paging,
           // but a one-row answer cached here would be read as a whole ledger
           // by the next screen to ask.
-          { site, from: range.from, to: range.to, limit: 500 },
+          { unit, from: range.from, to: range.to, limit: 500 },
           signal
         ),
       staleTime: 60_000,
@@ -206,13 +213,14 @@ export function SalesReconciliation() {
   // drew the till's side while the bank's was still in flight would say
   // "nothing arrived" about a statement it had not opened yet.
   const pending =
-    (scoped && map.isPending) ||
+    (scoped && (register.isPending || map.isPending)) ||
     till.pending ||
     counts.isPending ||
     statements.isPending ||
     lines.pending ||
     ledgers.pending
   const failure =
+    register.error ??
     map.error ??
     till.error ??
     counts.error ??
@@ -261,7 +269,7 @@ export function SalesReconciliation() {
       />
 
       <Toolbar>
-        <LocationSelect
+        <SiteSelect
           value={site}
           onChange={setSite}
           emptyLabel="Choose a shop"
@@ -1257,13 +1265,13 @@ function differences(input: {
 /// counted so the page can say it did that rather than quietly doing it.
 function statementsFor(
   rows: readonly BankStatementRow[] | undefined,
-  site: string,
+  unit: string,
   from: string,
   to: string
 ) {
   const overlapping = (rows ?? []).filter(
     (row) =>
-      row.site_id === site && row.period_start <= to && row.period_end >= from
+      row.unit_id === unit && row.period_start <= to && row.period_end >= from
   )
   const newest = new Map<string, (typeof overlapping)[number]>()
   for (const row of overlapping) {
