@@ -5,6 +5,7 @@ import { publish } from "@/customer-link"
 import { useApproval } from "@/approval"
 import { device, inShell, openCustomerDisplay, readRfidSingle } from "@/edge"
 import { Icon, type IconName } from "@/icons"
+import { useWaitingTills } from "@/joining"
 import {
   BagPicker,
   CancelSale,
@@ -251,6 +252,13 @@ export function Till({
   // Taking something back off the counter needs a second person: a unit
   // lifted out of the basket, or the whole basket abandoned.
   const approval = useApproval()
+  // Another till asking to join this shop's node. Asked only by a till that
+  // belongs to the node — one with its own credential there — because that is
+  // the till a supervisor's finger can approve from.
+  const { config: shell } = useNodeConfig()
+  const waiting = useWaitingTills(
+    shell?.pairing_id !== null && shell?.pairing_id !== undefined,
+  )
 
   // Finance's payment methods, read once per sign-in (the till mounts after
   // the shift gate) and again whenever a shift is opened (`screens/shift.tsx`).
@@ -627,6 +635,8 @@ export function Till({
         terminalId={terminalId}
         actorId={actorId}
         unsent={outbox.unsent}
+        waiting={waiting}
+        onWaiting={() => onGo("joins")}
         onSignOut={onSignOut}
         onLock={onLock}
         onSetup={() => onGo("setup")}
@@ -1118,6 +1128,8 @@ export function Topbar({
   terminalId,
   actorId,
   unsent,
+  waiting,
+  onWaiting,
   onSignOut,
   onLock,
   onSetup,
@@ -1126,6 +1138,9 @@ export function Topbar({
   terminalId?: string
   actorId?: string
   unsent?: number
+  /// Tills waiting for a supervisor at this node. Shown only when some are.
+  waiting?: number | null
+  onWaiting?: () => void
   onSignOut?: () => void
   onLock?: () => void
   onSetup?: () => void
@@ -1141,6 +1156,21 @@ export function Topbar({
     <header className="topbar">
       <Brand />
       <div className="top-right">
+        {/* Another till is asking to join: somebody is standing at it with
+            a code on the screen, waiting for a supervisor to notice. */}
+        {waiting !== undefined && waiting !== null && waiting > 0 && (
+          <button
+            className="top-tool"
+            onClick={onWaiting}
+            disabled={onWaiting === undefined}
+            title="Buka Kasir menunggu untuk mencocokkan kode dan menyetujui"
+          >
+            <Icon name="plug" />
+            <span className="badge warn">
+              {waiting} kasir menunggu persetujuan
+            </span>
+          </button>
+        )}
         {unsent !== undefined && unsent > 0 && (
           <span className="badge warn">{unsent} belum terkirim</span>
         )}

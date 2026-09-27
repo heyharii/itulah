@@ -32,7 +32,7 @@ import { useEffect, useState, type FormEvent } from "react"
 
 import { authMethods, pairTerminal, type StepUp } from "@/api"
 import { Icon } from "@/icons"
-import { siteTitle } from "@/joining"
+import { siteTitle, useWaitingTills } from "@/joining"
 import { PinPad } from "@/pinpad"
 import { useNodeConfig, useSession } from "@/session"
 import { Brand, Topbar } from "@/till"
@@ -312,6 +312,13 @@ export function SetupScreen({
   const [pretend, setPretend] = useState("")
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Tills asking to join, counted beside the button that lets them in. Asked
+  // only when that button is here — signed in, on a till the node knows.
+  const waiting = useWaitingTills(
+    onJoins !== undefined &&
+      config?.pairing_id !== null &&
+      config?.pairing_id !== undefined,
+  )
 
   // Seeded from the shell rather than left blank, so "change one thing" does
   // not mean "retype both" — and so what is on screen is what is in force.
@@ -468,10 +475,15 @@ export function SetupScreen({
           {onJoins !== undefined && (
             <div className="kv">
               <span className="muted">Kasir baru yang meminta bergabung</span>
-              <button className="btn" type="button" onClick={onJoins}>
-                <Icon name="list" />
-                Kasir menunggu
-              </button>
+              <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {waiting !== null && waiting > 0 && (
+                  <span className="badge warn">{waiting} menunggu</span>
+                )}
+                <button className="btn" type="button" onClick={onJoins}>
+                  <Icon name="list" />
+                  Kasir menunggu
+                </button>
+              </span>
             </div>
           )}
 

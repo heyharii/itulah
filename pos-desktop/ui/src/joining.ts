@@ -6,6 +6,9 @@
 /// window. What comes back is the code, the number and the outcome — nothing
 /// that could be used to sign.
 
+import { useEffect, useState } from "react"
+
+import { pendingJoins } from "@/api"
 import { shellCall } from "@/session"
 
 /// `NodeIdentity` in `backend/src/sync/device.rs`: who a node says it is.
@@ -117,6 +120,38 @@ export function siteTitle(
     .map((word) => (word ?? "").trim())
     .filter((word) => word !== "")
   return words.length > 0 ? words.join(" · ") : site.site_id
+}
+
+/// How often a joined till asks whether another till is waiting for a
+/// supervisor. A new till is somebody standing at a counter; a quarter of a
+/// minute is as long as they should wait for anybody to notice.
+const WAITING_POLL_MS = 15_000
+
+/// How many tills are waiting for a supervisor at this till's node — asked
+/// while `asking`: signed in, on a till that belongs to the node. Null until
+/// the node has answered, and whenever it would not; the badge that reads this
+/// shows nothing then rather than a guess.
+export function useWaitingTills(asking: boolean): number | null {
+  const [waiting, setWaiting] = useState<number | null>(null)
+  useEffect(() => {
+    if (!asking) {
+      setWaiting(null)
+      return
+    }
+    let alive = true
+    const ask = async () => {
+      const reply = await pendingJoins()
+      if (!alive) return
+      setWaiting(reply.ok ? (reply.body?.items ?? []).length : null)
+    }
+    void ask()
+    const every = window.setInterval(() => void ask(), WAITING_POLL_MS)
+    return () => {
+      alive = false
+      window.clearInterval(every)
+    }
+  }, [asking])
+  return waiting
 }
 
 /// "482913" → "482 913": read aloud across a counter in two breaths.
