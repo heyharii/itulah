@@ -12,7 +12,7 @@ import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { useWindow } from "@/screens/finance/hooks"
 import { useDimensions } from "@/screens/finance/master-data"
-import { Amount, LocationSelect, WindowControl } from "@/screens/finance/parts"
+import { Amount, UnitSelect, WindowControl } from "@/screens/finance/parts"
 
 /// The profit and loss cut by one accounting dimension — per division, per
 /// cost center, per project — over a window, closing vouchers left out.
@@ -24,7 +24,7 @@ export function DimensionResults() {
   const range = useWindow()
   const dimensions = useDimensions()
   const [picked, setPicked] = useState("")
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
 
   const dimension = picked !== "" ? picked : (dimensions.data?.[0]?.code ?? "")
   const names = new Map(
@@ -38,11 +38,11 @@ export function DimensionResults() {
       dimension,
       range.from,
       range.to,
-      site || null
+      unit || null
     ),
     queryFn: ({ signal }) =>
       dimensionResults(
-        { dimension, from: range.from, to: range.to, site: site || null },
+        { dimension, from: range.from, to: range.to, unit: unit || null },
         signal
       ),
     enabled: dimension !== "",
@@ -78,7 +78,7 @@ export function DimensionResults() {
           ))}
         </Select>
         <WindowControl range={range} />
-        <LocationSelect value={site} onChange={setSite} className="h-8 w-48" />
+        <UnitSelect value={unit} onChange={setUnit} className="h-8 w-48" />
       </Toolbar>
 
       <Card className="overflow-hidden">

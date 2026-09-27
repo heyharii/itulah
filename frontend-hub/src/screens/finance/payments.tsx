@@ -47,6 +47,7 @@ import {
   recordPayment,
   type AllocateToBill,
 } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -63,9 +64,9 @@ import {
 } from "@/screens/finance/hooks"
 import {
   AccountMeaning,
-  LocationSelect,
-  SiteName,
   SupplierName,
+  UnitName,
+  UnitSelect,
   WindowControl,
 } from "@/screens/finance/parts"
 import { idempotencyKey } from "@itulah/contract/client"
@@ -183,13 +184,12 @@ const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
     cell: ({ row }) => <Suppliers payment={row.original} />,
   },
   {
-    accessorKey: "site_id",
-    header: "Location",
+    accessorKey: "unit_id",
+    header: "Unit",
     size: 130,
     enableSorting: false,
-    // The client's own name for it. The id stays in `title`, because that is
-    // what the account codes carry and what a support call will be about.
-    cell: ({ row }) => <SiteName id={row.original.site_id} />,
+    // The unit whose bank paid, as the client's code and name.
+    cell: ({ row }) => <UnitName id={row.original.unit_id} />,
   },
   {
     id: "account",
@@ -298,7 +298,7 @@ const SORTS: Record<string, string> = {
 
 export function Payments() {
   const [query, setQuery] = useState("")
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [composing, setComposing] = useState(false)
   const payment = useSheet("payment")
   const range = useWindow()
@@ -328,7 +328,7 @@ export function Payments() {
   const by = sorting[0]
   const sort = by === undefined ? undefined : SORTS[by.id]
   const scope = {
-    site: site || undefined,
+    unit: unit || undefined,
     status: statuses,
     q: needle === "" ? undefined : needle,
     sort,
@@ -344,7 +344,7 @@ export function Payments() {
   // hundred payments narrowed in the browser.
   const payments = useInfiniteQuery({
     queryKey: [
-      ...financeKeys.payments(null, site || null, null),
+      ...financeKeys.payments(null, unit || null, null),
       "pages",
       scope,
     ],
@@ -402,7 +402,7 @@ export function Payments() {
   /// an absent limit is how `GET /payments` is asked for the whole answer.
   const postedInWindow = useQuery({
     queryKey: [
-      ...financeKeys.payments("POSTED", site || null, null),
+      ...financeKeys.payments("POSTED", unit || null, null),
       "window",
       range.from,
       range.to,
@@ -411,7 +411,7 @@ export function Payments() {
       listPayments(
         {
           status: "POSTED",
-          site: site || undefined,
+          unit: unit || undefined,
           from: range.from,
           to: range.to,
           limit: undefined,
@@ -485,11 +485,11 @@ export function Payments() {
 
       <Toolbar>
         <WindowControl range={range} />
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         {/* The window and the location are already asked to the left, both on
             the wire, so neither is offered again in the panel. What is offered
@@ -728,8 +728,8 @@ function PaymentSheet({
               </div>
 
               <Facts>
-                <Fact term="Location">
-                  <SiteName id={payment.site_id} />
+                <Fact term="Unit">
+                  <UnitName id={payment.unit_id} />
                 </Fact>
                 <Fact term="Payment date">{day(payment.payment_date)}</Fact>
                 <Fact term="Method">{label(payment.method)}</Fact>
@@ -872,7 +872,8 @@ interface DraftAllocation {
 }
 
 interface PaymentDraft {
-  siteId: string
+  /// The unit whose bank the money leaves.
+  unitId: string
   paymentDate: string
   method: string
   /// `key\tqualifier`, as `moneyAccountValue` joins them.
@@ -928,7 +929,7 @@ function paymentTotals(draft: PaymentDraft, room: ReadonlyMap<string, number>) {
     over,
     agrees,
     ready:
-      draft.siteId !== "" &&
+      draft.unitId !== "" &&
       draft.paymentDate !== "" &&
       draft.method !== "" &&
       draft.account !== "" &&
@@ -955,8 +956,8 @@ function paymentTotals(draft: PaymentDraft, room: ReadonlyMap<string, number>) {
 /// Offering the chart here would let somebody pay out of an account the
 /// posting rules do not know about; offering every *meaning* would let them
 /// pick one nobody has mapped, whose posting is refused outright. So the
-/// options are the mappings that exist for the chosen site, which is the
-/// intersection of the two — and it is empty until a site is chosen, because
+/// options are the links that exist for the chosen unit, which is the
+/// intersection of the two — and it is empty until a unit is chosen, because
 /// until then the question has no answer.
 function ComposerSheet({
   open,
@@ -997,7 +998,7 @@ function ComposerSheet({
       const totals = paymentTotals(draft, roomFor(bills.data))
       return recordPayment(
         {
-          site_id: draft.siteId,
+          unit_id: draft.unitId,
           payment_date: draft.paymentDate,
           method: draft.method,
           account_key: account.account_key,
@@ -1026,7 +1027,7 @@ function ComposerSheet({
       )
     },
     onSuccess: () => {
-      // Only what differs from payment to payment is cleared: the site, the
+      // Only what differs from payment to payment is cleared: the unit, the
       // account and the method are almost always the next one's too.
       form.setFieldValue("allocations", [])
       form.setFieldValue("total", "")
@@ -1045,7 +1046,7 @@ function ComposerSheet({
 
   const form = useForm({
     defaultValues: {
-      siteId: "",
+      unitId: "",
       paymentDate: todayIso(),
       // Giro by default: Finance chooses the instrument at payment, and
       // suppliers are paid by bilyet giro unless it says otherwise.
@@ -1131,20 +1132,20 @@ function ComposerSheet({
         )}
 
         <div className="grid grid-cols-2 gap-3">
-          <form.Field name="siteId">
+          <form.Field name="unitId">
             {(field) => (
-              <Field label="Location" required>
-                <LocationSelect
+              <Field label="Unit" required>
+                <UnitSelect
                   value={field.state.value}
                   onChange={(next) => {
                     field.handleChange(next)
-                    // The accounts belong to a site, so the one that was
-                    // chosen for the old site is not an answer for the new
-                    // one. Clearing is louder than silently sending a mapping
-                    // that does not exist there.
+                    // The accounts are a unit's, so the one that was chosen
+                    // for the old unit is not an answer for the new one.
+                    // Clearing is louder than silently sending a link that
+                    // does not exist there.
                     form.setFieldValue("account", "")
                   }}
-                  emptyLabel="Choose a location"
+                  emptyLabel="Choose a unit"
                 />
               </Field>
             )}
@@ -1184,12 +1185,12 @@ function ComposerSheet({
               </Field>
             )}
           </form.Field>
-          <form.Subscribe selector={(state) => state.values.siteId}>
-            {(siteId) => (
+          <form.Subscribe selector={(state) => state.values.unitId}>
+            {(unitId) => (
               <form.Field name="account">
                 {(field) => (
                   <MoneyAccountField
-                    siteId={siteId}
+                    unitId={unitId}
                     value={field.state.value}
                     onChange={(next) => field.handleChange(next)}
                   />
@@ -1285,7 +1286,7 @@ function ComposerSheet({
             <AllocationPicker
               bills={bills.data ?? []}
               loading={bills.isPending}
-              siteId={draft.siteId}
+              unitId={draft.unitId}
               allocations={draft.allocations}
               onChange={(next) => form.setFieldValue("allocations", next)}
             />
@@ -1309,21 +1310,21 @@ function ComposerSheet({
   )
 }
 
-/// Which accounts money can leave this location by.
+/// Which accounts money can leave this unit's books by.
 ///
-/// Its own component so the hook behind it is called with a site rather than
+/// Its own component so the hook behind it is called with a unit rather than
 /// conditionally: `useMoneyAccounts` reads the account map, and a hook inside
 /// a `form.Subscribe` render prop is a hook inside a callback.
 function MoneyAccountField({
-  siteId,
+  unitId,
   value,
   onChange,
 }: {
-  siteId: string
+  unitId: string
   value: string
   onChange: (value: string) => void
 }) {
-  const accounts = useMoneyAccounts(siteId)
+  const accounts = useMoneyAccounts(unitId)
   // The server's own word for the meaning — "Bank — giro", which is what the
   // register column and the payment sheet draw. `label()` on the raw key gives
   // "Bank giro", and one screen calling the same meaning two things is exactly
@@ -1335,8 +1336,8 @@ function MoneyAccountField({
       label="From account"
       required
       hint={
-        siteId === ""
-          ? "Choose a location first."
+        unitId === ""
+          ? "Choose a unit first."
           : accounts.length === 0
             ? "No cash or bank meaning is mapped here. Map one first — a posting that needs it is refused."
             : undefined
@@ -1397,16 +1398,29 @@ function roomFor(
 function AllocationPicker({
   bills,
   loading,
-  siteId,
+  unitId,
   allocations,
   onChange,
 }: {
   bills: readonly SupplierBill[]
   loading: boolean
-  siteId: string
+  unitId: string
   allocations: readonly DraftAllocation[]
   onChange: (allocations: DraftAllocation[]) => void
 }) {
+  // A bill stays at the site it was received at; the unit's sites are what
+  // tie it to the unit paying. Before a unit is chosen nothing is offered,
+  // because the question has no answer.
+  const units = useUnits()
+  const sites = useMemo(
+    () =>
+      new Set(
+        (units.data?.find((one) => one.id === unitId)?.sites ?? []).map(
+          (site) => site.id
+        )
+      ),
+    [units.data, unitId]
+  )
   const candidates = useMemo(
     () =>
       bills
@@ -1414,15 +1428,12 @@ function AllocationPicker({
           (bill) =>
             bill.status.toUpperCase() === "POSTED" &&
             bill.outstanding_minor > 0 &&
-            // A payment is made from one location's account, and a bill filed
-            // at another location is another location's debt. Before a site is
-            // chosen nothing is offered, because the question has no answer.
-            (siteId === "" || bill.site_id === siteId)
+            (unitId === "" || sites.has(bill.site_id))
         )
         // Oldest first: an allocation list is worked down in the order the
         // ageing report says to pay.
         .sort((a, b) => b.days_overdue - a.days_overdue),
-    [bills, siteId]
+    [bills, unitId, sites]
   )
 
   const chosen = new Map(allocations.map((row) => [row.invoice_id, row.amount]))
@@ -1465,16 +1476,18 @@ function AllocationPicker({
         What it pays
       </SubHead>
 
-      {loading ? (
+      {loading || units.isPending ? (
         <p className="text-[0.875rem] text-mute">Loading the bills…</p>
-      ) : siteId === "" ? (
+      ) : unitId === "" ? (
         <p className="text-[0.875rem] text-mute">
-          Choose a location first — a payment answers that location's debts.
+          Choose a unit first — a payment answers the bills received at its
+          sites.
         </p>
       ) : candidates.length === 0 ? (
         <p className="text-[0.875rem] text-mute">
-          Nothing posted at this location is still outstanding. A bill that has
-          only been recorded is not in the books yet and cannot be paid.
+          Nothing received at this unit's sites is still outstanding. A bill
+          that has only been recorded is not in the books yet and cannot be
+          paid.
         </p>
       ) : (
         <div className="flex flex-col gap-2">

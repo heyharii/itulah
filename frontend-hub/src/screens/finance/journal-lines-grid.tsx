@@ -10,7 +10,7 @@ import {
   draftTotals,
   type DraftLine,
 } from "@/screens/finance/journal-lines"
-import { AccountAndCategory, LocationSelect } from "@/screens/finance/parts"
+import { AccountAndCategory, UnitSelect } from "@/screens/finance/parts"
 
 /// The accounting-entries grid: ERPNext's Journal Entry child table, with the
 /// unit on every row. One component for the composer and the template editor,
@@ -58,9 +58,9 @@ export function JournalLinesGrid({
                 />
               </Td>
               <Td>
-                <LocationSelect
-                  value={line.site_id}
-                  onChange={(next) => setLine(index, { site_id: next })}
+                <UnitSelect
+                  value={line.unit_id}
+                  onChange={(next) => setLine(index, { unit_id: next })}
                   emptyLabel="Choose a unit"
                   className="h-8"
                   aria-label="Unit"

@@ -12,20 +12,20 @@ import { accountChoiceReady, type AccountChoice } from "@/screens/finance/parts"
 /// numbers are what the client's grid of inter-unit accounts used to carry.
 export function byUnit(
   lines: readonly {
-    site_id: string
+    unit_id: string
     debit_minor: number
     credit_minor: number
   }[]
-): { site_id: string; net_minor: number }[] {
+): { unit_id: string; net_minor: number }[] {
   const table = new Map<string, number>()
   for (const line of lines) {
     table.set(
-      line.site_id,
-      (table.get(line.site_id) ?? 0) + line.debit_minor - line.credit_minor
+      line.unit_id,
+      (table.get(line.unit_id) ?? 0) + line.debit_minor - line.credit_minor
     )
   }
   return [...table.entries()]
-    .map(([site_id, net_minor]) => ({ site_id, net_minor }))
+    .map(([unit_id, net_minor]) => ({ unit_id, net_minor }))
     .sort((a, b) => b.net_minor - a.net_minor)
 }
 
@@ -39,7 +39,8 @@ export function byUnit(
 /// them as one field is what stops a row ever carrying one half of the answer.
 export interface DraftLine {
   account: AccountChoice | null
-  site_id: string
+  /// Whose books the line is in: a unit id, never a site's.
+  unit_id: string
   debit: string
   credit: string
 }
@@ -47,7 +48,7 @@ export interface DraftLine {
 export function blankLine(): DraftLine {
   return {
     account: null,
-    site_id: "",
+    unit_id: "",
     debit: "",
     credit: "",
   }
@@ -68,14 +69,14 @@ export function draftTotals(lines: readonly DraftLine[]) {
     .filter(
       (row) =>
         row.line.account !== null &&
-        row.line.site_id !== "" &&
+        row.line.unit_id !== "" &&
         (row.debit > 0 || row.credit > 0)
     )
   const debits = usable.reduce((sum, row) => sum + row.debit, 0)
   const credits = usable.reduce((sum, row) => sum + row.credit, 0)
   const units = byUnit(
     usable.map((row) => ({
-      site_id: row.line.site_id,
+      unit_id: row.line.unit_id,
       debit_minor: row.debit,
       credit_minor: row.credit,
     }))
@@ -124,14 +125,14 @@ export type TemplateLine = Record<string, unknown>
 /// accounts with the figures left to fill.
 export function templateLinesFrom(lines: readonly DraftLine[]): TemplateLine[] {
   return lines
-    .filter((line) => line.account !== null && line.site_id !== "")
+    .filter((line) => line.account !== null && line.unit_id !== "")
     .map((line) => ({
       account: {
         kind: "account",
         account_code: line.account!.account_code,
         category_code: line.account!.category_code,
       },
-      site_id: line.site_id,
+      unit_id: line.unit_id,
       debit_minor: line.debit.trim() === "" ? 0 : (parseMinor(line.debit) ?? 0),
       credit_minor:
         line.credit.trim() === "" ? 0 : (parseMinor(line.credit) ?? 0),
@@ -180,7 +181,7 @@ export function draftFromTemplate(
     const credit = typeof line.credit_minor === "number" ? line.credit_minor : 0
     out.push({
       account: choice,
-      site_id: typeof line.site_id === "string" ? line.site_id : "",
+      unit_id: typeof line.unit_id === "string" ? line.unit_id : "",
       debit: debit === 0 ? "" : String(debit),
       credit: credit === 0 ? "" : String(credit),
     })

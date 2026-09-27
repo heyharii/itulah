@@ -47,8 +47,8 @@ import { useWindow } from "@/screens/finance/hooks"
 import {
   AccountAndCategory,
   accountChoiceReady,
-  LocationSelect,
-  SiteName,
+  UnitName,
+  UnitSelect,
   WindowControl,
   type AccountChoice,
 } from "@/screens/finance/parts"
@@ -211,7 +211,7 @@ const SORTS: Record<string, string> = {
 export function Journal() {
   const [query, setQuery] = useState("")
   const [kind, setKind] = useState("")
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [composing, setComposing] = useState(false)
   const entry = useSheet("entry")
   const range = useWindow()
@@ -226,7 +226,7 @@ export function Journal() {
     from: range.from,
     to: range.to,
     kind: kind || undefined,
-    site: site || undefined,
+    unit: unit || undefined,
     q: needle === "" ? undefined : needle,
     sort: by === undefined ? undefined : SORTS[by.id],
     dir: by?.desc === true ? "desc" : undefined,
@@ -238,7 +238,7 @@ export function Journal() {
   // answer, and the register reads on to its end as somebody scrolls.
   const entries = useInfiniteQuery({
     queryKey: [
-      ...financeKeys.journal(range.from, range.to, kind || null, site || null),
+      ...financeKeys.journal(range.from, range.to, kind || null, unit || null),
       "pages",
       scope,
     ],
@@ -312,7 +312,7 @@ export function Journal() {
 
       <Toolbar>
         <WindowControl range={range} />
-        {/* Wrapped for the reason `<LocationSelect>` is: `<Select>` draws a
+        {/* Wrapped for the reason `<UnitSelect>` is: `<Select>` draws a
             `w-full` span around the native control, and in a wrapping toolbar
             that claims the whole row. */}
         <span className="inline-flex w-48 shrink-0">
@@ -329,11 +329,11 @@ export function Journal() {
             ))}
           </Select>
         </span>
-        <LocationSelect
-          value={site}
-          onChange={setSite}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
           className="h-8 w-44"
-          aria-label="Location"
+          aria-label="Unit"
         />
         {/* Only two columns are offered here, and the three controls to the
             left are the reason: window, source and location all go on the
@@ -349,8 +349,8 @@ export function Journal() {
           {range.chip}
           {kind !== "" &&
             ` · ${SOURCE_KINDS.find((row) => row.value === kind)?.label}`}
-          {site !== "" && " · "}
-          {site !== "" && <SiteName id={site} />}
+          {unit !== "" && " · "}
+          {unit !== "" && <UnitName id={unit} />}
           {entries.data !== undefined &&
             ` · ${count(matched)} ${matched === 1 ? "entry" : "entries"} in it`}
         </span>
@@ -520,7 +520,7 @@ function EntrySheet({
               <h4 className="mb-2 text-card-title font-semibold text-ink">
                 Lines
               </h4>
-              <MiniTable head={["Account", "Location", "Debit", "Credit"]}>
+              <MiniTable head={["Account", "Unit", "Debit", "Credit"]}>
                 {lines.map((line) => (
                   <tr
                     key={line.line_number}
@@ -560,7 +560,7 @@ function EntrySheet({
                       )}
                     </td>
                     <td className="py-2 text-right text-[0.875rem] text-body">
-                      <SiteName id={line.site_id} />
+                      <UnitName id={line.unit_id} />
                     </td>
                     <td className="py-2 text-right tabular-nums">
                       {line.debit_minor === 0 ? (
@@ -626,7 +626,8 @@ function EntrySheet({
 /// the database refuses a line that carries only half of it.
 interface DraftLine {
   account: AccountChoice | null
-  site_id: string
+  /// Whose books the line is in: a unit id.
+  unit_id: string
   debit: string
   credit: string
 }
@@ -634,7 +635,7 @@ interface DraftLine {
 function blankLine(): DraftLine {
   return {
     account: null,
-    site_id: "",
+    unit_id: "",
     debit: "",
     credit: "",
   }
@@ -648,7 +649,7 @@ interface EntryDraft {
 
 /// What the draft adds up to, and whether it is postable.
 ///
-/// A line with no account, no site, or nothing but zeros is one somebody
+/// A line with no account, no unit, or nothing but zeros is one somebody
 /// started and has not finished; it is not an error and it is not a line.
 function entryTotals(draft: EntryDraft) {
   const usable = draft.lines
@@ -660,7 +661,7 @@ function entryTotals(draft: EntryDraft) {
     .filter(
       (row) =>
         row.line.account !== null &&
-        row.line.site_id.trim() !== "" &&
+        row.line.unit_id.trim() !== "" &&
         row.debit !== null &&
         row.credit !== null &&
         (row.debit > 0 || row.credit > 0)
@@ -731,7 +732,7 @@ function ComposerSheet({
               // answer, not the absence of one.
               category_code: row.line.account!.category_code,
             },
-            site_id: row.line.site_id.trim(),
+            unit_id: row.line.unit_id.trim(),
             debit_minor: row.debit ?? 0,
             credit_minor: row.credit ?? 0,
             // No box writes one. See `DraftLine`.
@@ -879,18 +880,17 @@ function ComposerSheet({
                   </div>
 
                   <div className="grid grid-cols-3 gap-2">
-                    <form.Field name={`lines[${index}].site_id`}>
+                    <form.Field name={`lines[${index}].unit_id`}>
                       {(field) => (
-                        <Field label="Location">
-                          {/* "e.g. DC01" was the placeholder here and no site
-                              id in the data looks like that. A line posted to a
-                              location that does not exist is refused by the
+                        <Field label="Unit">
+                          {/* A pick from the units, never typed: a line posted
+                              to a unit that does not exist is refused by the
                               server, which is the right refusal to never have
                               to see. */}
-                          <LocationSelect
+                          <UnitSelect
                             value={field.state.value}
                             onChange={(next) => field.handleChange(next)}
-                            emptyLabel="Choose a location"
+                            emptyLabel="Choose a unit"
                           />
                         </Field>
                       )}

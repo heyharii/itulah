@@ -339,10 +339,10 @@ function AccountRow({
         >
           {account.name}
         </span>
-        {/* The client's own name for the location, with the id in `title` —
-            the same reading every other location in this module gets. The raw
-            `store-01` was here in mono, which is the one thing an account row
-            has no room to explain. */}
+        {/* The site as people read it — its unit's code and name — the same
+            reading every other site in this module gets. The raw id was here
+            in mono, which is the one thing an account row has no room to
+            explain. */}
         {account.counterparty_site_id && (
           <span className="shrink-0 text-[0.875rem] text-mute">
             <SiteName id={account.counterparty_site_id} /> →{" "}

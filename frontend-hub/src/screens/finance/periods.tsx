@@ -207,7 +207,7 @@ export function Periods() {
       />
 
       <Toolbar>
-        {/* Wrapped for the reason `<LocationSelect>` is: `<Select>` draws a
+        {/* Wrapped for the reason `<UnitSelect>` is: `<Select>` draws a
             `w-full` span around the native control, and in a wrapping toolbar
             that claims the whole row — which is why these two sat on two lines
             with their chevrons out at the edge of the page. */}
