@@ -11,7 +11,7 @@
  */
 export type ReachView = { 
 /**
- * `EVERYWHERE`, `ONE_PLACE` or `NOWHERE`.
+ * `EVERYWHERE`, `ONE_UNIT` or `NOWHERE`.
  */
 scope: string, 
 /**
@@ -19,19 +19,20 @@ scope: string,
  * `EVERYWHERE`: an HR officer posted to head office is still posted
  * somewhere, and the screen says so.
  */
-place_id: string | null, place_name: string | null, 
+unit_id: string | null, unit_name: string | null, 
 /**
- * `HO` or `STORE`, and nothing else.
+ * `unit.kind`: `HO` or `STORE` (`ONLINE` once that unit is opened).
  *
- * It said `HO`, `DC` or `STORE` until migration 0230 folded the
- * distribution centre into head office — the owner's decision of
- * 2026-09-13 — and narrowed `org_place.kind` so a third value is
- * unstorable. `site.kind` is still `DC` or `STORE` and that is not the
- * same question: the warehouse remains a syncing node that receives
- * goods, and what changed is only where the people who work there are
- * posted.
+ * Never `DC`: migration 0230 folded the distribution centre into head
+ * office — the owner's decision of 2026-09-13 — and since 0450 the
+ * warehouse is a site of the head-office unit (the Gudang), not a unit.
+ * `site.kind` is a different question: what kind of premises.
  */
-place_kind: string | null, 
+unit_kind: string | null, 
+/**
+ * Whether the caller is the PIC in force at their unit (0452).
+ */
+in_charge: boolean, 
 /**
  * The rung the session holds. Sent here rather than left to a second call
  * to `/auth/me`, because scope and rung are one decision on the screen

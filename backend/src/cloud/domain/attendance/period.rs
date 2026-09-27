@@ -34,7 +34,7 @@
 
 use super::error::AttendanceError;
 use super::time::AttendanceMonth;
-use crate::cloud::domain::employment::{Authorization, PlaceId};
+use crate::cloud::domain::employment::{Authorization, UnitId};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -199,7 +199,7 @@ impl PeriodEvent {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttendancePeriodWire {
-    pub place: PlaceId,
+    pub unit: UnitId,
     pub period: AttendanceMonth,
     pub status: PeriodStatus,
     pub history: Vec<PeriodEvent>,
@@ -208,7 +208,7 @@ pub struct AttendancePeriodWire {
 /// The close state of one `(place, month)`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AttendancePeriod {
-    place: PlaceId,
+    unit: UnitId,
     period: AttendanceMonth,
     status: PeriodStatus,
     history: Vec<PeriodEvent>,
@@ -220,7 +220,7 @@ impl<'de> Deserialize<'de> for AttendancePeriod {
         D: serde::Deserializer<'de>,
     {
         let wire = AttendancePeriodWire::deserialize(deserializer)?;
-        Self::try_new(wire.place, wire.period, wire.status, wire.history)
+        Self::try_new(wire.unit, wire.period, wire.status, wire.history)
             .map_err(serde::de::Error::custom)
     }
 }
@@ -231,9 +231,9 @@ impl AttendancePeriod {
     /// Opening needs no authority: an unclosed month is the resting state, not
     /// a decision. That is why there is no `open` event in the history — the
     /// history records departures from the resting state.
-    pub fn open(place: PlaceId, period: AttendanceMonth) -> Self {
+    pub fn open(unit: UnitId, period: AttendanceMonth) -> Self {
         Self {
-            place,
+            unit,
             period,
             status: PeriodStatus::Open,
             history: Vec::new(),
@@ -246,7 +246,7 @@ impl AttendancePeriod {
     /// open, and a claimed status the history does not produce — so a row
     /// cannot say OPEN when its last event is a close.
     pub fn try_new(
-        place: PlaceId,
+        unit: UnitId,
         period: AttendanceMonth,
         status: PeriodStatus,
         history: Vec<PeriodEvent>,
@@ -283,15 +283,15 @@ impl AttendancePeriod {
             });
         }
         Ok(Self {
-            place,
+            unit,
             period,
             status,
             history,
         })
     }
 
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub const fn period(&self) -> AttendanceMonth {
         self.period
@@ -372,10 +372,10 @@ impl AttendancePeriod {
     /// Fail closed unless this date's roster may still be planned or revised.
     pub fn require_accepts_roster_change(
         &self,
-        place: &PlaceId,
+        unit: &UnitId,
         date: NaiveDate,
     ) -> Result<(), AttendanceError> {
-        self.require_covers(place, date)?;
+        self.require_covers(unit, date)?;
         if self.is_closed() {
             return Err(AttendanceError::ClosedPeriodRejectsRosterChange {
                 period: self.period.to_string(),
@@ -389,8 +389,8 @@ impl AttendancePeriod {
     /// Passing *some* real period in place of the right one fails here rather
     /// than passing, which is what makes "load it, never accept it" a rule the
     /// kernel can partly hold up on its own.
-    pub fn require_covers(&self, place: &PlaceId, date: NaiveDate) -> Result<(), AttendanceError> {
-        if &self.place != place {
+    pub fn require_covers(&self, unit: &UnitId, date: NaiveDate) -> Result<(), AttendanceError> {
+        if &self.unit != unit {
             return Err(AttendanceError::PeriodIdentityMismatch);
         }
         if !self.period.contains(date) {

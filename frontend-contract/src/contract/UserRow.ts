@@ -30,4 +30,4 @@ employee_id: string | null, employee_code: string | null,
  * `active` while its employee reads TERMINATED is a live credential for
  * somebody who has left, which is the row worth putting at the top.
  */
-employee_status: string | null, employee_name: string | null, place_id: string | null, place_name: string | null, };
+employee_status: string | null, employee_name: string | null, unit_id: string | null, unit_name: string | null, };

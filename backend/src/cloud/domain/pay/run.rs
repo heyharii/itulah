@@ -64,7 +64,7 @@
 //! says why, in a sentence a person reads on the screen.
 
 use super::error::PayError;
-use crate::cloud::domain::employment::{ActorId, Authorization, PlaceId};
+use crate::cloud::domain::employment::{ActorId, Authorization, UnitId};
 use serde::{Deserialize, Serialize};
 
 /// Where a run has got to.
@@ -149,7 +149,7 @@ impl RunEvent {
 #[serde(deny_unknown_fields)]
 pub struct PayrollRunWire {
     pub id: String,
-    pub place: PlaceId,
+    pub unit: UnitId,
     /// `YYYY-MM`.
     pub period: String,
     pub state: RunState,
@@ -164,7 +164,7 @@ pub struct PayrollRunWire {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PayrollRun {
     id: String,
-    place: PlaceId,
+    unit: UnitId,
     period: String,
     state: RunState,
     complete: bool,
@@ -189,7 +189,7 @@ impl PayrollRun {
     /// unknowable — today, always, because there is no punch source.
     pub fn draft(
         id: impl Into<String>,
-        place: PlaceId,
+        unit: UnitId,
         period: impl Into<String>,
         incomplete_because: Option<String>,
     ) -> Result<Self, PayError> {
@@ -199,7 +199,7 @@ impl PayrollRun {
         }
         Ok(Self {
             id,
-            place,
+            unit,
             period: period.into(),
             state: RunState::Draft,
             complete: incomplete_because.is_none(),
@@ -259,7 +259,7 @@ impl PayrollRun {
         }
         Ok(Self {
             id: wire.id,
-            place: wire.place,
+            unit: wire.unit,
             period: wire.period,
             state: wire.state,
             complete: wire.complete,
@@ -271,8 +271,8 @@ impl PayrollRun {
     pub fn id(&self) -> &str {
         &self.id
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub fn period(&self) -> &str {
         &self.period

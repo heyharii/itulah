@@ -105,7 +105,7 @@ export function PeopleReports() {
 
 /// Who works where, from the employee list's own facets.
 ///
-/// One request. `facets.places` is the server's count per unit, already bounded
+/// One request. `facets.units` is the server's count per unit, already bounded
 /// by the caller's reach and already labelled — so a store manager gets their
 /// own place and no comparison, which is the honest answer rather than an empty
 /// table.
@@ -120,7 +120,7 @@ function Workforce() {
     queryFn: ({ signal }) => expiringContracts({ withinDays: 60 }, signal),
   })
 
-  const places = page.data?.facets.places ?? []
+  const places = page.data?.facets.units ?? []
   const contracts = expiring.data ?? []
 
   // Grouped here rather than asked for per unit: the expiring route answers for
@@ -129,7 +129,7 @@ function Workforce() {
   const running = new Map<string, number>()
   const ended = new Map<string, number>()
   for (const contract of contracts) {
-    const key = contract.place_id ?? "—"
+    const key = contract.unit_id ?? "—"
     const bucket = Number(contract.days_remaining) < 0 ? ended : running
     bucket.set(key, (bucket.get(key) ?? 0) + 1)
   }
@@ -236,8 +236,8 @@ function TimeAndAbsence({
     enabled: place !== null,
   })
 
-  const here = (rows: readonly { place_id: string }[]) =>
-    place === null ? rows.length : rows.filter((r) => r.place_id === place).length
+  const here = (rows: readonly { unit_id: string }[]) =>
+    place === null ? rows.length : rows.filter((r) => r.unit_id === place).length
 
   if (place === null) {
     return (
@@ -385,7 +385,7 @@ function Cost() {
                 {rows.map((row) => (
                   <MiniRow key={row.id}>
                     <MiniCell>{row.period}</MiniCell>
-                    <MiniCell>{row.place_id}</MiniCell>
+                    <MiniCell>{row.unit_id}</MiniCell>
                     <MiniCell>
                       <Pill
                         tone={row.state === "APPROVED" ? "ok" : "warn"}

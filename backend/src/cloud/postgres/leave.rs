@@ -25,7 +25,7 @@ use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     Authorization, EmployeeId, LeaveBacking, LeaveDays, LeaveError, LeaveEvent, LeaveLedger,
     LeavePayment, LeavePolicy, LeaveRequest, LeaveRequestId, LeaveRequestState, LeaveRequestWire,
-    LeaveType, LeaveTypeCatalogue, LeaveTypeCode, LedgerEntry, PlaceId, PolicyTimeline,
+    LeaveType, LeaveTypeCatalogue, LeaveTypeCode, LedgerEntry, PolicyTimeline, UnitId,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
@@ -411,8 +411,8 @@ fn decode_request(
             .map_err(|error| corrupt("leave request id", error.to_string()))?,
         employee: EmployeeId::try_new(&row.try_get::<String, _>("employee_id")?)
             .map_err(|error| corrupt("employee id", error.to_string()))?,
-        place: PlaceId::try_new(&row.try_get::<String, _>("place_id")?)
-            .map_err(|error| corrupt("place id", error.to_string()))?,
+        unit: UnitId::try_new(&row.try_get::<String, _>("unit_id")?)
+            .map_err(|error| corrupt("unit id", error.to_string()))?,
         leave_type: code,
         period: serde_json::from_value(serde_json::json!({
             "from": row.try_get::<NaiveDate, _>("from_date")?,
@@ -437,7 +437,7 @@ fn decode_request(
     })
 }
 
-const REQUEST_COLUMNS: &str = "id, employee_id, place_id, leave_type, from_date, to_date, \
+const REQUEST_COLUMNS: &str = "id, employee_id, unit_id, leave_type, from_date, to_date, \
                                chargeable, evidence, requested, state, decision, \
                                ledger_entry_id, created_at, updated_at";
 
@@ -476,19 +476,19 @@ pub async fn requests_of(
 
 /// The manager's queue: what is waiting on a decision.
 ///
-/// `place_id` is `None` for head office, which reads every place's. The partial
+/// `unit_id` is `None` for head office, which reads every place's. The partial
 /// index in 0101 is exactly this query.
 pub async fn pending_requests(
     pool: &PgPool,
-    place_id: Option<&str>,
+    unit_id: Option<&str>,
     catalogue: &LeaveTypeCatalogue,
 ) -> Result<Vec<LeaveRequestRecord>, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT {REQUEST_COLUMNS} FROM leave_request
-          WHERE state = 'PENDING' AND ($1::text IS NULL OR place_id = $1)
+          WHERE state = 'PENDING' AND ($1::text IS NULL OR unit_id = $1)
           ORDER BY from_date, id"
     ))
-    .bind(place_id)
+    .bind(unit_id)
     .fetch_all(pool)
     .await?;
     rows.iter()
@@ -523,14 +523,14 @@ pub async fn file_request(pool: &PgPool, request: &LeaveRequest) -> Result<(), A
     let (state, decision, ledger_entry) = split_state(request.state())?;
     let inserted = sqlx::query(
         "INSERT INTO leave_request
-             (id, employee_id, place_id, leave_type, from_date, to_date, chargeable,
+             (id, employee_id, unit_id, leave_type, from_date, to_date, chargeable,
               evidence, requested, state, decision, ledger_entry_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(request.id().as_str())
     .bind(request.employee().as_str())
-    .bind(request.place().as_str())
+    .bind(request.unit().as_str())
     .bind(request.leave_type().as_str())
     .bind(request.period().from())
     .bind(request.period().to())

@@ -96,12 +96,12 @@ export const peopleColumns: ColumnDef<DataTableFeatures, EmployeeSummary>[] = [
     ),
   },
   {
-    id: "place_name",
-    accessorFn: (person: EmployeeSummary) => person.place_name ?? "",
+    id: "unit_name",
+    accessorFn: (person: EmployeeSummary) => person.unit_name ?? "",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Place" />,
     cell: ({ row }) => (
       <span className="text-xs">
-        {row.original.place_name ?? (
+        {row.original.unit_name ?? (
           <span className="text-muted-foreground">unposted</span>
         )}
       </span>

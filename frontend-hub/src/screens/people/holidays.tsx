@@ -133,9 +133,9 @@ export function Holidays() {
                         {holiday.consumes_annual_leave && (
                           <Pill tone="warn">Comes out of annual leave</Pill>
                         )}
-                        {holiday.places !== null && (
+                        {holiday.units !== null && (
                           <Pill tone="neutral">
-                            {holiday.places.join(", ")}
+                            {holiday.units.join(", ")}
                           </Pill>
                         )}
                       </div>

@@ -1,26 +1,27 @@
 //! Where a person works, and since when.
 //!
 //! The reference this is ported from carries its own `StoreId`; here a posting
-//! points at [`super::PlaceId`] — a row of `org_place`, which already covers
-//! the stores, the DC and head office. A separate store identifier would be a
+//! points at [`super::UnitId`] — a row of `unit`, which already covers
+//! head office and the stores (the warehouse is a site of head office, not a
+//! unit). A separate store identifier would be a
 //! second answer to "where".
 //!
 //! Not to be confused with `edge_identity_assignment`, which is an access
 //! grant: which till somebody may sign into. A person can hold five of those
-//! and be posted to one place, and an HR officer has a posting and no till
+//! and be posted to one unit, and an HR officer has a posting and no till
 //! access at all.
 
 use super::audit::Authorization;
 use super::error::EmployeeError;
-use super::ids::PlaceId;
+use super::ids::UnitId;
 use chrono::NaiveDate;
 
-/// One continuous posting to one place. `to` is exclusive-open: `None` means
+/// One continuous posting to one unit. `to` is exclusive-open: `None` means
 /// "still there".
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AssignmentSpan {
-    place_id: PlaceId,
+    unit_id: UnitId,
     from: NaiveDate,
     to: Option<NaiveDate>,
     authorization: Authorization,
@@ -28,7 +29,7 @@ pub struct AssignmentSpan {
 
 impl AssignmentSpan {
     pub fn try_new(
-        place_id: PlaceId,
+        unit_id: UnitId,
         from: NaiveDate,
         to: Option<NaiveDate>,
         authorization: Authorization,
@@ -39,15 +40,15 @@ impl AssignmentSpan {
             }
         }
         Ok(Self {
-            place_id,
+            unit_id,
             from,
             to,
             authorization,
         })
     }
 
-    pub fn place_id(&self) -> &PlaceId {
-        &self.place_id
+    pub fn unit_id(&self) -> &UnitId {
+        &self.unit_id
     }
     pub fn from(&self) -> NaiveDate {
         self.from
@@ -96,11 +97,11 @@ impl AssignmentTimeline {
     }
 
     /// Where the person was on a date, if anywhere.
-    pub fn place_on(&self, date: NaiveDate) -> Option<&PlaceId> {
+    pub fn unit_on(&self, date: NaiveDate) -> Option<&UnitId> {
         self.spans
             .iter()
             .find(|span| span.covers(date))
-            .map(|span| span.place_id())
+            .map(|span| span.unit_id())
     }
 
     /// The current posting: the span with no end date, if there is one.

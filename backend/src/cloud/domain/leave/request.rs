@@ -28,7 +28,7 @@ use super::kinds::{LeaveBacking, LeaveType, LeaveTypeCode};
 use super::ledger::{LeaveEvent, LeaveLedger, LedgerEntry};
 use super::policy::PolicyTimeline;
 use super::units::LeaveDays;
-use crate::cloud::domain::employment::{Authorization, EmployeeId, PlaceId, ReasonText};
+use crate::cloud::domain::employment::{Authorization, EmployeeId, ReasonText, UnitId};
 use crate::cloud::domain::holiday::HolidayCalendar;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -139,11 +139,11 @@ impl LeavePeriod {
     pub fn chargeable(
         &self,
         calendar: &HolidayCalendar,
-        place: &PlaceId,
+        unit: &UnitId,
         rest_days: &[NaiveDate],
     ) -> Vec<NaiveDate> {
         self.dates()
-            .filter(|date| !calendar.is_holiday(*date, place))
+            .filter(|date| !calendar.is_holiday(*date, unit))
             .filter(|date| !rest_days.contains(date))
             .collect()
     }
@@ -219,7 +219,7 @@ pub struct BalanceContext<'a> {
 pub struct LeaveRequestWire {
     pub id: LeaveRequestId,
     pub employee: EmployeeId,
-    pub place: PlaceId,
+    pub unit: UnitId,
     pub leave_type: LeaveTypeCode,
     pub period: LeavePeriod,
     pub chargeable: Vec<NaiveDate>,
@@ -239,7 +239,7 @@ pub struct LeaveRequestWire {
 pub struct LeaveRequest {
     id: LeaveRequestId,
     employee: EmployeeId,
-    place: PlaceId,
+    unit: UnitId,
     leave_type: LeaveTypeCode,
     period: LeavePeriod,
     /// Stored rather than recomputed — see the module doc.
@@ -255,7 +255,7 @@ impl LeaveRequest {
     pub fn file(
         id: LeaveRequestId,
         employee: EmployeeId,
-        place: PlaceId,
+        unit: UnitId,
         leave_type: &LeaveType,
         period: LeavePeriod,
         calendar: &HolidayCalendar,
@@ -273,7 +273,7 @@ impl LeaveRequest {
                 leave_type: leave_type.code().to_string(),
             });
         }
-        let chargeable = period.chargeable(calendar, &place, rest_days);
+        let chargeable = period.chargeable(calendar, &unit, rest_days);
         // A "request" covering only holidays and rest days asks for nothing, and
         // approving it would put a zero-day entry in the ledger that a later
         // reader has to explain.
@@ -302,7 +302,7 @@ impl LeaveRequest {
         Ok(Self {
             id,
             employee,
-            place,
+            unit,
             leave_type: leave_type.code().clone(),
             period,
             chargeable,
@@ -371,7 +371,7 @@ impl LeaveRequest {
         Ok(Self {
             id: wire.id,
             employee: wire.employee,
-            place: wire.place,
+            unit: wire.unit,
             leave_type: wire.leave_type,
             period: wire.period,
             chargeable: wire.chargeable,
@@ -496,8 +496,8 @@ impl LeaveRequest {
     pub fn employee(&self) -> &EmployeeId {
         &self.employee
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub fn leave_type(&self) -> &LeaveTypeCode {
         &self.leave_type

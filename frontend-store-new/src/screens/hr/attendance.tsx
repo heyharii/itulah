@@ -777,7 +777,7 @@ function FixSheet({
     onSuccess: () => {
       client.invalidateQueries({ queryKey: hrKeys.attendance() })
       client.invalidateQueries({
-        queryKey: hrKeys.period(fix.place_id, fix.business_date.slice(0, 7)),
+        queryKey: hrKeys.period(fix.unit_id, fix.business_date.slice(0, 7)),
       })
       onClose()
     },

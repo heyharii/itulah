@@ -88,7 +88,7 @@ pub struct StoreDeposit {
     pub deposit_number: String,
     /// The unit, on the row, as it is on both postings this will make.
     ///
-    /// Carried as an id and never as a name: a unit is named from `org_place`
+    /// Carried as an id and never as a name: a unit is named from `unit`
     /// through `book_locations`, which is the one place that knows head office
     /// is not spelled "DC".
     pub site_id: String,

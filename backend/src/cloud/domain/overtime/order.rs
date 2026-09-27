@@ -3,7 +3,7 @@
 use super::error::OvertimeError;
 use super::policy::OvertimePolicy;
 use crate::cloud::domain::attendance::Minutes;
-use crate::cloud::domain::employment::{actions, Authorization, EmployeeId, PlaceId};
+use crate::cloud::domain::employment::{actions, Authorization, EmployeeId, UnitId};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -185,7 +185,7 @@ impl OvertimeState {
 pub struct OvertimeOrderWire {
     pub id: OvertimeId,
     pub employee: EmployeeId,
-    pub place: PlaceId,
+    pub unit: UnitId,
     pub date: NaiveDate,
     pub day_kind: DayKind,
     pub planned: Minutes,
@@ -198,7 +198,7 @@ pub struct OvertimeOrderWire {
 pub struct OvertimeOrder {
     id: OvertimeId,
     employee: EmployeeId,
-    place: PlaceId,
+    unit: UnitId,
     date: NaiveDate,
     day_kind: DayKind,
     planned: Minutes,
@@ -229,7 +229,7 @@ impl OvertimeOrder {
     pub fn order(
         id: OvertimeId,
         employee: EmployeeId,
-        place: PlaceId,
+        unit: UnitId,
         date: NaiveDate,
         day_kind: DayKind,
         planned: Minutes,
@@ -248,7 +248,7 @@ impl OvertimeOrder {
         Ok(Self {
             id,
             employee,
-            place,
+            unit,
             date,
             day_kind,
             planned,
@@ -295,7 +295,7 @@ impl OvertimeOrder {
         Ok(Self {
             id: wire.id,
             employee: wire.employee,
-            place: wire.place,
+            unit: wire.unit,
             date: wire.date,
             day_kind: wire.day_kind,
             planned: wire.planned,
@@ -366,8 +366,8 @@ impl OvertimeOrder {
     pub fn employee(&self) -> &EmployeeId {
         &self.employee
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub const fn date(&self) -> NaiveDate {
         self.date

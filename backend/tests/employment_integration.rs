@@ -238,7 +238,7 @@ async fn hr_hires_somebody_and_that_person_can_read_their_own_record(pool: PgPoo
 
     let employee_id = hire(&app, &cookies, &csrf, "K0001").await;
 
-    // Posted to a shop. `store-01` is an `org_place` because migration 0060
+    // Posted to a shop. `store-01` is a unit because migration 0450
     // seeded one per site.
     let assigned = send(
         app.clone(),
@@ -246,7 +246,7 @@ async fn hr_hires_somebody_and_that_person_can_read_their_own_record(pool: PgPoo
         &format!("/api/v1/employees/{employee_id}/assignments"),
         write_headers(&cookies, &csrf),
         Some(json!({
-            "place_id": "store-01",
+            "unit_id": "store-01",
             "valid_from": "2026-01-06",
             "reason": "penempatan awal",
         })),
@@ -258,7 +258,7 @@ async fn hr_hires_somebody_and_that_person_can_read_their_own_record(pool: PgPoo
         "assign: {:?}",
         assigned.body
     );
-    assert_eq!(assigned.body["current_place_id"], "store-01");
+    assert_eq!(assigned.body["current_unit_id"], "store-01");
 
     // Personal data, on its own route.
     let enrolled = send(
@@ -367,7 +367,7 @@ async fn hr_hires_somebody_and_that_person_can_read_their_own_record(pool: PgPoo
     );
     assert_eq!(profile.body["employee_code"], "K0001");
     assert_eq!(profile.body["job_title"], "Kasir");
-    assert_eq!(profile.body["place_name"], "C001");
+    assert_eq!(profile.body["unit_name"], "Cikupa");
     // Derived from the first HIRE, not stored beside it.
     assert_eq!(profile.body["joined_on"], "2026-01-06");
     // The whole reason these are two routes: a work profile carries no
@@ -670,18 +670,18 @@ async fn supervisor_at(
     csrf: &str,
     username: &str,
     code: &str,
-    place_id: Option<&str>,
+    unit_id: Option<&str>,
     role: &str,
 ) -> String {
     let employee_id = hire(app, cookies, csrf, code).await;
-    if let Some(place_id) = place_id {
+    if let Some(unit_id) = unit_id {
         let assigned = send(
             app.clone(),
             "POST",
             &format!("/api/v1/employees/{employee_id}/assignments"),
             write_headers(cookies, csrf),
             Some(json!({
-                "place_id": place_id,
+                "unit_id": unit_id,
                 "valid_from": "2026-01-06",
                 "reason": "penempatan awal",
             })),
@@ -734,7 +734,7 @@ async fn staff_at(
     cookies: &str,
     csrf: &str,
     code: &str,
-    place_id: &str,
+    unit_id: &str,
 ) -> String {
     let employee_id = hire(app, cookies, csrf, code).await;
     let assigned = send(
@@ -743,7 +743,7 @@ async fn staff_at(
         &format!("/api/v1/employees/{employee_id}/assignments"),
         write_headers(cookies, csrf),
         Some(json!({
-            "place_id": place_id,
+            "unit_id": unit_id,
             "valid_from": "2026-01-06",
             "reason": "penempatan awal",
         })),
@@ -806,9 +806,9 @@ async fn a_supervisor_reaches_only_the_shop_they_are_posted_to(pool: PgPool) {
     )
     .await;
     assert_eq!(reach.status, StatusCode::OK, "reach: {:?}", reach.body);
-    assert_eq!(reach.body["scope"], "ONE_PLACE");
-    assert_eq!(reach.body["place_id"], "store-07");
-    assert_eq!(reach.body["place_kind"], "STORE");
+    assert_eq!(reach.body["scope"], "ONE_UNIT");
+    assert_eq!(reach.body["unit_id"], "store-07");
+    assert_eq!(reach.body["unit_kind"], "STORE");
     assert_eq!(reach.body["role"], "SUPERVISOR");
 
     // The list is her shop, and only her shop.
@@ -823,13 +823,13 @@ async fn a_supervisor_reaches_only_the_shop_they_are_posted_to(pool: PgPool) {
     assert_eq!(listed.status, StatusCode::OK, "list: {:?}", listed.body);
     // The envelope says whose list this is, which is how a screen can say so
     // rather than reading as a company of three.
-    assert_eq!(listed.body["place_id"], "store-07");
+    assert_eq!(listed.body["unit_id"], "store-07");
     // And it offers her no place filter: she reaches one place, so a filter
     // over places is a control that cannot change the answer.
     assert_eq!(
-        listed.body["facets"]["places"].as_array().map(Vec::len),
+        listed.body["facets"]["units"].as_array().map(Vec::len),
         Some(0),
-        "a bounded caller is offered no choice of place: {:?}",
+        "a bounded caller is offered no choice of unit: {:?}",
         listed.body["facets"]
     );
     let seen = codes(&listed.body);
@@ -846,7 +846,7 @@ async fn a_supervisor_reaches_only_the_shop_they_are_posted_to(pool: PgPool) {
     let elsewhere = send(
         app.clone(),
         "GET",
-        "/api/v1/employees?place_id=store-03",
+        "/api/v1/employees?unit_id=store-03",
         read_headers(&hers),
         None,
     )
@@ -933,7 +933,7 @@ async fn a_supervisor_with_no_posting_reaches_nothing(pool: PgPool) {
     .await;
     assert_eq!(reach.status, StatusCode::OK, "reach: {:?}", reach.body);
     assert_eq!(reach.body["scope"], "NOWHERE");
-    assert_eq!(reach.body["place_id"], Value::Null);
+    assert_eq!(reach.body["unit_id"], Value::Null);
     // The record exists; it is the posting that does not.
     assert!(reach.body["employee_id"].is_string());
 
@@ -985,7 +985,7 @@ async fn a_supervisor_with_no_posting_reaches_nothing(pool: PgPool) {
 /// narrowing: the same HR assistant, same rung, same posting, reaches head
 /// office and stops there.
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn head_office_is_a_place_not_a_pass_to_every_place(pool: PgPool) {
+async fn head_office_is_a_unit_not_a_pass_to_every_unit(pool: PgPool) {
     cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
         .await
         .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -1019,10 +1019,10 @@ async fn head_office_is_a_place_not_a_pass_to_every_place(pool: PgPool) {
     )
     .await;
     assert_eq!(reach.status, StatusCode::OK, "reach: {:?}", reach.body);
-    assert_eq!(reach.body["scope"], "ONE_PLACE");
-    assert_eq!(reach.body["place_id"], "ho");
-    assert_eq!(reach.body["place_kind"], "HO");
-    assert_eq!(reach.body["place_name"], "Head Office");
+    assert_eq!(reach.body["scope"], "ONE_UNIT");
+    assert_eq!(reach.body["unit_id"], "ho");
+    assert_eq!(reach.body["unit_kind"], "HO");
+    assert_eq!(reach.body["unit_name"], "Head Office");
     assert_eq!(reach.body["role"], "SUPERVISOR");
 
     let listed = send(
@@ -1052,7 +1052,7 @@ async fn head_office_is_a_place_not_a_pass_to_every_place(pool: PgPool) {
     let one = send(
         app.clone(),
         "GET",
-        "/api/v1/employees?place_id=store-03",
+        "/api/v1/employees?unit_id=store-03",
         read_headers(&hers),
         None,
     )
@@ -1063,7 +1063,7 @@ async fn head_office_is_a_place_not_a_pass_to_every_place(pool: PgPool) {
     assert_eq!(
         one.status,
         StatusCode::FORBIDDEN,
-        "another place: {:?}",
+        "another unit: {:?}",
         one.body
     );
 

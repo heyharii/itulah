@@ -18,13 +18,13 @@
 //!   employment, pay and exit kernels write.
 
 use super::auth::Principal;
-use super::employment::{current_place, reach_of, resolve};
+use super::employment::{current_unit, reach_of, resolve};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, people::*, required_role_for_action, role_allows, AssignmentSpan,
         AssignmentTimeline, Authorization, Contract, ContractKind, ContractTimeline, Employee,
-        EmployeeId, Grade, PlaceId, Position,
+        EmployeeId, Grade, Position, UnitId,
     },
     postgres::{self as infrastructure, EmployeeRecord},
 };
@@ -75,19 +75,17 @@ fn authorize(
 /// `All` is head office; `One(None)` is a supervisor posted nowhere, who sees
 /// an empty list rather than the whole company — the distinction
 /// [`crate::cloud::domain::Reach`] exists to keep.
-enum PlaceFilter {
+enum UnitFilter {
     All,
     One(Option<String>),
 }
 
-async fn place_filter(state: &AppState, principal: &Principal) -> Result<PlaceFilter, AppError> {
+async fn unit_filter(state: &AppState, principal: &Principal) -> Result<UnitFilter, AppError> {
     let reach = reach_of(state, principal).await?;
     Ok(match reach {
-        crate::cloud::domain::Reach::Everywhere => PlaceFilter::All,
-        crate::cloud::domain::Reach::Only(place) => {
-            PlaceFilter::One(Some(place.as_str().to_owned()))
-        }
-        crate::cloud::domain::Reach::Nowhere => PlaceFilter::One(None),
+        crate::cloud::domain::Reach::Everywhere => UnitFilter::All,
+        crate::cloud::domain::Reach::Only(unit) => UnitFilter::One(Some(unit.as_str().to_owned())),
+        crate::cloud::domain::Reach::Nowhere => UnitFilter::One(None),
     })
 }
 
@@ -95,14 +93,14 @@ async fn place_filter(state: &AppState, principal: &Principal) -> Result<PlaceFi
 /// the row loads: the place is a fact about the row.
 fn reach_covers(
     reach: &crate::cloud::domain::Reach,
-    place: &str,
+    unit: &str,
     username: &str,
 ) -> Result<(), AppError> {
-    if reach.covers(Some(place)) {
+    if reach.covers(Some(unit)) {
         return Ok(());
     }
     Err(AppError::Forbidden(format!(
-        "{username} is not posted anywhere that reaches {place}"
+        "{username} is not posted anywhere that reaches {unit}"
     )))
 }
 
@@ -114,7 +112,7 @@ pub struct RosterSwapView {
     pub id: String,
     pub employee_id: String,
     pub with_employee_id: String,
-    pub place_id: String,
+    pub unit_id: String,
     pub on_date: String,
     pub reason: String,
     pub state: String,
@@ -127,7 +125,7 @@ fn swap_view(swap: &RosterSwap) -> RosterSwapView {
         id: swap.id.clone(),
         employee_id: swap.employee_id.as_str().to_owned(),
         with_employee_id: swap.with_employee_id.as_str().to_owned(),
-        place_id: swap.place_id.as_str().to_owned(),
+        unit_id: swap.unit_id.as_str().to_owned(),
         on_date: swap.on_date.to_string(),
         reason: swap.reason.clone(),
         state: swap.state.as_str().to_owned(),
@@ -155,7 +153,7 @@ pub struct ChangePropView {
 pub struct ChangeProposalView {
     pub id: String,
     pub employee_id: String,
-    pub place_id: String,
+    pub unit_id: String,
     pub kind: String,
     pub props: Vec<ChangePropView>,
     pub effective_on: String,
@@ -171,7 +169,7 @@ fn change_view(proposal: &ChangeProposal) -> ChangeProposalView {
     ChangeProposalView {
         id: proposal.id.clone(),
         employee_id: proposal.employee_id.as_str().to_owned(),
-        place_id: proposal.place_id.as_str().to_owned(),
+        unit_id: proposal.unit_id.as_str().to_owned(),
         kind: proposal.kind.as_str().to_owned(),
         props: proposal
             .props
@@ -223,7 +221,7 @@ pub struct LifecycleTaskView {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct StaffingPlanView {
     pub id: String,
-    pub place_id: String,
+    pub unit_id: String,
     pub position: String,
     pub span: String,
     pub headcount: i32,
@@ -235,7 +233,7 @@ pub struct StaffingPlanView {
 pub struct ApplicantView {
     pub id: String,
     pub proposal_id: String,
-    pub place_id: String,
+    pub unit_id: String,
     pub name: String,
     pub phone: Option<String>,
     pub source: String,
@@ -385,30 +383,30 @@ pub async fn file_swap(
     infrastructure::load_employee(&state.db, &body.with_employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound("colleague not found".to_owned()))?;
-    let mine_place = colleague_place(&state, access.employee_id.as_str())
+    let mine_unit = colleague_unit(&state, access.employee_id.as_str())
         .await?
         .ok_or_else(|| AppError::Conflict("you are not posted anywhere".to_owned()))?;
-    let their_place = colleague_place(&state, &body.with_employee_id)
+    let their_unit = colleague_unit(&state, &body.with_employee_id)
         .await?
         .ok_or_else(|| {
             AppError::Conflict("the colleague you named is not posted anywhere".to_owned())
         })?;
-    if mine_place != their_place {
+    if mine_unit != their_unit {
         return Err(AppError::Validation(
-            "a swap is between two people at the same place".to_owned(),
+            "a swap is between two people at the same unit".to_owned(),
         ));
     }
 
     // A closed month refuses a new swap the way it refuses a new correction.
     let period = infrastructure::period_for(
         &state.db,
-        &PlaceId::try_new(&mine_place).map_err(invalid)?,
+        &UnitId::try_new(&mine_unit).map_err(invalid)?,
         on_date,
     )
     .await?;
     if period.is_closed() {
         return Err(AppError::Conflict(format!(
-            "attendance for {mine_place} in {} is already closed",
+            "attendance for {mine_unit} in {} is already closed",
             on_date.format("%Y-%m")
         )));
     }
@@ -416,7 +414,7 @@ pub async fn file_swap(
     let swap = RosterSwap::file(
         EmployeeId::try_new(&access.employee_id).map_err(invalid)?,
         EmployeeId::try_new(&body.with_employee_id).map_err(invalid)?,
-        PlaceId::try_new(&mine_place).map_err(invalid)?,
+        UnitId::try_new(&mine_unit).map_err(invalid)?,
         on_date,
         &body.reason,
         authorization,
@@ -426,11 +424,11 @@ pub async fn file_swap(
     Ok(Json(swap_view(&swap)))
 }
 
-async fn colleague_place(state: &AppState, employee_id: &str) -> Result<Option<String>, AppError> {
+async fn colleague_unit(state: &AppState, employee_id: &str) -> Result<Option<String>, AppError> {
     let record = infrastructure::load_employee(&state.db, employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {employee_id}")))?;
-    Ok(current_place(&record).map(ToOwned::to_owned))
+    Ok(current_unit(&record).map(ToOwned::to_owned))
 }
 
 /// The store head's queue, bounded by reach.
@@ -439,13 +437,13 @@ pub async fn pending_swaps(
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<Vec<RosterSwapView>>, AppError> {
     require(&principal, actions::ROSTER_SWAP_DECIDE)?;
-    let filter = place_filter(&state, &principal).await?;
+    let filter = unit_filter(&state, &principal).await?;
     let swaps = match filter {
-        PlaceFilter::One(None) => Vec::new(),
-        PlaceFilter::One(Some(place)) => {
-            infrastructure::pending_swaps(&state.db, Some(&place)).await?
+        UnitFilter::One(None) => Vec::new(),
+        UnitFilter::One(Some(unit)) => {
+            infrastructure::pending_swaps(&state.db, Some(&unit)).await?
         }
-        PlaceFilter::All => infrastructure::pending_swaps(&state.db, None).await?,
+        UnitFilter::All => infrastructure::pending_swaps(&state.db, None).await?,
     };
     Ok(Json(swaps.iter().map(swap_view).collect()))
 }
@@ -466,8 +464,8 @@ pub async fn swap_history(
     let access = resolve(&state, &principal, &raw).await?;
     if !access.own {
         access.may_read(actions::EMPLOYEE_READ)?;
-        let place = colleague_place(&state, access.employee_id.as_str()).await?;
-        access.reaches(place.as_deref())?;
+        let unit = colleague_unit(&state, access.employee_id.as_str()).await?;
+        access.reaches(unit.as_deref())?;
     }
     let swaps = infrastructure::swaps_of_employee(&state.db, access.employee_id.as_str()).await?;
     Ok(Json(swaps.iter().map(swap_view).collect()))
@@ -496,7 +494,7 @@ pub async fn decide_swap(
     let mut swap = infrastructure::load_swap(&state.db, &id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("swap {id}")))?;
-    reach_covers(&reach, swap.place_id.as_str(), &principal.username)?;
+    reach_covers(&reach, swap.unit_id.as_str(), &principal.username)?;
     let decision = authorize(&principal, actions::ROSTER_SWAP_DECIDE, &body.reason)?;
     swap.decide(
         body.approved,
@@ -519,7 +517,7 @@ pub async fn decide_swap(
 /// as a revision under the decider's authority. A closed period refuses —
 /// the same refusal planning a day would meet.
 async fn move_roster_days(state: &AppState, swap: &RosterSwap) -> Result<(), AppError> {
-    let period = infrastructure::period_for(&state.db, &swap.place_id, swap.on_date).await?;
+    let period = infrastructure::period_for(&state.db, &swap.unit_id, swap.on_date).await?;
     let day = swap.on_date;
     let mut a = infrastructure::roster_of(&state.db, swap.employee_id.as_str(), day, day).await?;
     let mut b =
@@ -615,10 +613,10 @@ pub async fn file_change(
     let access = resolve(&state, &principal, &raw).await?;
     access.may(actions::CHANGE_PROPOSAL_FILE)?;
     if !access.own {
-        let place = colleague_place(&state, access.employee_id.as_str()).await?;
-        access.reaches(place.as_deref())?;
+        let unit = colleague_unit(&state, access.employee_id.as_str()).await?;
+        access.reaches(unit.as_deref())?;
     }
-    let place = colleague_place(&state, access.employee_id.as_str())
+    let unit = colleague_unit(&state, access.employee_id.as_str())
         .await?
         .ok_or_else(|| AppError::Conflict("this person is not posted anywhere".to_owned()))?;
     let kind = ChangeKind::parse(&body.kind)
@@ -650,7 +648,7 @@ pub async fn file_change(
         .collect::<Result<Vec<_>, AppError>>()?;
     let proposal = ChangeProposal::file(
         EmployeeId::try_new(&access.employee_id).map_err(invalid)?,
-        PlaceId::try_new(&place).map_err(invalid)?,
+        UnitId::try_new(&unit).map_err(invalid)?,
         kind,
         props,
         effective_on,
@@ -666,7 +664,7 @@ pub async fn file_change(
 #[serde(deny_unknown_fields)]
 pub struct ChangeListQuery {
     pub state: Option<String>,
-    pub place_id: Option<String>,
+    pub unit_id: Option<String>,
 }
 
 /// The proposal queue. A bounded caller sees their place only; head office
@@ -677,20 +675,20 @@ pub async fn list_changes(
     Query(query): Query<ChangeListQuery>,
 ) -> Result<Json<Vec<ChangeProposalView>>, AppError> {
     require(&principal, actions::EMPLOYEE_READ)?;
-    let filter = place_filter(&state, &principal).await?;
-    let requested_place = query.place_id.as_deref();
-    if let (PlaceFilter::One(Some(place)), Some(requested)) = (&filter, requested_place) {
-        if place != requested {
+    let filter = unit_filter(&state, &principal).await?;
+    let requested_unit = query.unit_id.as_deref();
+    if let (UnitFilter::One(Some(unit)), Some(requested)) = (&filter, requested_unit) {
+        if unit != requested {
             return Err(AppError::Forbidden(format!(
                 "{} does not reach {requested}",
                 principal.username
             )));
         }
     }
-    let bound = match (&filter, requested_place) {
-        (PlaceFilter::One(Some(place)), _) => Some(place.as_str()),
-        (PlaceFilter::All, requested) => requested,
-        (PlaceFilter::One(None), _) => {
+    let bound = match (&filter, requested_unit) {
+        (UnitFilter::One(Some(unit)), _) => Some(unit.as_str()),
+        (UnitFilter::All, requested) => requested,
+        (UnitFilter::One(None), _) => {
             return Ok(Json(Vec::new()));
         }
     };
@@ -706,8 +704,8 @@ pub async fn change_history(
     let access = resolve(&state, &principal, &raw).await?;
     if !access.own {
         access.may_read(actions::EMPLOYEE_READ)?;
-        let place = colleague_place(&state, access.employee_id.as_str()).await?;
-        access.reaches(place.as_deref())?;
+        let unit = colleague_unit(&state, access.employee_id.as_str()).await?;
+        access.reaches(unit.as_deref())?;
     }
     let rows = infrastructure::changes_of_employee(&state.db, access.employee_id.as_str()).await?;
     Ok(Json(rows.iter().map(change_view).collect()))
@@ -798,11 +796,11 @@ async fn apply_change(state: &AppState, proposal: &mut ChangeProposal) -> Result
 
     match proposal.kind {
         ChangeKind::Transfer => {
-            let to_place = proposal
-                .decided("place_id")
+            let to_unit = proposal
+                .decided("unit_id")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| {
-                    AppError::Configuration("an approved transfer names a place".to_owned())
+                    AppError::Configuration("an approved transfer names a unit".to_owned())
                 })?
                 .to_owned();
             let auth = authority(actions::ASSIGNMENT_MANAGE)?;
@@ -813,7 +811,7 @@ async fn apply_change(state: &AppState, proposal: &mut ChangeProposal) -> Result
                 if span.to().is_none() {
                     rewritten.push(
                         AssignmentSpan::try_new(
-                            span.place_id().clone(),
+                            span.unit_id().clone(),
                             span.from(),
                             Some(effective - chrono::Duration::days(1)),
                             span.authorization().clone(),
@@ -826,7 +824,7 @@ async fn apply_change(state: &AppState, proposal: &mut ChangeProposal) -> Result
             }
             rewritten.push(
                 AssignmentSpan::try_new(
-                    PlaceId::try_new(&to_place).map_err(invalid)?,
+                    UnitId::try_new(&to_unit).map_err(invalid)?,
                     effective,
                     None,
                     auth,
@@ -1001,14 +999,14 @@ pub async fn list_tasks(
     Query(query): Query<TaskListQuery>,
 ) -> Result<Json<Vec<LifecycleTaskView>>, AppError> {
     require(&principal, actions::EMPLOYEE_READ)?;
-    let filter = place_filter(&state, &principal).await?;
-    if let PlaceFilter::One(Some(_)) = &filter {
+    let filter = unit_filter(&state, &principal).await?;
+    if let UnitFilter::One(Some(_)) = &filter {
         if let Some(employee) = query.employee_id.as_deref() {
             let reach = reach_of(&state, &principal).await?;
             let record = infrastructure::load_employee(&state.db, employee)
                 .await?
                 .ok_or_else(|| AppError::NotFound("employee not found".to_owned()))?;
-            match current_place(&record) {
+            match current_unit(&record) {
                 Some(p) => reach_covers(&reach, p, &principal.username)?,
                 None => {
                     return Err(AppError::Forbidden(format!(
@@ -1024,11 +1022,11 @@ pub async fn list_tasks(
         // because the arm below trusts a named employee to have been checked
         // against the caller's reach, and above that check runs only for a
         // reach of one place.
-        (PlaceFilter::One(None), _) => return Ok(Json(Vec::new())),
+        (UnitFilter::One(None), _) => return Ok(Json(Vec::new())),
         // A named employee is their own fence: the rows are theirs.
         (_, Some(_employee)) => None,
-        (PlaceFilter::One(Some(place)), None) => Some(place.as_str()),
-        (PlaceFilter::All, None) => None,
+        (UnitFilter::One(Some(unit)), None) => Some(unit.as_str()),
+        (UnitFilter::All, None) => None,
     };
     let rows = infrastructure::list_tasks(
         &state.db,
@@ -1058,15 +1056,16 @@ pub async fn list_tasks(
     ))
 }
 
-fn access_place_check(
+fn access_unit_check(
     record: &EmployeeRecord,
     username: &str,
     reach: &crate::cloud::domain::Reach,
 ) -> Result<(), AppError> {
-    let place = current_place(record).map(ToOwned::to_owned);
-    reach.covers(place.as_deref()).then_some(()).ok_or_else(|| {
-        AppError::Forbidden(format!("{username} does not reach this person's place"))
-    })
+    let unit = current_unit(record).map(ToOwned::to_owned);
+    reach
+        .covers(unit.as_deref())
+        .then_some(())
+        .ok_or_else(|| AppError::Forbidden(format!("{username} does not reach this person's unit")))
 }
 
 pub async fn task_history(
@@ -1081,7 +1080,7 @@ pub async fn task_history(
         let record = infrastructure::load_employee(&state.db, access.employee_id.as_str())
             .await?
             .ok_or_else(|| AppError::NotFound("employee not found".to_owned()))?;
-        access_place_check(&record, &principal.username, &reach)?;
+        access_unit_check(&record, &principal.username, &reach)?;
     }
     let rows = infrastructure::list_tasks(
         &state.db,
@@ -1154,7 +1153,7 @@ pub async fn complete_task(
         let record = infrastructure::load_employee(&state.db, &task.employee_id)
             .await?
             .ok_or_else(|| AppError::NotFound("employee not found".to_owned()))?;
-        access_place_check(&record, &principal.username, &reach)?;
+        access_unit_check(&record, &principal.username, &reach)?;
     }
     let done = authorize(&principal, key, &body.reason)?;
     let updated =
@@ -1267,7 +1266,7 @@ pub async fn complete_own_task(
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[serde(deny_unknown_fields)]
 pub struct PlanBody {
-    pub place_id: String,
+    pub unit_id: String,
     pub position: String,
     pub span: String,
     pub headcount: u32,
@@ -1283,7 +1282,7 @@ pub async fn define_plan(
     require(&principal, actions::RECRUITMENT_MANAGE)?;
     let defined = authorize(&principal, actions::RECRUITMENT_MANAGE, &body.reason)?;
     let plan = StaffingPlan::define(
-        PlaceId::try_new(&body.place_id).map_err(invalid)?,
+        UnitId::try_new(&body.unit_id).map_err(invalid)?,
         &body.position,
         &body.span,
         body.headcount,
@@ -1298,7 +1297,7 @@ pub async fn define_plan(
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlanQuery {
-    pub place_id: Option<String>,
+    pub unit_id: Option<String>,
     pub span: Option<String>,
 }
 
@@ -1308,10 +1307,10 @@ pub async fn list_plans(
     Query(query): Query<PlanQuery>,
 ) -> Result<Json<Vec<StaffingPlanView>>, AppError> {
     require(&principal, actions::EMPLOYEE_READ)?;
-    let filter = place_filter(&state, &principal).await?;
-    let requested = query.place_id.as_deref();
-    if let (PlaceFilter::One(Some(place)), Some(requested)) = (&filter, requested) {
-        if place != requested {
+    let filter = unit_filter(&state, &principal).await?;
+    let requested = query.unit_id.as_deref();
+    if let (UnitFilter::One(Some(unit)), Some(requested)) = (&filter, requested) {
+        if unit != requested {
             return Err(AppError::Forbidden(format!(
                 "{} does not reach {requested}",
                 principal.username
@@ -1319,24 +1318,24 @@ pub async fn list_plans(
         }
     }
     let bound = match (&filter, requested) {
-        (PlaceFilter::One(Some(place)), _) => Some(place.as_str()),
-        (PlaceFilter::All, requested) => requested,
-        (PlaceFilter::One(None), _) => return Ok(Json(Vec::new())),
+        (UnitFilter::One(Some(unit)), _) => Some(unit.as_str()),
+        (UnitFilter::All, requested) => requested,
+        (UnitFilter::One(None), _) => return Ok(Json(Vec::new())),
     };
     plan_list(&state, bound, query.span.as_deref()).await
 }
 
 async fn plan_list(
     state: &AppState,
-    place: Option<&str>,
+    unit: Option<&str>,
     span: Option<&str>,
 ) -> Result<Json<Vec<StaffingPlanView>>, AppError> {
-    let rows = infrastructure::list_plans(&state.db, place, span).await?;
+    let rows = infrastructure::list_plans(&state.db, unit, span).await?;
     Ok(Json(
         rows.into_iter()
             .map(|r| StaffingPlanView {
                 id: r.id,
-                place_id: r.place_id,
+                unit_id: r.unit_id,
                 position: r.position,
                 span: r.span,
                 headcount: r.headcount,
@@ -1359,7 +1358,7 @@ pub async fn list_applicants(
     Query(query): Query<ApplicantQuery>,
 ) -> Result<Json<Vec<ApplicantView>>, AppError> {
     require(&principal, actions::EMPLOYEE_READ)?;
-    let filter = place_filter(&state, &principal).await?;
+    let filter = unit_filter(&state, &principal).await?;
     let rows = infrastructure::list_applicants(
         &state.db,
         query.proposal_id.as_deref(),
@@ -1367,11 +1366,11 @@ pub async fn list_applicants(
     )
     .await?;
     let rows: Vec<_> = match &filter {
-        PlaceFilter::All => rows,
-        PlaceFilter::One(None) => Vec::new(),
-        PlaceFilter::One(Some(place)) => rows
+        UnitFilter::All => rows,
+        UnitFilter::One(None) => Vec::new(),
+        UnitFilter::One(Some(unit)) => rows
             .into_iter()
-            .filter(|a| a.place_id.as_str() == place)
+            .filter(|a| a.unit_id.as_str() == unit)
             .collect(),
     };
     Ok(Json(rows.iter().map(applicant_view).collect()))
@@ -1381,7 +1380,7 @@ fn applicant_view(applicant: &JobApplicant) -> ApplicantView {
     ApplicantView {
         id: applicant.id.clone(),
         proposal_id: applicant.proposal_id.clone(),
-        place_id: applicant.place_id.as_str().to_owned(),
+        unit_id: applicant.unit_id.as_str().to_owned(),
         name: applicant.name.clone(),
         phone: applicant.phone.clone(),
         source: applicant.source.clone(),
@@ -1418,8 +1417,8 @@ pub async fn file_applicant(
     let proposal = infrastructure::load_hire_proposal(&state.db, &proposal_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("requisition {proposal_id}")))?;
-    let place = proposal.proposal.place().as_str();
-    reach_covers(&reach, place, &principal.username)?;
+    let unit = proposal.proposal.unit().as_str();
+    reach_covers(&reach, unit, &principal.username)?;
     let referrer = body
         .referrer_employee_id
         .map(|r| EmployeeId::try_new(&r))
@@ -1427,7 +1426,7 @@ pub async fn file_applicant(
         .map_err(invalid)?;
     let applicant = JobApplicant::file(
         proposal_id,
-        PlaceId::try_new(place).map_err(invalid)?,
+        UnitId::try_new(unit).map_err(invalid)?,
         &body.name,
         body.phone,
         &body.source,
@@ -1503,7 +1502,7 @@ pub async fn list_interviews_for_applicant(
     let applicant = infrastructure::load_applicant(&state.db, &applicant_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("applicant {applicant_id}")))?;
-    reach_covers(&reach, applicant.place_id.as_str(), &principal.username)?;
+    reach_covers(&reach, applicant.unit_id.as_str(), &principal.username)?;
     let rows = infrastructure::list_interviews(&state.db, &applicant_id).await?;
     Ok(Json(rows.iter().map(interview_view).collect()))
 }
@@ -1521,7 +1520,7 @@ pub async fn schedule_interview(
     let applicant = infrastructure::load_applicant(&state.db, &applicant_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("applicant {applicant_id}")))?;
-    reach_covers(&reach, applicant.place_id.as_str(), &principal.username)?;
+    reach_covers(&reach, applicant.unit_id.as_str(), &principal.username)?;
     let recorded = authorize(&principal, actions::RECRUITMENT_INTERVIEW, &body.reason)?;
     let scheduled_at: DateTime<Utc> = body
         .scheduled_at
@@ -1562,7 +1561,7 @@ pub async fn record_interview(
     let applicant = infrastructure::load_applicant(&state.db, &interview.applicant_id)
         .await?
         .ok_or_else(|| AppError::Configuration("an interview names a live applicant".to_owned()))?;
-    reach_covers(&reach, applicant.place_id.as_str(), &principal.username)?;
+    reach_covers(&reach, applicant.unit_id.as_str(), &principal.username)?;
     let result = match body.result.as_str() {
         "PASS" => InterviewResult::Pass,
         "FAIL" => InterviewResult::Fail,
@@ -1690,17 +1689,17 @@ pub async fn list_offers(
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<Vec<OfferView>>, AppError> {
     require(&principal, actions::EMPLOYEE_READ)?;
-    let filter = place_filter(&state, &principal).await?;
+    let filter = unit_filter(&state, &principal).await?;
     let offers = infrastructure::list_offers(&state.db).await?;
     let offers = match &filter {
-        PlaceFilter::All => offers,
-        PlaceFilter::One(None) => Vec::new(),
-        PlaceFilter::One(Some(place)) => {
+        UnitFilter::All => offers,
+        UnitFilter::One(None) => Vec::new(),
+        UnitFilter::One(Some(unit)) => {
             let mut kept = Vec::new();
             for offer in offers {
                 let belongs =
                     match infrastructure::load_applicant(&state.db, &offer.applicant_id).await? {
-                        Some(applicant) => applicant.place_id.as_str() == place,
+                        Some(applicant) => applicant.unit_id.as_str() == unit,
                         None => false,
                     };
                 if belongs {
@@ -1791,7 +1790,7 @@ pub async fn hire_offer(
     let mut timeline = AssignmentTimeline::new();
     timeline
         .push(
-            AssignmentSpan::try_new(applicant.place_id.clone(), offer.starts_on, None, auth)
+            AssignmentSpan::try_new(applicant.unit_id.clone(), offer.starts_on, None, auth)
                 .map_err(invalid)?,
         )
         .map_err(|error| AppError::Conflict(error.to_string()))?;
@@ -1846,7 +1845,7 @@ pub struct TemplateQuery {
 #[serde(deny_unknown_fields)]
 pub struct ScoreQuery {
     pub period: Option<String>,
-    pub place_id: Option<String>,
+    pub unit_id: Option<String>,
 }
 
 /// The month's board. Bounded by reach like every team read.
@@ -1862,19 +1861,19 @@ pub async fn list_scores(
         .map(|p| p.parse())
         .transpose()
         .map_err(|_| invalid("period is a date, the first of its month"))?;
-    let filter = place_filter(&state, &principal).await?;
-    if let (PlaceFilter::One(Some(place)), Some(requested)) = (&filter, query.place_id.as_deref()) {
-        if place != requested {
+    let filter = unit_filter(&state, &principal).await?;
+    if let (UnitFilter::One(Some(unit)), Some(requested)) = (&filter, query.unit_id.as_deref()) {
+        if unit != requested {
             return Err(AppError::Forbidden(format!(
                 "{} does not reach {requested}",
                 principal.username
             )));
         }
     }
-    let bound = match (&filter, query.place_id.as_deref()) {
-        (PlaceFilter::One(Some(place)), _) => Some(place.as_str()),
-        (PlaceFilter::All, requested) => requested,
-        (PlaceFilter::One(None), _) => return Ok(Json(Vec::new())),
+    let bound = match (&filter, query.unit_id.as_deref()) {
+        (UnitFilter::One(Some(unit)), _) => Some(unit.as_str()),
+        (UnitFilter::All, requested) => requested,
+        (UnitFilter::One(None), _) => return Ok(Json(Vec::new())),
     };
     let rows = infrastructure::list_scores(&state.db, None, period, bound).await?;
     let tiers = bonus_tiers(&state).await?;
@@ -1961,7 +1960,7 @@ pub async fn record_score(
         let record = infrastructure::load_employee(&state.db, access.employee_id.as_str())
             .await?
             .ok_or_else(|| AppError::NotFound("employee not found".to_owned()))?;
-        access_place_check(&record, &principal.username, &reach)?;
+        access_unit_check(&record, &principal.username, &reach)?;
     }
     let period: NaiveDate = period
         .parse()
@@ -2001,7 +2000,7 @@ pub async fn my_scores(
         let record = infrastructure::load_employee(&state.db, access.employee_id.as_str())
             .await?
             .ok_or_else(|| AppError::NotFound("employee not found".to_owned()))?;
-        access_place_check(&record, &principal.username, &reach)?;
+        access_unit_check(&record, &principal.username, &reach)?;
     }
     let rows =
         infrastructure::list_scores(&state.db, Some(access.employee_id.as_str()), None, None)
@@ -2121,7 +2120,7 @@ pub async fn nominate(
         let record = infrastructure::load_employee(&state.db, &body.employee_id)
             .await?
             .ok_or_else(|| AppError::NotFound("employee not found".to_owned()))?;
-        access_place_check(&record, &principal.username, &reach)?;
+        access_unit_check(&record, &principal.username, &reach)?;
     }
     let nominated = authorize(
         &principal,
@@ -2183,7 +2182,7 @@ pub async fn record_uniform(
         let record = infrastructure::load_employee(&state.db, access.employee_id.as_str())
             .await?
             .ok_or_else(|| AppError::NotFound("employee not found".to_owned()))?;
-        access_place_check(&record, &principal.username, &reach)?;
+        access_unit_check(&record, &principal.username, &reach)?;
     }
     let issued_on: NaiveDate = body
         .issued_on
@@ -2213,7 +2212,7 @@ pub async fn uniform_history(
         let record = infrastructure::load_employee(&state.db, access.employee_id.as_str())
             .await?
             .ok_or_else(|| AppError::NotFound("employee not found".to_owned()))?;
-        access_place_check(&record, &principal.username, &reach)?;
+        access_unit_check(&record, &principal.username, &reach)?;
     }
     uniform_list(&state, access.employee_id.as_str()).await
 }
@@ -2405,15 +2404,15 @@ pub async fn colleagues(
     let record = infrastructure::load_employee(&state.db, &employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {employee_id}")))?;
-    let place = current_place(&record)
+    let unit = current_unit(&record)
         .map(ToOwned::to_owned)
         .ok_or_else(|| {
             AppError::Conflict(
                 "you are not posted anywhere, so nobody is your colleague".to_owned(),
             )
         })?;
-    let rows = infrastructure::colleagues_at(&state.db, &place, &employee_id, query.from, query.to)
-        .await?;
+    let rows =
+        infrastructure::colleagues_at(&state.db, &unit, &employee_id, query.from, query.to).await?;
     Ok(Json(
         rows.into_iter()
             .map(|r| ColleagueView {

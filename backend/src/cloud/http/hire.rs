@@ -44,7 +44,7 @@ use crate::cloud::{
         actions, required_role_for_action, role_allows, AssignmentSpan, AssignmentTimeline,
         Authorization, CandidateName, ContractKind, Employee, EmployeeId, HireDecision,
         HireProposal, HireProposalEvent, HireProposalId, HireProposalState, HireProposalStep,
-        HiringNeed, PlaceId, Position, ProposedTerms, RecordKind,
+        HiringNeed, Position, ProposedTerms, RecordKind, UnitId,
     },
     http::audit::DeclaredSubject,
     postgres::{self as infrastructure, HireProposalRecord},
@@ -140,10 +140,10 @@ pub struct HireProposalStepView {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct HireProposalView {
     pub id: String,
-    pub place_id: String,
+    pub unit_id: String,
     /// The unit's own name. Sent because a screen showing `ho` where it means
     /// "Head Office" is an identifier that has escaped into the interface.
-    pub place_name: Option<String>,
+    pub unit_name: Option<String>,
     /// `PROPOSED`, `RETURNED`, `APPROVED`, `REJECTED` or `FILLED`.
     ///
     /// `APPROVED` is not an employee. It is permission to open an employment
@@ -218,8 +218,8 @@ fn proposal_view(record: &HireProposalRecord) -> HireProposalView {
     let proposal = &record.proposal;
     HireProposalView {
         id: proposal.id().to_string(),
-        place_id: proposal.place().to_string(),
-        place_name: record.place_name.clone(),
+        unit_id: proposal.unit().to_string(),
+        unit_name: record.unit_name.clone(),
         state: proposal.state().code().to_owned(),
         current_version: proposal.current_version(),
         // Asked of the domain rather than derived from the state code here. Two
@@ -262,7 +262,7 @@ pub struct ProposeBody {
     /// for a bounded caller the only value that passes is their own posting, so
     /// it cannot name another shop. It is in the body at all because head
     /// office's HR reaches every unit and has to say which one they mean.
-    pub place_id: String,
+    pub unit_id: String,
     pub position: String,
     /// One is the normal case. A proposal for two is filled by the second
     /// employment record, not the first.
@@ -337,7 +337,7 @@ pub struct ListQuery {
     /// A unit, for an unbounded caller. A bounded one may name their own or
     /// nothing; naming another is refused rather than silently re-filtered.
     #[serde(default)]
-    pub place_id: Option<String>,
+    pub unit_id: Option<String>,
     /// `PROPOSED`, `RETURNED`, `APPROVED`, `REJECTED` or `FILLED`.
     #[serde(default)]
     pub state: Option<String>,
@@ -365,7 +365,7 @@ pub async fn list(
             principal.username
         )));
     }
-    let place_filter = match (reach.sole_place(), query.place_id.as_deref()) {
+    let unit_filter = match (reach.sole_unit(), query.unit_id.as_deref()) {
         (None, asked) => asked.map(str::to_owned),
         (Some(mine), None) => Some(mine.to_string()),
         (Some(mine), Some(asked)) if asked == mine.as_str() => Some(mine.to_string()),
@@ -397,8 +397,8 @@ pub async fn list(
             // bounded caller today — and the query applies both, so the day
             // somebody edits the reconciliation above without reading it, the
             // answer narrows rather than widens.
-            reach_place: reach.sole_place().map(ToString::to_string),
-            place_id: place_filter,
+            reach_unit: reach.sole_unit().map(ToString::to_string),
+            unit_id: unit_filter,
             state: state_filter,
             limit: query.limit,
         },
@@ -421,11 +421,11 @@ async fn reachable(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("hire proposal {id}")))?;
     let reach = reach_of(state, principal).await?;
-    if !reach.covers(Some(record.proposal.place().as_str())) {
+    if !reach.covers(Some(record.proposal.unit().as_str())) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
             principal.username,
-            record.proposal.place()
+            record.proposal.unit()
         )));
     }
     Ok(record)
@@ -502,24 +502,24 @@ pub async fn propose(
     Json(body): Json<ProposeBody>,
 ) -> Result<Json<HireProposalView>, AppError> {
     require(&principal, actions::HIRE_PROPOSAL_PROPOSE)?;
-    let place = PlaceId::try_new(&body.place_id).map_err(invalid)?;
+    let unit = UnitId::try_new(&body.unit_id).map_err(invalid)?;
     let reach = reach_of(&state, &principal).await?;
     // `covers` is the whole rule: everywhere for head office, exactly their own
     // posting for a place manager, and nowhere for a login with no employment
     // record behind it.
-    if !reach.covers(Some(place.as_str())) {
+    if !reach.covers(Some(unit.as_str())) {
         return Err(AppError::Forbidden(format!(
-            "{} is not posted to {place}, so no hire there is theirs to propose",
+            "{} is not posted to {unit}, so no hire there is theirs to propose",
             principal.username
         )));
     }
     // Answered here rather than left to the foreign key, so an unknown unit is
     // a sentence the caller can read instead of a 500.
-    if infrastructure::hire_proposal_unit(&state.db, place.as_str())
+    if infrastructure::hire_proposal_unit(&state.db, unit.as_str())
         .await?
         .is_none()
     {
-        return Err(AppError::Validation(format!("{place} is not a unit")));
+        return Err(AppError::Validation(format!("{unit} is not a unit")));
     }
 
     let terms = terms(
@@ -538,7 +538,7 @@ pub async fn propose(
         .map_err(infrastructure::hire_error)?;
     let proposal = HireProposal::propose(
         id.clone(),
-        place,
+        unit,
         terms,
         authorize(&principal, actions::HIRE_PROPOSAL_PROPOSE, &body.reason)?,
     )
@@ -668,7 +668,7 @@ pub async fn open_employment(
 
     let employee_id = format!("emp_{}", Uuid::new_v4().simple());
     let employee = Employee::try_register(&employee_id, &body.employee_code).map_err(invalid)?;
-    let place = record.proposal.place().clone();
+    let unit = record.proposal.unit().clone();
     let starts_on = record.proposal.current().start_on();
 
     // Asked before the step is recorded, not after. `register_employee` holds
@@ -704,7 +704,7 @@ pub async fn open_employment(
         postings
             .push(
                 AssignmentSpan::try_new(
-                    place,
+                    unit,
                     starts_on,
                     None,
                     authorize(&principal, actions::ASSIGNMENT_MANAGE, &body.reason)?,

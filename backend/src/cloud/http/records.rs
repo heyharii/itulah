@@ -34,7 +34,7 @@
 
 use super::audit::DeclaredSubject;
 use super::auth::Principal;
-use super::employment::{current_place, reach_of};
+use super::employment::{current_unit, reach_of};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::RecordKind,
@@ -84,46 +84,46 @@ async fn authorize_record(
     kind: RecordKind,
     id: &str,
 ) -> Result<(), AppError> {
-    let place: Option<String> = match kind {
+    let unit: Option<String> = match kind {
         RecordKind::Employee => {
             let record = infrastructure::load_employee(&state.db, id)
                 .await?
                 .ok_or_else(|| record_not_found(kind, id))?;
-            current_place(&record).map(str::to_owned)
+            current_unit(&record).map(str::to_owned)
         }
         RecordKind::LeaveRequest => {
             let catalogue = infrastructure::load_catalogue(&state.db).await?;
             let record = infrastructure::load_request(&state.db, id, &catalogue)
                 .await?
                 .ok_or_else(|| record_not_found(kind, id))?;
-            Some(record.request.place().to_string())
+            Some(record.request.unit().to_string())
         }
         RecordKind::OvertimeOrder => {
             let record = infrastructure::load_overtime_order(&state.db, id)
                 .await?
                 .ok_or_else(|| record_not_found(kind, id))?;
-            Some(record.order.place().to_string())
+            Some(record.order.unit().to_string())
         }
         RecordKind::PayrollRun => {
             let run = infrastructure::load_run(&state.db, id)
                 .await?
                 .ok_or_else(|| record_not_found(kind, id))?;
-            Some(run.place().to_string())
+            Some(run.unit().to_string())
         }
         RecordKind::HireProposal => {
             let record = infrastructure::load_hire_proposal(&state.db, id)
                 .await?
                 .ok_or_else(|| record_not_found(kind, id))?;
-            Some(record.proposal.place().to_string())
+            Some(record.proposal.unit().to_string())
         }
         _ => return Ok(()),
     };
     let reach = reach_of(state, principal).await?;
-    if !reach.covers(place.as_deref()) {
+    if !reach.covers(unit.as_deref()) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
             principal.username,
-            place.as_deref().unwrap_or("the place this record belongs to")
+            unit.as_deref().unwrap_or("the unit this record belongs to")
         )));
     }
     Ok(())

@@ -18,7 +18,7 @@ full_name: string | null,
 /**
  * The open posting, if there is one.
  */
-place_id: string | null, place_name: string | null, 
+unit_id: string | null, unit_name: string | null, 
 /**
  * The most recent contract, whether or not it is still in force.
  */

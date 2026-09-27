@@ -114,7 +114,7 @@ function Employment({ person }: { person: EmployeeView }) {
         </Field>
         <Field label="Status">{statusLabel(person.status)}</Field>
         <Field label="Posted at">
-          {person.current_place_name ?? person.current_place_id ?? (
+          {person.current_unit_name ?? person.current_unit_id ?? (
             <span className="text-muted-foreground">nowhere — unposted</span>
           )}
         </Field>
@@ -164,7 +164,7 @@ function Employment({ person }: { person: EmployeeView }) {
             {person.assignments.map((span, index) => (
               <li key={index} className="text-xs">
                 <span className="font-medium">
-                  {span.place_name ?? span.place_id}
+                  {span.unit_name ?? span.unit_id}
                 </span>
                 <span className="text-muted-foreground">
                   {" "}

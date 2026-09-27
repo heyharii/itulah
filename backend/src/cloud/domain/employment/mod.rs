@@ -23,7 +23,7 @@
 //! place that maps a key to a rung. See [`audit`] for why the keys stay finer
 //! than the ladder can currently express.
 //!
-//! [`PlaceId`] points at `org_place` rather than the reference's store table.
+//! [`UnitId`] points at `unit` rather than the reference's store table.
 //!
 //! # What was not ported
 //!
@@ -41,6 +41,7 @@ mod contract;
 mod employee;
 mod error;
 mod ids;
+mod pic;
 mod profile;
 mod reach;
 
@@ -51,8 +52,9 @@ pub use employee::{
     Employee, EmployeeCodeCorrection, EmploymentEvent, EmploymentStatus, EmploymentTransition,
 };
 pub use error::EmployeeError;
-pub use ids::{ActorId, EmployeeCode, EmployeeId, PlaceId, ReasonText};
+pub use ids::{ActorId, EmployeeCode, EmployeeId, ReasonText, UnitId};
+pub use pic::require_pic_eligible;
 pub use profile::{
     Address, Contact, FullName, Nik, Profile, ProfileAmendment, ProfileChange, ProfileField,
 };
-pub use reach::{PlaceKind, Posting, Reach};
+pub use reach::{Posting, Reach, UnitKind};

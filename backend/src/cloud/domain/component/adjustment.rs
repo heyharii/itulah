@@ -54,7 +54,7 @@
 use super::basis::{ComponentKind, ComponentShape};
 use super::catalogue::{ComponentCode, PayComponent};
 use super::error::ComponentError;
-use crate::cloud::domain::employment::{Authorization, PlaceId};
+use crate::cloud::domain::employment::{Authorization, UnitId};
 use pricing_engine::Money;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -66,7 +66,7 @@ pub const MAX_ADJUSTMENT_ID_LEN: usize = 64;
 #[serde(deny_unknown_fields)]
 pub struct PayrollAdjustmentWire {
     pub id: String,
-    pub place: PlaceId,
+    pub unit: UnitId,
     /// `YYYY-MM`.
     pub period: String,
     pub employee_id: String,
@@ -82,7 +82,7 @@ pub struct PayrollAdjustmentWire {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PayrollAdjustment {
     id: String,
-    place: PlaceId,
+    unit: UnitId,
     period: String,
     employee_id: String,
     code: ComponentCode,
@@ -111,7 +111,7 @@ impl PayrollAdjustment {
     /// against it would put a line on a slip under a name nobody may use.
     pub fn file(
         id: impl Into<String>,
-        place: PlaceId,
+        unit: UnitId,
         period: impl Into<String>,
         employee_id: impl Into<String>,
         component: &PayComponent,
@@ -141,7 +141,7 @@ impl PayrollAdjustment {
         }
         Self::try_new(PayrollAdjustmentWire {
             id: id.into(),
-            place,
+            unit,
             period: period.into(),
             employee_id: employee_id.into(),
             code: component.code().clone(),
@@ -188,7 +188,7 @@ impl PayrollAdjustment {
         }
         Ok(Self {
             id: id.to_owned(),
-            place: wire.place,
+            unit: wire.unit,
             period: wire.period,
             employee_id: wire.employee_id,
             code: wire.code,
@@ -201,8 +201,8 @@ impl PayrollAdjustment {
     pub fn id(&self) -> &str {
         &self.id
     }
-    pub const fn place(&self) -> &PlaceId {
-        &self.place
+    pub const fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub fn period(&self) -> &str {
         &self.period

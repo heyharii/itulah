@@ -237,16 +237,18 @@ pub async fn recipients_with_role_at(
 ) -> Result<Vec<String>, AppError> {
     let roles: Vec<String> = roles.iter().map(|role| (*role).to_owned()).collect();
     // `place` may arrive spelled three ways, because three tables name where
-    // something is and they were written years apart: a site is `dc`, an
-    // organisational place is `ho`, and a node calls itself `dc-01`. The owner
-    // settled what they mean on 2026-09-13 — head office IS the cloud, and
-    // `dc` and `dc-01` are one warehouse — so the spellings are reconciled
-    // here rather than guessed at each call site.
+    // something is and they were written years apart: a site is `dc`, a unit
+    // is `ho`, and a node calls itself `dc-01`. The owner settled what they
+    // mean — head office IS the cloud, `dc` and `dc-01` are one warehouse
+    // (2026-09-13), and every site belongs to one unit (2026-09-27) — so the
+    // spellings are reconciled here rather than guessed at each call site.
     //
-    // The node suffix is trimmed first (`dc-01` is site `dc`'s node), and then
-    // a posting matches either directly or through `org_place.site_id`, the
-    // bridge 0060 built between the organisation and its sites and 0236
-    // finally crossed for head office.
+    // The node suffix is trimmed (`dc-01` is site `dc`'s node), and a posting
+    // matches either spelling, directly as a unit or through the unit that
+    // owns the site (`site.unit_id`). Both spellings, because the trim cannot
+    // tell a node suffix from a store number: `store-07` trims to `store`, and
+    // matching only the trimmed form sent a store's notices to nobody but the
+    // admins.
     let site = place.rsplit_once('-').map_or(place, |(head, tail)| {
         if tail.chars().all(|c| c.is_ascii_digit()) {
             head
@@ -260,13 +262,15 @@ pub async fn recipients_with_role_at(
           WHERE u.active AND u.role = ANY($1)
             AND (u.role = 'ADMIN'
                  OR EXISTS (SELECT 1 FROM employee_assignment a
-                             LEFT JOIN org_place p ON p.id = a.place_id
                              WHERE a.employee_id = u.employee_id
                                AND a.valid_to IS NULL
-                               AND (a.place_id = $2 OR p.site_id = $2)))
+                               AND (a.unit_id IN ($2, $3)
+                                    OR a.unit_id IN (SELECT s.unit_id FROM site s
+                                                      WHERE s.id IN ($2, $3)))))
           ORDER BY u.username",
     )
     .bind(&roles)
+    .bind(place)
     .bind(site)
     .fetch_all(&mut **tx)
     .await?)

@@ -6,7 +6,7 @@
 
 use super::*;
 use crate::cloud::domain::attendance::Minutes;
-use crate::cloud::domain::employment::{actions, Authorization, EmployeeId, PlaceId};
+use crate::cloud::domain::employment::{actions, Authorization, EmployeeId, UnitId};
 use chrono::{DateTime, NaiveDate, Utc};
 
 fn instant(offset: i64) -> DateTime<Utc> {
@@ -33,7 +33,7 @@ fn ordered(id: &str, minutes: u32, on: &str) -> OvertimeOrder {
     OvertimeOrder::order(
         OvertimeId::try_new(id).unwrap_or_else(|error| panic!("id: {error}")),
         EmployeeId::try_new("emp_1").unwrap_or_else(|error| panic!("employee: {error}")),
-        PlaceId::try_new("store-07").unwrap_or_else(|error| panic!("place: {error}")),
+        UnitId::try_new("store-07").unwrap_or_else(|error| panic!("unit: {error}")),
         date(on),
         DayKind::Working,
         Minutes::new(minutes),
@@ -89,7 +89,7 @@ fn a_stored_consent_under_the_wrong_key_refuses_to_load() {
     let json = serde_json::json!({
         "id": "OT-3",
         "employee": "emp_1",
-        "place": "store-07",
+        "unit": "store-07",
         "date": "2026-04-06",
         "day_kind": "WORKING",
         "planned": 120,
@@ -266,7 +266,7 @@ fn an_order_for_no_minutes_is_refused() {
     let error = OvertimeOrder::order(
         OvertimeId::try_new("OT-Z").unwrap_or_else(|error| panic!("id: {error}")),
         EmployeeId::try_new("emp_1").unwrap_or_else(|error| panic!("employee: {error}")),
-        PlaceId::try_new("store-07").unwrap_or_else(|error| panic!("place: {error}")),
+        UnitId::try_new("store-07").unwrap_or_else(|error| panic!("unit: {error}")),
         date("2026-04-06"),
         DayKind::Working,
         Minutes::ZERO,

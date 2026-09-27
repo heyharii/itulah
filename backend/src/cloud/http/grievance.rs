@@ -26,12 +26,12 @@
 //! to know which kinds exist before they can ask, and the list names nobody.
 
 use super::auth::Principal;
-use super::employment::{current_place, invalid, reach_of, resolve};
+use super::employment::{current_unit, invalid, reach_of, resolve};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, required_role_for_action, role_allows, Authorization, EmployeeGrievance,
-        EmployeeId, GrievanceId, GrievanceType, GrievanceTypeCode, PlaceId,
+        EmployeeId, GrievanceId, GrievanceType, GrievanceTypeCode, UnitId,
     },
     postgres::{self as infrastructure, GrievanceView},
 };
@@ -228,10 +228,10 @@ pub async fn file(
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-    access.reaches(current_place(&record))?;
-    let place = current_place(&record).ok_or_else(|| {
+    access.reaches(current_unit(&record))?;
+    let unit = current_unit(&record).ok_or_else(|| {
         AppError::Conflict(format!(
-            "{} is not posted anywhere, so there is no place their grievance arises in",
+            "{} is not posted anywhere, so there is no unit their grievance arises in",
             access.employee_id
         ))
     })?;
@@ -249,7 +249,7 @@ pub async fn file(
     let grievance_id = Uuid::new_v4();
     let grievance = EmployeeGrievance::file(
         GrievanceId::try_new(&grievance_id.to_string()).map_err(invalid)?,
-        PlaceId::try_new(place).map_err(invalid)?,
+        UnitId::try_new(unit).map_err(invalid)?,
         EmployeeId::try_new(&access.employee_id)
             .map_err(|error| AppError::Validation(error.to_string()))?,
         against,
@@ -388,11 +388,11 @@ pub async fn withdrawal(
         // A supervisor act on a colleague's grievance is bounded by the
         // caller's own posting, like every other place-scoped write.
         let reach = reach_of(&state, &principal).await?;
-        if !reach.covers(Some(grievance.place().as_str())) {
+        if !reach.covers(Some(grievance.unit().as_str())) {
             return Err(AppError::Forbidden(format!(
                 "{} is not posted anywhere that reaches {}",
                 principal.username,
-                grievance.place()
+                grievance.unit()
             )));
         }
     }

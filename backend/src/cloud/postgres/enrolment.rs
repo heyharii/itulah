@@ -27,8 +27,8 @@
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     AttendanceTerminal, Authorization, EnrolmentKind, EnrolmentRecord, Finger,
-    IdentificationMethod, PlaceId, SealedTemplate, TemplateFormat, TerminalEvent, TerminalId,
-    TerminalStatus, TEMPLATE_NONCE_LEN,
+    IdentificationMethod, SealedTemplate, TemplateFormat, TerminalEvent, TerminalId,
+    TerminalStatus, UnitId, TEMPLATE_NONCE_LEN,
 };
 use chrono::{DateTime, Utc};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
@@ -167,7 +167,7 @@ fn aad(employee_id: &str, finger: Finger) -> Vec<u8> {
 
 fn decode_terminal(row: &sqlx::postgres::PgRow) -> Result<AttendanceTerminal, AppError> {
     let id: String = row.try_get("id")?;
-    let place: String = row.try_get("place_id")?;
+    let unit: String = row.try_get("unit_id")?;
     let name: String = row.try_get("name")?;
     let status: String = row.try_get("status")?;
     let method: String = row.try_get("method")?;
@@ -176,7 +176,7 @@ fn decode_terminal(row: &sqlx::postgres::PgRow) -> Result<AttendanceTerminal, Ap
 
     AttendanceTerminal::try_new(
         TerminalId::try_new(&id).map_err(|error| corrupt("terminal id", error.to_string()))?,
-        PlaceId::try_new(&place).map_err(|error| corrupt("terminal place", error.to_string()))?,
+        UnitId::try_new(&unit).map_err(|error| corrupt("terminal unit", error.to_string()))?,
         &name,
         TerminalStatus::parse(&status)
             .ok_or_else(|| corrupt("terminal status", format!("`{status}` is not a status")))?,
@@ -200,9 +200,10 @@ pub async fn load_attendance_terminal(
     id: &str,
 ) -> Result<Option<AttendanceTerminal>, AppError> {
     let row = sqlx::query(
-        "SELECT id, place_id, name, status, method, registered, history
-           FROM attendance_terminal
-          WHERE id = $1",
+        "SELECT t.id, s.unit_id, t.name, t.status, t.method, t.registered, t.history
+           FROM attendance_terminal t
+           JOIN site s ON s.id = t.site_id
+          WHERE t.id = $1",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -219,8 +220,12 @@ pub async fn load_attendance_terminal(
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct TerminalRow {
     pub id: String,
-    pub place_id: String,
-    pub place_name: Option<String>,
+    /// Where the station is installed: a premises, not an organisation.
+    pub site_id: String,
+    pub site_name: Option<String>,
+    /// The unit it attests for — the one that owns its site.
+    pub unit_id: String,
+    pub unit_name: Option<String>,
     pub name: String,
     pub status: String,
     pub method: String,
@@ -228,32 +233,33 @@ pub struct TerminalRow {
     pub registered_at: DateTime<Utc>,
     pub synced_at: Option<DateTime<Utc>>,
     pub punched_at: Option<DateTime<Utc>>,
-    /// How many people posted to this terminal's place have at least one
+    /// How many people posted to this terminal's unit have at least one
     /// enrolled finger. Sent because a station with no templates admits nobody
     /// — fingerprint is the only way in — and that is worth seeing on the
     /// screen rather than discovering at opening time.
     pub enrolled_people: i64,
 }
 
-/// Every terminal, newest first, optionally bounded to one place.
+/// Every terminal, newest first, optionally bounded to one unit.
 pub async fn list_attendance_terminals(
     pool: &PgPool,
-    place: Option<&str>,
+    unit: Option<&str>,
 ) -> Result<Vec<TerminalRow>, AppError> {
     let rows = sqlx::query(
-        "SELECT t.id, t.place_id, p.name AS place_name, t.name, t.status, t.method,
-                t.registered, t.synced_at, t.punched_at,
+        "SELECT t.id, t.site_id, s.name AS site_name, s.unit_id, u.name AS unit_name,
+                t.name, t.status, t.method, t.registered, t.synced_at, t.punched_at,
                 (SELECT count(DISTINCT f.employee_id)
                    FROM fingerprint_template f
                    JOIN employee_assignment a ON a.employee_id = f.employee_id
                                              AND a.valid_to IS NULL
-                  WHERE a.place_id = t.place_id) AS enrolled_people
+                  WHERE a.unit_id = s.unit_id) AS enrolled_people
            FROM attendance_terminal t
-           JOIN org_place p ON p.id = t.place_id
-          WHERE ($1::text IS NULL OR t.place_id = $1)
-          ORDER BY t.place_id, t.created_at DESC",
+           JOIN site s ON s.id = t.site_id
+           JOIN unit u ON u.id = s.unit_id
+          WHERE ($1::text IS NULL OR s.unit_id = $1)
+          ORDER BY s.unit_id, t.site_id, t.created_at DESC",
     )
-    .bind(place)
+    .bind(unit)
     .fetch_all(pool)
     .await?;
 
@@ -264,8 +270,10 @@ pub async fn list_attendance_terminals(
                 .map_err(|error| corrupt("terminal registration", error.to_string()))?;
             Ok(TerminalRow {
                 id: row.try_get("id")?,
-                place_id: row.try_get("place_id")?,
-                place_name: row.try_get("place_name")?,
+                site_id: row.try_get("site_id")?,
+                site_name: row.try_get("site_name")?,
+                unit_id: row.try_get("unit_id")?,
+                unit_name: row.try_get("unit_name")?,
                 name: row.try_get("name")?,
                 status: row.try_get("status")?,
                 method: row.try_get("method")?,
@@ -279,20 +287,48 @@ pub async fn list_attendance_terminals(
         .collect()
 }
 
-/// Insert a newly registered terminal, or refuse a duplicate id.
+/// The unit a site belongs to, for a station about to be installed there.
+///
+/// `None` for a site that does not exist. The registration handler builds the
+/// domain terminal with this unit, and [`insert_attendance_terminal`] refuses a
+/// terminal whose unit is not the site's — so the unit a terminal attests for
+/// is always read off where it hangs, never typed in beside it.
+pub async fn unit_of_site(pool: &PgPool, site_id: &str) -> Result<Option<UnitId>, AppError> {
+    let unit: Option<String> = sqlx::query_scalar("SELECT unit_id FROM site WHERE id = $1")
+        .bind(site_id)
+        .fetch_optional(pool)
+        .await?;
+    unit.as_deref()
+        .map(UnitId::try_new)
+        .transpose()
+        .map_err(|error| corrupt("site unit", error.to_string()))
+}
+
+/// Insert a newly registered terminal at a site, or refuse a duplicate id.
+///
+/// The row stores the site; the unit is the site's. A terminal built for one
+/// unit and installed at another unit's site is refused here rather than stored
+/// as a device attesting for a unit its own row does not name.
 pub async fn insert_attendance_terminal(
     pool: &PgPool,
     terminal: &AttendanceTerminal,
+    site_id: &str,
 ) -> Result<(), AppError> {
+    if unit_of_site(pool, site_id).await?.as_ref() != Some(terminal.unit()) {
+        return Err(AppError::Conflict(format!(
+            "site {site_id} is not a site of unit {}, so a station there cannot attest for it",
+            terminal.unit()
+        )));
+    }
     let registered = serde_json::to_value(terminal.registered())?;
     let affected = sqlx::query(
         "INSERT INTO attendance_terminal
-            (id, place_id, name, status, method, registered, history)
+            (id, site_id, name, status, method, registered, history)
          VALUES ($1, $2, $3, $4, $5, $6, '[]'::jsonb)
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(terminal.id().as_str())
-    .bind(terminal.place().as_str())
+    .bind(site_id)
     .bind(terminal.name())
     .bind(terminal.status().code())
     .bind(terminal.method().code())
@@ -624,9 +660,9 @@ pub struct TemplateBundleEntry {
 /// Terminated people are excluded twice over: their templates were erased by
 /// `0233`'s trigger, and their posting is closed. Belt and braces, because this
 /// is the query that decides who can get in.
-pub async fn template_bundle_for_place(
+pub async fn template_bundle_for_unit(
     pool: &PgPool,
-    place_id: &str,
+    unit_id: &str,
 ) -> Result<Vec<TemplateBundleEntry>, AppError> {
     let rows = sqlx::query(
         "SELECT f.employee_id, f.finger, f.format, f.sealed, f.nonce, f.key_id,
@@ -637,10 +673,10 @@ pub async fn template_bundle_for_place(
            JOIN employee_assignment a ON a.employee_id = f.employee_id
                                      AND a.valid_to IS NULL
            LEFT JOIN employee_profile p ON p.employee_id = f.employee_id
-          WHERE a.place_id = $1 AND e.status = 'ACTIVE'
+          WHERE a.unit_id = $1 AND e.status = 'ACTIVE'
           ORDER BY e.code, f.finger",
     )
-    .bind(place_id)
+    .bind(unit_id)
     .fetch_all(pool)
     .await?;
 

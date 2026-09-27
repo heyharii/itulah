@@ -15,7 +15,7 @@
 //! it does, which is the part people forget.
 
 use super::error::HolidayError;
-use crate::cloud::domain::employment::PlaceId;
+use crate::cloud::domain::employment::UnitId;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
@@ -114,7 +114,7 @@ impl HolidayKind {
 
 /// Where a holiday is observed.
 ///
-/// Deliberately not `Option<Vec<PlaceId>>`. `None` there would have to mean
+/// Deliberately not `Option<Vec<UnitId>>`. `None` there would have to mean
 /// both "everywhere" and "nobody has said", and those are opposite
 /// instructions; here "everywhere" is a stated decision rather than the absence
 /// of one.
@@ -122,32 +122,32 @@ impl HolidayKind {
 #[serde(tag = "scope", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum HolidayScope {
     Nationwide,
-    Places { places: Vec<PlaceId> },
+    Units { units: Vec<UnitId> },
 }
 
 impl HolidayScope {
-    /// A scope naming no places is refused: it would read as "observed
+    /// A scope naming no units is refused: it would read as "observed
     /// nowhere", which is not a holiday, and it is one deleted line away from
     /// an operator's mistake.
-    pub fn places(places: Vec<PlaceId>) -> Result<Self, HolidayError> {
-        if places.is_empty() {
+    pub fn units(units: Vec<UnitId>) -> Result<Self, HolidayError> {
+        if units.is_empty() {
             return Err(HolidayError::EmptyScope);
         }
-        Ok(Self::Places { places })
+        Ok(Self::Units { units })
     }
 
-    pub fn covers(&self, place: &PlaceId) -> bool {
+    pub fn covers(&self, unit: &UnitId) -> bool {
         match self {
             Self::Nationwide => true,
-            Self::Places { places } => places.contains(place),
+            Self::Units { units } => units.contains(unit),
         }
     }
 
-    /// The places named, when this scope names any.
-    pub fn named(&self) -> Option<&[PlaceId]> {
+    /// The units named, when this scope names any.
+    pub fn named(&self) -> Option<&[UnitId]> {
         match self {
             Self::Nationwide => None,
-            Self::Places { places } => Some(places),
+            Self::Units { units } => Some(units),
         }
     }
 }
@@ -159,18 +159,24 @@ impl HolidayScope {
 /// observed nowhere, and that value would then be a holiday nobody approved as
 /// one.
 ///
-/// `places` carries the scope as a plain list because that is the shape both
+/// `units` carries the scope as a plain list because that is the shape both
 /// the operator's form and the stored JSON want. Empty means nationwide, and it
-/// is unambiguous only because a scope naming no places is refused: `[]` cannot
+/// is unambiguous only because a scope naming no units is refused: `[]` cannot
 /// mean "observed nowhere", because no such holiday can exist.
+///
+/// Stored under the key `places`, which is what every published calendar and
+/// every amendment in `holiday_calendar` already says. The ids in it are unit
+/// ids and always were — 0450 keyed the units like the places they replaced —
+/// so only the word is old, and rewriting each calendar's whole amendment
+/// history to change a JSON key would put the history at risk for nothing.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HolidayWire {
     pub date: NaiveDate,
     pub name: HolidayName,
     pub kind: HolidayKind,
-    #[serde(default)]
-    pub places: Vec<PlaceId>,
+    #[serde(default, rename = "places")]
+    pub units: Vec<UnitId>,
 }
 
 /// One holiday.
@@ -186,10 +192,10 @@ pub struct Holiday {
 impl TryFrom<HolidayWire> for Holiday {
     type Error = HolidayError;
     fn try_from(wire: HolidayWire) -> Result<Self, Self::Error> {
-        let scope = if wire.places.is_empty() {
+        let scope = if wire.units.is_empty() {
             HolidayScope::Nationwide
         } else {
-            HolidayScope::places(wire.places)?
+            HolidayScope::units(wire.units)?
         };
         Self::try_new(wire.date, wire.name, wire.kind, scope)
     }
@@ -201,9 +207,9 @@ impl From<Holiday> for HolidayWire {
             date: holiday.date,
             name: holiday.name,
             kind: holiday.kind,
-            places: match holiday.scope {
+            units: match holiday.scope {
                 HolidayScope::Nationwide => Vec::new(),
-                HolidayScope::Places { places } => places,
+                HolidayScope::Units { units } => units,
             },
         }
     }
@@ -224,10 +230,10 @@ impl Holiday {
     ) -> Result<Self, HolidayError> {
         match (kind, &scope) {
             (HolidayKind::Regional, HolidayScope::Nationwide) => {
-                return Err(HolidayError::RegionalHolidayWithoutPlaces { date });
+                return Err(HolidayError::RegionalHolidayWithoutUnits { date });
             }
-            (HolidayKind::National | HolidayKind::CutiBersama, HolidayScope::Places { .. }) => {
-                return Err(HolidayError::NationalHolidayScopedToPlaces { date });
+            (HolidayKind::National | HolidayKind::CutiBersama, HolidayScope::Units { .. }) => {
+                return Err(HolidayError::NationalHolidayScopedToUnits { date });
             }
             _ => {}
         }
@@ -252,8 +258,8 @@ impl Holiday {
         &self.scope
     }
 
-    pub fn applies_at(&self, place: &PlaceId) -> bool {
-        self.scope.covers(place)
+    pub fn applies_at(&self, unit: &UnitId) -> bool {
+        self.scope.covers(unit)
     }
 
     pub const fn consumes_annual_leave(&self) -> bool {

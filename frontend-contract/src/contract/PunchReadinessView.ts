@@ -8,7 +8,7 @@
  * see what is outstanding *before* deciding, and the close itself recomputes
  * the readiness rather than trusting whatever the screen was shown.
  */
-export type PunchReadinessView = { place_id: string, period: string, 
+export type PunchReadinessView = { unit_id: string, period: string, 
 /**
  * `null` means **not assessed**: this unit has no registered station, so
  * there was nothing to count. Not zero.

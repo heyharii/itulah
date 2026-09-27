@@ -44,8 +44,8 @@ pub enum PayError {
     /// submits and head office approves, and one name cannot be both.
     #[error("{actor} submitted this run and may not also approve it")]
     SameActorSubmittedAndApproved { actor: String },
-    #[error("the attendance for {place} in {period} is not closed")]
-    AttendanceNotClosed { place: String, period: String },
+    #[error("the attendance for {unit} in {period} is not closed")]
+    AttendanceNotClosed { unit: String, period: String },
     #[error("recorded state {claimed} is not what the history produces ({folded})")]
     RunStateDoesNotFollowHistory {
         claimed: &'static str,

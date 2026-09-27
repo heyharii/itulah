@@ -17,4 +17,4 @@ export type EmployeeFacets = { statuses: Array<EmployeeFacet>,
  * count. Only an unbounded caller ever sees such a row at all:
  * `Reach::covers(None)` is true for `Everywhere` alone.
  */
-places: Array<EmployeeFacet>, };
+units: Array<EmployeeFacet>, };

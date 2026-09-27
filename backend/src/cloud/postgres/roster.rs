@@ -20,8 +20,8 @@
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     AttendanceError, AttendanceMonth, AttendancePeriod, CloseReadiness, DatedRoster, DayOffset,
-    DayPlan, EmployeeId, MinuteOfDay, Minutes, PeriodEvent, PeriodStatus, PlaceId, RosterDay,
-    RosterRevision, Shift, ShiftId,
+    DayPlan, EmployeeId, MinuteOfDay, Minutes, PeriodEvent, PeriodStatus, RosterDay,
+    RosterRevision, Shift, ShiftId, UnitId,
 };
 use chrono::{Datelike, NaiveDate};
 use serde::Serialize;
@@ -152,13 +152,13 @@ pub async fn retire_shift(pool: &PgPool, id: &str) -> Result<(), AppError> {
 // ── the close boundary ───────────────────────────────────────────────────
 
 fn decode_period(row: &sqlx::postgres::PgRow) -> Result<AttendancePeriod, AppError> {
-    let place: String = row.try_get("place_id")?;
+    let unit: String = row.try_get("unit_id")?;
     let period: NaiveDate = row.try_get("period")?;
     let status: String = row.try_get("status")?;
     let history: serde_json::Value = row.try_get("history")?;
 
     AttendancePeriod::try_new(
-        PlaceId::try_new(&place).map_err(|error| corrupt("place id", error.to_string()))?,
+        UnitId::try_new(&unit).map_err(|error| corrupt("unit id", error.to_string()))?,
         AttendanceMonth::try_new(period.year(), u8::try_from(period.month()).unwrap_or(1))
             .map_err(|error| corrupt("period", error.to_string()))?,
         PeriodStatus::parse(&status).ok_or_else(|| corrupt("period status", status.clone()))?,
@@ -177,7 +177,7 @@ fn decode_period(row: &sqlx::postgres::PgRow) -> Result<AttendancePeriod, AppErr
 /// decisions rather than a grid of every month since the shop opened.
 pub async fn period_for(
     pool: &PgPool,
-    place: &PlaceId,
+    unit: &UnitId,
     date: NaiveDate,
 ) -> Result<AttendancePeriod, AppError> {
     let month = AttendanceMonth::of(date);
@@ -185,26 +185,26 @@ pub async fn period_for(
         .first_day()
         .ok_or_else(|| corrupt("period", format!("{month} has no first day")))?;
     let row = sqlx::query(
-        "SELECT place_id, period, status, history
-           FROM attendance_period WHERE place_id = $1 AND period = $2",
+        "SELECT unit_id, period, status, history
+           FROM attendance_period WHERE unit_id = $1 AND period = $2",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .bind(first)
     .fetch_optional(pool)
     .await?;
     match row.as_ref() {
         Some(row) => decode_period(row),
-        None => Ok(AttendancePeriod::open(place.clone(), month)),
+        None => Ok(AttendancePeriod::open(unit.clone(), month)),
     }
 }
 
 /// Every period a place has ever closed or reopened, newest first.
-pub async fn periods_of(pool: &PgPool, place: &PlaceId) -> Result<Vec<AttendancePeriod>, AppError> {
+pub async fn periods_of(pool: &PgPool, unit: &UnitId) -> Result<Vec<AttendancePeriod>, AppError> {
     let rows = sqlx::query(
-        "SELECT place_id, period, status, history
-           FROM attendance_period WHERE place_id = $1 ORDER BY period DESC",
+        "SELECT unit_id, period, status, history
+           FROM attendance_period WHERE unit_id = $1 ORDER BY period DESC",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .fetch_all(pool)
     .await?;
     rows.iter().map(decode_period).collect()
@@ -217,14 +217,14 @@ pub async fn save_period(pool: &PgPool, period: &AttendancePeriod) -> Result<(),
         .ok_or_else(|| corrupt("period", "no first day".to_owned()))?;
     let history = serde_json::to_value(period.history())?;
     sqlx::query(
-        "INSERT INTO attendance_period (place_id, period, status, history)
+        "INSERT INTO attendance_period (unit_id, period, status, history)
          VALUES ($1, $2, $3, $4)
-         ON CONFLICT (place_id, period) DO UPDATE SET
+         ON CONFLICT (unit_id, period) DO UPDATE SET
             status = EXCLUDED.status,
             history = EXCLUDED.history,
             updated_at = now()",
     )
-    .bind(period.place().as_str())
+    .bind(period.unit().as_str())
     .bind(first)
     .bind(period.status().code())
     .bind(&history)
@@ -258,7 +258,7 @@ pub async fn save_period(pool: &PgPool, period: &AttendancePeriod) -> Result<(),
 /// than that they were clean.
 pub async fn close_readiness(
     pool: &PgPool,
-    place: &PlaceId,
+    unit: &UnitId,
     month: AttendanceMonth,
 ) -> Result<CloseReadiness, AppError> {
     let first = month
@@ -267,22 +267,22 @@ pub async fn close_readiness(
 
     let unresolved_leave: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM leave_request
-          WHERE place_id = $1 AND state = 'PENDING'
+          WHERE unit_id = $1 AND state = 'PENDING'
             AND from_date < ($2::date + interval '1 month')
             AND to_date >= $2::date",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .bind(first)
     .fetch_one(pool)
     .await?;
 
     let unanswered_overtime: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM overtime_order
-          WHERE place_id = $1 AND state = 'AWAITING_CONSENT'
+          WHERE unit_id = $1 AND state = 'AWAITING_CONSENT'
             AND on_date >= $2::date
             AND on_date < ($2::date + interval '1 month')",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .bind(first)
     .fetch_one(pool)
     .await?;
@@ -293,7 +293,7 @@ pub async fn close_readiness(
     let without_roster: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM employee_assignment a
            JOIN employee e ON e.id = a.employee_id
-          WHERE a.place_id = $1 AND a.valid_to IS NULL AND e.status = 'ACTIVE'
+          WHERE a.unit_id = $1 AND a.valid_to IS NULL AND e.status = 'ACTIVE'
             AND NOT EXISTS (
                 SELECT 1 FROM roster_day r
                  WHERE r.employee_id = a.employee_id
@@ -301,7 +301,7 @@ pub async fn close_readiness(
                    AND r.on_date < ($2::date + interval '1 month')
             )",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .bind(first)
     .fetch_one(pool)
     .await?;
@@ -309,15 +309,14 @@ pub async fn close_readiness(
     // Assessed only where there is something to assess. A unit with no
     // terminal has no punches and no corrections, and reporting two zeros for
     // it would say the checks passed.
-    let (open_corrections, unrostered_punch_days) =
-        if super::place_has_terminal(pool, place).await? {
-            (
-                Some(super::open_corrections_in(pool, place, month).await?),
-                Some(super::unrostered_punch_days_in(pool, place, month).await?),
-            )
-        } else {
-            (None, None)
-        };
+    let (open_corrections, unrostered_punch_days) = if super::unit_has_terminal(pool, unit).await? {
+        (
+            Some(super::open_corrections_in(pool, unit, month).await?),
+            Some(super::unrostered_punch_days_in(pool, unit, month).await?),
+        )
+    } else {
+        (None, None)
+    };
 
     Ok(CloseReadiness {
         unresolved_leave: u32::try_from(unresolved_leave).unwrap_or(u32::MAX),
@@ -332,7 +331,7 @@ pub async fn close_readiness(
 
 fn decode_roster_day(row: &sqlx::postgres::PgRow) -> Result<RosterDay, AppError> {
     let employee: String = row.try_get("employee_id")?;
-    let place: String = row.try_get("place_id")?;
+    let unit: String = row.try_get("unit_id")?;
     let date: NaiveDate = row.try_get("on_date")?;
     let planned: serde_json::Value = row.try_get("planned")?;
     let amendments: serde_json::Value = row.try_get("amendments")?;
@@ -340,7 +339,7 @@ fn decode_roster_day(row: &sqlx::postgres::PgRow) -> Result<RosterDay, AppError>
     RosterDay::try_new(
         EmployeeId::try_new(&employee)
             .map_err(|error| corrupt("employee id", error.to_string()))?,
-        PlaceId::try_new(&place).map_err(|error| corrupt("place id", error.to_string()))?,
+        UnitId::try_new(&unit).map_err(|error| corrupt("unit id", error.to_string()))?,
         date,
         serde_json::from_value::<RosterRevision>(planned)
             .map_err(|error| corrupt("roster plan", error.to_string()))?,
@@ -350,7 +349,7 @@ fn decode_roster_day(row: &sqlx::postgres::PgRow) -> Result<RosterDay, AppError>
     .map_err(|error| corrupt("roster day", error.to_string()))
 }
 
-const ROSTER_COLUMNS: &str = "employee_id, on_date, place_id, planned, amendments";
+const ROSTER_COLUMNS: &str = "employee_id, on_date, unit_id, planned, amendments";
 
 /// One person's roster over a span.
 pub async fn roster_of(
@@ -383,18 +382,18 @@ pub async fn roster_of(
 }
 
 /// A whole place's week, for the grid a manager builds.
-pub async fn roster_at_place(
+pub async fn roster_at_unit(
     pool: &PgPool,
-    place_id: &str,
+    unit_id: &str,
     from: NaiveDate,
     to: NaiveDate,
 ) -> Result<Vec<RosterDay>, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT {ROSTER_COLUMNS} FROM roster_day
-          WHERE place_id = $1 AND on_date >= $2 AND on_date <= $3
+          WHERE unit_id = $1 AND on_date >= $2 AND on_date <= $3
           ORDER BY employee_id, on_date"
     ))
-    .bind(place_id)
+    .bind(unit_id)
     .bind(from)
     .bind(to)
     .fetch_all(pool)
@@ -424,17 +423,17 @@ pub async fn load_roster_day(
 /// would move the rule into a statement that cannot express it.
 pub async fn save_roster_day(pool: &PgPool, day: &RosterDay) -> Result<(), AppError> {
     sqlx::query(
-        "INSERT INTO roster_day (employee_id, on_date, place_id, planned, amendments)
+        "INSERT INTO roster_day (employee_id, on_date, unit_id, planned, amendments)
          VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (employee_id, on_date) DO UPDATE SET
-            place_id = EXCLUDED.place_id,
+            unit_id = EXCLUDED.unit_id,
             planned = EXCLUDED.planned,
             amendments = EXCLUDED.amendments,
             updated_at = now()",
     )
     .bind(day.employee().as_str())
     .bind(day.date())
-    .bind(day.place().as_str())
+    .bind(day.unit().as_str())
     .bind(serde_json::to_value(day.original_revision())?)
     .bind(serde_json::to_value(day.amendments())?)
     .execute(pool)
@@ -447,7 +446,7 @@ pub async fn save_roster_day(pool: &PgPool, day: &RosterDay) -> Result<(), AppEr
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct RosterDayRow {
     pub employee_id: String,
-    pub place_id: String,
+    pub unit_id: String,
     pub on_date: NaiveDate,
     /// `SCHEDULED`, `REST_DAY` or `PUBLIC_HOLIDAY`.
     pub plan: String,
@@ -473,7 +472,7 @@ pub fn roster_row(day: &RosterDay) -> RosterDayRow {
     let shift = plan.shift();
     RosterDayRow {
         employee_id: day.employee().to_string(),
-        place_id: day.place().to_string(),
+        unit_id: day.unit().to_string(),
         on_date: day.date(),
         plan: plan.code().to_owned(),
         shift_id: shift.map(|shift| shift.id().to_string()),

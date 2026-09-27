@@ -1079,8 +1079,8 @@ async fn publish_base_prices(pool: &PgPool) {
 /// One shop, so `article_prices` has a branch to price for.
 async fn shop(pool: &PgPool) {
     sqlx::query(
-        "INSERT INTO site (id, name, kind, edge_node_id)
-         VALUES ('store-01', 'Toko Satu', 'STORE', 'store-01-edge')
+        "INSERT INTO site (id, name, kind, edge_node_id, unit_id)
+         VALUES ('store-01', 'Toko Satu', 'STORE', 'store-01-edge', 'store-01')
          ON CONFLICT (id) DO NOTHING",
     )
     .execute(pool)

@@ -30,7 +30,7 @@ use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, required_role_for_action, role_allows, Authorization, EmployeeId, EmployeeStance,
-        ExitId, ExitInterview, FnfAssetRow, FnfId, FullAndFinalStatement, PlaceId,
+        ExitId, ExitInterview, FnfAssetRow, FnfId, FullAndFinalStatement, UnitId,
     },
     postgres::{self as infrastructure, FnfView},
 };
@@ -74,7 +74,7 @@ pub async fn list_interviews(
     let reach = reach_of(&state, &principal).await?;
     if reach.is_nowhere() {
         return Err(AppError::Forbidden(format!(
-            "{} has no open posting, so no place's exits are theirs to read",
+            "{} has no open posting, so no unit's exits are theirs to read",
             principal.username
         )));
     }
@@ -83,7 +83,7 @@ pub async fn list_interviews(
             &state.db,
             query.state.as_deref(),
             query.employee.as_deref(),
-            reach.sole_place().map(|place| place.as_str()),
+            reach.sole_unit().map(|unit| unit.as_str()),
         )
         .await?,
     ))
@@ -98,7 +98,7 @@ pub struct CreateInterviewBody {
     /// interview belongs to the place the person worked, not to the desk
     /// that filed the paperwork.
     #[serde(default)]
-    pub place_id: Option<String>,
+    pub unit_id: Option<String>,
 }
 
 /// Open the PENDING row by hand — head office's backfill for a termination
@@ -122,13 +122,13 @@ pub async fn create_interview(
         )));
     }
 
-    let place = match body.place_id.as_deref() {
-        Some(place_id) if !place_id.trim().is_empty() => Some(place_id.trim().to_owned()),
-        _ => infrastructure::leaver_place_of(&state.db, &body.employee_id).await?,
+    let unit = match body.unit_id.as_deref() {
+        Some(unit_id) if !unit_id.trim().is_empty() => Some(unit_id.trim().to_owned()),
+        _ => infrastructure::leaver_unit_of(&state.db, &body.employee_id).await?,
     }
     .ok_or_else(|| {
         AppError::Conflict(format!(
-            "{} was never posted anywhere, so there is no place their interview can sit in; \
+            "{} was never posted anywhere, so there is no unit their interview can sit in; \
              name one in the request",
             body.employee_id
         ))
@@ -138,7 +138,7 @@ pub async fn create_interview(
         ExitId::try_new(&Uuid::new_v4().to_string()).map_err(invalid)?,
         EmployeeId::try_new(&body.employee_id)
             .map_err(|error| AppError::Validation(error.to_string()))?,
-        PlaceId::try_new(&place).map_err(invalid)?,
+        UnitId::try_new(&unit).map_err(invalid)?,
     );
     infrastructure::insert_exit_interview(&state.db, &interview).await?;
     let exit_id = Uuid::parse_str(interview.id().as_str())
@@ -307,11 +307,11 @@ pub async fn create_statement(
     infrastructure::load_employee(&state.db, &body.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", body.employee_id)))?;
-    let place = infrastructure::leaver_place_of(&state.db, &body.employee_id)
+    let unit = infrastructure::leaver_unit_of(&state.db, &body.employee_id)
         .await?
         .ok_or_else(|| {
             AppError::Conflict(format!(
-                "{} was never posted anywhere, so there is no place their statement can sit in",
+                "{} was never posted anywhere, so there is no unit their statement can sit in",
                 body.employee_id
             ))
         })?;
@@ -354,7 +354,7 @@ pub async fn create_statement(
         FnfId::try_new(&fnf_id.to_string()).map_err(invalid)?,
         EmployeeId::try_new(&body.employee_id)
             .map_err(|error| AppError::Validation(error.to_string()))?,
-        PlaceId::try_new(&place).map_err(invalid)?,
+        UnitId::try_new(&unit).map_err(invalid)?,
         body.transaction_on,
         advance_outstanding,
         claim_payable,

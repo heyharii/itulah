@@ -53,7 +53,7 @@
 
 use super::error::AttendanceError;
 use super::ids::TerminalId;
-use crate::cloud::domain::employment::{Authorization, EmployeeId, PlaceId};
+use crate::cloud::domain::employment::{Authorization, EmployeeId, UnitId};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -160,7 +160,7 @@ impl TerminalEvent {
 #[serde(deny_unknown_fields)]
 pub struct AttendanceTerminalWire {
     pub id: TerminalId,
-    pub place: PlaceId,
+    pub unit: UnitId,
     pub name: String,
     pub status: TerminalStatus,
     pub method: IdentificationMethod,
@@ -169,14 +169,15 @@ pub struct AttendanceTerminalWire {
     pub history: Vec<TerminalEvent>,
 }
 
-/// A punch station registered to exactly one place.
+/// A punch station, attesting for exactly one unit: the one that owns the site
+/// it is installed at (`attendance_terminal.site_id` → `site.unit_id`).
 ///
-/// Not a nullable "current location": a device whose place can be blank is a
+/// Not a nullable "current location": a device whose unit can be blank is a
 /// device that can punch anywhere.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AttendanceTerminal {
     id: TerminalId,
-    place: PlaceId,
+    unit: UnitId,
     name: String,
     status: TerminalStatus,
     method: IdentificationMethod,
@@ -192,7 +193,7 @@ impl<'de> Deserialize<'de> for AttendanceTerminal {
         let wire = AttendanceTerminalWire::deserialize(deserializer)?;
         Self::try_new(
             wire.id,
-            wire.place,
+            wire.unit,
             &wire.name,
             wire.status,
             wire.method,
@@ -204,7 +205,7 @@ impl<'de> Deserialize<'de> for AttendanceTerminal {
 }
 
 impl AttendanceTerminal {
-    /// Register a terminal at a place. It starts [`TerminalStatus::Active`] and
+    /// Register a terminal for a unit. It starts [`TerminalStatus::Active`] and
     /// can therefore attest immediately.
     ///
     /// Registration *creates* attendance authority where there was none, so it
@@ -212,14 +213,14 @@ impl AttendanceTerminal {
     /// reason on the record.
     pub fn register(
         id: TerminalId,
-        place: PlaceId,
+        unit: UnitId,
         name: &str,
         method: IdentificationMethod,
         authorization: Authorization,
     ) -> Result<Self, AttendanceError> {
         Self::try_new(
             id,
-            place,
+            unit,
             name,
             TerminalStatus::Active,
             method,
@@ -236,7 +237,7 @@ impl AttendanceTerminal {
     /// recorded event revoked it.
     pub fn try_new(
         id: TerminalId,
-        place: PlaceId,
+        unit: UnitId,
         name: &str,
         status: TerminalStatus,
         method: IdentificationMethod,
@@ -260,7 +261,7 @@ impl AttendanceTerminal {
         }
         Ok(Self {
             id,
-            place,
+            unit,
             name: name.to_owned(),
             status,
             method,
@@ -305,9 +306,9 @@ impl AttendanceTerminal {
     pub fn id(&self) -> &TerminalId {
         &self.id
     }
-    /// The place the terminal is bound to. It attests for this place only.
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    /// The unit the terminal attests for — its site's. It attests for this unit only.
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub fn name(&self) -> &str {
         &self.name
@@ -340,7 +341,7 @@ impl AttendanceTerminal {
         Ok(())
     }
 
-    /// Attest that this terminal identified `employee` at its own place.
+    /// Attest that this terminal identified `employee` at its own unit.
     ///
     /// The **only** way to obtain a [`TerminalAttestation`], and therefore the
     /// only way any punch is ever created. Refused unless the terminal is
@@ -354,7 +355,7 @@ impl AttendanceTerminal {
         }
         Ok(TerminalAttestation {
             terminal: self.id.clone(),
-            place: self.place.clone(),
+            unit: self.unit.clone(),
             employee,
             method: self.method,
         })
@@ -373,14 +374,14 @@ impl AttendanceTerminal {
     pub(super) fn require_persisted_provenance(
         &self,
         terminal: &TerminalId,
-        place: &PlaceId,
+        unit: &UnitId,
         method: IdentificationMethod,
     ) -> Result<(), AttendanceError> {
         if &self.id != terminal {
             return Err(AttendanceError::PunchProvenanceMismatch { field: "terminal" });
         }
-        if &self.place != place {
-            return Err(AttendanceError::PunchProvenanceMismatch { field: "place" });
+        if &self.unit != unit {
+            return Err(AttendanceError::PunchProvenanceMismatch { field: "unit" });
         }
         if self.method != method {
             return Err(AttendanceError::PunchProvenanceMismatch { field: "method" });
@@ -398,7 +399,7 @@ impl AttendanceTerminal {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TerminalAttestation {
     terminal: TerminalId,
-    place: PlaceId,
+    unit: UnitId,
     employee: EmployeeId,
     method: IdentificationMethod,
 }
@@ -407,8 +408,8 @@ impl TerminalAttestation {
     pub fn terminal(&self) -> &TerminalId {
         &self.terminal
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub fn employee(&self) -> &EmployeeId {
         &self.employee
@@ -437,7 +438,7 @@ mod tests {
     fn terminal() -> AttendanceTerminal {
         AttendanceTerminal::register(
             TerminalId::try_new("term-store-07").unwrap(),
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             "Pintu belakang",
             IdentificationMethod::Fingerprint,
             authority(actions::ATTENDANCE_TERMINAL_MANAGE),
@@ -452,9 +453,9 @@ mod tests {
     /// The whole authority model in one assertion: a terminal is what produces
     /// an attestation, and an attestation is what produces a punch.
     #[test]
-    fn an_active_terminal_attests_for_its_own_place() {
+    fn an_active_terminal_attests_for_its_own_unit() {
         let attestation = terminal().attest(employee()).expect("attest");
-        assert_eq!(attestation.place().as_str(), "store-07");
+        assert_eq!(attestation.unit().as_str(), "store-07");
         assert_eq!(attestation.terminal().as_str(), "term-store-07");
         assert_eq!(attestation.method(), IdentificationMethod::Fingerprint);
     }
@@ -513,7 +514,7 @@ mod tests {
         assert!(matches!(
             AttendanceTerminal::register(
                 TerminalId::try_new("term-x").unwrap(),
-                PlaceId::try_new("store-07").unwrap(),
+                UnitId::try_new("store-07").unwrap(),
                 "Depan",
                 IdentificationMethod::Fingerprint,
                 authority(actions::ROSTER_MANAGE),
@@ -528,7 +529,7 @@ mod tests {
     fn a_stored_status_the_history_does_not_produce_is_refused() {
         let revocation = serde_json::json!({
             "id": "term-store-07",
-            "place": "store-07",
+            "unit": "store-07",
             "name": "Pintu belakang",
             "status": "ACTIVE",
             "method": "FINGERPRINT",
@@ -548,7 +549,7 @@ mod tests {
     fn a_stored_transition_under_the_wrong_key_is_refused() {
         let forged = serde_json::json!({
             "id": "term-store-07",
-            "place": "store-07",
+            "unit": "store-07",
             "name": "Pintu belakang",
             "status": "ACTIVE",
             "method": "FINGERPRINT",

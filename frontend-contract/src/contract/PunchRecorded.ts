@@ -3,7 +3,7 @@
 /**
  * What was recorded, in the words the person who tapped needs.
  */
-export type PunchRecorded = { punch_id: string, employee_id: string, place_id: string, 
+export type PunchRecorded = { punch_id: string, employee_id: string, unit_id: string, 
 /**
  * Always `EMPLOYEE_APP` on this route, and sent anyway: the screen that
  * renders the confirmation is the screen that must not imply a reader saw

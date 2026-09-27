@@ -16,7 +16,7 @@ use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     actions, Authorization, EmployeeGrievance, EmployeeGrievanceWire, EmployeeId, GrievanceError,
     GrievanceEvent, GrievanceId, GrievanceState, GrievanceType, GrievanceTypeCatalogue,
-    GrievanceTypeCode, PlaceId,
+    GrievanceTypeCode, UnitId,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
@@ -191,7 +191,7 @@ pub struct GrievanceRecord {
     pub grievance: EmployeeGrievance,
     pub history: Vec<GrievanceEvent>,
     pub created_at: DateTime<Utc>,
-    pub place_name: Option<String>,
+    pub unit_name: Option<String>,
     pub type_name: Option<String>,
     pub raised_by_code: Option<String>,
     pub raised_by_name: Option<String>,
@@ -297,8 +297,8 @@ async fn decode_grievance(
         EmployeeGrievanceWire {
             id: GrievanceId::try_new(&id.to_string())
                 .map_err(|error| corrupt("grievance id", error.to_string()))?,
-            place: PlaceId::try_new(&row.try_get::<String, _>("place_id")?)
-                .map_err(|error| corrupt("grievance place", error.to_string()))?,
+            unit: UnitId::try_new(&row.try_get::<String, _>("unit_id")?)
+                .map_err(|error| corrupt("grievance unit", error.to_string()))?,
             type_code: GrievanceTypeCode::try_new(&row.try_get::<String, _>("type_code")?)
                 .map_err(|error| corrupt("grievance type", error.to_string()))?,
             raised_by: EmployeeId::try_new(&row.try_get::<String, _>("raised_by")?)
@@ -323,7 +323,7 @@ async fn decode_grievance(
 
     Ok(GrievanceRecord {
         created_at: row.try_get("created_at")?,
-        place_name: row.try_get("place_name")?,
+        unit_name: row.try_get("unit_name")?,
         type_name: row.try_get("type_name")?,
         raised_by_code: row.try_get("raised_by_code")?,
         raised_by_name: row.try_get("raised_by_name")?,
@@ -335,18 +335,18 @@ async fn decode_grievance(
 
 /// The stored grievance, folded. One read, used by every handler, so the
 /// names a screen shows and the rules the domain enforces arrive together.
-const GRIEVANCE_SELECT: &str = "SELECT g.grievance_id, g.place_id, g.type_code, g.raised_by,
+const GRIEVANCE_SELECT: &str = "SELECT g.grievance_id, g.unit_id, g.type_code, g.raised_by,
                 g.filed_by, g.against_employee, g.subject, g.description, g.cause,
                 g.state, g.investigated_by, g.investigated_at, g.investigation_note,
                 g.resolved_by, g.resolved_at, g.resolution_detail, g.resolved_on,
                 g.withdrawn_by, g.withdrawn_reason, g.withdrawn_at, g.history, g.created_at,
-                COALESCE(p.name, p.id) AS place_name,
+                COALESCE(p.name, p.id) AS unit_name,
                 gt.name AS type_name,
                 re.code AS raised_by_code,
                 COALESCE(rep.full_name, re.id) AS raised_by_name,
                 COALESCE(agp.full_name, ag.code) AS against_name
            FROM employee_grievance g
-           JOIN org_place p ON p.id = g.place_id
+           JOIN unit p ON p.id = g.unit_id
            JOIN grievance_type gt ON gt.code = g.type_code
            JOIN employee re ON re.id = g.raised_by
       LEFT JOIN employee_profile rep ON rep.employee_id = re.id
@@ -410,12 +410,12 @@ pub async fn insert_grievance(
         .map_err(|error| corrupt("grievance history", error.to_string()))?;
     sqlx::query(
         "INSERT INTO employee_grievance
-             (grievance_id, place_id, type_code, raised_by, filed_by, against_employee,
+             (grievance_id, unit_id, type_code, raised_by, filed_by, against_employee,
               subject, description, cause, state, history)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'OPEN', $10)",
     )
     .bind(grievance_id)
-    .bind(grievance.place().as_str())
+    .bind(grievance.unit().as_str())
     .bind(grievance.type_code().as_str())
     .bind(grievance.raised_by().as_str())
     .bind(grievance.filed_by())
@@ -601,8 +601,8 @@ pub struct GrievanceEventView {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct GrievanceView {
     pub grievance_id: Uuid,
-    pub place_id: String,
-    pub place_name: Option<String>,
+    pub unit_id: String,
+    pub unit_name: Option<String>,
     pub type_code: String,
     pub type_name: Option<String>,
     pub raised_by: String,
@@ -655,8 +655,8 @@ pub fn grievance_view(record: &GrievanceRecord) -> Result<GrievanceView, AppErro
     };
     Ok(GrievanceView {
         grievance_id: parse("grievance id", grievance.id().as_str())?,
-        place_id: grievance.place().to_string(),
-        place_name: record.place_name.clone(),
+        unit_id: grievance.unit().to_string(),
+        unit_name: record.unit_name.clone(),
         type_code: grievance.type_code().to_string(),
         type_name: record.type_name.clone(),
         raised_by: grievance.raised_by().to_string(),

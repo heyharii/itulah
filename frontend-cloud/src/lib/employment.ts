@@ -59,7 +59,7 @@ export function listEmployees(
 ): Promise<EmployeeSummary[]> {
   const query = new URLSearchParams()
   if (filters.status) query.set("status", filters.status)
-  if (filters.placeId) query.set("place_id", filters.placeId)
+  if (filters.placeId) query.set("unit_id", filters.placeId)
   if (filters.limit) query.set("limit", String(filters.limit))
   const suffix = query.size > 0 ? `?${query}` : ""
   return node
@@ -159,7 +159,7 @@ export function assignToPlace(
 ): Promise<EmployeeView> {
   return node.post<EmployeeView>(
     `/api/v1/employees/${encodeURIComponent(employeeId)}/assignments`,
-    { place_id: placeId, valid_from: validFrom, valid_to: validTo ?? null, reason },
+    { unit_id: placeId, valid_from: validFrom, valid_to: validTo ?? null, reason },
   )
 }
 

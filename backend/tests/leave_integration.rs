@@ -182,7 +182,7 @@ async fn staff_at(
     cookies: &str,
     csrf: &str,
     code: &str,
-    place_id: &str,
+    unit_id: &str,
 ) -> String {
     let registered = send(
         app.clone(),
@@ -223,7 +223,7 @@ async fn staff_at(
         &format!("/api/v1/employees/{employee_id}/assignments"),
         write_headers(cookies, csrf),
         Some(json!({
-            "place_id": place_id,
+            "unit_id": unit_id,
             "valid_from": "2026-01-05",
             "reason": "penempatan awal",
         })),
@@ -538,7 +538,7 @@ async fn a_regional_day_is_a_holiday_only_where_it_is_observed(pool: PgPool) {
                 "date": "2026-03-19",
                 "name": "Nyepi",
                 "kind": "REGIONAL",
-                "places": ["store-07"],
+                "units": ["store-07"],
             }],
             "reason": "SKB 2026",
         })),
@@ -546,17 +546,17 @@ async fn a_regional_day_is_a_holiday_only_where_it_is_observed(pool: PgPool) {
     .await;
     assert_eq!(published.status, StatusCode::OK, "{:?}", published.body);
 
-    for (place, expected) in [("store-07", true), ("store-03", false)] {
+    for (unit, expected) in [("store-07", true), ("store-03", false)] {
         let asked = send(
             app.clone(),
             "GET",
-            &format!("/api/v1/holiday-calendars/2026/on/2026-03-19?place={place}"),
+            &format!("/api/v1/holiday-calendars/2026/on/2026-03-19?unit={unit}"),
             read_headers(&cookies),
             None,
         )
         .await;
-        assert_eq!(asked.status, StatusCode::OK, "{place}: {:?}", asked.body);
-        assert_eq!(asked.body["holiday"], expected, "{place}");
+        assert_eq!(asked.status, StatusCode::OK, "{unit}: {:?}", asked.body);
+        assert_eq!(asked.body["holiday"], expected, "{unit}");
     }
 
     // And a regional day that names nowhere is not representable at all.
@@ -642,7 +642,7 @@ async fn an_approval_deducts_exactly_the_days_it_charged(pool: PgPool) {
     // Three days asked for, two charged: 7 April is a cuti bersama, and the
     // calendar has already taken that day out of her twelve.
     assert_eq!(filed.body["chargeable_days"], 2);
-    assert_eq!(filed.body["place_id"], "store-07");
+    assert_eq!(filed.body["unit_id"], "store-07");
 
     // It is waiting on her manager, and on nobody else's desk.
     let (his, his_csrf) = sign_in(&app, "rina", SUPERVISOR_PASSWORD).await;

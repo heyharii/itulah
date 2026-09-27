@@ -53,8 +53,8 @@ export interface UserRow {
   /// `active: true` is a live credential for somebody who has left.
   readonly employee_status: string | null
   readonly employee_name: string | null
-  readonly place_id: string | null
-  readonly place_name: string | null
+  readonly unit_id: string | null
+  readonly unit_name: string | null
 }
 
 /// A node the centre has issued an ingest key to. The key itself is never in
@@ -594,7 +594,7 @@ export function resetBreaker(signal?: AbortSignal) {
 export interface UserFacets {
   readonly roles: readonly SystemFacet[]
   readonly states: readonly SystemFacet[]
-  readonly places: readonly SystemFacet[]
+  readonly units: readonly SystemFacet[]
 }
 
 /// A page of logins, and exactly how many there are. Exact because this

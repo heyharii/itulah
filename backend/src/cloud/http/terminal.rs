@@ -20,24 +20,24 @@
 //! a template to a browser" a property of the routing table rather than a
 //! sentence in a review.
 //!
-//! # The node's own place is derived, never claimed
+//! # The node's own unit is derived, never claimed
 //!
-//! A node presents its `origin_id`; the place is resolved
-//! `sync_origin_credential.site_id` → `org_place.site_id`. It is never the
-//! origin id compared to a place id, because those two vocabularies are known
+//! A node presents its `origin_id`; the unit is resolved
+//! `sync_origin_credential.site_id` → `site.unit_id`. It is never the
+//! origin id compared to a unit id, because those two vocabularies are known
 //! to disagree in this deployment — the cloud spells the warehouse `dc` and the
 //! edge spells its node `dc-01` — and a string comparison would either refuse
 //! every DC punch or, worse, match the wrong unit somewhere else.
 
 use super::auth::Principal;
-use super::employment::{current_place, reach_of, resolve};
+use super::employment::{current_unit, reach_of, resolve};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, required_role_for_action, role_allows, AttendanceTerminal, ClockQuality,
-        DayOffset, EnrolmentRecord, Finger, IdentificationMethod, MinuteOfDay, PlaceId, Punch,
-        PunchContext, PunchDirection, PunchId, PunchTime, Reach, TemplateFormat, TerminalId,
-        TerminalStatus,
+        DayOffset, EnrolmentRecord, Finger, IdentificationMethod, MinuteOfDay, Punch, PunchContext,
+        PunchDirection, PunchId, PunchTime, Reach, TemplateFormat, TerminalId, TerminalStatus,
+        UnitId,
     },
     postgres::{self as infrastructure, EnrolmentEventRow, EnrolmentRow, TerminalRow},
 };
@@ -68,9 +68,9 @@ fn require(principal: &Principal, action_key: &str) -> Result<(), AppError> {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PlaceQuery {
+pub struct UnitQuery {
     #[serde(default)]
-    pub place: Option<String>,
+    pub unit: Option<String>,
 }
 
 /// Every registered station a caller may see.
@@ -84,7 +84,7 @@ pub struct PlaceQuery {
 pub async fn list_terminals(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Query(query): Query<PlaceQuery>,
+    Query(query): Query<UnitQuery>,
 ) -> Result<Json<Vec<TerminalRow>>, AppError> {
     let reach = reach_of(&state, &principal).await?;
     if reach.is_nowhere() {
@@ -96,7 +96,7 @@ pub async fn list_terminals(
             principal.username
         )));
     }
-    let place = match (&query.place, &reach) {
+    let unit = match (&query.unit, &reach) {
         (Some(asked), _) if !reach.covers(Some(asked)) => {
             return Err(AppError::Forbidden(format!(
                 "{} is not posted anywhere that reaches {asked}",
@@ -108,7 +108,7 @@ pub async fn list_terminals(
         (None, _) => None,
     };
     Ok(Json(
-        infrastructure::list_attendance_terminals(&state.db, place.as_deref()).await?,
+        infrastructure::list_attendance_terminals(&state.db, unit.as_deref()).await?,
     ))
 }
 
@@ -118,7 +118,9 @@ pub struct RegisterTerminalBody {
     /// Chosen when the device is installed, and never changed: it is what every
     /// punch the station takes names as its provenance.
     pub terminal_id: String,
-    pub place_id: String,
+    /// Where it is installed. A station is a machine on a wall, so it is
+    /// registered at a site; the unit it attests for is the site's.
+    pub site_id: String,
     pub name: String,
     pub reason: String,
 }
@@ -137,9 +139,12 @@ pub async fn register_terminal(
         &body.reason,
     )
     .map_err(invalid)?;
+    let unit = infrastructure::unit_of_site(&state.db, &body.site_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("site {}", body.site_id)))?;
     let terminal = AttendanceTerminal::register(
         TerminalId::try_new(&body.terminal_id).map_err(invalid)?,
-        PlaceId::try_new(&body.place_id).map_err(invalid)?,
+        unit.clone(),
         &body.name,
         // One method, and the decision behind it is recorded in
         // `domain::attendance::terminal`. Not a body field: a caller who could
@@ -149,9 +154,9 @@ pub async fn register_terminal(
         authorization,
     )
     .map_err(infrastructure::attendance_error)?;
-    infrastructure::insert_attendance_terminal(&state.db, &terminal).await?;
+    infrastructure::insert_attendance_terminal(&state.db, &terminal, &body.site_id).await?;
     Ok(Json(
-        infrastructure::list_attendance_terminals(&state.db, Some(&body.place_id)).await?,
+        infrastructure::list_attendance_terminals(&state.db, Some(unit.as_str())).await?,
     ))
 }
 
@@ -192,7 +197,7 @@ pub async fn set_terminal_status(
         .map_err(infrastructure::attendance_error)?;
     infrastructure::save_attendance_terminal(&state.db, &terminal).await?;
     Ok(Json(
-        infrastructure::list_attendance_terminals(&state.db, Some(terminal.place().as_str()))
+        infrastructure::list_attendance_terminals(&state.db, Some(terminal.unit().as_str()))
             .await?,
     ))
 }
@@ -234,7 +239,7 @@ pub async fn read_enrolment(
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-    access.reaches(current_place(&record))?;
+    access.reaches(current_unit(&record))?;
 
     let fingers = infrastructure::list_enrolments(&state.db, &access.employee_id).await?;
     let history = infrastructure::list_enrolment_events(&state.db, &access.employee_id).await?;
@@ -290,7 +295,7 @@ pub async fn enrol_finger(
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-    let place = current_place(&record).ok_or_else(|| {
+    let unit = current_unit(&record).ok_or_else(|| {
         // Nowhere to enrol from, and it is not the terminal's fault. Somebody
         // with no posting has no unit whose station could capture them, and the
         // fix is HR's paperwork rather than a retry.
@@ -302,11 +307,11 @@ pub async fn enrol_finger(
     let terminal = infrastructure::load_attendance_terminal(&state.db, &body.terminal_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("terminal {}", body.terminal_id)))?;
-    if terminal.place().as_str() != place {
+    if terminal.unit().as_str() != unit {
         return Err(AppError::Conflict(format!(
-            "terminal {} is at {}, and {} is posted to {place}",
+            "terminal {} is at {}, and {} is posted to {unit}",
             body.terminal_id,
-            terminal.place(),
+            terminal.unit(),
             access.employee_id
         )));
     }
@@ -396,14 +401,14 @@ pub async fn withdraw_finger(
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublishBookBody {
-    pub place_id: String,
+    pub unit_id: String,
 }
 
 /// What was published, and to whom.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct BookPublished {
-    pub place_id: String,
+    pub unit_id: String,
     /// The nodes it was delivered to. Usually one.
     pub origins: Vec<String>,
     pub employees: usize,
@@ -440,26 +445,25 @@ pub async fn publish_book(
 ) -> Result<Json<BookPublished>, AppError> {
     require(&principal, actions::ROSTER_MANAGE)?;
     let reach = reach_of(&state, &principal).await?;
-    if !reach.covers(Some(&body.place_id)) {
+    if !reach.covers(Some(&body.unit_id)) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
-            principal.username, body.place_id
+            principal.username, body.unit_id
         )));
     }
-    let place = PlaceId::try_new(&body.place_id).map_err(invalid)?;
-    let origins = infrastructure::origins_of_place(&state.db, &place).await?;
+    let unit = UnitId::try_new(&body.unit_id).map_err(invalid)?;
+    let origins = infrastructure::origins_of_unit(&state.db, &unit).await?;
     if origins.is_empty() {
         // A named refusal rather than a silent success. "We published the book"
         // and "there was nowhere to publish it to" must not look the same, and
         // head office genuinely has no node — which is the usual way to reach
         // this message.
         return Err(AppError::Conflict(format!(
-            "{place} has no syncing node, so there is no station to publish a book to"
+            "{unit} has no syncing node, so there is no station to publish a book to"
         )));
     }
     let book =
-        infrastructure::attendance_book_for_place(&state.db, &place, Utc::now().date_naive())
-            .await?;
+        infrastructure::attendance_book_for_unit(&state.db, &unit, Utc::now().date_naive()).await?;
     let payload = serde_json::to_value(&book)?;
     infrastructure::issue_command(
         &state.db,
@@ -471,7 +475,7 @@ pub async fn publish_book(
     )
     .await?;
     Ok(Json(BookPublished {
-        place_id: body.place_id,
+        unit_id: body.unit_id,
         origins,
         employees: book.employees.len(),
         rostered_days: book.roster.len(),
@@ -488,13 +492,13 @@ pub async fn publish_book(
 /// accepted **only** with its own key, so no unit can collect another unit's
 /// templates or upload punches claiming another unit's place.
 ///
-/// Returns the `org_place` the origin's site is, because that — and never the
+/// Returns the `unit` the origin's site is, because that — and never the
 /// origin id spelled as a place — is what binds a node to a unit.
-async fn node_place(
+async fn node_unit(
     state: &AppState,
     headers: &HeaderMap,
     origin_id: &str,
-) -> Result<PlaceId, AppError> {
+) -> Result<UnitId, AppError> {
     let presented = headers
         .get("x-sync-key")
         .and_then(|value| value.to_str().ok());
@@ -525,7 +529,7 @@ async fn node_place(
             }
         }
     }
-    infrastructure::place_of_origin(&state.db, origin_id)
+    infrastructure::unit_of_origin(&state.db, origin_id)
         .await?
         .ok_or_else(|| {
             AppError::Conflict(format!(
@@ -552,7 +556,11 @@ pub struct TemplateSyncBody {
 /// browser is ever going to receive it.
 #[derive(Debug, Serialize)]
 pub struct TemplateBundle {
-    pub place_id: String,
+    /// Sent as `place_id`, the key the stations' hardware agents already read.
+    /// They run on shop machines and are not updated with the cloud; the value
+    /// is the unit id, which is the same string the place id was.
+    #[serde(rename = "place_id")]
+    pub unit_id: String,
     pub terminal_id: String,
     pub generated_at: DateTime<Utc>,
     pub entries: Vec<infrastructure::TemplateBundleEntry>,
@@ -576,15 +584,15 @@ pub async fn sync_templates(
     headers: HeaderMap,
     Json(body): Json<TemplateSyncBody>,
 ) -> Result<Json<TemplateBundle>, AppError> {
-    let place = node_place(&state, &headers, &body.origin_id).await?;
+    let unit = node_unit(&state, &headers, &body.origin_id).await?;
     let terminal = infrastructure::load_attendance_terminal(&state.db, &body.terminal_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("terminal {}", body.terminal_id)))?;
-    if terminal.place() != &place {
+    if terminal.unit() != &unit {
         return Err(AppError::Forbidden(format!(
-            "terminal {} is registered at {} and this node is {place}",
+            "terminal {} is registered at {} and this node is {unit}",
             body.terminal_id,
-            terminal.place()
+            terminal.unit()
         )));
     }
     if !terminal.is_active() {
@@ -596,10 +604,10 @@ pub async fn sync_templates(
             terminal.status()
         )));
     }
-    let entries = infrastructure::template_bundle_for_place(&state.db, place.as_str()).await?;
+    let entries = infrastructure::template_bundle_for_unit(&state.db, unit.as_str()).await?;
     infrastructure::touch_terminal_sync(&state.db, &body.terminal_id).await?;
     Ok(Json(TemplateBundle {
-        place_id: place.as_str().to_owned(),
+        unit_id: unit.as_str().to_owned(),
         terminal_id: body.terminal_id,
         generated_at: Utc::now(),
         entries,
@@ -676,7 +684,7 @@ pub async fn ingest_punches(
     headers: HeaderMap,
     Json(body): Json<PunchIngestBody>,
 ) -> Result<Json<PunchIngestResult>, AppError> {
-    let place = node_place(&state, &headers, &body.origin_id).await?;
+    let unit = node_unit(&state, &headers, &body.origin_id).await?;
     let mut result = PunchIngestResult {
         accepted: 0,
         duplicate: 0,
@@ -684,7 +692,7 @@ pub async fn ingest_punches(
     };
 
     for incoming in &body.punches {
-        match record_one(&state, &place, incoming).await {
+        match record_one(&state, &unit, incoming).await {
             Ok(true) => result.accepted += 1,
             Ok(false) => result.duplicate += 1,
             Err(error) => result.refused.push(RefusedPunch {
@@ -700,7 +708,7 @@ pub async fn ingest_punches(
 /// recorded.
 async fn record_one(
     state: &AppState,
-    place: &PlaceId,
+    unit: &UnitId,
     incoming: &IncomingPunch,
 ) -> Result<bool, AppError> {
     let terminal = infrastructure::load_attendance_terminal(&state.db, &incoming.terminal_id)
@@ -711,11 +719,11 @@ async fn record_one(
                 incoming.terminal_id
             ))
         })?;
-    if terminal.place() != place {
+    if terminal.unit() != unit {
         return Err(AppError::Forbidden(format!(
-            "terminal {} is registered at {} and this node is {place}",
+            "terminal {} is registered at {} and this node is {unit}",
             incoming.terminal_id,
-            terminal.place()
+            terminal.unit()
         )));
     }
     let record = infrastructure::load_employee(&state.db, &incoming.employee_id)
@@ -727,7 +735,7 @@ async fn record_one(
         DayOffset::try_new(incoming.day_offset).map_err(invalid)?,
         MinuteOfDay::try_new(incoming.minute).map_err(invalid)?,
     );
-    let period = infrastructure::period_for(&state.db, place, incoming.business_date).await?;
+    let period = infrastructure::period_for(&state.db, unit, incoming.business_date).await?;
     // `attest` is the only way to get an attestation, and it refuses unless the
     // station is ACTIVE. That is the fail-closed rule at its outermost layer: a
     // device somebody suspended cannot produce attendance whatever it believes

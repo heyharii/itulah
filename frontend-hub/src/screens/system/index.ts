@@ -5,6 +5,7 @@ import { Access } from "@/screens/system/access"
 import { Account } from "@/screens/system/account"
 import { Nodes } from "@/screens/system/nodes"
 import { Notifications } from "@/screens/system/notifications"
+import { Organisation } from "@/screens/system/organisation"
 import { SyncLane } from "@/screens/system/sync"
 
 /// Screens this module has written. Keys must be paths declared in
@@ -18,6 +19,7 @@ export const screens: ScreenMap = {
   "/system": Nodes,
   "/system/sync": SyncLane,
   "/system/access": Access,
+  "/system/units": Organisation,
   "/system/notifications": Notifications,
   "/system/account": Account,
 }

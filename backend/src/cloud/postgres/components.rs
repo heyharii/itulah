@@ -28,7 +28,7 @@ use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     Authorization, ComponentBase, ComponentBasis, ComponentError, ComponentInForce, ComponentKind,
     ComponentRate, ComponentShape, CountedUnit, PayComponent, PayComponentWire, PayrollAdjustment,
-    PayrollAdjustmentWire, PlaceId, RateTimeline,
+    PayrollAdjustmentWire, RateTimeline, UnitId,
 };
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use pricing_engine::Money;
@@ -420,13 +420,13 @@ pub async fn ratify_rate(
 /// a working document. Anything else is a batch somebody has signed for.
 async fn batch_is_still_draft(
     tx: &mut Transaction<'_, Postgres>,
-    place: &PlaceId,
+    unit: &UnitId,
     first_day: NaiveDate,
 ) -> Result<(), AppError> {
     let state: Option<String> = sqlx::query_scalar(
-        "SELECT state FROM payroll_run WHERE place_id = $1 AND period = $2 FOR SHARE",
+        "SELECT state FROM payroll_run WHERE unit_id = $1 AND period = $2 FOR SHARE",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .bind(first_day)
     .fetch_optional(&mut **tx)
     .await?;
@@ -434,7 +434,7 @@ async fn batch_is_still_draft(
     match state.as_deref() {
         None | Some("DRAFT") => Ok(()),
         Some(other) => Err(component_error(ComponentError::BatchNoLongerDraft {
-            place: place.to_string(),
+            unit: unit.to_string(),
             period: period_of(first_day),
             // Leaked as a `&'static str` rather than the row's own `String`
             // because the error names a state from a closed vocabulary; an
@@ -463,17 +463,17 @@ pub async fn file_adjustment(
     first_day: NaiveDate,
 ) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
-    batch_is_still_draft(&mut tx, adjustment.place(), first_day).await?;
+    batch_is_still_draft(&mut tx, adjustment.unit(), first_day).await?;
 
     let inserted = sqlx::query(
         "INSERT INTO payroll_adjustment
-             (id, place_id, period, employee_id, component_code, basis, amount_minor,
+             (id, unit_id, period, employee_id, component_code, basis, amount_minor,
               advance_id, filed)
          VALUES ($1, $2, $3, $4, $5, 'PER_OCCASION', $6, $7, $8)
-         ON CONFLICT (place_id, period, employee_id, component_code) DO NOTHING",
+         ON CONFLICT (unit_id, period, employee_id, component_code) DO NOTHING",
     )
     .bind(adjustment.id())
-    .bind(adjustment.place().as_str())
+    .bind(adjustment.unit().as_str())
     .bind(first_day)
     .bind(adjustment.employee_id())
     .bind(adjustment.code().as_str())
@@ -501,18 +501,18 @@ pub async fn file_adjustment(
 /// applied — the shape `reachable_run` uses, and the reason it is not folded
 /// into [`withdraw_adjustment`] is that a 403 must not be reached by way of a
 /// transaction that has already deleted something.
-pub async fn adjustment_place_of(
+pub async fn adjustment_unit_of(
     pool: &PgPool,
     id: &str,
-) -> Result<Option<(PlaceId, NaiveDate)>, AppError> {
-    let row = sqlx::query("SELECT place_id, period FROM payroll_adjustment WHERE id = $1")
+) -> Result<Option<(UnitId, NaiveDate)>, AppError> {
+    let row = sqlx::query("SELECT unit_id, period FROM payroll_adjustment WHERE id = $1")
         .bind(id)
         .fetch_optional(pool)
         .await?;
     let Some(row) = row else { return Ok(None) };
-    let place = PlaceId::try_new(&row.try_get::<String, _>("place_id")?)
-        .map_err(|error| corrupt("place id", error.to_string()))?;
-    Ok(Some((place, row.try_get("period")?)))
+    let unit = UnitId::try_new(&row.try_get::<String, _>("unit_id")?)
+        .map_err(|error| corrupt("unit id", error.to_string()))?;
+    Ok(Some((unit, row.try_get("period")?)))
 }
 
 /// Take one back, while the batch is still the place's.
@@ -528,7 +528,7 @@ pub async fn withdraw_adjustment(
 ) -> Result<Option<PayrollAdjustment>, AppError> {
     let mut tx = pool.begin().await?;
     let row = sqlx::query(
-        "SELECT id, place_id, period, employee_id, component_code, amount_minor, advance_id, filed
+        "SELECT id, unit_id, period, employee_id, component_code, amount_minor, advance_id, filed
            FROM payroll_adjustment WHERE id = $1 FOR UPDATE",
     )
     .bind(id)
@@ -540,11 +540,11 @@ pub async fn withdraw_adjustment(
     };
 
     let first_day: NaiveDate = row.try_get("period")?;
-    let place = PlaceId::try_new(&row.try_get::<String, _>("place_id")?)
-        .map_err(|error| corrupt("place id", error.to_string()))?;
+    let unit = UnitId::try_new(&row.try_get::<String, _>("unit_id")?)
+        .map_err(|error| corrupt("unit id", error.to_string()))?;
     let adjustment = PayrollAdjustment::try_new(PayrollAdjustmentWire {
         id: row.try_get("id")?,
-        place: place.clone(),
+        unit: unit.clone(),
         period: period_of(first_day),
         employee_id: row.try_get("employee_id")?,
         code: row
@@ -558,7 +558,7 @@ pub async fn withdraw_adjustment(
     })
     .map_err(|error| corrupt("payroll adjustment", error.to_string()))?;
 
-    batch_is_still_draft(&mut tx, &place, first_day).await?;
+    batch_is_still_draft(&mut tx, &unit, first_day).await?;
     sqlx::query("DELETE FROM payroll_adjustment WHERE id = $1")
         .bind(id)
         .execute(&mut *tx)
@@ -575,7 +575,7 @@ pub async fn withdraw_adjustment(
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PayrollAdjustmentRow {
     pub id: String,
-    pub place_id: String,
+    pub unit_id: String,
     /// `YYYY-MM`.
     pub period: String,
     pub employee_id: String,
@@ -606,7 +606,7 @@ fn adjustment_row(row: &sqlx::postgres::PgRow) -> Result<PayrollAdjustmentRow, A
     let state: Option<String> = row.try_get("run_state")?;
     Ok(PayrollAdjustmentRow {
         id: row.try_get("id")?,
-        place_id: row.try_get("place_id")?,
+        unit_id: row.try_get("unit_id")?,
         period: period_of(period),
         employee_id: row.try_get("employee_id")?,
         employee_code: row.try_get("employee_code")?,
@@ -623,27 +623,27 @@ fn adjustment_row(row: &sqlx::postgres::PgRow) -> Result<PayrollAdjustmentRow, A
     })
 }
 
-/// Every one-off filed for a place, newest month first. `place_id IS NULL`
+/// Every one-off filed for a place, newest month first. `unit_id IS NULL`
 /// reads every place, which only an unbounded caller ever asks for.
 pub async fn adjustments(
     pool: &PgPool,
-    place_id: Option<&str>,
+    unit_id: Option<&str>,
     period: Option<NaiveDate>,
 ) -> Result<Vec<PayrollAdjustmentRow>, AppError> {
     let rows = sqlx::query(
-        "SELECT a.id, a.place_id, a.period, a.employee_id, e.code AS employee_code,
+        "SELECT a.id, a.unit_id, a.period, a.employee_id, e.code AS employee_code,
                 p.full_name, a.component_code, c.label, c.kind, a.amount_minor, a.advance_id,
                 a.filed, r.state AS run_state
            FROM payroll_adjustment a
            JOIN pay_component c ON c.code = a.component_code
            JOIN employee e ON e.id = a.employee_id
            LEFT JOIN employee_profile p ON p.employee_id = a.employee_id
-           LEFT JOIN payroll_run r ON r.place_id = a.place_id AND r.period = a.period
-          WHERE ($1::text IS NULL OR a.place_id = $1)
+           LEFT JOIN payroll_run r ON r.unit_id = a.unit_id AND r.period = a.period
+          WHERE ($1::text IS NULL OR a.unit_id = $1)
             AND ($2::date IS NULL OR a.period = $2)
-          ORDER BY a.period DESC, a.place_id, e.code, a.component_code",
+          ORDER BY a.period DESC, a.unit_id, e.code, a.component_code",
     )
-    .bind(place_id)
+    .bind(unit_id)
     .bind(period)
     .fetch_all(pool)
     .await?;
@@ -658,17 +658,17 @@ pub async fn adjustments(
 /// still picked up when the run is built.
 pub async fn adjustments_for_run(
     tx: &mut Transaction<'_, Postgres>,
-    place: &PlaceId,
+    unit: &UnitId,
     first_day: NaiveDate,
     employee_id: &str,
 ) -> Result<Vec<PayrollAdjustment>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, place_id, period, employee_id, component_code, amount_minor, advance_id, filed
+        "SELECT id, unit_id, period, employee_id, component_code, amount_minor, advance_id, filed
            FROM payroll_adjustment
-          WHERE place_id = $1 AND period = $2 AND employee_id = $3
+          WHERE unit_id = $1 AND period = $2 AND employee_id = $3
           ORDER BY component_code",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .bind(first_day)
     .bind(employee_id)
     .fetch_all(&mut **tx)
@@ -679,8 +679,8 @@ pub async fn adjustments_for_run(
             let period: NaiveDate = row.try_get("period")?;
             PayrollAdjustment::try_new(PayrollAdjustmentWire {
                 id: row.try_get("id")?,
-                place: PlaceId::try_new(&row.try_get::<String, _>("place_id")?)
-                    .map_err(|error| corrupt("place id", error.to_string()))?,
+                unit: UnitId::try_new(&row.try_get::<String, _>("unit_id")?)
+                    .map_err(|error| corrupt("unit id", error.to_string()))?,
                 period: period_of(period),
                 employee_id: row.try_get("employee_id")?,
                 code: row

@@ -91,11 +91,11 @@ const interviewColumns: ColumnDef<TableSetup, ExitInterviewRow>[] = [
   },
   {
     id: "place",
-    accessorFn: (row) => row.place_name ?? row.place_id,
-    header: "Place",
+    accessorFn: (row) => row.unit_name ?? row.unit_id,
+    header: "Unit",
     size: 160,
     meta: { filter: { kind: "option" } },
-    cell: ({ row }) => row.original.place_name ?? row.original.place_id,
+    cell: ({ row }) => row.original.unit_name ?? row.original.unit_id,
   },
   {
     id: "left",
@@ -157,11 +157,11 @@ const fnfColumns: ColumnDef<TableSetup, FnFRow>[] = [
   },
   {
     id: "place",
-    accessorFn: (row) => row.place_name ?? row.place_id,
-    header: "Place",
+    accessorFn: (row) => row.unit_name ?? row.unit_id,
+    header: "Unit",
     size: 160,
     meta: { filter: { kind: "option" } },
-    cell: ({ row }) => row.original.place_name ?? row.original.place_id,
+    cell: ({ row }) => row.original.unit_name ?? row.original.unit_id,
   },
   {
     accessorKey: "transaction_on",
@@ -490,7 +490,7 @@ function InterviewSheet({
         <Fact term="Name">
           {row.employee_name ?? <span className="text-mute">—</span>}
         </Fact>
-        <Fact term="Place">{row.place_name ?? row.place_id}</Fact>
+        <Fact term="Unit">{row.unit_name ?? row.unit_id}</Fact>
         <Fact term="Left">{day(row.created_at)}</Fact>
         {row.completed_at !== null && (
           <Fact term="Conducted">
@@ -818,7 +818,7 @@ function StatementSheet({
         <Fact term="Name">
           {row.employee_name ?? <span className="text-mute">—</span>}
         </Fact>
-        <Fact term="Place">{row.place_name ?? row.place_id}</Fact>
+        <Fact term="Unit">{row.unit_name ?? row.unit_id}</Fact>
         <Fact term="Transaction on">{day(row.transaction_on)}</Fact>
         <Fact term="Opened">
           {row.created_by} · {moment(row.created_at)}

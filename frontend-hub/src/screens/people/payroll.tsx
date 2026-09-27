@@ -150,7 +150,7 @@ export function PayrollRuns() {
                   >
                     <span className="w-24 shrink-0 text-ink">{row.period}</span>
                     <span className="min-w-0 flex-1 truncate text-body">
-                      {unitName(places, row.place_id)}
+                      {unitName(places, row.unit_id)}
                     </span>
                     <Pill tone={stateTone(row.state)}>
                       {runStateLabel(row.state)}
@@ -215,7 +215,7 @@ function RunSheet({
         if (!next) onClose()
       }}
       id={run.id}
-      title={`${run.place_id} · ${run.period}`}
+      title={`${run.unit_id} · ${run.period}`}
     >
       <Pill tone={stateTone(run.state)}>{runStateLabel(run.state)}</Pill>
 
@@ -228,7 +228,7 @@ function RunSheet({
       )}
 
       <Facts>
-        <Fact term="Unit">{run.place_id}</Fact>
+        <Fact term="Unit">{run.unit_id}</Fact>
         <Fact term="Month">{run.period}</Fact>
         <Fact term="Sent by">{run.submitted_by ?? "nobody yet"}</Fact>
         <Fact term="Approved by">{run.approved_by ?? "nobody yet"}</Fact>

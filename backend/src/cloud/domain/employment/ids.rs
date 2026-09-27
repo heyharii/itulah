@@ -82,10 +82,11 @@ opaque_id!(
      it may be reissued or corrected, so nothing may key on it."
 );
 opaque_id!(
-    PlaceId,
-    "place id",
-    "A row of `org_place` — a store, the DC, or head office. This module does \
-     not own the place tree and never interprets the value."
+    UnitId,
+    "unit id",
+    "A row of `unit` — head office or one store: the organisation somebody \
+     is posted to. Internal and never shown (people read the unit code, C004). \
+     This module does not own the unit list and never interprets the value."
 );
 opaque_id!(
     ActorId,

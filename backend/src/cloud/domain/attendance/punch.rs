@@ -27,7 +27,7 @@ use super::period::AttendancePeriod;
 use super::terminal::{AttendanceTerminal, IdentificationMethod, TerminalAttestation};
 use super::time::{DayOffset, MinuteOfDay, ShiftPosition};
 use crate::cloud::domain::employment::{
-    AssignmentTimeline, Authorization, Employee, EmployeeId, EmploymentStatus, PlaceId,
+    AssignmentTimeline, Authorization, Employee, EmployeeId, EmploymentStatus, UnitId,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -266,7 +266,7 @@ impl PunchProvenance {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SelfPunchClaim {
     employee: EmployeeId,
-    place: PlaceId,
+    unit: UnitId,
     authorization: Authorization,
 }
 
@@ -282,7 +282,7 @@ impl SelfPunchClaim {
     /// else would be refused twice.
     pub fn make(
         employee: EmployeeId,
-        place: PlaceId,
+        unit: UnitId,
         authorization: Authorization,
     ) -> Result<Self, AttendanceError> {
         if !authorization.authorizes_own_punch() {
@@ -292,7 +292,7 @@ impl SelfPunchClaim {
         }
         Ok(Self {
             employee,
-            place,
+            unit,
             authorization,
         })
     }
@@ -300,8 +300,8 @@ impl SelfPunchClaim {
     pub fn employee(&self) -> &EmployeeId {
         &self.employee
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     /// Who claimed it, under which key, when, and why.
     ///
@@ -421,7 +421,7 @@ impl fmt::Display for PunchTime {
 pub struct Punch {
     id: PunchId,
     employee: EmployeeId,
-    place: PlaceId,
+    unit: UnitId,
     provenance: PunchProvenance,
     direction: PunchDirection,
     at: PunchTime,
@@ -445,7 +445,7 @@ pub struct Punch {
 pub struct PersistedPunch {
     pub id: PunchId,
     pub employee: EmployeeId,
-    pub place: PlaceId,
+    pub unit: UnitId,
     /// The source and whatever it implies, as one value. A row whose columns
     /// say `EMPLOYEE_APP` and also name a station cannot be assembled into this
     /// field at all, which is where `0239`'s check constraint is re-stated in
@@ -504,11 +504,11 @@ impl Punch {
         if attestation.employee() != context.employee.id() {
             return Err(AttendanceError::AttestationEmployeeMismatch);
         }
-        Self::require_eligible(attestation.place(), at, context)?;
+        Self::require_eligible(attestation.unit(), at, context)?;
         Ok(Self {
             id,
             employee: context.employee.id().clone(),
-            place: attestation.place().clone(),
+            unit: attestation.unit().clone(),
             provenance: PunchProvenance::Terminal {
                 terminal: attestation.terminal().clone(),
                 method: attestation.method(),
@@ -562,11 +562,11 @@ impl Punch {
         if claim.employee() != context.employee.id() {
             return Err(AttendanceError::ClaimEmployeeMismatch);
         }
-        Self::require_eligible(claim.place(), at, context)?;
+        Self::require_eligible(claim.unit(), at, context)?;
         Ok(Self {
             id: claim.punch_id(at, direction)?,
             employee: context.employee.id().clone(),
-            place: claim.place().clone(),
+            unit: claim.unit().clone(),
             provenance: PunchProvenance::EmployeeApp,
             direction,
             at,
@@ -584,7 +584,7 @@ impl Punch {
     /// three: was this person employed on that day, were they posted to this
     /// place on that day, and is that month still open.
     fn require_eligible(
-        place: &PlaceId,
+        unit: &UnitId,
         at: PunchTime,
         context: PunchContext<'_>,
     ) -> Result<(), AttendanceError> {
@@ -600,12 +600,12 @@ impl Punch {
                 date: at.business_date(),
             });
         }
-        if assignment.place_on(at.business_date()) != Some(place) {
-            return Err(AttendanceError::NotPostedToPlaceOnDate {
+        if assignment.unit_on(at.business_date()) != Some(unit) {
+            return Err(AttendanceError::NotPostedToUnitOnDate {
                 date: at.business_date(),
             });
         }
-        period.require_covers(place, at.business_date())?;
+        period.require_covers(unit, at.business_date())?;
         if period.is_closed() {
             return Err(AttendanceError::ClosedPeriodRejectsPunch {
                 period: period.period().to_string(),
@@ -689,22 +689,22 @@ impl Punch {
                 },
                 Some(station),
             ) => {
-                station.require_persisted_provenance(id, &record.place, *method)?;
+                station.require_persisted_provenance(id, &record.unit, *method)?;
             }
             (PunchProvenance::EmployeeApp, None) => {}
             (PunchProvenance::Terminal { .. }, None) | (PunchProvenance::EmployeeApp, Some(_)) => {
                 return Err(AttendanceError::PunchProvenanceMismatch { field: "source" })
             }
         }
-        if assignment.place_on(record.at.business_date()) != Some(&record.place) {
-            return Err(AttendanceError::NotPostedToPlaceOnDate {
+        if assignment.unit_on(record.at.business_date()) != Some(&record.unit) {
+            return Err(AttendanceError::NotPostedToUnitOnDate {
                 date: record.at.business_date(),
             });
         }
         Ok(Self {
             id: record.id,
             employee: record.employee,
-            place: record.place,
+            unit: record.unit,
             provenance: record.provenance,
             direction: record.direction,
             at: record.at,
@@ -720,7 +720,7 @@ impl Punch {
         PersistedPunch {
             id: self.id.clone(),
             employee: self.employee.clone(),
-            place: self.place.clone(),
+            unit: self.unit.clone(),
             provenance: self.provenance.clone(),
             direction: self.direction,
             at: self.at,
@@ -735,8 +735,8 @@ impl Punch {
     pub fn employee(&self) -> &EmployeeId {
         &self.employee
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub const fn provenance(&self) -> &PunchProvenance {
         &self.provenance
@@ -779,20 +779,20 @@ impl Punch {
 /// There is no `remove`, no `get_mut`, and no way to reach a mutable [`Punch`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PunchLog {
-    place: PlaceId,
+    unit: UnitId,
     punches: Vec<Punch>,
 }
 
 impl PunchLog {
-    pub fn new(place: PlaceId) -> Self {
+    pub fn new(unit: UnitId) -> Self {
         Self {
-            place,
+            unit,
             punches: Vec::new(),
         }
     }
 
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub fn punches(&self) -> &[Punch] {
         &self.punches
@@ -811,8 +811,8 @@ impl PunchLog {
     /// the node may deliver the same punch any number of times, and only the
     /// first delivery lands.
     pub fn append(&mut self, punch: Punch) -> Result<&Punch, AttendanceError> {
-        if punch.place != self.place {
-            return Err(AttendanceError::PunchPlaceMismatch);
+        if punch.unit != self.unit {
+            return Err(AttendanceError::PunchUnitMismatch);
         }
         if self.punches.iter().any(|held| held.id == punch.id) {
             return Err(AttendanceError::DuplicatePunchIdentity);
@@ -888,7 +888,7 @@ mod tests {
     fn terminal() -> AttendanceTerminal {
         AttendanceTerminal::register(
             TerminalId::try_new("term-07").unwrap(),
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             "Pintu belakang",
             IdentificationMethod::Fingerprint,
             authority(actions::ATTENDANCE_TERMINAL_MANAGE),
@@ -911,12 +911,12 @@ mod tests {
         employee
     }
 
-    fn posted_to(place: &str) -> AssignmentTimeline {
+    fn posted_to(unit: &str) -> AssignmentTimeline {
         let mut timeline = AssignmentTimeline::new();
         timeline
             .push(
                 AssignmentSpan::try_new(
-                    PlaceId::try_new(place).unwrap(),
+                    UnitId::try_new(unit).unwrap(),
                     date("2026-01-01"),
                     None,
                     authority(actions::ASSIGNMENT_MANAGE),
@@ -929,7 +929,7 @@ mod tests {
 
     fn open_period() -> AttendancePeriod {
         AttendancePeriod::open(
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             AttendanceMonth::try_new(2026, 9).unwrap(),
         )
     }
@@ -957,7 +957,7 @@ mod tests {
     #[test]
     fn a_registered_terminal_produces_a_punch() {
         let punch = punch_at(8 * 60, PunchDirection::In).expect("record");
-        assert_eq!(punch.place().as_str(), "store-07");
+        assert_eq!(punch.unit().as_str(), "store-07");
         assert_eq!(punch.direction(), PunchDirection::In);
         assert_eq!(punch.at().position().minutes(), 480);
     }
@@ -996,7 +996,7 @@ mod tests {
     /// The posting decides which place's log a punch belongs in, and it is the
     /// effective-dated timeline that answers — never a current location field.
     #[test]
-    fn a_punch_at_a_place_the_person_is_not_posted_to_is_refused() {
+    fn a_punch_at_a_unit_the_person_is_not_posted_to_is_refused() {
         let terminal = terminal();
         let employee = active_employee();
         let assignment = posted_to("store-03");
@@ -1016,7 +1016,7 @@ mod tests {
         );
         assert!(matches!(
             refused,
-            Err(AttendanceError::NotPostedToPlaceOnDate { .. })
+            Err(AttendanceError::NotPostedToUnitOnDate { .. })
         ));
     }
 
@@ -1056,7 +1056,7 @@ mod tests {
     /// The property the whole offline design rests on: redelivery is free.
     #[test]
     fn redelivering_a_punch_lands_once() {
-        let mut log = PunchLog::new(PlaceId::try_new("store-07").unwrap());
+        let mut log = PunchLog::new(UnitId::try_new("store-07").unwrap());
         let punch = punch_at(8 * 60, PunchDirection::In).expect("record");
         assert!(log.append_if_absent(punch.clone()).expect("first"));
         assert!(!log.append_if_absent(punch).expect("second"));
@@ -1072,7 +1072,7 @@ mod tests {
         let assignment = posted_to("store-07");
         let elsewhere = AttendanceTerminal::register(
             TerminalId::try_new("term-03").unwrap(),
-            PlaceId::try_new("store-03").unwrap(),
+            UnitId::try_new("store-03").unwrap(),
             "Depan",
             IdentificationMethod::Fingerprint,
             authority(actions::ATTENDANCE_TERMINAL_MANAGE),
@@ -1126,10 +1126,10 @@ mod tests {
 
     // ── the second source ────────────────────────────────────────────────
 
-    fn claim(place: &str) -> SelfPunchClaim {
+    fn claim(unit: &str) -> SelfPunchClaim {
         SelfPunchClaim::make(
             EmployeeId::try_new("emp-1").unwrap(),
-            PlaceId::try_new(place).unwrap(),
+            UnitId::try_new(unit).unwrap(),
             Authorization::try_new(
                 "store07.kasir",
                 actions::ATTENDANCE_PUNCH_RECORD_OWN,
@@ -1166,7 +1166,7 @@ mod tests {
         assert_eq!(punch.source(), PunchSource::EmployeeApp);
         assert_eq!(punch.terminal(), None);
         assert_eq!(punch.method(), None);
-        assert_eq!(punch.place().as_str(), "store-07");
+        assert_eq!(punch.unit().as_str(), "store-07");
         // And a terminal punch still says the opposite, which is the whole
         // point of asking.
         let read = punch_at(8 * 60, PunchDirection::In).expect("record");
@@ -1181,7 +1181,7 @@ mod tests {
     fn nothing_but_the_self_service_grant_makes_a_claim() {
         let refused = SelfPunchClaim::make(
             EmployeeId::try_new("emp-1").unwrap(),
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             authority(actions::ROSTER_MANAGE),
         );
         assert!(matches!(
@@ -1194,7 +1194,7 @@ mod tests {
         assert!(matches!(
             SelfPunchClaim::make(
                 EmployeeId::try_new("emp-1").unwrap(),
-                PlaceId::try_new("store-07").unwrap(),
+                UnitId::try_new("store-07").unwrap(),
                 authority(actions::ATTENDANCE_PUNCH_RECORD),
             ),
             Err(AttendanceError::ActionForbidsOwnPunch { .. })
@@ -1210,7 +1210,7 @@ mod tests {
         let period = open_period();
         let somebody_else = SelfPunchClaim::make(
             EmployeeId::try_new("emp-2").unwrap(),
-            PlaceId::try_new("store-07").unwrap(),
+            UnitId::try_new("store-07").unwrap(),
             authority(actions::ATTENDANCE_PUNCH_RECORD_OWN),
         )
         .expect("claim");
@@ -1274,7 +1274,7 @@ mod tests {
                     period: &open_period(),
                 },
             ),
-            Err(AttendanceError::NotPostedToPlaceOnDate { .. })
+            Err(AttendanceError::NotPostedToUnitOnDate { .. })
         ));
     }
 
@@ -1287,7 +1287,7 @@ mod tests {
         let again = app_punch(8 * 60, PunchDirection::In).expect("second");
         assert_eq!(first.id(), again.id());
 
-        let mut log = PunchLog::new(PlaceId::try_new("store-07").unwrap());
+        let mut log = PunchLog::new(UnitId::try_new("store-07").unwrap());
         assert!(log.append_if_absent(first).expect("first"));
         assert!(!log.append_if_absent(again).expect("second"));
         assert_eq!(log.len(), 1);
@@ -1361,7 +1361,7 @@ mod tests {
     /// on every machine.
     #[test]
     fn the_day_view_is_a_total_order() {
-        let mut log = PunchLog::new(PlaceId::try_new("store-07").unwrap());
+        let mut log = PunchLog::new(UnitId::try_new("store-07").unwrap());
         log.append(punch_at(17 * 60, PunchDirection::Out).expect("out"))
             .expect("append");
         log.append(punch_at(8 * 60, PunchDirection::In).expect("in"))

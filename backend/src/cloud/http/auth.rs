@@ -15,7 +15,7 @@ use crate::cloud::{
         ResetPasswordRequest, SetEdgeAssignmentActiveRequest, SetRfidDeviceActiveRequest,
         SetUserActiveRequest, SetUserRoleRequest, UpsertEdgeAssignmentRequest,
     },
-    domain::{relay, required_role, role_allows, PlaceId, RecordKind, Role},
+    domain::{relay, required_role, role_allows, RecordKind, Role, UnitId},
     http::audit::{id_in, DeclaredSubject},
     postgres as infrastructure,
 };
@@ -57,7 +57,7 @@ pub struct Principal {
 }
 
 /// Where a relayed call came from: the node that proved it with its key, the
-/// site that node is registered for, and the `org_place` that site is.
+/// site that node is registered for, and the unit that site belongs to.
 #[derive(Clone, Debug)]
 pub struct RelayBinding {
     pub origin_id: String,
@@ -65,13 +65,13 @@ pub struct RelayBinding {
     /// `site.kind` — `STORE` or `DC` — for a row whose coverage names a kind
     /// of site rather than a site.
     pub site_kind: String,
-    pub place_id: PlaceId,
+    pub unit_id: UnitId,
 }
 
 impl Principal {
-    /// The place a relayed call may reach, and no other; `None` when unbound.
-    pub fn bound_place(&self) -> Option<&PlaceId> {
-        self.relayed.as_ref().map(|binding| &binding.place_id)
+    /// The unit a relayed call may reach, and no other; `None` when unbound.
+    pub fn bound_unit(&self) -> Option<&UnitId> {
+        self.relayed.as_ref().map(|binding| &binding.unit_id)
     }
 
     /// The site a relayed call may reach, and no other; `None` when unbound.
@@ -199,7 +199,7 @@ fn is_public(path: &str) -> bool {
             | "/api/v1/sync/enroll/status"
             // The two routes a unit's attendance station reaches, both guarded
             // by the same per-origin `x-sync-key` as `/sync/ingest` and both
-            // re-checking it in the handler (`http::terminal::node_place`).
+            // re-checking it in the handler (`http::terminal::node_unit`).
             //
             // Outside the session space **on purpose**, and it is the
             // enforcement of a decision rather than a convenience. The path
@@ -437,8 +437,8 @@ fn is_relayed(headers: &HeaderMap) -> bool {
 ///    really store-07". An authenticated cloud refuses an unregistered origin;
 ///    development keeps the master-key fallback, and the next link still binds
 ///    the call to a place, so it is bounded there too.
-/// 3. **The node is somewhere.** Its registered site must be an `org_place`
-///    (`place_of_origin`). A node bound to no place has nowhere its manager
+/// 3. **The node is somewhere.** Its registered site must belong to a unit
+///    (`unit_of_origin`). A node bound to no unit has nowhere its manager
 ///    could be managing, and is refused rather than left unbounded.
 /// 4. **The person may sign in there, now.** `x-relay-user` names an active
 ///    login with an active assignment at this origin (`relay_subject`). The
@@ -476,15 +476,15 @@ async fn relayed_principal(
             AppError::Unauthorized("a relayed call must name the person it is for".into())
         })?;
     let origin = super::authenticate_origin(state, headers, origin_id).await?;
-    let place_id = infrastructure::place_of_origin(&state.db, &origin.origin_id)
+    let unit_id = infrastructure::unit_of_origin(&state.db, &origin.origin_id)
         .await?
         .ok_or_else(|| {
             AppError::Forbidden(format!(
-                "{} is not bound to a place, so there is nowhere its relay could reach",
+                "{} is not bound to a unit, so there is nowhere its relay could reach",
                 origin.origin_id
             ))
         })?;
-    // `place_of_origin` found a place through the origin's site, so the site
+    // `unit_of_origin` found a unit through the origin's site, so the site
     // `authenticate_origin` read is there; the refusal is for a register that
     // changed between the two reads.
     let site_id = origin.site_id.ok_or_else(|| {
@@ -504,7 +504,7 @@ async fn relayed_principal(
             origin_id: origin.origin_id,
             site_id,
             site_kind,
-            place_id,
+            unit_id,
         }),
     })
 }

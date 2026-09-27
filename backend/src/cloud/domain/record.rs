@@ -10,7 +10,7 @@
 //!     path by singularising whatever collection segment preceded the last
 //!     identifier. On the day this was written that guess had produced 45
 //!     distinct words, among them `activitie`, `edge_policie`, and — for
-//!     `/attendance-periods/{place}/{period}/closure` — the site code `dc-01`,
+//!     `/attendance-periods/{unit}/{period}/closure` — the site code `dc-01`,
 //!     because the segment before the period is not a collection at all.
 //!   - `discussion_thread.subject_kind` had nine values, lowercase, held by a
 //!     `CHECK`.
@@ -1130,10 +1130,10 @@ mod tests {
             Some((RecordKind::Campaign, "C-1".to_owned()))
         );
         // `dc-01` as a kind. Nothing claims it, and saying nothing is right:
-        // the period is `(place, period)` and the handler declares it.
+        // the period is `(unit, period)` and the handler declares it.
         assert_eq!(
             record_subject_of(
-                "/api/v1/attendance-periods/{place}/{period}/closure",
+                "/api/v1/attendance-periods/{unit}/{period}/closure",
                 "/api/v1/attendance-periods/dc-01/2026-09/closure"
             ),
             None

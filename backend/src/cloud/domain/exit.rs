@@ -55,7 +55,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::employment::{Authorization, EmployeeId, PlaceId};
+use super::employment::{Authorization, EmployeeId, UnitId};
 use super::grievance::MAX_GRIEVANCE_ID_LEN;
 
 pub const MAX_SUMMARY_LEN: usize = 4_000;
@@ -254,7 +254,7 @@ impl ExitInterviewState {
 pub struct ExitInterviewWire {
     pub id: ExitId,
     pub employee: EmployeeId,
-    pub place: PlaceId,
+    pub unit: UnitId,
     pub state: ExitInterviewState,
 }
 
@@ -263,7 +263,7 @@ pub struct ExitInterviewWire {
 pub struct ExitInterview {
     id: ExitId,
     employee: EmployeeId,
-    place: PlaceId,
+    unit: UnitId,
     state: ExitInterviewState,
 }
 
@@ -272,11 +272,11 @@ impl ExitInterview {
     /// termination that predates the hook) creates. Takes no authorization:
     /// nothing has been asked or answered yet, and the act that creates the
     /// row is the employment machine's.
-    pub fn open(id: ExitId, employee: EmployeeId, place: PlaceId) -> Self {
+    pub fn open(id: ExitId, employee: EmployeeId, unit: UnitId) -> Self {
         Self {
             id,
             employee,
-            place,
+            unit,
             state: ExitInterviewState::Pending,
         }
     }
@@ -313,7 +313,7 @@ impl ExitInterview {
         Ok(Self {
             id: wire.id,
             employee: wire.employee,
-            place: wire.place,
+            unit: wire.unit,
             state: wire.state,
         })
     }
@@ -400,8 +400,8 @@ impl ExitInterview {
     pub fn employee(&self) -> &EmployeeId {
         &self.employee
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub fn state(&self) -> &ExitInterviewState {
         &self.state
@@ -493,7 +493,7 @@ impl FullAndFinalState {
 pub struct FullAndFinalWire {
     pub id: FnfId,
     pub employee: EmployeeId,
-    pub place: PlaceId,
+    pub unit: UnitId,
     pub transaction_on: NaiveDate,
     pub advance_outstanding_minor: i64,
     pub claim_payable_minor: i64,
@@ -522,7 +522,7 @@ pub struct FnfPosting {
 pub struct FullAndFinalStatement {
     id: FnfId,
     employee: EmployeeId,
-    place: PlaceId,
+    unit: UnitId,
     transaction_on: NaiveDate,
     /// What the leaver still holds of the company's money, frozen at
     /// creation from the finance lane's `advance`.
@@ -563,7 +563,7 @@ impl FullAndFinalStatement {
     pub fn draft(
         id: FnfId,
         employee: EmployeeId,
-        place: PlaceId,
+        unit: UnitId,
         transaction_on: NaiveDate,
         advance_outstanding_minor: i64,
         claim_payable_minor: i64,
@@ -585,7 +585,7 @@ impl FullAndFinalStatement {
         Ok(Self {
             id,
             employee,
-            place,
+            unit,
             transaction_on,
             advance_outstanding_minor,
             claim_payable_minor,
@@ -652,7 +652,7 @@ impl FullAndFinalStatement {
         Ok(Self {
             id: wire.id,
             employee: wire.employee,
-            place: wire.place,
+            unit: wire.unit,
             transaction_on: wire.transaction_on,
             advance_outstanding_minor: wire.advance_outstanding_minor,
             claim_payable_minor: wire.claim_payable_minor,
@@ -798,8 +798,8 @@ impl FullAndFinalStatement {
     pub fn employee(&self) -> &EmployeeId {
         &self.employee
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub fn transaction_on(&self) -> NaiveDate {
         self.transaction_on

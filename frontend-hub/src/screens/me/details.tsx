@@ -54,7 +54,7 @@ export function Me() {
               </div>
               <hr className="border-hairline" />
               <Row label="Employee number">{person.employee_code}</Row>
-              <Row label="Works at">{person.place_name ?? "—"}</Row>
+              <Row label="Works at">{person.unit_name ?? "—"}</Row>
               {/* Null until the first HIRE takes effect, and saying so is
                   better than a formatted "Invalid Date": somebody who has not
                   started has no joining date yet. */}

@@ -58,7 +58,7 @@
 
 use super::error::HireError;
 use crate::cloud::domain::employment::{
-    ActorId, Authorization, ContractKind, EmployeeId, PlaceId, Position,
+    ActorId, Authorization, ContractKind, EmployeeId, Position, UnitId,
 };
 use chrono::NaiveDate;
 use pricing_engine::Money;
@@ -634,7 +634,7 @@ impl HireProposalEvent {
 #[serde(deny_unknown_fields)]
 pub struct HireProposalWire {
     pub id: HireProposalId,
-    pub place: PlaceId,
+    pub unit: UnitId,
     pub state: HireProposalState,
     pub versions: Vec<ProposedTerms>,
     #[serde(default)]
@@ -652,7 +652,7 @@ pub struct HireProposalWire {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HireProposal {
     id: HireProposalId,
-    place: PlaceId,
+    unit: UnitId,
     state: HireProposalState,
     /// Who filed the version in force — the actor a decision may not be.
     ///
@@ -674,14 +674,14 @@ impl HireProposal {
     /// check is at the one layer that knows the caller's reach.
     pub fn propose(
         id: HireProposalId,
-        place: PlaceId,
+        unit: UnitId,
         terms: ProposedTerms,
         proposed: Authorization,
     ) -> Result<Self, HireError> {
         let event = HireProposalEvent::try_new(HireProposalStep::Proposed, 1, None, proposed)?;
         Ok(Self {
             id,
-            place,
+            unit,
             state: HireProposalState::Proposed,
             proposer: event.authorization.actor().clone(),
             original: terms,
@@ -832,7 +832,7 @@ impl HireProposal {
         }
         Ok(Self {
             id: wire.id,
-            place: wire.place,
+            unit: wire.unit,
             state: wire.state,
             proposer,
             original,
@@ -844,8 +844,8 @@ impl HireProposal {
     pub fn id(&self) -> &HireProposalId {
         &self.id
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub const fn state(&self) -> HireProposalState {
         self.state

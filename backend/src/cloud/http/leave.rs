@@ -23,13 +23,13 @@
 //! deliberately disjoint from both: asking for leave is not granting it.
 
 use super::auth::Principal;
-use super::employment::{caller_and_reach, current_place, resolve, Access};
+use super::employment::{caller_and_reach, current_unit, resolve, Access};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, required_role_for_action, role_allows, BalanceContext, EmployeeId, LeaveBacking,
         LeaveDays, LeaveEvent, LeavePeriod, LeaveRequest, LeaveRequestId, LeaveType,
-        LeaveTypeCatalogue, LeaveTypeCode, LedgerEntry, PlaceId,
+        LeaveTypeCatalogue, LeaveTypeCode, LedgerEntry, UnitId,
     },
     postgres::{self as infrastructure, LeaveBalanceRow, LeaveRequestRecord},
 };
@@ -69,7 +69,7 @@ pub struct LeaveTypeView {
 pub struct LeaveRequestView {
     pub id: String,
     pub employee_id: String,
-    pub place_id: String,
+    pub unit_id: String,
     pub leave_type: String,
     pub leave_type_name: String,
     pub from_date: NaiveDate,
@@ -113,7 +113,7 @@ fn request_view(record: &LeaveRequestRecord, catalogue: &LeaveTypeCatalogue) -> 
     LeaveRequestView {
         id: request.id().to_string(),
         employee_id: request.employee().to_string(),
-        place_id: request.place().to_string(),
+        unit_id: request.unit().to_string(),
         leave_type: request.leave_type().to_string(),
         leave_type_name: catalogue.get(request.leave_type()).map_or_else(
             || request.leave_type().to_string(),
@@ -354,7 +354,7 @@ async fn reaches_subject(state: &AppState, access: &Access) -> Result<(), AppErr
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-    access.reaches(current_place(&record))
+    access.reaches(current_unit(&record))
 }
 
 pub async fn list_requests(
@@ -388,14 +388,14 @@ pub async fn pending(
     let (own_record, reach) = caller_and_reach(&state, &principal).await?;
     if reach.is_nowhere() {
         return Err(AppError::Forbidden(format!(
-            "{} has no open posting, so no place's requests are theirs to decide",
+            "{} has no open posting, so no unit's requests are theirs to decide",
             principal.username
         )));
     }
     let catalogue = infrastructure::load_catalogue(&state.db).await?;
     let records = infrastructure::pending_requests(
         &state.db,
-        reach.sole_place().map(|place| place.as_str()),
+        reach.sole_unit().map(|unit| unit.as_str()),
         &catalogue,
     )
     .await?;
@@ -440,8 +440,8 @@ pub async fn file(
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-    access.reaches(current_place(&record))?;
-    let place_id = current_place(&record).ok_or_else(|| {
+    access.reaches(current_unit(&record))?;
+    let unit_id = current_unit(&record).ok_or_else(|| {
         AppError::Conflict(format!(
             "{} is not posted anywhere, so there is nobody to decide their leave",
             access.employee_id
@@ -485,7 +485,7 @@ pub async fn file(
     let request = LeaveRequest::file(
         LeaveRequestId::try_new(&body.request_id).map_err(infrastructure::leave_error)?,
         EmployeeId::try_new(&access.employee_id).map_err(invalid)?,
-        PlaceId::try_new(place_id).map_err(invalid)?,
+        UnitId::try_new(unit_id).map_err(invalid)?,
         leave_type,
         period,
         &calendar,
@@ -522,11 +522,11 @@ async fn decidable(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("leave request {request_id}")))?;
     let (own_record, reach) = caller_and_reach(state, principal).await?;
-    if !reach.covers(Some(record.request.place().as_str())) {
+    if !reach.covers(Some(record.request.unit().as_str())) {
         return Err(AppError::Forbidden(format!(
             "{} is not posted anywhere that reaches {}",
             principal.username,
-            record.request.place()
+            record.request.unit()
         )));
     }
     // The domain refuses the person who *filed* it; this refuses the person it
@@ -536,7 +536,7 @@ async fn decidable(
         return Err(AppError::Forbidden(format!(
             "{} may not decide their own leave; somebody else who reaches {} decides it",
             principal.username,
-            record.request.place()
+            record.request.unit()
         )));
     }
     Ok((record, catalogue))
@@ -646,7 +646,7 @@ pub async fn withdraw(
     }
     // Withdrawing a colleague's request is a place-scoped write like deciding
     // one; your own is yours wherever you are posted (`Access::reaches`).
-    access.reaches(Some(record.request.place().as_str()))?;
+    access.reaches(Some(record.request.unit().as_str()))?;
     record
         .request
         .withdraw(access.authorize(action_key, &body.reason)?)

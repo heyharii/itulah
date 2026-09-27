@@ -22,7 +22,7 @@
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     week_of, Authorization, DayKind, EmployeeId, Minutes, OvertimeError, OvertimeId, OvertimeOrder,
-    OvertimeOrderWire, OvertimePolicy, OvertimeState, PlaceId,
+    OvertimeOrderWire, OvertimePolicy, OvertimeState, UnitId,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
@@ -117,7 +117,7 @@ pub struct OvertimeRecord {
     pub updated_at: DateTime<Utc>,
 }
 
-const ORDER_COLUMNS: &str = "id, employee_id, place_id, on_date, day_kind, planned_minutes, \
+const ORDER_COLUMNS: &str = "id, employee_id, unit_id, on_date, day_kind, planned_minutes, \
                              ordered, state, consent, withdrawal, created_at, updated_at";
 
 /// Rebuild the state from the three columns that carry it.
@@ -193,7 +193,7 @@ fn decode(row: &sqlx::postgres::PgRow) -> Result<OvertimeRecord, AppError> {
         // person rather than as the key.
         "id": row.try_get::<String, _>("id")?,
         "employee": row.try_get::<String, _>("employee_id")?,
-        "place": row.try_get::<String, _>("place_id")?,
+        "unit": row.try_get::<String, _>("unit_id")?,
         "date": row.try_get::<NaiveDate, _>("on_date")?,
         "day_kind": row.try_get::<String, _>("day_kind")?,
         "planned": u32::try_from(planned)
@@ -278,15 +278,15 @@ async fn week_around(
 /// is exactly this query.
 pub async fn awaiting_consent(
     pool: &PgPool,
-    place_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<Vec<OvertimeRecord>, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT {ORDER_COLUMNS} FROM overtime_order
           WHERE state = 'AWAITING_CONSENT'
-            AND ($1::text IS NULL OR place_id = $1)
+            AND ($1::text IS NULL OR unit_id = $1)
           ORDER BY on_date, id"
     ))
-    .bind(place_id)
+    .bind(unit_id)
     .fetch_all(pool)
     .await?;
     rows.iter().map(decode).collect()
@@ -311,14 +311,14 @@ pub async fn issue_overtime_order(
     let (state, consent, withdrawal) = split_state(order.state())?;
     let inserted = sqlx::query(
         "INSERT INTO overtime_order
-             (id, employee_id, place_id, on_date, day_kind, planned_minutes,
+             (id, employee_id, unit_id, on_date, day_kind, planned_minutes,
               ordered, state, consent, withdrawal)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(order.id().as_str())
     .bind(order.employee().as_str())
-    .bind(order.place().as_str())
+    .bind(order.unit().as_str())
     .bind(order.date())
     .bind(order.day_kind().code())
     .bind(i32::try_from(order.planned().get()).unwrap_or(i32::MAX))
@@ -384,12 +384,12 @@ pub async fn agreed_overtime_on(
     pool: &PgPool,
     employee: &EmployeeId,
     date: NaiveDate,
-    place: &PlaceId,
+    unit: &UnitId,
 ) -> Result<AgreedOvertime, AppError> {
     let orders = overtime_orders_of(pool, employee.as_str(), Some(date), Some(date)).await?;
     let authorized = orders
         .into_iter()
-        .filter(|record| record.order.place() == place)
+        .filter(|record| record.order.unit() == unit)
         .filter_map(|record| record.order.authorized_minutes())
         .fold(0_u32, |total, minutes| total.saturating_add(minutes.get()));
     Ok(AgreedOvertime {
@@ -409,13 +409,13 @@ pub async fn agreed_overtime_on(
 pub async fn day_kind_hint(
     pool: &PgPool,
     date: NaiveDate,
-    place: &PlaceId,
+    unit: &UnitId,
 ) -> Result<Option<DayKind>, AppError> {
     use chrono::Datelike;
     let Some(calendar) = super::load_calendar(pool, date.year()).await? else {
         return Ok(None);
     };
-    Ok(calendar.on(date, place).map(|_| DayKind::Holiday))
+    Ok(calendar.on(date, unit).map(|_| DayKind::Holiday))
 }
 
 /// The id an order carries, for a caller that has only the string.

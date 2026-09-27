@@ -3,7 +3,7 @@
 /**
  * A fixed term running out, for the report that made contracts a table.
  */
-export type ExpiringContract = { employee_id: string, employee_code: string, full_name: string | null, position: string, place_id: string | null, ends_on: string, 
+export type ExpiringContract = { employee_id: string, employee_code: string, full_name: string | null, position: string, unit_id: string | null, ends_on: string, 
 /**
  * Days from the date asked about to the last day of the term. Negative
  * means it has already ended and nobody noticed, which is exactly the row

@@ -17,4 +17,4 @@ states: Array<UserFacet>,
  * but the filter has no spelling for "nowhere" and a count nobody can
  * click is worse than no count.
  */
-places: Array<UserFacet>, };
+units: Array<UserFacet>, };

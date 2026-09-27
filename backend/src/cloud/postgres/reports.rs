@@ -298,9 +298,8 @@ pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Valu
 /// `transactions` names the shop it rang at so a mixed list is still readable.
 ///
 /// The name is the unit's own — head office is `HO` in the books and `dc` in
-/// this system's site table — so it is read through `org_place`, which is the
-/// finance unit domain, and falls back to the site's when no place is bridged
-/// to it.
+/// this system's site table — so it is read through the site's `unit`, and
+/// falls back to the site's own name if the unit cannot be read.
 ///
 /// Edge sale returns are not included yet: the POS return flow has no sync fact.
 /// The returned receipt list and sales/tender totals include both populations.
@@ -320,7 +319,7 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
         Some(id) => Some(
             sqlx::query(
                 "SELECT COALESCE(p.name, s.name) AS name
-                   FROM site s LEFT JOIN org_place p ON p.site_id = s.id
+                   FROM site s LEFT JOIN unit p ON p.id = s.unit_id
                   WHERE s.id = $1",
             )
             .bind(id)

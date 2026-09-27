@@ -57,7 +57,7 @@ use super::error::AttendanceError;
 use super::ids::{CorrectionId, LeaveRef};
 use super::period::AttendancePeriod;
 use super::punch::PunchTime;
-use crate::cloud::domain::employment::{Authorization, EmployeeId, PlaceId};
+use crate::cloud::domain::employment::{Authorization, EmployeeId, UnitId};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -200,7 +200,7 @@ impl fmt::Display for CorrectionState {
 pub struct CorrectionWire {
     pub id: CorrectionId,
     pub employee: EmployeeId,
-    pub place: PlaceId,
+    pub unit: UnitId,
     pub date: NaiveDate,
     pub effect: CorrectionEffect,
     #[serde(default)]
@@ -235,7 +235,7 @@ pub struct CorrectionWire {
 pub struct Correction {
     id: CorrectionId,
     employee: EmployeeId,
-    place: PlaceId,
+    unit: UnitId,
     date: NaiveDate,
     effect: CorrectionEffect,
     supersedes: Option<CorrectionId>,
@@ -252,7 +252,7 @@ impl<'de> Deserialize<'de> for Correction {
         Self::try_new(
             wire.id,
             wire.employee,
-            wire.place,
+            wire.unit,
             wire.date,
             wire.effect,
             wire.supersedes,
@@ -275,7 +275,7 @@ impl Correction {
     pub fn request(
         id: CorrectionId,
         employee: EmployeeId,
-        place: PlaceId,
+        unit: UnitId,
         date: NaiveDate,
         effect: CorrectionEffect,
         supersedes: Option<CorrectionId>,
@@ -284,7 +284,7 @@ impl Correction {
         Self::try_new(
             id,
             employee,
-            place,
+            unit,
             date,
             effect,
             supersedes,
@@ -300,7 +300,7 @@ impl Correction {
     pub fn try_new(
         id: CorrectionId,
         employee: EmployeeId,
-        place: PlaceId,
+        unit: UnitId,
         date: NaiveDate,
         effect: CorrectionEffect,
         supersedes: Option<CorrectionId>,
@@ -310,7 +310,7 @@ impl Correction {
         let correction = Self {
             id,
             employee,
-            place,
+            unit,
             date,
             effect,
             supersedes,
@@ -365,8 +365,8 @@ impl Correction {
     pub fn employee(&self) -> &EmployeeId {
         &self.employee
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub const fn date(&self) -> NaiveDate {
         self.date
@@ -406,17 +406,17 @@ impl Correction {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CorrectionChain {
     employee: EmployeeId,
-    place: PlaceId,
+    unit: UnitId,
     date: NaiveDate,
     corrections: Vec<Correction>,
 }
 
 impl CorrectionChain {
     /// An empty chain for one day.
-    pub const fn new(employee: EmployeeId, place: PlaceId, date: NaiveDate) -> Self {
+    pub const fn new(employee: EmployeeId, unit: UnitId, date: NaiveDate) -> Self {
         Self {
             employee,
-            place,
+            unit,
             date,
             corrections: Vec::new(),
         }
@@ -429,14 +429,12 @@ impl CorrectionChain {
     /// second copy of that rule and this is the first.
     pub fn try_new(
         employee: EmployeeId,
-        place: PlaceId,
+        unit: UnitId,
         date: NaiveDate,
         corrections: Vec<Correction>,
     ) -> Result<Self, AttendanceError> {
         for correction in &corrections {
-            if correction.employee != employee
-                || correction.place != place
-                || correction.date != date
+            if correction.employee != employee || correction.unit != unit || correction.date != date
             {
                 return Err(AttendanceError::CorrectionChainMismatch);
             }
@@ -452,7 +450,7 @@ impl CorrectionChain {
         }
         Ok(Self {
             employee,
-            place,
+            unit,
             date,
             corrections,
         })
@@ -461,8 +459,8 @@ impl CorrectionChain {
     pub fn employee(&self) -> &EmployeeId {
         &self.employee
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub const fn date(&self) -> NaiveDate {
         self.date
@@ -505,7 +503,7 @@ impl CorrectionChain {
         period: &AttendancePeriod,
     ) -> Result<&Correction, AttendanceError> {
         if correction.employee != self.employee
-            || correction.place != self.place
+            || correction.unit != self.unit
             || correction.date != self.date
         {
             return Err(AttendanceError::CorrectionChainMismatch);
@@ -602,7 +600,7 @@ impl CorrectionChain {
     }
 
     fn require_open(&self, period: &AttendancePeriod) -> Result<(), AttendanceError> {
-        period.require_covers(&self.place, self.date)?;
+        period.require_covers(&self.unit, self.date)?;
         if period.is_closed() {
             return Err(AttendanceError::ClosedPeriodRejectsCorrection {
                 period: period.period().to_string(),
@@ -640,12 +638,12 @@ mod tests {
         EmployeeId::try_new("emp-1").expect("employee id")
     }
 
-    fn place() -> PlaceId {
-        PlaceId::try_new("store-07").expect("place id")
+    fn unit() -> UnitId {
+        UnitId::try_new("store-07").expect("unit id")
     }
 
     fn open_period() -> AttendancePeriod {
-        AttendancePeriod::open(place(), AttendanceMonth::try_new(2026, 9).unwrap())
+        AttendancePeriod::open(unit(), AttendanceMonth::try_new(2026, 9).unwrap())
     }
 
     fn closed_period() -> AttendancePeriod {
@@ -669,7 +667,7 @@ mod tests {
         Correction::request(
             CorrectionId::try_new(id).unwrap(),
             employee(),
-            place(),
+            unit(),
             date(DAY),
             arrival_at(8 * 60),
             supersedes
@@ -682,7 +680,7 @@ mod tests {
     }
 
     fn chain() -> CorrectionChain {
-        CorrectionChain::new(employee(), place(), date(DAY))
+        CorrectionChain::new(employee(), unit(), date(DAY))
     }
 
     #[test]
@@ -731,7 +729,7 @@ mod tests {
         let forged = serde_json::json!({
             "id": "cor-1",
             "employee": "emp-1",
-            "place": "store-07",
+            "unit": "store-07",
             "date": DAY,
             "effect": { "effect": "ARRIVAL", "at": {
                 "business_date": DAY, "day_offset": 0, "minute": "08:00" } },
@@ -887,7 +885,7 @@ mod tests {
         let backwards = Correction::request(
             CorrectionId::try_new("cor-1").unwrap(),
             employee(),
-            place(),
+            unit(),
             date(DAY),
             CorrectionEffect::ArrivalAndDeparture {
                 arrival: PunchTime::same_day(date(DAY), MinuteOfDay::try_new(16 * 60).unwrap()),
@@ -909,7 +907,7 @@ mod tests {
         let elsewhere = Correction::request(
             CorrectionId::try_new("cor-1").unwrap(),
             employee(),
-            place(),
+            unit(),
             date(DAY),
             CorrectionEffect::Arrival {
                 at: PunchTime::same_day(date("2026-08-31"), MinuteOfDay::try_new(8 * 60).unwrap()),
@@ -931,7 +929,7 @@ mod tests {
             Correction::request(
                 CorrectionId::try_new("cor-1").unwrap(),
                 employee(),
-                place(),
+                unit(),
                 date(DAY),
                 arrival_at(8 * 60),
                 None,
@@ -948,7 +946,7 @@ mod tests {
         let stray = Correction::request(
             CorrectionId::try_new("cor-9").unwrap(),
             employee(),
-            place(),
+            unit(),
             date("2026-09-15"),
             CorrectionEffect::Arrival {
                 at: PunchTime::same_day(date("2026-09-15"), MinuteOfDay::try_new(8 * 60).unwrap()),
@@ -958,7 +956,7 @@ mod tests {
         )
         .expect("request");
         assert!(matches!(
-            CorrectionChain::try_new(employee(), place(), date(DAY), vec![stray]),
+            CorrectionChain::try_new(employee(), unit(), date(DAY), vec![stray]),
             Err(AttendanceError::CorrectionChainMismatch)
         ));
     }
@@ -970,7 +968,7 @@ mod tests {
         let first = request("cor-1", "manager", None);
         let second = request("cor-2", "manager", None);
         assert!(matches!(
-            CorrectionChain::try_new(employee(), place(), date(DAY), vec![first, second]),
+            CorrectionChain::try_new(employee(), unit(), date(DAY), vec![first, second]),
             Err(AttendanceError::AnotherCorrectionIsPending)
         ));
     }

@@ -6,7 +6,7 @@
 
 use super::*;
 use crate::cloud::domain::actions;
-use crate::cloud::domain::employment::{Authorization, EmployeeId, PlaceId};
+use crate::cloud::domain::employment::{Authorization, EmployeeId, UnitId};
 use crate::cloud::domain::holiday::{
     Holiday, HolidayCalendar, HolidayKind, HolidayName, HolidayScope,
 };
@@ -25,8 +25,8 @@ fn date(raw: &str) -> NaiveDate {
     raw.parse().unwrap_or_else(|error| panic!("date: {error}"))
 }
 
-fn place() -> PlaceId {
-    PlaceId::try_new("store-07").unwrap_or_else(|error| panic!("place: {error}"))
+fn unit() -> UnitId {
+    UnitId::try_new("store-07").unwrap_or_else(|error| panic!("unit: {error}"))
 }
 
 fn employee() -> EmployeeId {
@@ -110,7 +110,7 @@ fn filed(
     LeaveRequest::file(
         LeaveRequestId::try_new(id).unwrap_or_else(|error| panic!("id: {error}")),
         employee(),
-        place(),
+        unit(),
         kind,
         LeavePeriod::try_new(date(from), date(to))
             .unwrap_or_else(|error| panic!("period: {error}")),
@@ -389,7 +389,7 @@ fn an_approved_request_with_no_deduction_refuses_to_hydrate() {
     let wire = LeaveRequestWire {
         id: LeaveRequestId::try_new("REQ-9").unwrap_or_else(|error| panic!("id: {error}")),
         employee: employee(),
-        place: place(),
+        unit: unit(),
         leave_type: kind.code().clone(),
         period: LeavePeriod::try_new(date("2026-04-06"), date("2026-04-06"))
             .unwrap_or_else(|error| panic!("period: {error}")),
@@ -413,7 +413,7 @@ fn an_approved_sick_day_that_deducted_something_refuses_to_hydrate() {
     let wire = LeaveRequestWire {
         id: LeaveRequestId::try_new("REQ-10").unwrap_or_else(|error| panic!("id: {error}")),
         employee: employee(),
-        place: place(),
+        unit: unit(),
         leave_type: kind.code().clone(),
         period: LeavePeriod::try_new(date("2026-04-06"), date("2026-04-06"))
             .unwrap_or_else(|error| panic!("period: {error}")),

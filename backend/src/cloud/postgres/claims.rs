@@ -35,7 +35,7 @@ use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     actions, Authorization, ClaimError, ClaimEvent, ClaimId, ClaimLine, ClaimLineId, ClaimState,
     ClaimType, ClaimTypeCatalogue, ClaimTypeCode, EmployeeId, ExpenseClaim, ExpenseClaimWire,
-    PlaceId,
+    UnitId,
 };
 use crate::cloud::postgres::{next_document_number, poster, LineAccount, PostingIntent, PostingLine};
 use chrono::{DateTime, NaiveDate, Utc};
@@ -43,11 +43,6 @@ use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::str::FromStr;
 use uuid::Uuid;
-
-/// Head office, the posting site for a claim whose place has none. The same
-/// constant `poster` keeps; restated because restating it is the convention
-/// this file inherited from `store_money`.
-const HEAD_OFFICE_SITE: &str = "dc";
 
 fn corrupt(what: &str, detail: String) -> AppError {
     AppError::Validation(format!(
@@ -195,7 +190,7 @@ pub async fn retire_claim_type(
 
 // ── the claim rows ───────────────────────────────────────────────────────
 
-const CLAIM_COLUMNS: &str = "c.claim_id, c.claim_number, c.place_id, c.employee_id,
+const CLAIM_COLUMNS: &str = "c.claim_id, c.claim_number, c.unit_id, c.employee_id,
                              c.claimed_by, c.posted_on, c.sanctioned_minor, c.state,
                              c.decided_by, c.decided_at, c.decide_reason, c.paid_at,
                              c.paid_by, c.approved_entry_id, c.paid_entry_id,
@@ -249,7 +244,7 @@ pub struct ClaimRecord {
     pub claim: ExpenseClaim,
     pub history: Vec<ClaimEvent>,
     pub created_at: DateTime<Utc>,
-    pub place_name: Option<String>,
+    pub unit_name: Option<String>,
     pub employee_code: Option<String>,
     pub employee_name: Option<String>,
     pub approved_entry_id: Option<Uuid>,
@@ -357,8 +352,8 @@ async fn decode_claim(
         ExpenseClaimWire {
             id: ClaimId::try_new(&id.to_string())
                 .map_err(|error| corrupt("claim id", error.to_string()))?,
-            place: PlaceId::try_new(&row.try_get::<String, _>("place_id")?)
-                .map_err(|error| corrupt("claim place", error.to_string()))?,
+            unit: UnitId::try_new(&row.try_get::<String, _>("unit_id")?)
+                .map_err(|error| corrupt("claim unit", error.to_string()))?,
             employee: EmployeeId::try_new(&row.try_get::<String, _>("employee_id")?)
                 .map_err(|error| corrupt("claim employee", error.to_string()))?,
             claimed_by: row.try_get::<String, _>("claimed_by")?,
@@ -373,7 +368,7 @@ async fn decode_claim(
 
     Ok(ClaimRecord {
         created_at: row.try_get("created_at")?,
-        place_name: row.try_get("place_name")?,
+        unit_name: row.try_get("unit_name")?,
         employee_code: row.try_get("employee_code")?,
         employee_name: row.try_get("employee_name")?,
         approved_entry_id: row.try_get("approved_entry_id")?,
@@ -433,20 +428,20 @@ pub async fn insert_claim(pool: &PgPool, claim: &ExpenseClaim) -> Result<String,
     let mut tx = pool.begin().await?;
     let claim_number = next_document_number(
         &mut tx,
-        &format!("KLC:{}", claim.place().as_str()),
-        &format!("KLC-{}", claim.place().as_str().to_uppercase()),
+        &format!("KLC:{}", claim.unit().as_str()),
+        &format!("KLC-{}", claim.unit().as_str().to_uppercase()),
         claim.posted_on(),
     )
     .await?;
     sqlx::query(
         "INSERT INTO expense_claim
-             (claim_id, claim_number, place_id, employee_id, claimed_by, posted_on,
+             (claim_id, claim_number, unit_id, employee_id, claimed_by, posted_on,
               state, history)
          VALUES ($1, $2, $3, $4, $5, $6, 'DRAFT', $7)",
     )
     .bind(claim_id)
     .bind(&claim_number)
-    .bind(claim.place().as_str())
+    .bind(claim.unit().as_str())
     .bind(claim.employee().as_str())
     .bind(claim.claimed_by())
     .bind(claim.posted_on())
@@ -485,19 +480,14 @@ async fn write_line(
     Ok(())
 }
 
-/// The place's posting site: a store's site, or head office's when the place
-/// carries none. The same rule `pay.rs` uses, with the spec's HEAD_OFFICE_SITE
-/// fallback instead of the place's own id.
+/// The unit's posting site: a store's shop, or head office's Gudang. The same
+/// rule `pay.rs` and `exit.rs` use — `book_site_of_unit` — while the books are
+/// still kept per site.
 async fn posting_site(
     tx: &mut Transaction<'_, Postgres>,
-    place: &PlaceId,
+    unit: &UnitId,
 ) -> Result<String, AppError> {
-    sqlx::query_scalar("SELECT COALESCE(site_id, $2) FROM org_place WHERE id = $1")
-        .bind(place.as_str())
-        .bind(HEAD_OFFICE_SITE)
-        .fetch_optional(&mut **tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("there is no place {}", place)))
+    super::book_site_of_unit(&mut **tx, unit.as_str()).await
 }
 
 /// Decide a claim, and put the sanction in the books, in one transaction.
@@ -531,7 +521,7 @@ pub async fn decide_claim(
     // included — rolls back, and there is no instant at which the books hold
     // a claim's sanction the claim does not.
     let posted = if let Some(posting) = &posting {
-        let site = posting_site(&mut tx, claim.place()).await?;
+        let site = posting_site(&mut tx, claim.unit()).await?;
         let mut lines = Vec::with_capacity(posting.by_type.len() * 2);
         for (type_code, amount) in &posting.by_type {
             let category: Option<String> = sqlx::query_scalar(
@@ -685,7 +675,7 @@ pub async fn pay_claim(
         .ok_or_else(|| corrupt("paid claim", "nothing sanctioned to pay".into()))?;
 
     let mut tx = pool.begin().await?;
-    let site = posting_site(&mut tx, claim.place()).await?;
+    let site = posting_site(&mut tx, claim.unit()).await?;
     let document_number = next_document_number(
         &mut tx,
         &format!("KKC:{site}"),
@@ -898,11 +888,11 @@ pub async fn load_claim(
 ) -> Result<Option<ClaimRecord>, AppError> {
     let sql = format!(
         "SELECT {CLAIM_COLUMNS},
-                COALESCE(p.name, p.id) AS place_name,
+                COALESCE(p.name, p.id) AS unit_name,
                 e.code AS employee_code,
                 COALESCE(pr.full_name, e.id) AS employee_name
            FROM expense_claim c
-           JOIN org_place p ON p.id = c.place_id
+           JOIN unit p ON p.id = c.unit_id
            JOIN employee e ON e.id = c.employee_id
       LEFT JOIN employee_profile pr ON pr.employee_id = e.id
           WHERE c.claim_id = $1"
@@ -923,31 +913,31 @@ pub async fn load_claim(
 pub async fn list_claims(
     pool: &PgPool,
     catalogue: &ClaimTypeCatalogue,
-    place: Option<&str>,
+    unit: Option<&str>,
     state: Option<&str>,
     employee: Option<&str>,
-    reach_place: Option<&str>,
+    reach_unit: Option<&str>,
 ) -> Result<Vec<ClaimRecord>, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT {CLAIM_COLUMNS},
-                COALESCE(p.name, p.id) AS place_name,
+                COALESCE(p.name, p.id) AS unit_name,
                 e.code AS employee_code,
                 COALESCE(pr.full_name, e.id) AS employee_name
            FROM expense_claim c
-           JOIN org_place p ON p.id = c.place_id
+           JOIN unit p ON p.id = c.unit_id
            JOIN employee e ON e.id = c.employee_id
       LEFT JOIN employee_profile pr ON pr.employee_id = e.id
-          WHERE ($1::text IS NULL OR c.place_id = $1)
+          WHERE ($1::text IS NULL OR c.unit_id = $1)
             AND ($2::text IS NULL OR c.state = $2)
             AND ($3::text IS NULL OR c.employee_id = $3)
-            AND ($4::text IS NULL OR c.place_id = $4)
+            AND ($4::text IS NULL OR c.unit_id = $4)
           ORDER BY c.posted_on DESC, c.claim_number DESC
           LIMIT 500"
     ))
-    .bind(place)
+    .bind(unit)
     .bind(state)
     .bind(employee)
-    .bind(reach_place)
+    .bind(reach_unit)
     .fetch_all(pool)
     .await?;
     let mut records = Vec::with_capacity(rows.len());
@@ -990,8 +980,8 @@ pub struct ClaimEventView {
 pub struct ClaimView {
     pub claim_id: Uuid,
     pub claim_number: String,
-    pub place_id: String,
-    pub place_name: Option<String>,
+    pub unit_id: String,
+    pub unit_name: Option<String>,
     pub employee_id: String,
     pub employee_code: Option<String>,
     pub employee_name: Option<String>,
@@ -1052,8 +1042,8 @@ pub fn claim_view(
     Ok(ClaimView {
         claim_id: parse("claim id", claim.id().as_str())?,
         claim_number: claim.claim_number().to_owned(),
-        place_id: claim.place().to_string(),
-        place_name: record.place_name.clone(),
+        unit_id: claim.unit().to_string(),
+        unit_name: record.unit_name.clone(),
         employee_id: claim.employee().to_string(),
         employee_code: record.employee_code.clone(),
         employee_name: record.employee_name.clone(),

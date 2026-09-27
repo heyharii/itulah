@@ -60,7 +60,7 @@ pub struct PaymentInstruction {
     /// ledger row, and it is never part of an account code.
     ///
     /// Carried as an id and never as a name: the name of a unit comes from
-    /// `org_place` through `book_locations`, which is the one place that knows
+    /// `unit` through `book_locations`, which is the one place that knows
     /// head office is not spelled "DC".
     pub site_id: String,
     /// Free text. The landlord, PLN, the man who fixed the roller shutter.

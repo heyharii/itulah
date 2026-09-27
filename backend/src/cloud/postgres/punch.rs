@@ -22,8 +22,8 @@ use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     AttendanceMonth, AttendanceTerminal, Authorization, ClockQuality, Correction, CorrectionChain,
     CorrectionEffect, CorrectionId, CorrectionState, DayOffset, EmployeeId, IdentificationMethod,
-    MinuteOfDay, PersistedPunch, PlaceId, Punch, PunchDirection, PunchId, PunchProvenance,
-    PunchSource, PunchTime, TerminalId,
+    MinuteOfDay, PersistedPunch, Punch, PunchDirection, PunchId, PunchProvenance, PunchSource,
+    PunchTime, TerminalId, UnitId,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
@@ -36,7 +36,7 @@ fn corrupt(what: &str, detail: String) -> AppError {
     ))
 }
 
-const PUNCH_COLUMNS: &str = "id, employee_id, place_id, source, terminal_id, method, direction, \
+const PUNCH_COLUMNS: &str = "id, employee_id, unit_id, source, terminal_id, method, direction, \
                              business_date, day_offset, minute, recorded_at, clock_quality";
 
 // ── punches ──────────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ const PUNCH_COLUMNS: &str = "id, employee_id, place_id, source, terminal_id, met
 fn decode_persisted(row: &sqlx::postgres::PgRow) -> Result<PersistedPunch, AppError> {
     let id: String = row.try_get("id")?;
     let employee: String = row.try_get("employee_id")?;
-    let place: String = row.try_get("place_id")?;
+    let unit: String = row.try_get("unit_id")?;
     let source: String = row.try_get("source")?;
     let terminal: Option<String> = row.try_get("terminal_id")?;
     let method: Option<String> = row.try_get("method")?;
@@ -90,8 +90,7 @@ fn decode_persisted(row: &sqlx::postgres::PgRow) -> Result<PersistedPunch, AppEr
         id: PunchId::try_new(&id).map_err(|error| corrupt("punch id", error.to_string()))?,
         employee: EmployeeId::try_new(&employee)
             .map_err(|error| corrupt("punch employee", error.to_string()))?,
-        place: PlaceId::try_new(&place)
-            .map_err(|error| corrupt("punch place", error.to_string()))?,
+        unit: UnitId::try_new(&unit).map_err(|error| corrupt("punch unit", error.to_string()))?,
         provenance,
         direction: PunchDirection::parse(&direction)
             .map_err(|error| corrupt("punch direction", error.to_string()))?,
@@ -123,14 +122,14 @@ pub async fn insert_punch(pool: &PgPool, punch: &Punch) -> Result<bool, AppError
     let mut tx = pool.begin().await?;
     let affected = sqlx::query(
         "INSERT INTO attendance_punch
-            (id, employee_id, place_id, source, terminal_id, method, direction,
+            (id, employee_id, unit_id, source, terminal_id, method, direction,
              business_date, day_offset, minute, recorded_at, clock_quality)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(record.id.as_str())
     .bind(record.employee.as_str())
-    .bind(record.place.as_str())
+    .bind(record.unit.as_str())
     .bind(record.provenance.source().code())
     .bind(terminal)
     .bind(record.provenance.method().map(IdentificationMethod::code))
@@ -282,7 +281,7 @@ pub async fn punches_between(
 pub struct PunchRow {
     pub id: String,
     pub employee_id: String,
-    pub place_id: String,
+    pub unit_id: String,
     /// `TERMINAL` or `EMPLOYEE_APP`. **Sent explicitly rather than inferred
     /// from `terminal_id` being absent**, because a screen that inferred it
     /// would be one refactor away from presenting a phone tap as a reading —
@@ -306,7 +305,7 @@ fn punch_row(punch: &Punch, received_at: DateTime<Utc>) -> PunchRow {
     PunchRow {
         id: punch.id().to_string(),
         employee_id: punch.employee().to_string(),
-        place_id: punch.place().to_string(),
+        unit_id: punch.unit().to_string(),
         source: punch.source().code().to_owned(),
         terminal_id: punch.terminal().map(ToString::to_string),
         direction: punch.direction().code().to_owned(),
@@ -323,17 +322,17 @@ fn punch_row(punch: &Punch, received_at: DateTime<Utc>) -> PunchRow {
 /// The **Today** screen's read. Deliberately returns the raw observations
 /// rather than outcomes: the outcomes need the plan and the policy, and a
 /// screen that wants them asks for the derivation.
-pub async fn punches_at_place_on(
+pub async fn punches_at_unit_on(
     pool: &PgPool,
-    place: &PlaceId,
+    unit: &UnitId,
     date: NaiveDate,
 ) -> Result<Vec<PunchRow>, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT {PUNCH_COLUMNS}, received_at FROM attendance_punch
-          WHERE place_id = $1 AND business_date = $2
+          WHERE unit_id = $1 AND business_date = $2
           ORDER BY day_offset, minute, recorded_at, id"
     ))
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .bind(date)
     .fetch_all(pool)
     .await?;
@@ -371,48 +370,47 @@ pub async fn punches_at_place_on(
         .collect())
 }
 
-/// The `org_place` a syncing node *is*.
+/// The `unit` a syncing node *is*.
 ///
 /// # Why this is a join and not a string comparison
 ///
-/// `sync_origin_credential.origin_id` and `org_place.id` are different
+/// `sync_origin_credential.origin_id` and `unit.id` are different
 /// vocabularies, and in this deployment they are known to disagree: the cloud
 /// spells the warehouse `dc` while the edge node is `dc-01`. Comparing them
 /// would refuse every DC punch here, and — worse, somewhere else — could match
-/// the wrong unit. So the route is `origin → site_id → org_place.site_id`,
-/// which is the relationship that actually exists.
+/// the wrong unit. So the route is `origin → site_id → site.unit_id`: a node
+/// runs at a site, and the site belongs to exactly one unit.
 ///
 /// `None` for an origin that is registered but bound to no site. That is a real
 /// state — a node provisioned before anybody said which shop it is in — and it
 /// must be a named refusal rather than a punch filed against nowhere.
-pub async fn place_of_origin(pool: &PgPool, origin_id: &str) -> Result<Option<PlaceId>, AppError> {
-    let place: Option<String> = sqlx::query_scalar(
-        "SELECT p.id
+pub async fn unit_of_origin(pool: &PgPool, origin_id: &str) -> Result<Option<UnitId>, AppError> {
+    let unit: Option<String> = sqlx::query_scalar(
+        "SELECT s.unit_id
            FROM sync_origin_credential o
-           JOIN org_place p ON p.site_id = o.site_id
+           JOIN site s ON s.id = o.site_id
           WHERE o.origin_id = $1",
     )
     .bind(origin_id)
     .fetch_optional(pool)
     .await?
     .flatten();
-    place
-        .as_deref()
-        .map(PlaceId::try_new)
+    unit.as_deref()
+        .map(UnitId::try_new)
         .transpose()
-        .map_err(|error| corrupt("origin place", error.to_string()))
+        .map_err(|error| corrupt("origin unit", error.to_string()))
 }
 
 // ── corrections ──────────────────────────────────────────────────────────
 
 const CORRECTION_COLUMNS: &str =
-    "id, employee_id, place_id, business_date, effect, supersedes, requested, state, \
+    "id, employee_id, unit_id, business_date, effect, supersedes, requested, state, \
      decision, chain_seq";
 
 fn decode_correction(row: &sqlx::postgres::PgRow) -> Result<Correction, AppError> {
     let id: String = row.try_get("id")?;
     let employee: String = row.try_get("employee_id")?;
-    let place: String = row.try_get("place_id")?;
+    let unit: String = row.try_get("unit_id")?;
     let date: NaiveDate = row.try_get("business_date")?;
     let effect: serde_json::Value = row.try_get("effect")?;
     let supersedes: Option<String> = row.try_get("supersedes")?;
@@ -444,7 +442,7 @@ fn decode_correction(row: &sqlx::postgres::PgRow) -> Result<Correction, AppError
         CorrectionId::try_new(&id).map_err(|error| corrupt("correction id", error.to_string()))?,
         EmployeeId::try_new(&employee)
             .map_err(|error| corrupt("correction employee", error.to_string()))?,
-        PlaceId::try_new(&place).map_err(|error| corrupt("correction place", error.to_string()))?,
+        UnitId::try_new(&unit).map_err(|error| corrupt("correction unit", error.to_string()))?,
         date,
         serde_json::from_value::<CorrectionEffect>(effect)
             .map_err(|error| corrupt("correction effect", error.to_string()))?,
@@ -467,16 +465,16 @@ fn decode_correction(row: &sqlx::postgres::PgRow) -> Result<Correction, AppError
 pub async fn load_correction_chain(
     pool: &PgPool,
     employee: &EmployeeId,
-    place: &PlaceId,
+    unit: &UnitId,
     date: NaiveDate,
 ) -> Result<CorrectionChain, AppError> {
     let rows = sqlx::query(&format!(
         "SELECT {CORRECTION_COLUMNS} FROM attendance_correction
-          WHERE employee_id = $1 AND place_id = $2 AND business_date = $3
+          WHERE employee_id = $1 AND unit_id = $2 AND business_date = $3
           ORDER BY chain_seq"
     ))
     .bind(employee.as_str())
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .bind(date)
     .fetch_all(pool)
     .await?;
@@ -484,7 +482,7 @@ pub async fn load_correction_chain(
         .iter()
         .map(decode_correction)
         .collect::<Result<Vec<_>, AppError>>()?;
-    CorrectionChain::try_new(employee.clone(), place.clone(), date, corrections)
+    CorrectionChain::try_new(employee.clone(), unit.clone(), date, corrections)
         .map_err(|error| corrupt("correction chain", error.to_string()))
 }
 
@@ -500,7 +498,7 @@ pub async fn save_correction_chain(pool: &PgPool, chain: &CorrectionChain) -> Re
         let seq = i32::try_from(index + 1).unwrap_or(i32::MAX);
         sqlx::query(
             "INSERT INTO attendance_correction
-                (id, employee_id, place_id, business_date, effect, supersedes,
+                (id, employee_id, unit_id, business_date, effect, supersedes,
                  requested, state, decision, chain_seq)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              ON CONFLICT (id) DO UPDATE SET
@@ -510,7 +508,7 @@ pub async fn save_correction_chain(pool: &PgPool, chain: &CorrectionChain) -> Re
         )
         .bind(correction.id().as_str())
         .bind(correction.employee().as_str())
-        .bind(correction.place().as_str())
+        .bind(correction.unit().as_str())
         .bind(correction.date())
         .bind(serde_json::to_value(correction.effect())?)
         .bind(correction.supersedes().map(CorrectionId::as_str))
@@ -539,7 +537,7 @@ pub struct CorrectionRow {
     pub employee_id: String,
     pub employee_code: String,
     pub display_name: String,
-    pub place_id: String,
+    pub unit_id: String,
     pub business_date: NaiveDate,
     /// `ARRIVAL`, `DEPARTURE`, `ARRIVAL_AND_DEPARTURE` or `APPROVED_LEAVE`.
     pub effect: String,
@@ -568,7 +566,7 @@ fn correction_row(
         employee_id: correction.employee().to_string(),
         employee_code,
         display_name,
-        place_id: correction.place().to_string(),
+        unit_id: correction.unit().to_string(),
         business_date: correction.date(),
         effect: correction.effect().code().to_owned(),
         corrected_arrival: correction.effect().arrival().map(|at| at.to_string()),
@@ -591,12 +589,12 @@ fn correction_row(
 /// than one: a head-office caller reaches everywhere and a place manager
 /// reaches one, and the caller's `Reach` decides which — resolved at the
 /// handler, so this function never has to know about rungs.
-pub async fn corrections_at_places(
+pub async fn corrections_at_units(
     pool: &PgPool,
-    places: &[String],
+    units: &[String],
     pending_only: bool,
 ) -> Result<Vec<CorrectionRow>, AppError> {
-    corrections_where(pool, places, None, pending_only).await
+    corrections_where(pool, units, None, pending_only).await
 }
 
 /// One person's own corrections, wherever they were filed.
@@ -610,7 +608,7 @@ pub async fn corrections_of_employee(
 
 async fn corrections_where(
     pool: &PgPool,
-    places: &[String],
+    units: &[String],
     employee_id: Option<&str>,
     pending_only: bool,
 ) -> Result<Vec<CorrectionRow>, AppError> {
@@ -620,17 +618,13 @@ async fn corrections_where(
            FROM attendance_correction c
            JOIN employee e ON e.id = c.employee_id
            LEFT JOIN employee_profile p ON p.employee_id = c.employee_id
-          WHERE ($1::text[] IS NULL OR c.place_id = ANY($1))
+          WHERE ($1::text[] IS NULL OR c.unit_id = ANY($1))
             AND ($3::text IS NULL OR c.employee_id = $3)
             AND ($2 = false OR c.state = 'PENDING')
           ORDER BY c.business_date DESC, c.chain_seq DESC",
         CORRECTION_COLUMNS.replace(", ", ", c.")
     ))
-    .bind(if places.is_empty() {
-        None
-    } else {
-        Some(places)
-    })
+    .bind(if units.is_empty() { None } else { Some(units) })
     .bind(pending_only)
     .bind(employee_id)
     .fetch_all(pool)
@@ -654,12 +648,12 @@ async fn corrections_where(
 pub async fn correction_rows_for_day(
     pool: &PgPool,
     employee: &EmployeeId,
-    place: &PlaceId,
+    unit: &UnitId,
     date: NaiveDate,
     employee_code: &str,
     display_name: &str,
 ) -> Result<Vec<CorrectionRow>, AppError> {
-    let chain = load_correction_chain(pool, employee, place, date).await?;
+    let chain = load_correction_chain(pool, employee, unit, date).await?;
     Ok(chain
         .corrections()
         .iter()
@@ -707,9 +701,9 @@ pub const BOOK_ROSTER_AHEAD_DAYS: i64 = 14;
 /// book left out would be a station the edge treats as unregistered, which
 /// produces the wrong refusal — "not registered here" rather than "suspended" —
 /// and sends a manager looking for the wrong person.
-pub async fn attendance_book_for_place(
+pub async fn attendance_book_for_unit(
     pool: &PgPool,
-    place: &PlaceId,
+    unit: &UnitId,
     today: NaiveDate,
 ) -> Result<crate::cloud::domain::AttendanceBook, AppError> {
     use crate::cloud::domain::{AttendanceBook, BookEmployee, BookRosterDay, BookTerminal};
@@ -722,10 +716,10 @@ pub async fn attendance_book_for_place(
            FROM employee e
            JOIN employee_assignment a ON a.employee_id = e.id AND a.valid_to IS NULL
            LEFT JOIN employee_profile p ON p.employee_id = e.id
-          WHERE a.place_id = $1 AND e.status = 'ACTIVE'
+          WHERE a.unit_id = $1 AND e.status = 'ACTIVE'
           ORDER BY e.code",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .fetch_all(pool)
     .await?;
     let employees = people
@@ -742,7 +736,7 @@ pub async fn attendance_book_for_place(
     // The plan in force, which is the *last* revision rather than the first:
     // `planned` is what the day was originally, and a station showing that
     // would show a shift somebody has since moved.
-    let days = super::roster_at_place(pool, place.as_str(), from, to).await?;
+    let days = super::roster_at_unit(pool, unit.as_str(), from, to).await?;
     let roster = days
         .iter()
         .map(|day| {
@@ -762,7 +756,7 @@ pub async fn attendance_book_for_place(
         })
         .collect();
 
-    let stations = super::list_attendance_terminals(pool, Some(place.as_str())).await?;
+    let stations = super::list_attendance_terminals(pool, Some(unit.as_str())).await?;
     let terminals = stations
         .into_iter()
         .map(|row| BookTerminal {
@@ -773,7 +767,10 @@ pub async fn attendance_book_for_place(
         .collect();
 
     Ok(AttendanceBook {
-        place_id: place.as_str().to_owned(),
+        // The wire still calls it `place_id`: deployed shop servers read the
+        // book by that key, and the value — the unit id — is the same string the
+        // place id was (0450 keyed the units like the places).
+        place_id: unit.as_str().to_owned(),
         // Stamped here, because "when the centre published it" is what lets a
         // station say the book is from Tuesday. A receive time stamped at the
         // edge would read as freshness the data does not have.
@@ -784,20 +781,20 @@ pub async fn attendance_book_for_place(
     })
 }
 
-/// The origins bound to one place's site.
+/// The origins bound to one unit's sites.
 ///
-/// Usually one. Zero for head office, which has no node — and that is a named
+/// Usually one. Zero for a unit whose sites run no node — and that is a named
 /// refusal rather than a silent no-op, because "we published the book" and
 /// "there was nowhere to publish it to" must not look the same on a screen.
-pub async fn origins_of_place(pool: &PgPool, place: &PlaceId) -> Result<Vec<String>, AppError> {
+pub async fn origins_of_unit(pool: &PgPool, unit: &UnitId) -> Result<Vec<String>, AppError> {
     let origins: Vec<String> = sqlx::query_scalar(
         "SELECT o.origin_id
            FROM sync_origin_credential o
-           JOIN org_place p ON p.site_id = o.site_id
-          WHERE p.id = $1
+           JOIN site s ON s.id = o.site_id
+          WHERE s.unit_id = $1
           ORDER BY o.origin_id",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .fetch_all(pool)
     .await?;
     Ok(origins)
@@ -814,7 +811,7 @@ pub async fn correction_target(
     id: &str,
 ) -> Result<Option<(String, String, NaiveDate)>, AppError> {
     let row = sqlx::query(
-        "SELECT employee_id, place_id, business_date
+        "SELECT employee_id, unit_id, business_date
            FROM attendance_correction WHERE id = $1",
     )
     .bind(id)
@@ -825,7 +822,7 @@ pub async fn correction_target(
     };
     Ok(Some((
         row.try_get("employee_id")?,
-        row.try_get("place_id")?,
+        row.try_get("unit_id")?,
         row.try_get("business_date")?,
     )))
 }
@@ -836,17 +833,17 @@ pub async fn correction_target(
 /// than the punches: a day's outcome exists against a plan, so somebody nobody
 /// scheduled is not on this screen at all — while somebody scheduled who never
 /// arrived is, which is the row that matters.
-pub async fn rostered_at_place_on(
+pub async fn rostered_at_unit_on(
     pool: &PgPool,
-    place: &PlaceId,
+    unit: &UnitId,
     date: NaiveDate,
 ) -> Result<Vec<String>, AppError> {
     let rows: Vec<String> = sqlx::query_scalar(
         "SELECT employee_id FROM roster_day
-          WHERE place_id = $1 AND on_date = $2
+          WHERE unit_id = $1 AND on_date = $2
           ORDER BY employee_id",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .bind(date)
     .fetch_all(pool)
     .await?;
@@ -863,7 +860,7 @@ pub async fn rostered_at_place_on(
 /// close taken today records that somebody looked.
 pub async fn open_corrections_in(
     pool: &PgPool,
-    place: &PlaceId,
+    unit: &UnitId,
     month: AttendanceMonth,
 ) -> Result<u32, AppError> {
     let first = month
@@ -871,11 +868,11 @@ pub async fn open_corrections_in(
         .ok_or_else(|| corrupt("period", "no first day".to_owned()))?;
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM attendance_correction
-          WHERE place_id = $1 AND state = 'PENDING'
+          WHERE unit_id = $1 AND state = 'PENDING'
             AND business_date >= $2::date
             AND business_date < ($2::date + interval '1 month')",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .bind(first)
     .fetch_one(pool)
     .await?;
@@ -891,7 +888,7 @@ pub async fn open_corrections_in(
 /// while the month is open and expensive afterwards.
 pub async fn unrostered_punch_days_in(
     pool: &PgPool,
-    place: &PlaceId,
+    unit: &UnitId,
     month: AttendanceMonth,
 ) -> Result<u32, AppError> {
     let first = month
@@ -901,7 +898,7 @@ pub async fn unrostered_punch_days_in(
         "SELECT count(*) FROM (
             SELECT DISTINCT pu.employee_id, pu.business_date
               FROM attendance_punch pu
-             WHERE pu.place_id = $1
+             WHERE pu.unit_id = $1
                AND pu.business_date >= $2::date
                AND pu.business_date < ($2::date + interval '1 month')
                AND NOT EXISTS (
@@ -911,7 +908,7 @@ pub async fn unrostered_punch_days_in(
                )
          ) AS unplanned",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .bind(first)
     .fetch_one(pool)
     .await?;
@@ -926,12 +923,12 @@ pub async fn unrostered_punch_days_in(
 /// terminal still closes — it must, or its payroll could never run — and the
 /// recorded evidence says the checks were **not assessed** rather than that
 /// they were clean.
-pub async fn place_has_terminal(pool: &PgPool, place: &PlaceId) -> Result<bool, AppError> {
+pub async fn unit_has_terminal(pool: &PgPool, unit: &UnitId) -> Result<bool, AppError> {
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM attendance_terminal
-          WHERE place_id = $1 AND status <> 'REVOKED'",
+          WHERE unit_id = $1 AND status <> 'REVOKED'",
     )
-    .bind(place.as_str())
+    .bind(unit.as_str())
     .fetch_one(pool)
     .await?;
     Ok(count > 0)

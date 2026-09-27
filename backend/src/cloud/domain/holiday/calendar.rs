@@ -16,7 +16,7 @@
 
 use super::day::Holiday;
 use super::error::HolidayError;
-use crate::cloud::domain::employment::{Authorization, PlaceId};
+use crate::cloud::domain::employment::{Authorization, UnitId};
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -250,14 +250,14 @@ impl HolidayCalendar {
     }
 
     /// Is this a red day at this place?
-    pub fn on(&self, date: NaiveDate, place: &PlaceId) -> Option<&Holiday> {
+    pub fn on(&self, date: NaiveDate, unit: &UnitId) -> Option<&Holiday> {
         self.current
             .get(&date)
-            .filter(|holiday| holiday.applies_at(place))
+            .filter(|holiday| holiday.applies_at(unit))
     }
 
-    pub fn is_holiday(&self, date: NaiveDate, place: &PlaceId) -> bool {
-        self.on(date, place).is_some()
+    pub fn is_holiday(&self, date: NaiveDate, unit: &UnitId) -> bool {
+        self.on(date, unit).is_some()
     }
 
     /// Every red day in a span, inclusive of both ends.
@@ -265,17 +265,17 @@ impl HolidayCalendar {
         &'a self,
         from: NaiveDate,
         to: NaiveDate,
-        place: &'a PlaceId,
+        unit: &'a UnitId,
     ) -> impl Iterator<Item = &'a Holiday> {
         self.current
             .range(from..=to)
             .map(|(_, holiday)| holiday)
-            .filter(move |holiday| holiday.applies_at(place))
+            .filter(move |holiday| holiday.applies_at(unit))
     }
 
     /// How many days in a span come out of annual leave.
-    pub fn cuti_bersama_days(&self, from: NaiveDate, to: NaiveDate, place: &PlaceId) -> usize {
-        self.between(from, to, place)
+    pub fn cuti_bersama_days(&self, from: NaiveDate, to: NaiveDate, unit: &UnitId) -> usize {
+        self.between(from, to, unit)
             .filter(|holiday| holiday.consumes_annual_leave())
             .count()
     }
@@ -345,8 +345,8 @@ mod tests {
         .unwrap_or_else(|error| panic!("holiday: {error}"))
     }
 
-    fn place() -> PlaceId {
-        PlaceId::try_new("store-07").unwrap_or_else(|error| panic!("place: {error}"))
+    fn unit() -> UnitId {
+        UnitId::try_new("store-07").unwrap_or_else(|error| panic!("unit: {error}"))
     }
 
     #[test]
@@ -360,7 +360,7 @@ mod tests {
             HolidayScope::Nationwide,
         )
         .unwrap_err();
-        assert_eq!(error.code(), "holiday_regional_without_places");
+        assert_eq!(error.code(), "holiday_regional_without_units");
     }
 
     #[test]
@@ -372,7 +372,7 @@ mod tests {
             HolidayName::try_new("Hari Kemerdekaan")
                 .unwrap_or_else(|error| panic!("name: {error}")),
             HolidayKind::National,
-            HolidayScope::places(vec![place()]).unwrap_or_else(|error| panic!("scope: {error}")),
+            HolidayScope::units(vec![unit()]).unwrap_or_else(|error| panic!("scope: {error}")),
         )
         .unwrap_err();
         assert_eq!(error.code(), "holiday_national_scoped");
@@ -398,8 +398,8 @@ mod tests {
         let to = "2026-03-31"
             .parse()
             .unwrap_or_else(|error| panic!("date: {error}"));
-        assert_eq!(calendar.between(from, to, &place()).count(), 3);
-        assert_eq!(calendar.cuti_bersama_days(from, to, &place()), 2);
+        assert_eq!(calendar.between(from, to, &unit()).count(), 3);
+        assert_eq!(calendar.cuti_bersama_days(from, to, &unit()), 2);
     }
 
     #[test]

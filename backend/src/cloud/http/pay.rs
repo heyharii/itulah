@@ -52,13 +52,13 @@
 //! quietly acquire a zero that reads as "nothing was owed".
 
 use super::auth::Principal;
-use super::employment::{current_place, reach_of, resolve, Access};
+use super::employment::{current_unit, reach_of, resolve, Access};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
         actions, required_role_for_action, role_allows, AllowanceCode, AttendanceMonth,
         Authorization, BankAccount, FixedAllowance, IdentityChange, PayRecord, PayrollHandover,
-        PayrollIdentity, PayrollRun, PlaceId, PtkpStatus, Reach, RecordKind,
+        PayrollIdentity, PayrollRun, PtkpStatus, Reach, RecordKind, UnitId,
     },
     http::audit::DeclaredSubject,
     postgres::{self as infrastructure, HandoverStanding, PayrollSlipRow, RunReconciliation},
@@ -91,12 +91,12 @@ fn require(principal: &Principal, action_key: &str) -> Result<(), AppError> {
 /// office does changes; a Supervisor reaches their own posting and nothing
 /// else, and a login with no posting behind it reaches nothing — which is the
 /// honest reading of "we do not know where this person works".
-fn reaches(principal: &Principal, reach: &Reach, place_id: &str) -> Result<(), AppError> {
-    if reach.covers(Some(place_id)) {
+fn reaches(principal: &Principal, reach: &Reach, unit_id: &str) -> Result<(), AppError> {
+    if reach.covers(Some(unit_id)) {
         return Ok(());
     }
     Err(AppError::Forbidden(format!(
-        "{} is not posted anywhere that reaches {place_id}",
+        "{} is not posted anywhere that reaches {unit_id}",
         principal.username
     )))
 }
@@ -114,7 +114,7 @@ async fn subject_is_reachable(state: &AppState, access: &Access) -> Result<(), A
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
-    access.reaches(current_place(&record))
+    access.reaches(current_unit(&record))
 }
 
 // ── views ────────────────────────────────────────────────────────────────
@@ -234,7 +234,7 @@ pub struct RunEventView {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PayrollRunView {
     pub id: String,
-    pub place_id: String,
+    pub unit_id: String,
     /// `YYYY-MM`.
     pub period: String,
     /// `DRAFT`, `SUBMITTED` or `APPROVED`. Approved is final — there is no
@@ -265,7 +265,7 @@ pub struct PayrollRunView {
 fn run_view(run: &PayrollRun, handover: Option<HandoverStanding>) -> PayrollRunView {
     PayrollRunView {
         id: run.id().to_owned(),
-        place_id: run.place().to_string(),
+        unit_id: run.unit().to_string(),
         period: run.period().to_owned(),
         state: run.state().code().to_owned(),
         complete: run.complete(),
@@ -296,7 +296,7 @@ fn run_view(run: &PayrollRun, handover: Option<HandoverStanding>) -> PayrollRunV
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PayrollHandoverView {
     pub run_id: String,
-    pub place_id: String,
+    pub unit_id: String,
     /// `YYYY-MM`.
     pub period: String,
     /// `RECEIVED` or `PAID`.
@@ -325,7 +325,7 @@ pub struct PayrollHandoverLineView {
 fn handover_view(handover: &PayrollHandover) -> PayrollHandoverView {
     PayrollHandoverView {
         run_id: handover.run_id().to_owned(),
-        place_id: handover.place().to_string(),
+        unit_id: handover.unit().to_string(),
         period: handover.period().to_owned(),
         state: handover.state().code().to_owned(),
         gross_minor: handover.gross_minor(),
@@ -379,7 +379,7 @@ pub struct IdentityBody {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpenRunBody {
-    pub place_id: String,
+    pub unit_id: String,
     /// `YYYY-MM`.
     pub period: String,
     pub reason: String,
@@ -402,7 +402,7 @@ pub struct StepBody {
 #[serde(deny_unknown_fields)]
 pub struct RunQuery {
     #[serde(default)]
-    pub place: Option<String>,
+    pub unit: Option<String>,
 }
 
 // ── the pay agreement ────────────────────────────────────────────────────
@@ -600,16 +600,16 @@ pub async fn list_runs(
     }
     // An explicit place must be one they reach; otherwise the bound *is* the
     // filter, and an unbounded caller reads every place.
-    let place = match query.place.as_deref() {
+    let unit = match query.unit.as_deref() {
         Some(asked) => {
             reaches(&principal, &reach, asked)?;
             Some(asked.to_owned())
         }
-        None => reach.sole_place().map(ToString::to_string),
+        None => reach.sole_unit().map(ToString::to_string),
     };
 
-    let runs = infrastructure::list_runs(&state.db, place.as_deref()).await?;
-    let mut standings = infrastructure::handover_standings(&state.db, place.as_deref()).await?;
+    let runs = infrastructure::list_runs(&state.db, unit.as_deref()).await?;
+    let mut standings = infrastructure::handover_standings(&state.db, unit.as_deref()).await?;
     Ok(Json(
         runs.iter()
             .map(|run| {
@@ -642,17 +642,17 @@ pub async fn open_run(
 ) -> Result<Json<PayrollRunView>, AppError> {
     require(&principal, actions::PAYROLL_OPEN)?;
     let reach = reach_of(&state, &principal).await?;
-    reaches(&principal, &reach, &body.place_id)?;
+    reaches(&principal, &reach, &body.unit_id)?;
 
-    let place = PlaceId::try_new(&body.place_id).map_err(invalid)?;
+    let unit = UnitId::try_new(&body.unit_id).map_err(invalid)?;
     let month = AttendanceMonth::parse(&body.period).map_err(infrastructure::attendance_error)?;
     let first = infrastructure::month_first_day(month)?;
 
-    let period = infrastructure::period_for(&state.db, &place, first).await?;
+    let period = infrastructure::period_for(&state.db, &unit, first).await?;
     if !period.is_closed() {
         return Err(AppError::Conflict(format!(
             "attendance for {} in {} is not closed, so its facts are still moving",
-            body.place_id, body.period
+            body.unit_id, body.period
         )));
     }
 
@@ -665,8 +665,8 @@ pub async fn open_run(
             .to_owned(),
     );
     let run = PayrollRun::draft(
-        format!("PR-{}-{}", body.period, body.place_id),
-        place,
+        format!("PR-{}-{}", body.period, body.unit_id),
+        unit,
         &body.period,
         incomplete,
     )
@@ -700,7 +700,7 @@ async fn reachable_run(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("payroll run {id}")))?;
     let reach = reach_of(state, principal).await?;
-    reaches(principal, &reach, run.place().as_str())?;
+    reaches(principal, &reach, run.unit().as_str())?;
     Ok(run)
 }
 

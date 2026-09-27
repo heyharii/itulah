@@ -179,6 +179,13 @@ pub mod actions {
     /// shop does for itself. A place that could register its own terminal could
     /// register a second one in the stockroom.
     pub const ATTENDANCE_TERMINAL_MANAGE: &str = "people.attendance_terminal.manage";
+    /// Put somebody in charge of a unit (its PIC), which ends the standing
+    /// appointment.
+    ///
+    /// Head office's, and deliberately not in the place arm of
+    /// `required_role`: the PIC gets the unit's reach and its approvals, so a
+    /// store that could appoint its own would be granting itself authority.
+    pub const UNIT_PIC_SET: &str = "people.unit_pic.set";
     /// Enrol somebody's fingerprint, replace it, or withdraw it.
     ///
     /// **HR's, even though the capture happens at the store.** The two are not

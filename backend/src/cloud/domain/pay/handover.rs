@@ -8,15 +8,17 @@
 //! This one deliberately does not, and the reason is geography rather than
 //! taste.
 //!
-//! A payroll run is keyed by `org_place` — head office plus the thirteen shops
+//! A payroll run is keyed by `unit` — head office plus the thirteen shops
 //! — because head office employs people too, and a payroll that could only be
 //! run for a shop cannot pay the buyer (0105). A journal line is keyed by
-//! `site`, which is the set of syncing nodes, and **head office is not one**:
-//! `org_place.site_id` is `NULL` for `HO` by its own check constraint. So the
-//! one run the `org_place` key exists for is the one run that has no site to
-//! post to, and the only way to post it would be to decide that head office's
-//! payroll books at the distribution centre's site. That is a real decision
-//! about the client's chart of accounts and it is not this lane's to guess.
+//! `site`, and when this was written **head office was not one**: the old
+//! `org_place` row for `HO` carried no site by its own check constraint. So the
+//! one run the unit key existed for was the one run with no site to post to,
+//! and posting it meant deciding that head office's payroll books at the
+//! warehouse's site. That was a real decision about the client's chart of
+//! accounts and not this lane's to guess. (It has since been taken: every site
+//! belongs to a unit, head office's is the Gudang, and `postgres::pay` books
+//! the accrual at `book_site_of_unit` until the ledger moves to units.)
 //!
 //! So the handover is the honest half: it records, once and immovably, that a
 //! named gross liability for one place and one month has been given to Finance,
@@ -55,7 +57,7 @@
 
 use super::error::PayError;
 use super::run::{PayrollRun, RunState};
-use crate::cloud::domain::employment::{Authorization, PlaceId};
+use crate::cloud::domain::employment::{Authorization, UnitId};
 use serde::{Deserialize, Serialize};
 
 /// Where a handover has got to, as Finance sees it.
@@ -132,7 +134,7 @@ impl PayrollHandoverLine {
 #[serde(deny_unknown_fields)]
 pub struct PayrollHandoverWire {
     pub run_id: String,
-    pub place: PlaceId,
+    pub unit: UnitId,
     /// `YYYY-MM`.
     pub period: String,
     pub gross_minor: i64,
@@ -147,7 +149,7 @@ pub struct PayrollHandoverWire {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PayrollHandover {
     run_id: String,
-    place: PlaceId,
+    unit: UnitId,
     period: String,
     gross_minor: i64,
     state: HandoverState,
@@ -192,7 +194,7 @@ impl PayrollHandover {
         let gross = Self::sum(&lines)?;
         Self::assemble(
             run.id().to_owned(),
-            run.place().clone(),
+            run.unit().clone(),
             run.period().to_owned(),
             gross,
             HandoverState::Received,
@@ -238,7 +240,7 @@ impl PayrollHandover {
         }
         Self::assemble(
             wire.run_id,
-            wire.place,
+            wire.unit,
             wire.period,
             wire.gross_minor,
             wire.state,
@@ -266,7 +268,7 @@ impl PayrollHandover {
     #[allow(clippy::too_many_arguments)]
     fn assemble(
         run_id: String,
-        place: PlaceId,
+        unit: UnitId,
         period: String,
         gross_minor: i64,
         state: HandoverState,
@@ -293,7 +295,7 @@ impl PayrollHandover {
         }
         Ok(Self {
             run_id,
-            place,
+            unit,
             period,
             gross_minor,
             state,
@@ -306,8 +308,8 @@ impl PayrollHandover {
     pub fn run_id(&self) -> &str {
         &self.run_id
     }
-    pub fn place(&self) -> &PlaceId {
-        &self.place
+    pub fn unit(&self) -> &UnitId {
+        &self.unit
     }
     pub fn period(&self) -> &str {
         &self.period
