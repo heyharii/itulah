@@ -527,11 +527,18 @@ pub async fn open_stores(
         let mut answer: OpenStoresAnswer = serde_json::from_value(response)?;
         for store in &mut answer.created {
             if let Some(invitation) = store.manager_invitation.as_mut() {
-                let minted =
-                    super::renew_invitation_tx(&mut transaction, invitation.invitation_id, actor)
-                        .await?;
-                invitation.expires_at = minted.expires_at;
-                invitation.link = minted.issued(link_origin).link;
+                match super::renew_invitation_tx(&mut transaction, invitation.invitation_id, actor)
+                    .await
+                {
+                    Ok(minted) => {
+                        invitation.expires_at = minted.expires_at;
+                        invitation.link = minted.issued(link_origin).link;
+                    }
+                    // The manager has joined since: there is no link to give,
+                    // and nothing to renew. The empty link says so.
+                    Err(AppError::Conflict(_)) => invitation.link.clear(),
+                    Err(error) => return Err(error),
+                }
             }
         }
         transaction.commit().await?;

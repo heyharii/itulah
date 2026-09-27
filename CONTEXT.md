@@ -254,6 +254,23 @@ the unit's reach and its approvals.
 _Avoid_: owner — that word means the business owner, and **Inventory Owner** is
 a node
 
+**Job Role**:
+What a person does, as data an Admin edits: `OWNER`, `FINANCE`, `STORE_MANAGER`
+and so on. Each login holds exactly one. It names the **rung**
+(`CASHIER < SUPERVISOR < ADMIN`) the person stands on, the flow roles whose
+stages they perform, the hub sections they may use, and which servers they
+sign in at (`UNIT` — their unit's; `EVERY`; `NONE`). OWNER and ADMIN hold every
+section and every flow role.
+_Avoid_: role (bare, when the rung is meant — say rung), position (that is the
+contract's job title), permission
+
+**Invitation**:
+A one-time link head office hands a person, naming their job role and unit.
+The person opens it, chooses a username and sets their own password; nothing
+is emailed or sent, and head office never sees the password.
+_Avoid_: invite code, signup, registration (the employment record is made when
+the invitation is)
+
 **Site**:
 A physical premises — an office, a warehouse (the Gudang) or a shop — belonging
 to exactly one unit. It has an address, a timezone and a kind (`OFFICE`,
