@@ -25,7 +25,7 @@ import type { EmployeeList, EmployeeSummary } from "@itulah/contract"
 
 /// Who works at this shop — the prototype's store Directory.
 ///
-/// `GET /api/v1/employees?place_id=…`, the one HR route that narrows by a
+/// `GET /api/v1/employees?unit_id=…`, the one HR route that narrows by a
 /// parameter as well as by the caller's posting — and narrows twice, so the
 /// day somebody edits the reconciliation without reading it, the answer
 /// narrows rather than widens.
@@ -259,7 +259,7 @@ function EmployeeSheet({
           render: (view) => (
             <Facts
               rows={[
-                ["Shop", view.place_name ?? view.place_id ?? "—"],
+                ["Shop", view.unit_name ?? view.unit_id ?? "—"],
                 ["Job", view.job_title ?? "—"],
                 [
                   "Grade",
@@ -313,11 +313,11 @@ function EmployeeSheet({
             <ul className="flex flex-col gap-2">
               {view.assignments.map((posting) => (
                 <li
-                  key={`${posting.place_id}-${posting.valid_from}`}
+                  key={`${posting.unit_id}-${posting.valid_from}`}
                   className="text-cell"
                 >
                   <span className="text-ink">
-                    Posted to {posting.place_name ?? posting.place_id}
+                    Posted to {posting.unit_name ?? posting.unit_id}
                   </span>
                   <span className="block text-meta text-mute">
                     {readDate(posting.valid_from)} –{" "}

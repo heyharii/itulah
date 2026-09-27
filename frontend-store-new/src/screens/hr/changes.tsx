@@ -115,7 +115,7 @@ function changeState(state: string): { label: string; tone: Tone } {
 /// What a change row names, said the way a person would.
 function fieldWord(field: string): string {
   if (field === "base_minor") return "Base pay"
-  if (field === "place_id") return "Shop"
+  if (field === "unit_id") return "Shop"
   if (field === "position") return "Position"
   if (field === "grade") return "Grade"
   return field
@@ -358,7 +358,7 @@ function ProposeChange({
     if (kind === "SALARY")
       return [{ field: "base_minor", toMinor: baseMinor ?? 0 }]
     if (kind === "TRANSFER")
-      return [{ field: "place_id", toText: toPlace.trim() }]
+      return [{ field: "unit_id", toText: toPlace.trim() }]
     if (kind === "PROMOTION") {
       const out: { field: string; toText?: string; toMinor?: number }[] = [
         { field: "position", toText: position },

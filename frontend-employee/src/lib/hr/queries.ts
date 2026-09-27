@@ -255,7 +255,7 @@ export function useRequestCorrection() {
 /// which is where the place comes from.
 export function useHolidays() {
   const profile = useProfile()
-  const placeId = profile.data?.place_id ?? null
+  const placeId = profile.data?.unit_id ?? null
   return useQuery({
     queryKey: [...key.holidays, placeId],
     queryFn: ({ signal }) => hr.holidays(placeId, signal),

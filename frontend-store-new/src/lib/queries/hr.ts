@@ -51,15 +51,16 @@ import type {
 /// to be one: a till is a shop, and the shop it is standing in is the only
 /// shop whose rota it has any business showing.
 ///
-/// That the two ids are the same word is not luck. `org_place` (migration
-/// 0060) seeded itself from `site` and kept each site's own id — "Sites keep
-/// their own ids here, so nothing ever has to translate between the two
-/// vocabularies" — so the till's `site_id` *is* the centre's `place_id`, and
-/// nothing here maps between them.
+/// That the two ids are the same word is not luck. A shop is the only site of
+/// its store unit, and migration 0450 keyed each store unit like its shop
+/// (`store-07` is both), so for a till the `site_id` *is* the centre's
+/// `unit_id` and nothing here maps between them. It is a fact about shops,
+/// not a rule: head office's site (`dc`) belongs to unit `ho`, which is why
+/// the Gudang does not run this surface.
 ///
 /// # The server bounds these too, and that is the real control
 ///
-/// A store credential's reach is `Only(place)`, so `/roster` and
+/// A store credential's reach is `Only(unit)`, so `/roster` and
 /// `/attendance-periods` refuse a place that is not the caller's, and
 /// `/employees` narrows to their posting whatever they ask for. Passing the
 /// place from here is how the screen says which shop it means; the refusal is
@@ -216,30 +217,30 @@ export function useReach(enabled: boolean) {
 // ─────────────────────────────────────────────────────────────────────────────
 // The reads
 
-/// Who works at this shop. `GET /api/v1/employees?place_id=…`
+/// Who works at this shop. `GET /api/v1/employees?unit_id=…`
 ///
-/// The list carries `place_id` back with it, which the screen prints: a list
+/// The list carries `unit_id` back with it, which the screen prints: a list
 /// that silently showed four people where the shop has eleven would read as a
 /// shop of four.
 export function teamAt(
   place: string,
   signal?: AbortSignal,
 ): Promise<EmployeeList> {
-  const query = new URLSearchParams({ place_id: place, limit: "200" })
+  const query = new URLSearchParams({ unit_id: place, limit: "200" })
   return cloud.get<EmployeeList>(`/api/v1/employees?${query.toString()}`, {
     signal,
   })
 }
 
 /// The rota this shop is working to, between two dates.
-/// `GET /api/v1/roster?place=…&from=…&to=…`
+/// `GET /api/v1/roster?unit=…&from=…&to=…`
 export function rosterAt(
   place: string,
   from: string,
   to: string,
   signal?: AbortSignal,
 ): Promise<RosterDayView[]> {
-  const query = new URLSearchParams({ place, from, to })
+  const query = new URLSearchParams({ unit: place, from, to })
   return cloud.get<RosterDayView[]>(`/api/v1/roster?${query.toString()}`, {
     signal,
   })
@@ -258,11 +259,11 @@ export interface PlaceQueue<T> {
   readonly elsewhere: number
 }
 
-function fence<T extends { readonly place_id: string }>(
+function fence<T extends { readonly unit_id: string }>(
   rows: readonly T[],
   place: string,
 ): PlaceQueue<T> {
-  const mine = rows.filter((row) => row.place_id === place)
+  const mine = rows.filter((row) => row.unit_id === place)
   return { rows: mine, elsewhere: rows.length - mine.length }
 }
 
@@ -302,7 +303,7 @@ export function awaitingOvertimeAt(
 }
 
 /// One month of this shop's attendance, and what stands between it and a
-/// close. `GET /api/v1/attendance-periods?place=…&period=YYYY-MM`
+/// close. `GET /api/v1/attendance-periods?unit=…&period=YYYY-MM`
 ///
 /// Asked for one named month rather than for the list: the route's list form
 /// answers only months the shop already has a record for, so a shop closing
@@ -313,7 +314,7 @@ export function periodAt(
   period: string,
   signal?: AbortSignal,
 ): Promise<PeriodView> {
-  const query = new URLSearchParams({ place, period })
+  const query = new URLSearchParams({ unit: place, period })
   return cloud
     .get<PeriodView[]>(`/api/v1/attendance-periods?${query.toString()}`, {
       signal,
@@ -655,7 +656,7 @@ function mint(prefix: string): string {
 
 /// One day at this shop: every rostered person's derived day, the days the
 /// derivation would not classify, and the raw punches.
-/// `GET /api/v1/attendance/today?place=…&date=…`
+/// `GET /api/v1/attendance/today?unit=…&date=…`
 ///
 /// `punch_source_connected` is the field to read FIRST. False means no station
 /// and no phone has ever reported for this shop, and every "absent" under it is
@@ -665,7 +666,7 @@ export function attendanceToday(
   date: string,
   signal?: AbortSignal,
 ): Promise<TodayView> {
-  const query = new URLSearchParams({ place, date })
+  const query = new URLSearchParams({ unit: place, date })
   return cloud.get<TodayView>(`/api/v1/attendance/today?${query.toString()}`, {
     signal,
   })
@@ -687,7 +688,7 @@ export function attendanceOf(
 }
 
 /// The two punch-derived counts a month's close waits on.
-/// `GET /api/v1/attendance/punch-readiness?place=…&period=YYYY-MM`
+/// `GET /api/v1/attendance/punch-readiness?unit=…&period=YYYY-MM`
 ///
 /// `null` is "not assessed" — no station has reported for this shop — and is
 /// never drawn as a zero.
@@ -696,7 +697,7 @@ export function punchReadinessAt(
   period: string,
   signal?: AbortSignal,
 ): Promise<PunchReadinessView> {
-  const query = new URLSearchParams({ place, period })
+  const query = new URLSearchParams({ unit: place, period })
   return cloud.get<PunchReadinessView>(
     `/api/v1/attendance/punch-readiness?${query.toString()}`,
     { signal },
@@ -704,7 +705,7 @@ export function punchReadinessAt(
 }
 
 /// This shop's attendance corrections — the ones waiting (`pending`) or the
-/// whole history. `GET /api/v1/attendance-corrections?place=…&pending=…`
+/// whole history. `GET /api/v1/attendance-corrections?unit=…&pending=…`
 ///
 /// The route takes a place and the centre refuses one the caller does not
 /// reach, so unlike the leave queue this needs no fence.
@@ -713,7 +714,7 @@ export function correctionsAt(
   pending: boolean,
   signal?: AbortSignal,
 ): Promise<CorrectionRow[]> {
-  const query = new URLSearchParams({ place, pending: String(pending) })
+  const query = new URLSearchParams({ unit: place, pending: String(pending) })
   return cloud.get<CorrectionRow[]>(
     `/api/v1/attendance-corrections?${query.toString()}`,
     { signal },
@@ -912,8 +913,8 @@ export interface ClaimEventRow {
 export interface ClaimRow {
   readonly claim_id: string
   readonly claim_number: string
-  readonly place_id: string
-  readonly place_name: string | null
+  readonly unit_id: string
+  readonly unit_name: string | null
   readonly employee_id: string
   readonly employee_code: string | null
   readonly employee_name: string | null
@@ -953,7 +954,7 @@ export function claimTypes(signal?: AbortSignal): Promise<ClaimTypeRow[]> {
   return cloud.get<ClaimTypeRow[]>("/api/v1/expense-claim-types", { signal })
 }
 
-/// This shop's claims, every state. `GET /api/v1/expense-claims?place=…`
+/// This shop's claims, every state. `GET /api/v1/expense-claims?unit=…`
 ///
 /// The centre ANDs the caller's reach into the query, so a shop asking for
 /// another shop's claims by name gets an empty list rather than a leak.
@@ -961,7 +962,7 @@ export function claimsAt(
   place: string,
   signal?: AbortSignal,
 ): Promise<ClaimRow[]> {
-  return cloud.get<ClaimRow[]>(`/api/v1/expense-claims?place=${enc(place)}`, {
+  return cloud.get<ClaimRow[]>(`/api/v1/expense-claims?unit=${enc(place)}`, {
     signal,
   })
 }
@@ -1120,13 +1121,13 @@ export function nominate(input: {
 export type ChangeKind = "PROMOTION" | "TRANSFER" | "SALARY" | "SEPARATION"
 
 /// The proposals filed about this shop's people, every state.
-/// `GET /api/v1/change-proposals?place_id=…`
+/// `GET /api/v1/change-proposals?unit_id=…`
 export function changeProposalsAt(
   place: string,
   signal?: AbortSignal,
 ): Promise<ChangeProposalView[]> {
   return cloud.get<ChangeProposalView[]>(
-    `/api/v1/change-proposals?place_id=${enc(place)}`,
+    `/api/v1/change-proposals?unit_id=${enc(place)}`,
     { signal },
   )
 }
@@ -1168,13 +1169,13 @@ export function payComponents(
 }
 
 /// The one-off figures this shop has filed for one month — an incentive, a
-/// *kasbon* instalment. `GET /api/v1/payroll/adjustments?place=…&period=…`
+/// *kasbon* instalment. `GET /api/v1/payroll/adjustments?unit=…&period=…`
 export function adjustmentsAt(
   place: string,
   period: string,
   signal?: AbortSignal,
 ): Promise<PayrollAdjustmentRow[]> {
-  const query = new URLSearchParams({ place, period })
+  const query = new URLSearchParams({ unit: place, period })
   return cloud.get<PayrollAdjustmentRow[]>(
     `/api/v1/payroll/adjustments?${query.toString()}`,
     { signal },
@@ -1194,7 +1195,7 @@ export function fileAdjustment(input: {
   reason: string
 }): Promise<PayrollAdjustmentRow[]> {
   return cloud.post<PayrollAdjustmentRow[]>("/api/v1/payroll/adjustments", {
-    place_id: input.place,
+    unit_id: input.place,
     period: input.period,
     employee_id: input.employeeId,
     component_code: input.componentCode,
@@ -1217,25 +1218,25 @@ export function withdrawAdjustment(input: {
 // ── recruitment ─────────────────────────────────────────────────────────────
 
 /// The headcount head office planned for this shop.
-/// `GET /api/v1/recruitment/plans?place_id=…`
+/// `GET /api/v1/recruitment/plans?unit_id=…`
 export function staffingPlansAt(
   place: string,
   signal?: AbortSignal,
 ): Promise<StaffingPlanView[]> {
   return cloud.get<StaffingPlanView[]>(
-    `/api/v1/recruitment/plans?place_id=${enc(place)}`,
+    `/api/v1/recruitment/plans?unit_id=${enc(place)}`,
     { signal },
   )
 }
 
 /// The people this shop has asked for — *Minta karyawan baru* — and what head
-/// office answered. `GET /api/v1/hire-proposals?place_id=…`
+/// office answered. `GET /api/v1/hire-proposals?unit_id=…`
 export function hireProposalsAt(
   place: string,
   signal?: AbortSignal,
 ): Promise<HireProposalView[]> {
   return cloud.get<HireProposalView[]>(
-    `/api/v1/hire-proposals?place_id=${enc(place)}`,
+    `/api/v1/hire-proposals?unit_id=${enc(place)}`,
     { signal },
   )
 }
@@ -1255,7 +1256,7 @@ export function proposeHire(input: {
   reason: string
 }): Promise<HireProposalView> {
   return cloud.post<HireProposalView>("/api/v1/hire-proposals", {
-    place_id: input.place,
+    unit_id: input.place,
     position: input.position,
     headcount: input.headcount,
     need: input.need,

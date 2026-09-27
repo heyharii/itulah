@@ -132,7 +132,7 @@ function Overtime({
           for (const order of queue.rows) byId.set(order.id, order)
           for (const history of histories) {
             for (const order of history.data ?? []) {
-              if (order.place_id === scope.id && !byId.has(order.id)) {
+              if (order.unit_id === scope.id && !byId.has(order.id)) {
                 byId.set(order.id, order)
               }
             }

@@ -380,8 +380,8 @@ export async function holidays(
     year: calendar.year,
     days: calendar.holidays.filter(
       (day) =>
-        day.places === null ||
-        (placeId !== null && day.places.includes(placeId))
+        day.units === null ||
+        (placeId !== null && day.units.includes(placeId))
     ),
   }
 }

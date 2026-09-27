@@ -67,10 +67,10 @@ export function HrWorkspace({
     signedIn &&
     view !== undefined &&
     view.scope !== "NOWHERE" &&
-    !(view.scope === "ONE_PLACE" && view.place_id !== site)
+    !(view.scope === "ONE_UNIT" && view.unit_id !== site)
       ? {
           id: site,
-          label: view.place_id === site ? (view.place_name ?? site) : site,
+          label: view.unit_id === site ? (view.unit_name ?? site) : site,
         }
       : null
 
@@ -129,12 +129,12 @@ export function HrWorkspace({
         // Posted to a different shop. Not a warning: every read would be
         // refused with "is not posted anywhere that reaches …", and offering
         // the screens anyway would be offering five ways to see that sentence.
-        if (view.scope === "ONE_PLACE" && view.place_id !== site) {
+        if (view.scope === "ONE_UNIT" && view.unit_id !== site) {
           return (
             <Banner tone="bad">
               This account is posted to{" "}
               <b className="font-semibold">
-                {view.place_name ?? view.place_id}
+                {view.unit_name ?? view.unit_id}
               </b>
               , and this till is standing in{" "}
               <b className="font-semibold">{site}</b>. Head office refuses one
