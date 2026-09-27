@@ -603,8 +603,9 @@ async fn run_integrity_agent(pool: sqlx::PgPool) {
 async fn run_auth_policy_refresh_agent(pool: sqlx::PgPool) {
     // Every five minutes rather than every six hours: besides renewing
     // leases, this is what tells a server whose sign-in list changed without
-    // anybody publishing it — a node enrolled, a role's reach edited, a
-    // publication that failed (0635). The queries are cheap when nothing is
+    // anybody publishing it — a role's reach edited, a publication that
+    // failed (0635). A server that is let in is derived and told at once
+    // (`postgres::follow_new_server`); this only backs that up. The queries are cheap when nothing is
     // due, and the lease rule inside them is unchanged.
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(5 * 60));
     loop {

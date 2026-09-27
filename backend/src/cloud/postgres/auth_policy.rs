@@ -1458,6 +1458,30 @@ pub async fn follow_login(pool: &PgPool, user_id: Uuid, actor: &str) {
     }
 }
 
+/// A server has just been let in — an enrolment approved, a new machine
+/// replacing an old one, an origin registered by hand. Derive who signs in
+/// there now instead of on the sweep's next tick: somebody whose role and
+/// posting reach this server (a store manager who joined before it existed)
+/// must be able to sign in the moment it is up.
+///
+/// Answers the servers whose sign-in list changed, for the caller to tell —
+/// the approval sends the new server its whole bootstrap, policy included,
+/// right after. Never fails the approval: a derivation that fails here is
+/// logged and the sweep makes it.
+pub async fn follow_new_server(pool: &PgPool, origin_id: &str, actor: &str) -> Vec<String> {
+    match reconcile_node_access(pool, None, actor).await {
+        Ok(origins) => origins,
+        Err(error) => {
+            tracing::warn!(
+                %origin_id,
+                %error,
+                "a server was let in and who signs in there could not be derived yet"
+            );
+            Vec::new()
+        }
+    }
+}
+
 /// [`follow_login`] for the login bound to an employment record, when one is
 /// — for a posting or a binding that has just changed.
 pub async fn follow_posting(pool: &PgPool, employee_id: &str, actor: &str) {

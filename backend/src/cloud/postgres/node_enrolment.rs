@@ -474,6 +474,18 @@ pub async fn approve_node_enrolment(
     .await?;
     tx.commit().await?;
 
+    // Who signs in at the new server follows from role and posting (0635);
+    // derive it now, so the bootstrap's policy already names them rather
+    // than the sweep adding them up to five minutes later. Any other server
+    // whose list the derivation changed is told here; this one is told by
+    // the bootstrap.
+    let changed = super::follow_new_server(pool, &origin_id, decided_by).await;
+    let others: Vec<String> = changed
+        .into_iter()
+        .filter(|changed| changed != &origin_id)
+        .collect();
+    super::publish_node_access(pool, &others, decided_by).await;
+
     let bootstrap = bootstrap_origin(pool, &origin_id, decided_by).await?;
     Ok(ApprovedNodeEnrolment {
         enrolment: node_enrolment_view(pool, enrolment_id).await?,
