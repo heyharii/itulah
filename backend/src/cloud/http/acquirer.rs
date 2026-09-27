@@ -4,18 +4,20 @@
 //! the books goes from there through `poster::post`. Nothing here decides what
 //! a valid journal entry is.
 //!
-//! # Why the store routes carry the site in the path
+//! # Why the store routes carry the unit in the path
 //!
 //! A reconciliation has a `recon_id`, and routing the shop's own screens at
-//! `/tender-recon/{recon_id}` would be shorter. It would also mean the site is
+//! `/tender-recon/{recon_id}` would be shorter. It would also mean the unit is
 //! a fact this layer has to go and look up before it can decide whether the
 //! caller may see the row — and a route that forgot to look it up would work
 //! perfectly, for everybody, including the manager of another shop.
 //!
-//! So the shop's site is in every path under `/finance/store/{site}/...`, the
-//! reach check is the same three lines on every handler, and a reconciliation
-//! reached with the wrong site in the path is refused before it is read. The id
-//! still identifies the row; the site is what says who may ask.
+//! So the store's unit is in every path under `/finance/store/{unit}/...`
+//! (0609: a reconciliation proves a unit's takings), the reach check is the
+//! same three lines on every handler, and a reconciliation reached with the
+//! wrong unit in the path is refused before it is read. The id still
+//! identifies the row; the unit is what says who may ask — and a reach is a
+//! unit, so the two are compared as like with like.
 //!
 //! # About the role checks
 //!
@@ -68,25 +70,25 @@ fn allowed(principal: &Principal, needed: Role, act: &str) -> Result<(), AppErro
     )))
 }
 
-/// May this caller act on this shop's evening?
+/// May this caller act on this store's evening?
 ///
 /// The reach comes from the caller's own open posting, not from the session:
 /// a place stamped into a credential is wrong from the day somebody transfers
 /// until the day they next sign in, which is precisely the week it matters.
 /// Head office and ADMIN reach everywhere; a store manager reaches their own
-/// shop and nowhere else; somebody HR has not posted reaches nothing.
+/// unit and nowhere else; somebody HR has not posted reaches nothing.
 async fn at_store(
     state: &AppState,
     principal: &Principal,
-    site_id: &str,
+    unit_id: &str,
     act: &str,
 ) -> Result<(), AppError> {
     allowed(principal, Role::Supervisor, act)?;
-    if reach_of(state, principal).await?.covers(Some(site_id)) {
+    if reach_of(state, principal).await?.covers(Some(unit_id)) {
         return Ok(());
     }
     Err(AppError::Forbidden(format!(
-        "{} is not posted at {site_id}, so may not {act} there",
+        "{} is not posted at {unit_id}, so may not {act} there",
         principal.username
     )))
 }
@@ -95,15 +97,15 @@ async fn at_store(
 // The shop's evening
 // ---------------------------------------------------------------------------
 
-/// Every reconciliation this shop has open or closed for one day.
+/// Every reconciliation this store has open or closed for one day.
 pub async fn tender_recon_list(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Path((site_id, business_date)): Path<(String, NaiveDate)>,
+    Path((unit_id, business_date)): Path<(String, NaiveDate)>,
 ) -> Result<Json<Vec<TenderReconciliationRow>>, AppError> {
-    at_store(&state, &principal, &site_id, "read a day's takings").await?;
+    at_store(&state, &principal, &unit_id, "read a day's takings").await?;
     Ok(Json(
-        infrastructure::tender_recon_list(&state.db, &site_id, business_date).await?,
+        infrastructure::tender_recon_list(&state.db, &unit_id, business_date).await?,
     ))
 }
 
@@ -115,14 +117,14 @@ pub async fn tender_recon_list(
 pub async fn tender_recon_open(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Path((site_id, business_date)): Path<(String, NaiveDate)>,
+    Path((unit_id, business_date)): Path<(String, NaiveDate)>,
     Json(request): Json<OpenTenderReconRequest>,
 ) -> Result<Json<TenderReconciliationRow>, AppError> {
-    at_store(&state, &principal, &site_id, "open a reconciliation").await?;
+    at_store(&state, &principal, &unit_id, "open a reconciliation").await?;
     Ok(Json(
         infrastructure::tender_recon_open(
             &state.db,
-            &site_id,
+            &unit_id,
             business_date,
             &request,
             &principal.username,
@@ -135,9 +137,9 @@ pub async fn tender_recon_open(
 pub async fn tender_recon_detail(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Path((site_id, _business_date, recon_id)): Path<(String, NaiveDate, Uuid)>,
+    Path((unit_id, _business_date, recon_id)): Path<(String, NaiveDate, Uuid)>,
 ) -> Result<Json<TenderReconDetail>, AppError> {
-    at_store(&state, &principal, &site_id, "read a reconciliation").await?;
+    at_store(&state, &principal, &unit_id, "read a reconciliation").await?;
     Ok(Json(
         infrastructure::tender_recon_detail(&state.db, recon_id).await?,
     ))
@@ -147,10 +149,10 @@ pub async fn tender_recon_detail(
 pub async fn tender_recon_record_batch(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Path((site_id, _business_date, recon_id)): Path<(String, NaiveDate, Uuid)>,
+    Path((unit_id, _business_date, recon_id)): Path<(String, NaiveDate, Uuid)>,
     Json(request): Json<RecordTenderBatchRequest>,
 ) -> Result<Json<i64>, AppError> {
-    at_store(&state, &principal, &site_id, "key in a batch slip").await?;
+    at_store(&state, &principal, &unit_id, "key in a batch slip").await?;
     Ok(Json(
         infrastructure::tender_recon_record_batch(
             &state.db,
@@ -166,9 +168,9 @@ pub async fn tender_recon_record_batch(
 pub async fn tender_recon_suggest(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Path((site_id, _business_date, recon_id)): Path<(String, NaiveDate, Uuid)>,
+    Path((unit_id, _business_date, recon_id)): Path<(String, NaiveDate, Uuid)>,
 ) -> Result<Json<TenderSuggestionsView>, AppError> {
-    at_store(&state, &principal, &site_id, "read the suggestions").await?;
+    at_store(&state, &principal, &unit_id, "read the suggestions").await?;
     Ok(Json(
         infrastructure::tender_recon_suggest(&state.db, recon_id).await?,
     ))
@@ -178,10 +180,10 @@ pub async fn tender_recon_suggest(
 pub async fn tender_recon_decide(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Path((site_id, _business_date, recon_id)): Path<(String, NaiveDate, Uuid)>,
+    Path((unit_id, _business_date, recon_id)): Path<(String, NaiveDate, Uuid)>,
     Json(request): Json<RecordTenderDecisionRequest>,
 ) -> Result<Json<TenderDecisionOutcome>, AppError> {
-    at_store(&state, &principal, &site_id, "answer a reconciliation").await?;
+    at_store(&state, &principal, &unit_id, "answer a reconciliation").await?;
     // The one answer of the five that moves money. See the module header: this
     // is the same bar `/finance/tenders/{id}/retender` puts on the same act,
     // and a shop that could reach it from here at SUPERVISOR would be a way
@@ -203,10 +205,10 @@ pub async fn tender_recon_decide(
 pub async fn tender_recon_close(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Path((site_id, _business_date, recon_id)): Path<(String, NaiveDate, Uuid)>,
+    Path((unit_id, _business_date, recon_id)): Path<(String, NaiveDate, Uuid)>,
     Json(request): Json<CloseTenderReconRequest>,
 ) -> Result<Json<TenderReconciliationRow>, AppError> {
-    at_store(&state, &principal, &site_id, "close a reconciliation").await?;
+    at_store(&state, &principal, &unit_id, "close a reconciliation").await?;
     Ok(Json(
         infrastructure::tender_recon_close(&state.db, recon_id, &request, &principal.username)
             .await?,
@@ -377,23 +379,24 @@ pub struct AcqAgingQuery {
     /// reproducing last month's report.
     pub as_of: Option<NaiveDate>,
     pub acquirer: Option<String>,
-    pub site: Option<String>,
+    /// One store's books. The receivables are kept per unit (0608).
+    pub unit: Option<String>,
 }
 
-/// What each acquirer still owes each shop, by how long it has owed it.
+/// What each acquirer still owes each store, by how long it has owed it.
 pub async fn acq_receivable_aging(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     Query(query): Query<AcqAgingQuery>,
 ) -> Result<Json<AcquirerReceivableAging>, AppError> {
     allowed(&principal, Role::Supervisor, "read the acquirer ageing")?;
-    // Today where the named shop is, or at head office when none is named.
+    // Today where the named store is, or at head office when none is named.
     let as_of = match query.as_of {
         Some(day) => day,
         None => {
             infrastructure::acquirer_business_date(
                 &state.db,
-                some_text(&query.site),
+                some_text(&query.unit),
                 chrono::Utc::now(),
             )
             .await?
@@ -404,7 +407,7 @@ pub async fn acq_receivable_aging(
             &state.db,
             as_of,
             some_text(&query.acquirer),
-            some_text(&query.site),
+            some_text(&query.unit),
         )
         .await?,
     ))
@@ -418,27 +421,27 @@ pub async fn acq_receivable_aging(
 pub fn lane_h_routes(router: Router<AppState>) -> Router<AppState> {
     router
         .route(
-            "/api/v1/finance/store/{site}/tender-recon/{date}",
+            "/api/v1/finance/store/{unit}/tender-recon/{date}",
             get(tender_recon_list).post(tender_recon_open),
         )
         .route(
-            "/api/v1/finance/store/{site}/tender-recon/{date}/{recon_id}",
+            "/api/v1/finance/store/{unit}/tender-recon/{date}/{recon_id}",
             get(tender_recon_detail),
         )
         .route(
-            "/api/v1/finance/store/{site}/tender-recon/{date}/{recon_id}/batch",
+            "/api/v1/finance/store/{unit}/tender-recon/{date}/{recon_id}/batch",
             post(tender_recon_record_batch),
         )
         .route(
-            "/api/v1/finance/store/{site}/tender-recon/{date}/{recon_id}/suggestions",
+            "/api/v1/finance/store/{unit}/tender-recon/{date}/{recon_id}/suggestions",
             get(tender_recon_suggest),
         )
         .route(
-            "/api/v1/finance/store/{site}/tender-recon/{date}/{recon_id}/decide",
+            "/api/v1/finance/store/{unit}/tender-recon/{date}/{recon_id}/decide",
             post(tender_recon_decide),
         )
         .route(
-            "/api/v1/finance/store/{site}/tender-recon/{date}/{recon_id}/close",
+            "/api/v1/finance/store/{unit}/tender-recon/{date}/{recon_id}/close",
             post(tender_recon_close),
         )
         .route(
