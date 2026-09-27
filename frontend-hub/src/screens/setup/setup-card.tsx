@@ -9,6 +9,7 @@ import {
   type SetupTask,
   type SetupTaskId,
 } from "@/lib/queries/setup"
+import { useSections } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import { useSheet } from "@/lib/sheets"
 import { CompanySheet } from "@/screens/setup/company-sheet"
@@ -110,10 +111,16 @@ export function SetupCard({ className }: { className?: string }) {
     }
   })
 
+  // Inviting the team, pairing servers, NPWP, bank accounts — every row here
+  // is a head-office decision. A store manager's home screen has no business
+  // showing it, so this reads the same `bypass` a section gate would: OWNER
+  // or ADMIN, or a node too old to say (`useSections`, `lib/session.tsx`).
+  const { bypass } = useSections()
+
   // No endpoint, no permission, or still asking: the brief is the page, and
   // a card that flickers in or apologises would be noise on top of it.
   const status = setup.data
-  if (status === undefined) return null
+  if (!bypass || status === undefined) return null
 
   if (!status.finished) {
     return (

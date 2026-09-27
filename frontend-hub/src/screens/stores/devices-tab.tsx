@@ -3,8 +3,10 @@ import { useMemo } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Pill } from "@/components/ui/pill"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { ago } from "@/lib/format"
+import { useFleetStatusOf, type FleetComponent } from "@/lib/queries/fleet"
 import {
   listDevices,
   systemKeys,
@@ -14,6 +16,7 @@ import {
 import { testPrint, type StoreTills } from "@/lib/queries/stores"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
+import { FLEET_PILL_TONE, FleetDot } from "@/screens/system/fleet-shared"
 
 const KIND_LABEL: Record<DeviceKind, string> = {
   TILL: "Till",
@@ -55,6 +58,21 @@ export function DevicesTab({
     [devices.data, siteId]
   )
 
+  // The fleet page's own read of these same devices (`FleetComponent`, one
+  // per `device:<id>`) — its `state`/`sentence` are the alerting system's
+  // judgement (battery, silence past a threshold, a fault a heartbeat
+  // reported), which this register alone cannot say; `recentlySeen` above
+  // stays as the fallback for a device the sweep has not judged yet.
+  const fleet = useFleetStatusOf(siteId, true)
+  const componentByDevice = useMemo(() => {
+    const map = new Map<string, FleetComponent>()
+    for (const component of fleet.data?.row.components ?? []) {
+      if (component.component.startsWith("device:"))
+        map.set(component.component.slice("device:".length), component)
+    }
+    return map
+  }, [fleet.data])
+
   return (
     <div className="flex max-w-2xl flex-col gap-4">
       <Card className="flex flex-wrap items-center gap-4 px-4 py-3 text-[0.875rem] text-body">
@@ -82,7 +100,11 @@ export function DevicesTab({
             ) : (
               <ul className="divide-y divide-hairline">
                 {rows.map((device) => (
-                  <DeviceRow key={device.device_id} device={device} />
+                  <DeviceRow
+                    key={device.device_id}
+                    device={device}
+                    component={componentByDevice.get(device.device_id)}
+                  />
                 ))}
               </ul>
             ),
@@ -92,7 +114,16 @@ export function DevicesTab({
   )
 }
 
-function DeviceRow({ device }: { device: RegistryDevice }) {
+function DeviceRow({
+  device,
+  component,
+}: {
+  device: RegistryDevice
+  /// This device's row on the fleet page, once it has loaded — absent while
+  /// that fetch is still running, or for a device the sweep has not judged
+  /// yet (`device:<id>` is written the first time a heartbeat mentions it).
+  component: FleetComponent | undefined
+}) {
   const client = useQueryClient()
   const print = useMutation({
     mutationFn: () => testPrint(device.device_id),
@@ -103,24 +134,36 @@ function DeviceRow({ device }: { device: RegistryDevice }) {
 
   return (
     <li className="flex items-center gap-3 px-4 py-3">
-      <span
-        aria-hidden
-        className={cn(
-          "size-2 shrink-0 rounded-full",
-          device.last_seen_at && recentlySeen(device.last_seen_at)
-            ? "bg-ok"
-            : "bg-hairline-strong"
-        )}
-      />
+      {component ? (
+        <FleetDot colour={component.colour} />
+      ) : (
+        <span
+          aria-hidden
+          className={cn(
+            "size-2 shrink-0 rounded-full",
+            device.last_seen_at && recentlySeen(device.last_seen_at)
+              ? "bg-ok"
+              : "bg-hairline-strong"
+          )}
+        />
+      )}
       <span className="min-w-0 flex-1">
         <b className="block truncate text-ink">{device.label}</b>
         <span className="block truncate text-meta text-mute">
-          {KIND_LABEL[device.kind] ?? device.kind}
-          {device.last_seen_at
-            ? ` · seen ${ago(device.last_seen_at)}`
-            : " · never seen"}
+          {component
+            ? component.sentence
+            : `${KIND_LABEL[device.kind] ?? device.kind}${
+                device.last_seen_at
+                  ? ` · seen ${ago(device.last_seen_at)}`
+                  : " · never seen"
+              }`}
         </span>
       </span>
+      {component && (
+        <Pill tone={FLEET_PILL_TONE[component.colour]} className="shrink-0">
+          {KIND_LABEL[device.kind] ?? device.kind}
+        </Pill>
+      )}
       {printable && (
         <div className="flex shrink-0 flex-col items-end gap-1">
           <Button

@@ -299,6 +299,10 @@ export const SHEET_PARAMS = {
   /// The company's own description — name, legal form, head-office address,
   /// NPWP — over the home screen. A flag: there is one company.
   company: flag,
+  /// The fleet's alert thresholds, quiet hours, escalation and who is told —
+  /// over the Incidents tab of Store servers (`screens/system/fleet-incidents.tsx`).
+  /// A flag: there is one settings object.
+  "fleet-alert-settings": flag,
   /// One supply request — what a place asked for, and how far it has got.
   /// Filed from the Supplies list and opened by the Overview's own rows, so
   /// the address is a thing people send each other.

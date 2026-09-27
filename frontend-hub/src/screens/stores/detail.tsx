@@ -94,7 +94,9 @@ export function StoreDetail() {
                 onChange={(next) => setTab(next as Tab)}
               />
               {tab === "overview" && <OverviewTab detail={data} />}
-              {tab === "server" && <ServerTab store={data.store} />}
+              {tab === "server" && (
+                <ServerTab store={data.store} canManage={data.can_manage} />
+              )}
               {tab === "devices" &&
                 (siteId ? (
                   <DevicesTab siteId={siteId} tills={data.store.tills} />

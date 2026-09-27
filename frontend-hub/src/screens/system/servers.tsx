@@ -3,10 +3,11 @@ import { useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { Health } from "@/screens/system/health"
-import { Incidents, Monitoring } from "@/screens/system/monitoring"
+import { FleetHealth } from "@/screens/system/fleet-health"
+import { FleetIncidents } from "@/screens/system/fleet-incidents"
+import { FleetSync } from "@/screens/system/fleet-sync"
+import { Monitoring } from "@/screens/system/monitoring"
 import { Nodes } from "@/screens/system/nodes"
-import { SyncLane } from "@/screens/system/sync"
 
 /// Store servers — one page, four tabs, where five rows used to stand.
 ///
@@ -17,16 +18,19 @@ import { SyncLane } from "@/screens/system/sync"
 /// now, and which question is showing is a tab rather than a URL.
 ///
 /// Every tab is still its own file, doing its own fetching on its own
-/// schedule: `<Nodes embedded>`, `<Health embedded>` and the rest are the same
-/// components the standalone pages used to mount, just asked to leave out
-/// their own `PageHeader` and fold their header actions into a plain row.
-/// Nothing about how any of them talks to the server changed.
+/// schedule. "Servers" is the register (`<Nodes embedded>`) plus the up/down
+/// board (`<Monitoring>`) above it — the owner's tab list named four
+/// ("Servers · Health · Incidents · Sync"), and Monitoring is a fact about the
+/// servers as a fleet rather than a fifth question of its own, so it opens
+/// the first tab instead of asking for one.
 ///
-/// "Servers" also carries `<Monitoring>` — the up/down board — above the
-/// register: the owner's tab list named four ("Servers · Health · Incidents ·
-/// Sync"), and Monitoring is a fact about the servers as a fleet rather than a
-/// fifth question of its own, so it opens the first tab instead of asking for
-/// one.
+/// Health, Incidents and Sync (0640, 28 Sep 2026) are the fleet status page —
+/// `screens/system/fleet-health.tsx`, `fleet-incidents.tsx`, `fleet-sync.tsx`
+/// — reading `GET /api/v1/fleet/*` (`backend/src/cloud/postgres/fleet_status.rs`)
+/// rather than the older per-node `/sync/health` and `/sync/fleet` boards
+/// those three tabs used to show. Those older screens (`health.tsx`,
+/// `sync.tsx`, `monitoring.tsx`'s `Incidents`) are left in the tree unused
+/// rather than deleted here, in case something else still reads them.
 type Tab = "servers" | "health" | "incidents" | "sync"
 
 const TABS: readonly { value: Tab; label: string }[] = [
@@ -57,9 +61,9 @@ export function StoreServers() {
           </div>
         </>
       )}
-      {tab === "health" && <Health embedded />}
-      {tab === "incidents" && <Incidents embedded />}
-      {tab === "sync" && <SyncLane embedded />}
+      {tab === "health" && <FleetHealth />}
+      {tab === "incidents" && <FleetIncidents />}
+      {tab === "sync" && <FleetSync />}
     </PageContent>
   )
 }

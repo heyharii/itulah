@@ -32,7 +32,16 @@ import { saying } from "@/screens/system/units"
 /// server's own state, so it can poll every 5 seconds while that state is on
 /// its way somewhere else without making the whole page poll while somebody
 /// is reading the checklist on Overview.
-export function ServerTab({ store }: { store: StoreSummary }) {
+export function ServerTab({
+  store,
+  canManage,
+}: {
+  store: StoreSummary
+  /// An Admin at head office (`StoreDetail.can_manage`) — install and approve
+  /// are theirs alone; a store's own manager reads this tab's state but never
+  /// sees the buttons, and the server would refuse them either way.
+  canManage: boolean
+}) {
   const client = useQueryClient()
   const detail = useQuery({
     queryKey: storesKeys.detail(store.unit_id),
@@ -63,11 +72,15 @@ export function ServerTab({ store }: { store: StoreSummary }) {
     },
   })
 
+  const watchingApproval = canManage && server.state === "WAITING_FOR_APPROVAL"
   const enrolments = useQuery({
     queryKey: systemKeys.enrolments(),
     queryFn: ({ signal }) => listEnrolments(signal),
-    enabled: server.state === "WAITING_FOR_APPROVAL",
-    refetchInterval: server.state === "WAITING_FOR_APPROVAL" ? 5_000 : false,
+    // An Admin-only register (`System › Store servers`); a store's own
+    // manager cannot approve here anyway (see the `canManage` gate below), so
+    // asking for it would only be a 403 nobody reads.
+    enabled: watchingApproval,
+    refetchInterval: watchingApproval ? 5_000 : false,
   })
   const claim = (enrolments.data ?? []).find(
     (row) => row.enrolment_id === server.enrolment_id
@@ -95,28 +108,37 @@ export function ServerTab({ store }: { store: StoreSummary }) {
       {server.state === "NOT_INSTALLED" && (
         <Card className="p-4">
           <p className="mb-3 text-[0.875rem] text-body">
-            Issue an install code for {store.name}&rsquo;s back-office PC. The
-            code shows on this page, on an installer link, and as a QR — good
-            for 24 hours or until it is used.
+            {canManage
+              ? `Issue an install code for ${store.name}’s back-office PC. The code shows on this page, on an installer link, and as a QR — good for 24 hours or until it is used.`
+              : "Not installed yet. Only an Admin at head office may issue its install code."}
           </p>
-          {install.isError && (
-            <Banner tone="bad" className="mb-3">
-              {saying(install.error)}
-            </Banner>
+          {canManage && (
+            <>
+              {install.isError && (
+                <Banner tone="bad" className="mb-3">
+                  {saying(install.error)}
+                </Banner>
+              )}
+              <Button
+                variant="primary"
+                pending={install.isPending}
+                onClick={() => install.mutate()}
+              >
+                {install.isPending ? "Issuing…" : "Install server"}
+              </Button>
+            </>
           )}
-          <Button
-            variant="primary"
-            pending={install.isPending}
-            onClick={() => install.mutate()}
-          >
-            {install.isPending ? "Issuing…" : "Install server"}
-          </Button>
         </Card>
       )}
 
       {server.state === "WAITING_TO_INSTALL" && (
         <Card className="p-4">
-          {issued ? (
+          {!canManage ? (
+            <Banner tone="warn">
+              Waiting to be installed. Only an Admin at head office may issue
+              or reissue its code.
+            </Banner>
+          ) : issued ? (
             <>
               <div className="flex flex-wrap items-center gap-4">
                 <div className="rounded-inner border border-dashed border-hairline-2 px-6 py-5 text-center">
@@ -159,20 +181,24 @@ export function ServerTab({ store }: { store: StoreSummary }) {
               was lost; the new code cancels the old.
             </Banner>
           )}
-          {install.isError && (
-            <Banner tone="bad" className="mt-3">
-              {saying(install.error)}
-            </Banner>
+          {canManage && (
+            <>
+              {install.isError && (
+                <Banner tone="bad" className="mt-3">
+                  {saying(install.error)}
+                </Banner>
+              )}
+              <div className="mt-3.5">
+                <Button
+                  variant="quiet"
+                  pending={install.isPending}
+                  onClick={() => install.mutate()}
+                >
+                  {install.isPending ? "Issuing…" : "Issue a new code"}
+                </Button>
+              </div>
+            </>
           )}
-          <div className="mt-3.5">
-            <Button
-              variant="quiet"
-              pending={install.isPending}
-              onClick={() => install.mutate()}
-            >
-              {install.isPending ? "Issuing…" : "Issue a new code"}
-            </Button>
-          </div>
         </Card>
       )}
 
@@ -195,34 +221,38 @@ export function ServerTab({ store }: { store: StoreSummary }) {
                 </div>
               </div>
               <p className="text-meta text-body">
-                Ask the store to read the number on its screen. Approve only
-                if it is this one — a different number is a different
-                machine.
+                {canManage
+                  ? "Ask the store to read the number on its screen. Approve only if it is this one — a different number is a different machine."
+                  : "Only an Admin at head office may approve it."}
               </p>
-              {approve.isError && (
-                <Banner tone="bad">{saying(approve.error)}</Banner>
+              {canManage && (
+                <>
+                  {approve.isError && (
+                    <Banner tone="bad">{saying(approve.error)}</Banner>
+                  )}
+                  {refuse.isError && (
+                    <Banner tone="bad">{saying(refuse.error)}</Banner>
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      variant="primary"
+                      pending={approve.isPending || refuse.isPending}
+                      onClick={() => approve.mutate()}
+                    >
+                      {approve.isPending
+                        ? "Approving…"
+                        : "The numbers match — approve"}
+                    </Button>
+                    <Button
+                      variant="quiet"
+                      pending={approve.isPending || refuse.isPending}
+                      onClick={() => refuse.mutate()}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                </>
               )}
-              {refuse.isError && (
-                <Banner tone="bad">{saying(refuse.error)}</Banner>
-              )}
-              <div className="flex gap-2">
-                <Button
-                  variant="primary"
-                  pending={approve.isPending || refuse.isPending}
-                  onClick={() => approve.mutate()}
-                >
-                  {approve.isPending
-                    ? "Approving…"
-                    : "The numbers match — approve"}
-                </Button>
-                <Button
-                  variant="quiet"
-                  pending={approve.isPending || refuse.isPending}
-                  onClick={() => refuse.mutate()}
-                >
-                  Reject
-                </Button>
-              </div>
             </div>
           ) : (
             <p className="text-[0.875rem] text-body">
