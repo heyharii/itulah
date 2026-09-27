@@ -11,7 +11,7 @@
 //! # Why this exists at all rather than as a page of journal entries
 //!
 //! Two of the three could be typed by hand. The trial balance is one entry per
-//! site and somebody with the Journal screen could key it. The open items are a
+//! unit and somebody with the Journal screen could key it. The open items are a
 //! list. The stock cannot be, and that is the reason for the lane: the frozen
 //! costing policy is FIFO over cost layers, a layer exists only because
 //! something created it, and Seventhsoft is periodic — it expensed the
@@ -47,13 +47,15 @@
 //! ## 1. The opening trial balance — `opening_import_balances`
 //!
 //! ```text
-//! site_id,account_code,category_code,counter_site_id,debit,credit,document_no,memo
-//! dc,1301,MERCHANDISE,,4750000000,,TB-2026-08,Persediaan per 31 Agustus
-//! dc,2101,,,,4750000000,TB-2026-08,Hutang dagang
-//! store-01,1501,FINANCING,dc,,910000000,TB-2026-08,Posisi toko terhadap HO
+//! unit_id,account_code,category_code,counter_unit_id,debit,credit,document_no,memo
+//! ho,1301,MERCHANDISE,,4750000000,,TB-2026-08,Persediaan per 31 Agustus
+//! ho,2101,,,,4750000000,TB-2026-08,Hutang dagang
+//! store-01,1501,FINANCING,ho,,910000000,TB-2026-08,Posisi toko terhadap HO
 //! ```
 //!
-//! * `site_id` — ours (`dc`, `store-01` …), not theirs. Which set of books.
+//! * `unit_id` — ours (head office's, `store-01` …), not theirs. Which set of
+//!   books: an opening balance is a unit's balance on the cutover day (0608),
+//!   and each unit's lines post as one entry that balances on its own.
 //! * `account_code` — OURS now, one of the forty (0289), not the twelve-digit
 //!   code the trial balance was printed in. Their code is still how the file
 //!   arrives, so whoever prepares it translates once, with
@@ -66,9 +68,11 @@
 //!   `2101 Hutang usaha` wants nothing, because which supplier is a column.
 //!   An opening balance is the one import where getting this wrong is
 //!   expensive: every later report reads off it.
-//! * `counter_site_id` — which unit is on the other side, required on the two
+//! * `counter_unit_id` — which unit is on the other side, required on the two
 //!   accounts that are a balance BETWEEN units (`1501` and `1302`) and empty on
-//!   the other thirty-eight.
+//!   the other thirty-eight. A store's position is always with head office and
+//!   head office's is with a store (I8), so on a store's line it is head
+//!   office's unit — whichever unit is of kind `HO` — and nothing else.
 //!
 //!   It is what lets a shop's sheet balance at all. A shop's books close on a
 //!   net position against head office, and there is exactly one account in the
@@ -90,6 +94,9 @@
 //! dc,ART-002,dc.warehouse,40,,90000,SO-2026-08
 //! ```
 //!
+//! * `site_id` — a PREMISES, not a book: stock is counted in a place. Its value
+//!   is reconciled against the inventory account of the unit that owns the
+//!   place (`unit_of_site`), all of a unit's places together.
 //! * `last_purchase_cost` — per piece, out of the client's own purchase
 //!   history. The only basis that is not a compromise, and preferred whenever
 //!   the cell is filled.
@@ -103,11 +110,13 @@
 //! ## 3. The open items — `opening_import_subledger`
 //!
 //! ```text
-//! site_id,account_key,qualifier,party_type,party_id,party_name,side,voucher_kind,voucher_id,amount,document_date,due_date
-//! dc,trade_payable,,SUPPLIER,SUP-01,PT Kain Jaya,PAYABLE,INVOICE,INV-8891,180000000,2026-08-02,2026-09-30
+//! unit_id,account_key,qualifier,party_type,party_id,party_name,side,voucher_kind,voucher_id,amount,document_date,due_date
+//! ho,trade_payable,,SUPPLIER,SUP-01,PT Kain Jaya,PAYABLE,INVOICE,INV-8891,180000000,2026-08-02,2026-09-30
 //! store-01,card_receivable_debit,BCA,ACQUIRER,BCA,Bank BCA,RECEIVABLE,BATCH,BCA-0831,4200000,2026-08-31,
 //! ```
 //!
+//! * `unit_id` — the books the item sits in, the same key the Payment Ledger
+//!   is reconciled against them by (0608).
 //! * `account_key` — the SEMANTIC key of the control account, not a code. It
 //!   is what the Payment Ledger identifies itself by and what
 //!   `payment_ledger_integrity` compares against the map, so a code here would
@@ -121,11 +130,12 @@ use super::payment_ledger::{
     ple_open, PaymentLedgerItem, PaymentLedgerPartyType, PaymentLedgerSide,
 };
 use super::poster::{post, LineAccount, PostingIntent, PostingLine};
+use super::sites::{head_office_unit_id, unit_exists, unit_of_site};
 use super::stock_ledger::{cost_layer_create, NewCostLayer};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
-    opening_site_totals, parse_csv, parse_opening_amount, price_opening_stock, reconcile_opening,
-    CsvRow, OpeningAmount, OpeningReconciliation, OpeningSiteTotal, OpeningStockFacts,
+    opening_unit_totals, parse_csv, parse_opening_amount, price_opening_stock, reconcile_opening,
+    CsvRow, OpeningAmount, OpeningReconciliation, OpeningStockFacts, OpeningUnitTotal,
 };
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -175,8 +185,8 @@ pub struct OpeningBalanceOutcome {
     /// would produce rather than what it produced.
     pub committed: bool,
     pub lines: i64,
-    /// One per site, in the order the file names them.
-    pub sites: Vec<OpeningSiteTotal>,
+    /// One per unit, in the order the file names them.
+    pub units: Vec<OpeningUnitTotal>,
     pub entries: Vec<OpeningPostedEntry>,
     /// The client's own references, so a person can see at a glance which of
     /// their reports this came off.
@@ -186,11 +196,11 @@ pub struct OpeningBalanceOutcome {
     pub equations: Vec<OpeningEquation>,
 }
 
-/// One site's opening entry.
+/// One unit's opening entry.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct OpeningPostedEntry {
-    pub site_id: String,
+    pub unit_id: String,
     pub entry_number: String,
     pub total_minor: i64,
     pub lines: i64,
@@ -203,7 +213,9 @@ pub struct OpeningEquation {
     /// Dotted, and the same keys the integrity engine uses where there is one.
     pub key: String,
     pub title: String,
-    pub site_id: Option<String>,
+    /// The books the equation is asked of. Every one of them is about a
+    /// unit's books — the ledger, the open items, the inventory account.
+    pub unit_id: Option<String>,
     pub left_minor: i64,
     pub right_minor: i64,
     pub difference_minor: i64,
@@ -221,7 +233,7 @@ pub struct OpeningStockOutcome {
     pub committed: bool,
     pub lines: i64,
     pub layers: i64,
-    pub sites: Vec<OpeningStockSite>,
+    pub units: Vec<OpeningStockUnit>,
     /// Every line whose price was not a real purchase price. **This is the list
     /// somebody has to read before agreeing to the cutover**, which is why it
     /// is carried in full and not counted.
@@ -229,15 +241,19 @@ pub struct OpeningStockOutcome {
     pub equations: Vec<OpeningEquation>,
 }
 
-/// One place's opening stock, against the account that is supposed to explain it.
+/// One unit's opening stock, against the account that is supposed to explain it.
+///
+/// Per unit and not per place, because the inventory account is a unit's:
+/// the stock of every premises a unit owns is explained by the one balance in
+/// its books, so it is only the sum over those premises that can agree with it.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
-pub struct OpeningStockSite {
-    pub site_id: String,
+pub struct OpeningStockUnit {
+    pub unit_id: String,
     pub articles: i64,
     pub quantity: i64,
     pub value_minor: i64,
-    /// The client's inventory account for this place, as the map resolves it.
+    /// The client's inventory account in this unit's books, as the map resolves it.
     pub inventory_account: String,
     pub reconciliation: OpeningReconciliation,
 }
@@ -372,11 +388,46 @@ async fn assert_cutover_month_open(
     }
 }
 
-/// Refuse every site the file names that this system does not keep, at once.
+/// Refuse every unit the file names that this system does not keep, at once.
 ///
 /// All of them together rather than the first: a cutover file is prepared by
 /// somebody who has to go back to a spreadsheet and fix it, and telling them
-/// about one typo per round trip is how a cutover takes a week.
+/// about one typo per round trip is how a cutover takes a week. The refusal
+/// lists the units there are, read from the `unit` table, because the file's
+/// author is holding the client's branch codes and needs ours.
+async fn assert_units_exist(
+    tx: &mut Transaction<'_, Postgres>,
+    units: &[String],
+) -> Result<(), AppError> {
+    let mut unknown: Vec<&str> = Vec::new();
+    for unit in units {
+        if !unit_exists(&mut **tx, unit).await? && !unknown.contains(&unit.as_str()) {
+            unknown.push(unit);
+        }
+    }
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    let known: Option<String> =
+        sqlx::query_scalar("SELECT string_agg(id, ', ' ORDER BY id) FROM unit")
+            .fetch_one(&mut **tx)
+            .await?;
+    Err(refuse(format!(
+        "the sheet names {} this system does not keep: {}. A cutover file names OUR units — \
+         {} — and not the client's own branch codes",
+        if unknown.len() == 1 {
+            "a unit"
+        } else {
+            "units"
+        },
+        unknown.join(", "),
+        known.as_deref().unwrap_or("none are set up yet")
+    )))
+}
+
+/// Refuse every site the stock sheet names that this system does not keep, at
+/// once, for the same reason as [`assert_units_exist`]. Stock is counted in a
+/// place, so the stock sheet names premises and not books.
 async fn assert_sites_exist(
     tx: &mut Transaction<'_, Postgres>,
     sites: &[String],
@@ -396,8 +447,8 @@ async fn assert_sites_exist(
         return Ok(());
     }
     Err(refuse(format!(
-        "the sheet names {} this system does not keep: {}. A cutover file names OUR places — \
-         `dc`, `store-01` — and not the client's own branch codes",
+        "the sheet names {} this system does not keep: {}. A stock sheet names OUR places — \
+         the site ids this system holds — and not the client's own branch codes",
         if unknown.len() == 1 {
             "a place"
         } else {
@@ -407,31 +458,31 @@ async fn assert_sites_exist(
     )))
 }
 
-/// What one account has on it, at one place, as at a date.
+/// What one account has on it, in one unit's books, as at a date.
 ///
 /// Inside the caller's transaction on purpose: a rehearsal has to be able to
 /// see what it has just posted and is about to roll back.
 async fn account_balance_at(
     tx: &mut Transaction<'_, Postgres>,
     account_code: &str,
-    site_id: &str,
+    unit_id: &str,
     as_of: NaiveDate,
 ) -> Result<i64, AppError> {
     Ok(sqlx::query(
         "SELECT COALESCE(SUM(jl.debit_minor - jl.credit_minor), 0)::bigint AS balance
            FROM journal_line jl
            JOIN journal_entry je USING (entry_id)
-          WHERE jl.account_code = $1 AND jl.site_id = $2 AND je.posting_date <= $3",
+          WHERE jl.account_code = $1 AND jl.unit_id = $2 AND je.posting_date <= $3",
     )
     .bind(account_code)
-    .bind(site_id)
+    .bind(unit_id)
     .bind(as_of)
     .fetch_one(&mut **tx)
     .await?
     .try_get("balance")?)
 }
 
-/// Whether the books themselves balance as at a date, per place and in total.
+/// Whether the books themselves balance as at a date, per unit.
 ///
 /// The first equation of the ten, asked inside the transaction. 0120's deferred
 /// trigger already guarantees each ENTRY balances per unit; this asks the
@@ -442,14 +493,14 @@ async fn journal_equations(
     as_of: NaiveDate,
 ) -> Result<Vec<OpeningEquation>, AppError> {
     let rows = sqlx::query(
-        "SELECT jl.site_id,
+        "SELECT jl.unit_id,
                 COALESCE(SUM(jl.debit_minor), 0)::bigint AS debits,
                 COALESCE(SUM(jl.credit_minor), 0)::bigint AS credits
            FROM journal_line jl
            JOIN journal_entry je USING (entry_id)
           WHERE je.posting_date <= $1
-          GROUP BY jl.site_id
-          ORDER BY jl.site_id",
+          GROUP BY jl.unit_id
+          ORDER BY jl.unit_id",
     )
     .bind(as_of)
     .fetch_all(&mut **tx)
@@ -457,18 +508,18 @@ async fn journal_equations(
 
     rows.iter()
         .map(|row| {
-            let site: String = row.try_get("site_id")?;
+            let unit: String = row.try_get("unit_id")?;
             let debits: i64 = row.try_get("debits")?;
             let credits: i64 = row.try_get("credits")?;
             Ok(OpeningEquation {
                 key: "ledger.balanced".to_string(),
                 title: "The books balance".to_string(),
-                site_id: Some(site.clone()),
+                unit_id: Some(unit.clone()),
                 left_minor: debits,
                 right_minor: credits,
                 difference_minor: debits - credits,
                 agrees: debits == credits,
-                detail: format!("{site} as at {as_of}: debits {debits} against credits {credits}"),
+                detail: format!("{unit} as at {as_of}: debits {debits} against credits {credits}"),
             })
         })
         .collect()
@@ -490,7 +541,7 @@ async fn payment_ledger_equations(
     rows.iter()
         .map(|row| {
             let key: String = row.try_get("account_key")?;
-            let site: String = row.try_get("site_id")?;
+            let unit: String = row.try_get("unit_id")?;
             let qualifier: String = row.try_get("qualifier")?;
             let side: String = row.try_get("side")?;
             let code: Option<String> = row.try_get("account_code")?;
@@ -500,13 +551,13 @@ async fn payment_ledger_equations(
             Ok(OpeningEquation {
                 key: "payment_ledger.control_accounts".to_string(),
                 title: "The open items and the books agree".to_string(),
-                site_id: Some(site.clone()),
+                unit_id: Some(unit.clone()),
                 left_minor: ledger,
                 right_minor: gl,
                 difference_minor: difference,
                 agrees: difference == 0,
                 detail: format!(
-                    "{key}{} at {site} ({side}): the sub-ledger has {ledger} open against {} \
+                    "{key}{} in {unit}'s books ({side}): the sub-ledger has {ledger} open against {} \
                      carrying {gl}",
                     if qualifier.is_empty() {
                         String::new()
@@ -527,7 +578,8 @@ async fn payment_ledger_equations(
 /// One row of the trial balance, read.
 struct BalanceLine {
     line_number: usize,
-    site_id: String,
+    /// Whose books: head office's or a store's (0608).
+    unit_id: String,
     account_code: String,
     /// What kind of thing the figure is, where the account is kept by kind.
     ///
@@ -542,11 +594,11 @@ struct BalanceLine {
     /// The unit on the other side, on an inter-unit line and nowhere else.
     ///
     /// The one field on this row that a posting rule would normally supply
-    /// rather than a sheet: `poster::balanced_per_site` writes it onto the legs
-    /// it adds. An opening balance adds none — every figure on the sheet is
+    /// rather than a sheet: the poster's balancer writes it onto the legs it
+    /// adds. An opening balance adds none — every figure on the sheet is
     /// stated, not derived — so the only thing that can know which unit a
     /// `1501` position is with is the accountant who printed it.
-    counter_site_id: Option<String>,
+    counter_unit_id: Option<String>,
     debit_minor: i64,
     credit_minor: i64,
     document_no: String,
@@ -555,8 +607,8 @@ struct BalanceLine {
 
 /// Bring the client's closing trial balance in as this ledger's opening one.
 ///
-/// One balanced entry per site, `source_kind = 'OPENING'`, dated the cutover.
-/// Idempotent per `(site, cutover date)` twice over: the unique key on
+/// One balanced entry per unit, `source_kind = 'OPENING'`, dated the cutover.
+/// Idempotent per `(unit, cutover date)` twice over: the unique key on
 /// `opening_balance_line`, and — the one that actually holds under a race —
 /// 0140's unique index on `(source_kind, source_id, purpose)`.
 ///
@@ -564,19 +616,21 @@ struct BalanceLine {
 /// dropping it:
 ///
 /// * a closed period, through the poster's own trigger;
-/// * a sheet whose debits and credits disagree, naming the site and the signed
+/// * a sheet whose debits and credits disagree, naming the unit and the signed
 ///   difference;
 /// * an account the chart does not carry, is a heading, or has retired, and a
 ///   category that does not belong to the account it is beside —
 ///   **all of them at once**, because the person fixing it is in a spreadsheet;
-/// * a unit, on either end of a line, that is not one of ours;
+/// * a unit, on either end of a line, that is not one of ours, and a counter
+///   unit that is not the one on the other side of a position (I8): a store's
+///   is head office, found by its kind, and nobody names their own books;
 /// * a cutover already posted.
 pub async fn opening_import_balances(
     pool: &PgPool,
     request: &OpeningImportRequest,
     actor: &str,
 ) -> Result<OpeningBalanceOutcome, AppError> {
-    // `category_code` and `counter_site_id` are deliberately NOT required here.
+    // `category_code` and `counter_unit_id` are deliberately NOT required here.
     // A sheet that has the column uses it; a sheet that does not gets a refusal
     // per line naming the account and, for a category, the codes that would
     // have worked — which is the message that tells somebody what to add.
@@ -585,7 +639,7 @@ pub async fn opening_import_balances(
     // on all of them.
     let rows = sheet(
         &request.csv,
-        &["site_id", "account_code", "debit", "credit", "document_no"],
+        &["unit_id", "account_code", "debit", "credit", "document_no"],
     )?;
 
     let mut lines: Vec<BalanceLine> = Vec::with_capacity(rows.len());
@@ -620,13 +674,13 @@ pub async fn opening_import_balances(
         // Optional in the sheet for the same reason, and refused by the poster
         // by name on the two accounts that need it: "1501 is a balance between
         // two units and the line names only store-01".
-        let counter = row.field("counter_site_id").trim().to_string();
+        let counter = row.field("counter_unit_id").trim().to_string();
         lines.push(BalanceLine {
             line_number: row.line_number,
-            site_id: required(row, "site_id")?,
+            unit_id: required(row, "unit_id")?,
             account_code: required(row, "account_code")?,
             category_code: (!category.is_empty()).then_some(category),
-            counter_site_id: (!counter.is_empty()).then_some(counter),
+            counter_unit_id: (!counter.is_empty()).then_some(counter),
             debit_minor: debit,
             credit_minor: credit,
             document_no: required(row, "document_no")?,
@@ -640,18 +694,18 @@ pub async fn opening_import_balances(
     let amounts: Vec<OpeningAmount> = lines
         .iter()
         .map(|line| OpeningAmount {
-            site_id: line.site_id.clone(),
+            unit_id: line.unit_id.clone(),
             debit_minor: line.debit_minor,
             credit_minor: line.credit_minor,
         })
         .collect();
-    let totals = opening_site_totals(&amounts);
+    let totals = opening_unit_totals(&amounts);
     if let Some(out) = totals.iter().find(|total| !total.agrees()) {
         return Err(refuse(format!(
-            "the opening trial balance for {} does not agree: debits {}, credits {}, a \
-             difference of {} ({} by {}). An opening balance that does not balance would put \
-             the difference somewhere nobody chose",
-            out.site_id,
+            "the opening trial balance in the books of {} does not agree: debits {}, credits \
+             {}, a difference of {} ({} by {}). An opening balance that does not balance would \
+             put the difference somewhere nobody chose",
+            out.unit_id,
             out.debit_minor,
             out.credit_minor,
             out.difference_minor,
@@ -670,16 +724,53 @@ pub async fn opening_import_balances(
 
     // Both ends of every line, because a counter-unit nobody has heard of
     // arrives from the poster as a foreign-key violation naming a constraint,
-    // and from here as the misspelled shop it is.
-    let mut sites: Vec<String> = totals.iter().map(|total| total.site_id.clone()).collect();
+    // and from here as the misspelled store it is.
+    let mut units: Vec<String> = totals.iter().map(|total| total.unit_id.clone()).collect();
     for line in &lines {
-        if let Some(counter) = &line.counter_site_id {
-            if !sites.contains(counter) {
-                sites.push(counter.clone());
+        if let Some(counter) = &line.counter_unit_id {
+            if !units.contains(counter) {
+                units.push(counter.clone());
             }
         }
     }
-    assert_sites_exist(&mut tx, &sites).await?;
+    assert_units_exist(&mut tx, &units).await?;
+
+    // And the other side of every position is the one it can be (I8): a
+    // store's books hold a balance with head office and nobody else, so a
+    // store-to-store position is two positions through head office, and no
+    // unit is on the other side of its own books. Head office is whichever
+    // unit is of kind `HO`; all of them named together, for the spreadsheet.
+    let head_office = head_office_unit_id(&mut *tx).await?;
+    let mut crossed: Vec<String> = Vec::new();
+    for line in &lines {
+        let Some(counter) = &line.counter_unit_id else {
+            continue;
+        };
+        if counter == &line.unit_id {
+            crossed.push(format!(
+                "line {}: {} names its own books as the other side",
+                line.line_number, line.unit_id
+            ));
+        } else if line.unit_id != head_office && counter != &head_office {
+            crossed.push(format!(
+                "line {}: {} holds a position with {counter}, and a store's position is with \
+                 head office ({head_office}) alone — a balance between two stores is two, each \
+                 against head office",
+                line.line_number, line.unit_id
+            ));
+        }
+    }
+    if !crossed.is_empty() {
+        return Err(refuse(format!(
+            "the sheet names the wrong unit on the other side of {}:\n  {}",
+            if crossed.len() == 1 {
+                "a position".to_string()
+            } else {
+                format!("{} positions", crossed.len())
+            },
+            crossed.join("\n  ")
+        )));
+    }
 
     // Every unknown account named together. `poster::post` would refuse the
     // first one it reached, one round trip at a time.
@@ -741,22 +832,22 @@ pub async fn opening_import_balances(
     let mut entries: Vec<OpeningPostedEntry> = Vec::new();
     let mut document_numbers: Vec<String> = Vec::new();
     for total in &totals {
-        let of_site: Vec<&BalanceLine> = lines
+        let of_unit: Vec<&BalanceLine> = lines
             .iter()
-            .filter(|line| line.site_id == total.site_id)
+            .filter(|line| line.unit_id == total.unit_id)
             .collect();
 
         let intent = PostingIntent {
             posting_date: request.cutover_date,
             source_kind: OPENING_SOURCE_KIND.to_string(),
-            source_id: Some(format!("{}|{}", request.cutover_date, total.site_id)),
+            source_id: Some(format!("{}|{}", request.cutover_date, total.unit_id)),
             rule_version: OPENING_RULE_VERSION.to_string(),
             currency: CURRENCY.to_string(),
             memo: Some(format!(
                 "Saldo awal {} per {}",
-                total.site_id, request.cutover_date
+                total.unit_id, request.cutover_date
             )),
-            lines: of_site
+            lines: of_unit
                 .iter()
                 .map(|line| PostingLine {
                     dimensions: Vec::new(),
@@ -768,13 +859,13 @@ pub async fn opening_import_balances(
                         account_code: line.account_code.clone(),
                         category_code: line.category_code.clone(),
                     },
-                    site_id: line.site_id.clone(),
+                    unit_id: line.unit_id.clone(),
                     // Stated on the sheet rather than inferred. `1501` is one
                     // account for fourteen positions and the poster refuses it
-                    // without a counter-unit, which is how a shop's own
+                    // without a counter-unit, which is how a store's own
                     // balancing figure reaches the ledger as a position with
                     // somebody named on the other side rather than as a number.
-                    counter_site_id: line.counter_site_id.clone(),
+                    counter_unit_id: line.counter_unit_id.clone(),
                     debit_minor: line.debit_minor,
                     credit_minor: line.credit_minor,
                     party_type: None,
@@ -790,19 +881,22 @@ pub async fn opening_import_balances(
         };
         let posted = post(&mut tx, &intent, None, actor).await?;
 
-        for line in &of_site {
+        for line in &of_unit {
+            // The counter-unit too: it is part of the line's key (0295), so
+            // a store's two `1501` positions are two lines and not a repeat.
             sqlx::query(
                 "INSERT INTO opening_balance_line
-                   (line_id, cutover_date, site_id, account_code, category_code,
-                    debit_minor, credit_minor,
+                   (line_id, cutover_date, unit_id, account_code, category_code,
+                    counter_unit_id, debit_minor, credit_minor,
                     document_no, memo, journal_entry_id, imported_by)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
             )
             .bind(Uuid::new_v4())
             .bind(request.cutover_date)
-            .bind(&line.site_id)
+            .bind(&line.unit_id)
             .bind(&line.account_code)
             .bind(line.category_code.as_deref())
+            .bind(line.counter_unit_id.as_deref())
             .bind(line.debit_minor)
             .bind(line.credit_minor)
             .bind(&line.document_no)
@@ -818,10 +912,10 @@ pub async fn opening_import_balances(
         }
 
         entries.push(OpeningPostedEntry {
-            site_id: total.site_id.clone(),
+            unit_id: total.unit_id.clone(),
             entry_number: posted.entry_number,
             total_minor: posted.total_minor,
-            lines: of_site.len() as i64,
+            lines: of_unit.len() as i64,
         });
     }
 
@@ -837,7 +931,7 @@ pub async fn opening_import_balances(
         cutover_date: request.cutover_date,
         committed: request.commit,
         lines: lines.len() as i64,
-        sites: totals,
+        units: totals,
         entries,
         document_numbers,
         equations,
@@ -854,9 +948,9 @@ fn duplicate_line(error: sqlx::Error, table: &str, line_number: usize) -> AppErr
         if db.code().as_deref() == Some("23505") {
             return AppError::Conflict(format!(
                 "line {line_number} repeats something the sheet has already said. A trial \
-                 balance that names one account at one place twice is two trial balances, and \
-                 a stock sheet that counts one article at one shop twice is two counts \
-                 ({table})"
+                 balance that names one account in one unit's books twice is two trial \
+                 balances, and a stock sheet that counts one article at one shop twice is two \
+                 counts ({table})"
             ));
         }
     }
@@ -963,6 +1057,14 @@ pub async fn opening_import_stock(
     };
     assert_sites_exist(&mut tx, &sites).await?;
 
+    // Whose books each place's stock is explained by: the unit that owns it
+    // (`unit_of_site`, 0605). Looked up once per place, not once per line.
+    let mut unit_of: Vec<(String, String)> = Vec::with_capacity(sites.len());
+    for site in &sites {
+        let unit = unit_of_site(&mut *tx, site).await?;
+        unit_of.push((site.clone(), unit));
+    }
+
     let already: Option<Uuid> = sqlx::query(
         "SELECT cost_layer_id FROM opening_stock_line
           WHERE cutover_date = $1 AND cost_layer_id IS NOT NULL LIMIT 1",
@@ -981,7 +1083,7 @@ pub async fn opening_import_stock(
 
     let mut fallbacks: Vec<OpeningFallback> = Vec::new();
     let mut layers = 0_i64;
-    let mut per_site: Vec<OpeningStockSite> = Vec::new();
+    let mut per_unit: Vec<OpeningStockUnit> = Vec::new();
     for line in &lines {
         // The one fact the sheet does not get to assert, because this database
         // holds it: what the article is already costing here. Only ever
@@ -1086,17 +1188,21 @@ pub async fn opening_import_stock(
             });
         }
 
-        match per_site
-            .iter_mut()
-            .find(|site| site.site_id == line.site_id)
-        {
-            Some(site) => {
-                site.articles += 1;
-                site.quantity += line.quantity;
-                site.value_minor += value;
+        // Every place is in `unit_of` by construction: it was built from these
+        // lines. Summed per unit, since that is what the books can agree with.
+        let unit_id = unit_of
+            .iter()
+            .find(|(site, _)| site == &line.site_id)
+            .map(|(_, unit)| unit.clone())
+            .ok_or_else(|| AppError::NotFound(format!("site {}", line.site_id)))?;
+        match per_unit.iter_mut().find(|unit| unit.unit_id == unit_id) {
+            Some(unit) => {
+                unit.articles += 1;
+                unit.quantity += line.quantity;
+                unit.value_minor += value;
             }
-            None => per_site.push(OpeningStockSite {
-                site_id: line.site_id.clone(),
+            None => per_unit.push(OpeningStockUnit {
+                unit_id,
                 articles: 1,
                 quantity: line.quantity,
                 value_minor: value,
@@ -1106,34 +1212,35 @@ pub async fn opening_import_stock(
         }
     }
 
-    // The reconciliation, per place, against the account the opening trial
-    // balance put the money in.
+    // The reconciliation, per unit, against the account the opening trial
+    // balance put the money in: every place a unit owns, together, against the
+    // one inventory balance in its books.
     let mut equations: Vec<OpeningEquation> = Vec::new();
     let mut disagrees: Vec<String> = Vec::new();
-    for site in &mut per_site {
-        let code = resolve_account_code(&mut *tx, "inventory", &site.site_id, "").await?;
+    for unit in &mut per_unit {
+        let code = resolve_account_code(&mut *tx, "inventory", &unit.unit_id, "").await?;
         let ledger =
-            account_balance_at(&mut tx, &code, &site.site_id, request.cutover_date).await?;
-        site.inventory_account = code.clone();
-        site.reconciliation = reconcile_opening(site.value_minor, ledger);
+            account_balance_at(&mut tx, &code, &unit.unit_id, request.cutover_date).await?;
+        unit.inventory_account = code.clone();
+        unit.reconciliation = reconcile_opening(unit.value_minor, ledger);
         equations.push(OpeningEquation {
             key: "stock.value_vs_gl".to_string(),
             title: "The shelf and the inventory account agree".to_string(),
-            site_id: Some(site.site_id.clone()),
-            left_minor: site.value_minor,
+            unit_id: Some(unit.unit_id.clone()),
+            left_minor: unit.value_minor,
             right_minor: ledger,
-            difference_minor: site.reconciliation.difference_minor,
-            agrees: site.reconciliation.agrees,
+            difference_minor: unit.reconciliation.difference_minor,
+            agrees: unit.reconciliation.agrees,
             detail: format!(
                 "{}: opening layers total {} against {code} carrying {ledger}",
-                site.site_id, site.value_minor
+                unit.unit_id, unit.value_minor
             ),
         });
-        if !site.reconciliation.agrees {
+        if !unit.reconciliation.agrees {
             disagrees.push(format!(
                 "{}: the sheet prices the stock at {} and {code} carries {ledger}, a difference \
                  of {}",
-                site.site_id, site.value_minor, site.reconciliation.difference_minor
+                unit.unit_id, unit.value_minor, unit.reconciliation.difference_minor
             ));
         }
     }
@@ -1158,7 +1265,7 @@ pub async fn opening_import_stock(
         committed: request.commit,
         lines: lines.len() as i64,
         layers,
-        sites: per_site,
+        units: per_unit,
         fallbacks,
         equations,
     })
@@ -1183,13 +1290,13 @@ fn optional_money(row: &CsvRow, column: &str) -> Result<Option<i64>, AppError> {
 /// Open the unpaid bills and the outstanding acquirer receivables.
 ///
 /// Each becomes one Payment Ledger item through `ple_open`, against the opening
-/// journal entry for its place, with the client's own document number as the
+/// journal entry for its unit, with the client's own document number as the
 /// voucher — so a supplier ringing up on the second day and quoting an invoice
 /// number from before the cutover can be answered.
 ///
 /// The equation each control account is measured by is reported before the
-/// transaction ends. It has to agree: the sum of the items at a place is what
-/// the opening trial balance credited to that place's payable, and if the two
+/// transaction ends. It has to agree: the sum of the items in a unit's books is
+/// what the opening trial balance credited to that unit's payable, and if the two
 /// disagree the sub-ledger and the books have started life apart.
 pub async fn opening_import_subledger(
     pool: &PgPool,
@@ -1199,7 +1306,7 @@ pub async fn opening_import_subledger(
     let rows = sheet(
         &request.csv,
         &[
-            "site_id",
+            "unit_id",
             "account_key",
             "party_type",
             "party_id",
@@ -1218,14 +1325,14 @@ pub async fn opening_import_subledger(
     let mut parties: Vec<String> = Vec::new();
     let mut count = 0_i64;
 
-    // The opening entry a place's items hang off, looked up once per place.
+    // The opening entry a unit's items hang off, looked up once per unit.
     // They must hang off one: an open item is a balance the general ledger has
     // already recognised, and `payment_ledger_entry.journal_entry_id` is the
     // link that makes the equation checkable at all.
     let mut anchors: Vec<(String, Uuid)> = Vec::new();
 
     for row in &rows {
-        let site_id = required(row, "site_id")?;
+        let unit_id = required(row, "unit_id")?;
         let amount = money(row, "amount")?;
         if amount <= 0 {
             return Err(refuse(format!(
@@ -1253,27 +1360,34 @@ pub async fn opening_import_subledger(
         }
         let due_date = date(row, "due_date")?;
 
-        let anchor = match anchors.iter().find(|(site, _)| site == &site_id) {
+        // Found through the trial balance's own evidence rows, which carry the
+        // unit (0608), rather than by the entry's `source_id`: an entry posted
+        // before the books moved to units spells head office's by its old
+        // premises, and the evidence row was re-keyed with the ledger.
+        let anchor = match anchors.iter().find(|(unit, _)| unit == &unit_id) {
             Some((_, id)) => *id,
             None => {
                 let found: Option<Uuid> = sqlx::query(
-                    "SELECT entry_id FROM journal_entry
-                      WHERE source_kind = $1 AND source_id = $2",
+                    "SELECT journal_entry_id FROM opening_balance_line
+                      WHERE cutover_date = $1 AND unit_id = $2
+                        AND journal_entry_id IS NOT NULL
+                      LIMIT 1",
                 )
-                .bind(OPENING_SOURCE_KIND)
-                .bind(format!("{}|{}", request.cutover_date, site_id))
+                .bind(request.cutover_date)
+                .bind(&unit_id)
                 .fetch_optional(&mut *tx)
                 .await?
-                .map(|entry| entry.get("entry_id"));
+                .map(|entry| entry.get("journal_entry_id"));
                 let id = found.ok_or_else(|| {
                     refuse(format!(
-                        "there is no opening journal entry for {site_id} as at {}. The open \
-                         items are what explains a control account's opening balance, so the \
-                         balances have to be imported before the items that make them up",
+                        "there is no opening journal entry in the books of {unit_id} as at {}. \
+                         The open items are what explains a control account's opening \
+                         balance, so the balances have to be imported before the items that \
+                         make them up",
                         request.cutover_date
                     ))
                 })?;
-                anchors.push((site_id.clone(), id));
+                anchors.push((unit_id.clone(), id));
                 id
             }
         };
@@ -1289,7 +1403,7 @@ pub async fn opening_import_subledger(
             &PaymentLedgerItem {
                 account_key: account_key.clone(),
                 qualifier: row.field("qualifier").to_string(),
-                site_id: site_id.clone(),
+                unit_id: unit_id.clone(),
                 party_type,
                 party_id: party_id.clone(),
                 party_name: (!party_name.is_empty()).then(|| party_name.to_string()),
@@ -1309,14 +1423,14 @@ pub async fn opening_import_subledger(
 
         sqlx::query(
             "INSERT INTO opening_subledger_line
-               (line_id, cutover_date, site_id, account_key, qualifier, party_type, party_id,
+               (line_id, cutover_date, unit_id, account_key, qualifier, party_type, party_id,
                 party_name, side, voucher_kind, voucher_id, amount_minor, document_date,
                 due_date, payment_ledger_entry_id, imported_by)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
         )
         .bind(Uuid::new_v4())
         .bind(request.cutover_date)
-        .bind(&site_id)
+        .bind(&unit_id)
         .bind(account_key.trim().to_ascii_lowercase())
         .bind(row.field("qualifier"))
         .bind(party_type.as_str())
@@ -1386,7 +1500,7 @@ pub async fn opening_import_subledger(
 pub struct OpeningCutoverReport {
     pub cutover_date: NaiveDate,
     /// The one-line answer. True only when every equation below agrees, nothing
-    /// is unmapped, and the stock reconciles at every place.
+    /// is unmapped, and the stock reconciles in every unit.
     pub sound: bool,
     pub equations: Vec<OpeningEquation>,
     /// Trial balance lines that were imported and never posted, with the reason
@@ -1410,7 +1524,8 @@ pub struct OpeningCutoverReport {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct OpeningUnmapped {
-    pub site_id: String,
+    /// The books the figure was meant for.
+    pub unit_id: String,
     /// The client's account code, or — for an open item, which names its
     /// control account by meaning — the semantic key that resolved to nothing.
     pub account_code: String,
@@ -1433,44 +1548,45 @@ pub async fn opening_cutover_report(
     let mut equations = journal_equations(&mut tx, cutover_date).await?;
     equations.extend(payment_ledger_equations(&mut tx, cutover_date).await?);
 
-    // Stock against inventory, per place that has opening stock.
+    // Stock against inventory, per unit that has opening stock: every place a
+    // unit owns, together, against the one inventory balance in its books.
     let stock_rows = sqlx::query(
-        "SELECT site_id,
+        "SELECT unit_of_site(site_id) AS unit_id,
                 SUM(quantity * unit_cost_minor)::bigint AS value_minor
            FROM opening_stock_line
           WHERE cutover_date = $1 AND cost_layer_id IS NOT NULL
-          GROUP BY site_id ORDER BY site_id",
+          GROUP BY 1 ORDER BY 1",
     )
     .bind(cutover_date)
     .fetch_all(&mut *tx)
     .await?;
     let mut stock_value = 0_i64;
     for row in &stock_rows {
-        let site: String = row.try_get("site_id")?;
+        let unit: String = row.try_get("unit_id")?;
         let value: i64 = row.try_get("value_minor")?;
         stock_value += value;
-        let code = resolve_account_code(&mut *tx, "inventory", &site, "").await?;
-        let ledger = account_balance_at(&mut tx, &code, &site, cutover_date).await?;
+        let code = resolve_account_code(&mut *tx, "inventory", &unit, "").await?;
+        let ledger = account_balance_at(&mut tx, &code, &unit, cutover_date).await?;
         let reconciliation = reconcile_opening(value, ledger);
         equations.push(OpeningEquation {
             key: "stock.value_vs_gl".to_string(),
             title: "The shelf and the inventory account agree".to_string(),
-            site_id: Some(site.clone()),
+            unit_id: Some(unit.clone()),
             left_minor: value,
             right_minor: ledger,
             difference_minor: reconciliation.difference_minor,
             agrees: reconciliation.agrees,
             detail: format!(
-                "{site}: opening layers total {value} against {code} carrying {ledger}"
+                "{unit}: opening layers total {value} against {code} carrying {ledger}"
             ),
         });
     }
 
     let unmapped_rows = sqlx::query(
-        "SELECT site_id, account_code, debit_minor, credit_minor
+        "SELECT unit_id, account_code, debit_minor, credit_minor
            FROM opening_balance_line
           WHERE cutover_date = $1 AND journal_entry_id IS NULL
-          ORDER BY site_id, account_code",
+          ORDER BY unit_id, account_code",
     )
     .bind(cutover_date)
     .fetch_all(&mut *tx)
@@ -1486,7 +1602,7 @@ pub async fn opening_cutover_report(
             Err(other) => return Err(other),
         };
         unmapped.push(OpeningUnmapped {
-            site_id: row.try_get("site_id")?,
+            unit_id: row.try_get("unit_id")?,
             account_code: code,
             amount_minor: debit - credit,
             why,
@@ -1498,10 +1614,10 @@ pub async fn opening_cutover_report(
     // ledger of zero — but a difference does not say "there is no account", and
     // that is a mapping to go and set rather than a figure to go and find.
     let unmapped_controls = sqlx::query(
-        "SELECT i.site_id, i.account_key, i.qualifier, i.ledger_outstanding_minor
+        "SELECT i.unit_id, i.account_key, i.qualifier, i.ledger_outstanding_minor
            FROM payment_ledger_integrity($1, NULL) i
           WHERE i.account_code IS NULL
-          ORDER BY i.account_key, i.site_id",
+          ORDER BY i.account_key, i.unit_id",
     )
     .bind(cutover_date)
     .fetch_all(&mut *tx)
@@ -1510,11 +1626,11 @@ pub async fn opening_cutover_report(
         let key: String = row.try_get("account_key")?;
         let qualifier: String = row.try_get("qualifier")?;
         unmapped.push(OpeningUnmapped {
-            site_id: row.try_get("site_id")?,
+            unit_id: row.try_get("unit_id")?,
             account_code: key.clone(),
             amount_minor: row.try_get("ledger_outstanding_minor")?,
             why: format!(
-                "no account is mapped for '{key}'{} at this place, so the open items against \
+                "no account is mapped for '{key}'{} in this unit, so the open items against \
                  it have no line in the books to be compared with; link it on the Account Links screen",
                 if qualifier.is_empty() {
                     String::new()
@@ -1554,12 +1670,12 @@ pub async fn opening_cutover_report(
     }
 
     let entry_rows = sqlx::query(
-        "SELECT l.site_id, je.entry_number, je.total_minor, COUNT(*)::bigint AS lines
+        "SELECT l.unit_id, je.entry_number, je.total_minor, COUNT(*)::bigint AS lines
            FROM opening_balance_line l
            JOIN journal_entry je ON je.entry_id = l.journal_entry_id
           WHERE l.cutover_date = $1
-          GROUP BY l.site_id, je.entry_number, je.total_minor
-          ORDER BY l.site_id",
+          GROUP BY l.unit_id, je.entry_number, je.total_minor
+          ORDER BY l.unit_id",
     )
     .bind(cutover_date)
     .fetch_all(&mut *tx)
@@ -1568,7 +1684,7 @@ pub async fn opening_cutover_report(
         .iter()
         .map(|row| {
             Ok(OpeningPostedEntry {
-                site_id: row.try_get("site_id")?,
+                unit_id: row.try_get("unit_id")?,
                 entry_number: row.try_get("entry_number")?,
                 total_minor: row.try_get("total_minor")?,
                 lines: row.try_get("lines")?,

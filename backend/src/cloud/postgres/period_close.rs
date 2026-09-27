@@ -111,7 +111,7 @@ fn built_in_checks() -> Vec<CloseCheck> {
         ),
         check!(
             "journal.balanced",
-            "Every entry balances, in total and at each location",
+            "Every entry balances, in total and in each unit's books",
             true,
             check_journal_balanced
         ),
@@ -340,14 +340,14 @@ async fn check_integrity_equations(
     ))
 }
 
-/// Every entry balances, and balances at each location.
+/// Every entry balances, and balances in each unit's books.
 ///
 /// Two questions, one check, because they have one answer for a reader: this
-/// entry is wrong. The total is guaranteed by a deferred constraint trigger, so
-/// a failure here means something got in before that trigger existed or around
-/// it. The per-location half is NOT guaranteed anywhere, and it is the one that
-/// bites: the client keeps a profit and loss per site, so an entry that debits
-/// store 03 and credits head office balances in total and leaves both locations
+/// entry is wrong. Both are guaranteed by deferred constraint triggers (the
+/// per-unit one since 0605), so a failure here means something got in before
+/// those triggers existed or around them. The per-unit half is the one that
+/// bites: the client keeps a profit and loss per unit, so an entry that debits
+/// store 03 and credits head office balances in total and leaves both units
 /// wrong by the same amount, invisibly, in a trial balance that foots.
 async fn check_journal_balanced(
     pool: &PgPool,
@@ -362,10 +362,10 @@ async fn check_journal_balanced(
               GROUP BY e.entry_id, e.entry_number
              HAVING SUM(l.debit_minor) <> SUM(l.credit_minor)
              UNION
-             SELECT e.entry_id, e.entry_number, 'at ' || l.site_id AS how
+             SELECT e.entry_id, e.entry_number, 'in the books of ' || l.unit_id AS how
                FROM journal_entry e JOIN journal_line l USING (entry_id)
               WHERE e.posting_date >= $1 AND e.posting_date < $2
-              GROUP BY e.entry_id, e.entry_number, l.site_id
+              GROUP BY e.entry_id, e.entry_number, l.unit_id
              HAVING SUM(l.debit_minor) <> SUM(l.credit_minor)
          )
          SELECT entry_id, entry_number, how,
@@ -487,7 +487,7 @@ async fn check_bank_statements(
 ) -> Result<CheckOutcome, AppError> {
     let end = last_day(period)?;
     let rows = sqlx::query(
-        "SELECT m.account_code, m.site_id, m.source_id AS qualifier,
+        "SELECT m.account_code, m.unit_id, m.source_id AS qualifier,
                 COALESCE(a.name, m.account_code) AS name,
                 COUNT(*) OVER ()::bigint AS total
            FROM account_resolution m

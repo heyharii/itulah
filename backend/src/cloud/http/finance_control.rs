@@ -30,7 +30,8 @@ fn allowed(principal: &Principal, needed: Role, act: &str) -> Result<(), AppErro
 #[derive(Debug, Deserialize)]
 pub struct AsOfQuery {
     pub as_of: Option<NaiveDate>,
-    pub site: Option<String>,
+    /// Whose books: a unit id. Absent means the whole company.
+    pub unit: Option<String>,
 }
 
 pub async fn controls(
@@ -95,7 +96,7 @@ pub async fn balance_sheet(
         .as_of
         .unwrap_or_else(|| chrono::Utc::now().date_naive());
     Ok(Json(
-        infrastructure::balance_sheet(&state.db, as_of, query.site.as_deref()).await?,
+        infrastructure::balance_sheet(&state.db, as_of, query.unit.as_deref()).await?,
     ))
 }
 
@@ -103,7 +104,8 @@ pub async fn balance_sheet(
 pub struct RangeQuery {
     pub from: NaiveDate,
     pub to: NaiveDate,
-    pub site: Option<String>,
+    /// Whose books: a unit id. Absent means the whole company.
+    pub unit: Option<String>,
 }
 
 pub async fn profit_and_loss(
@@ -113,7 +115,7 @@ pub async fn profit_and_loss(
 ) -> Result<Json<ProfitAndLoss>, AppError> {
     allowed(&principal, Role::Supervisor, "read the profit and loss")?;
     Ok(Json(
-        infrastructure::profit_and_loss(&state.db, query.from, query.to, query.site.as_deref())
+        infrastructure::profit_and_loss(&state.db, query.from, query.to, query.unit.as_deref())
             .await?,
     ))
 }
@@ -136,7 +138,8 @@ pub struct DimensionQuery {
     pub dimension: String,
     pub from: chrono::NaiveDate,
     pub to: chrono::NaiveDate,
-    pub site: Option<String>,
+    /// Whose books: a unit id. Absent means the whole company.
+    pub unit: Option<String>,
 }
 
 /// The profit and loss cut by one accounting dimension (0470): one row per
@@ -153,7 +156,7 @@ pub async fn dimension_results(
             &query.dimension,
             query.from,
             query.to,
-            query.site.as_deref(),
+            query.unit.as_deref(),
         )
         .await?,
     ))
@@ -193,7 +196,8 @@ pub struct TraceQuery {
     pub account: String,
     pub from: NaiveDate,
     pub to: NaiveDate,
-    pub site: Option<String>,
+    /// Whose books: a unit id. Absent means the whole company.
+    pub unit: Option<String>,
     pub limit: Option<i64>,
 }
 
@@ -214,7 +218,7 @@ pub async fn trace(
             &query.account,
             query.from,
             query.to,
-            query.site.as_deref(),
+            query.unit.as_deref(),
             query.limit.unwrap_or(200),
         )
         .await?,

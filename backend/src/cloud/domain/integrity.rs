@@ -172,7 +172,9 @@ impl ActionVerb {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct SuggestedAction {
     pub verb: ActionVerb,
-    /// `bank_statement_line`, `supplier_invoice`, `fixed_asset`, `site` …
+    /// `bank_statement_line`, `supplier_invoice`, `fixed_asset`, `site`,
+    /// `unit` … A `unit` is a finding about a unit's books (0605); the run puts
+    /// it in the feeds of the premises that unit owns.
     pub target_kind: String,
     pub target_id: String,
     /// The sentence on the button, written where the facts are.
@@ -195,7 +197,13 @@ impl SuggestedAction {
     }
 }
 
-/// Which books an answer is about.
+/// Where an answer, and the work it raises, belongs: the whole company, or
+/// one premises' feed.
+///
+/// A place and not a book, deliberately. The books are a unit's (0605), but a
+/// feed is read in a shop, and `attention_item` is keyed by site; a finding
+/// about a unit's books reaches it through the unit's premises (see the
+/// `unit` target kind on [`SuggestedAction`]).
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -718,7 +726,7 @@ mod tests {
         assert_eq!(Scope::Group.as_key(), "GROUP");
         assert_eq!(Scope::site("store-01").as_key(), "store-01");
         assert_eq!(Scope::Group.site_id(), None);
-        assert_eq!(Scope::site("dc").site_id(), Some("dc"));
+        assert_eq!(Scope::site("store-02").site_id(), Some("store-02"));
         // A result is group-wide until it says otherwise, and saying otherwise
         // does not disturb the figures.
         let answer = CheckResult::awaiting("k", "waiting on store_fund_transfer");

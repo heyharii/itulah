@@ -65,7 +65,7 @@ pub fn lane_l_routes(router: Router<AppState>) -> Router<AppState> {
 
 /// Bring the client's closing trial balance in as this ledger's opening one.
 ///
-/// One balanced entry per site, dated the cutover, `source_kind = 'OPENING'`.
+/// One balanced entry per unit, dated the cutover, `source_kind = 'OPENING'`.
 pub async fn import_balances(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
