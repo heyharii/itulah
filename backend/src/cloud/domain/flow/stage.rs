@@ -271,11 +271,18 @@ pub enum ClaimKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Emission {
-    Movement { from: PoolStage, to: PoolStage },
-    Claim { claim: ClaimKind },
+    Movement {
+        from: PoolStage,
+        to: PoolStage,
+    },
+    Claim {
+        claim: ClaimKind,
+    },
     /// A record the stage keeps without moving anything: a delivery, a count,
     /// a decision, a seal.
-    Record { record: &'static str },
+    Record {
+        record: &'static str,
+    },
 }
 
 /// A journal MEANING. Which account it lands in is the account map's decision
@@ -354,11 +361,11 @@ impl ProofKind {
 
     pub const fn label(self) -> &'static str {
         match self {
-            Self::RfidScan => "Scan RFID",
-            Self::ManualCount => "Hitung manual",
-            Self::Photo => "Foto",
-            Self::Signature => "Tanda tangan",
-            Self::SignedReturnNote => "Nota retur bertanda tangan",
+            Self::RfidScan => "RFID scan",
+            Self::ManualCount => "Manual count",
+            Self::Photo => "Photo",
+            Self::Signature => "Signature",
+            Self::SignedReturnNote => "Signed return note",
         }
     }
 
@@ -418,19 +425,31 @@ pub enum FixedRule {
 impl FixedRule {
     pub const fn text(self) -> &'static str {
         match self {
-            Self::OneConfirm => "Dikonfirmasi satu kali. Konfirmasi kedua ditolak, tidak ditambahkan.",
-            Self::NoRefusal => "Tidak ada penolakan: kiriman internal dihitung, tidak ditolak.",
-            Self::DifferenceToMissing => "Selisih antara yang diserahkan dan yang ditemukan menjadi Missing di tujuan.",
-            Self::DamagedToReject => "Barang rusak tetap diterima, lalu masuk pool reject.",
-            Self::NotMoreThanUpstream => "Tidak boleh melebihi yang diteruskan tahap sebelumnya.",
-            Self::BlindToOrderedQuantity => "Penghitung tidak melihat kuantitas PO maupun harga.",
-            Self::CheckerIsNotVerifier => "Verifier tidak boleh orang yang sama dengan checker.",
-            Self::NeedsDeliveryNumber => "Kedatangan dicatat dengan nomor delivery.",
-            Self::ApproverIsNotInitiator => "Penyetuju bukan orang yang mengajukan.",
-            Self::ProofOfHandover => "Barang lepas dari tangan kita hanya dengan bukti serah terima.",
-            Self::SupplierSignsReturnNote => "Serah terima ke supplier wajib nota retur bertanda tangan.",
-            Self::OneShipmentPerDestination => "Satu surat jalan untuk satu tujuan: itu yang ditandatangani tujuan.",
-            Self::ReversibleUntilDeparture => "Bisa dibalik satu langkah (unpack, unship, unload) selama belum berangkat.",
+            Self::OneConfirm => "Confirmed once. A second confirm is refused, not added.",
+            Self::NoRefusal => "No refusal: an internal shipment is counted, never refused.",
+            Self::DifferenceToMissing => {
+                "What was handed over and not found becomes Missing at the destination."
+            }
+            Self::DamagedToReject => {
+                "Damaged goods are still received, then go to the reject pool."
+            }
+            Self::NotMoreThanUpstream => "Never passes on more than the stage before handed on.",
+            Self::BlindToOrderedQuantity => {
+                "The checker sees neither the ordered quantity nor the price."
+            }
+            Self::CheckerIsNotVerifier => "The verifier is never the checker.",
+            Self::NeedsDeliveryNumber => "An arrival is filed under a delivery number.",
+            Self::ApproverIsNotInitiator => "The approver is never the person who asked.",
+            Self::ProofOfHandover => "Goods leave our hands only against proof of handover.",
+            Self::SupplierSignsReturnNote => {
+                "A handover to a supplier needs the supplier's signed return note."
+            }
+            Self::OneShipmentPerDestination => {
+                "One surat jalan for one destination: it is what the destination signs."
+            }
+            Self::ReversibleUntilDeparture => {
+                "Can be taken back one step (unpack, unship, unload) until the goods depart."
+            }
         }
     }
 }
@@ -501,12 +520,16 @@ pub struct StageSpec {
     pub parks: Option<ParkReason>,
 }
 
-const COUNTING: &[ProofKind] = &[ProofKind::RfidScan, ProofKind::ManualCount, ProofKind::Photo];
+const COUNTING: &[ProofKind] = &[
+    ProofKind::RfidScan,
+    ProofKind::ManualCount,
+    ProofKind::Photo,
+];
 
 static PICK: StageSpec = StageSpec {
     kind: StageKind::Pick,
-    label: "Ambil (pick)",
-    meaning: "Barang diambil dari rak atau gudang belakang ke area keluar. Belum terikat ke tujuan mana pun.",
+    label: "Pick",
+    meaning: "Goods are taken off the racks or out of the stockroom to the outbound area. They are not yet bound to any destination.",
     side: StageSide::Origin,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
@@ -523,8 +546,8 @@ static PICK: StageSpec = StageSpec {
 
 static PACK: StageSpec = StageSpec {
     kind: StageKind::Pack,
-    label: "Kemas (pack)",
-    meaning: "Barang masuk karton untuk satu tujuan. Di sinilah sepotong barang terikat ke satu toko. Bisa dibongkar lagi (unpack) selama belum berangkat.",
+    label: "Pack",
+    meaning: "Goods go into a carton for one destination: this is where a piece is bound to one store. It can be unpacked while nothing has departed.",
     side: StageSide::Origin,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
@@ -541,8 +564,8 @@ static PACK: StageSpec = StageSpec {
 
 static CLOSE_KOLI: StageSpec = StageSpec {
     kind: StageKind::CloseKoli,
-    label: "Tutup koli",
-    meaning: "Karton disegel menjadi koli bernomor (KOLI). Isinya yang kelak dihitung sebagai yang diserahkan. Segel bisa dibuka lagi selama belum berangkat.",
+    label: "Close koli",
+    meaning: "The carton is sealed into a numbered koli (KOLI). What it holds is what will later count as handed over. The seal can be reopened while nothing has departed.",
     side: StageSide::Origin,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
@@ -559,8 +582,8 @@ static CLOSE_KOLI: StageSpec = StageSpec {
 
 static SHIP: StageSpec = StageSpec {
     kind: StageKind::Ship,
-    label: "Masuk surat jalan",
-    meaning: "Koli yang sudah disegel masuk satu surat jalan (SJ) untuk satu tujuan: dokumen yang ditandatangani tujuan. Bisa ditarik lagi (unship) selama belum berangkat.",
+    label: "Ship (surat jalan)",
+    meaning: "Sealed koli go into one surat jalan (SJ) for one destination: the paper that destination signs against. It can be taken back (unship) while nothing has departed.",
     side: StageSide::Origin,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
@@ -586,8 +609,8 @@ static SHIP: StageSpec = StageSpec {
 
 static LOAD: StageSpec = StageSpec {
     kind: StageKind::Load,
-    label: "Muat (dispatch)",
-    meaning: "Koli dan SJ naik ke satu dispatch (DSP): satu perjalanan kendaraan, bisa membawa beberapa SJ ke beberapa tujuan. Masih di halaman, belum di jalan; bisa diturunkan lagi (unload) sebelum berangkat.",
+    label: "Load (dispatch)",
+    meaning: "Koli and their SJ go onto one dispatch (DSP): one vehicle run, which may carry several SJ to several destinations. Still on the yard, not on the road; it can be unloaded before departure.",
     side: StageSide::Origin,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
@@ -607,8 +630,8 @@ static LOAD: StageSpec = StageSpec {
 
 static DEPART: StageSpec = StageSpec {
     kind: StageKind::Depart,
-    label: "Berangkat",
-    meaning: "Dispatch (DSP) berangkat: barang dalam perjalanan. Bila Muat dilewati, dispatch dibuka di sini. Bila lintas unit, interunit barang dibukukan otomatis.",
+    label: "Depart",
+    meaning: "The dispatch (DSP) leaves: the goods are in transit. When loading is skipped, the dispatch is opened here. Crossing units books inter-unit goods automatically.",
     side: StageSide::Origin,
     executed_at: ExecutedAt::Node,
     custody: Custody::Leaves,
@@ -629,8 +652,8 @@ static DEPART: StageSpec = StageSpec {
 
 static RECEIVE: StageSpec = StageSpec {
     kind: StageKind::Receive,
-    label: "Terima",
-    meaning: "Tujuan menyatakan apa yang sungguh sampai, dengan satu konfirmasi. Selisih jadi Missing, yang rusak ke reject.",
+    label: "Receive",
+    meaning: "The destination states what actually arrived, in one confirm. A difference becomes Missing; damaged goods go to reject.",
     side: StageSide::Destination,
     executed_at: ExecutedAt::Node,
     custody: Custody::Accepts,
@@ -658,19 +681,29 @@ static RECEIVE: StageSpec = StageSpec {
 
 static INSPECT: StageSpec = StageSpec {
     kind: StageKind::Inspect,
-    label: "Periksa",
-    meaning: "Barang yang sudah diterima diperiksa: yang layak ke rak, yang tidak ke reject.",
+    label: "Inspect",
+    meaning: "Received goods are checked: good goods go to the racks, damaged goods to reject.",
     side: StageSide::Destination,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
     emits: &[
-        Emission::Movement { from: PoolStage::DestinationPool, to: PoolStage::DestinationStock },
-        Emission::Movement { from: PoolStage::DestinationPool, to: PoolStage::DestinationReject },
+        Emission::Movement {
+            from: PoolStage::DestinationPool,
+            to: PoolStage::DestinationStock,
+        },
+        Emission::Movement {
+            from: PoolStage::DestinationPool,
+            to: PoolStage::DestinationReject,
+        },
     ],
     journal: JournalRule::Never,
     count: CountRule::MustCount,
     blind: false,
-    allowed_proof: &[ProofKind::RfidScan, ProofKind::ManualCount, ProofKind::Photo],
+    allowed_proof: &[
+        ProofKind::RfidScan,
+        ProofKind::ManualCount,
+        ProofKind::Photo,
+    ],
     required_proof: RequiredProof::CountMethod,
     fixed_rules: &[FixedRule::NotMoreThanUpstream],
     may_skip: true,
@@ -679,12 +712,14 @@ static INSPECT: StageSpec = StageSpec {
 
 static READY_FOR_PICKUP: StageSpec = StageSpec {
     kind: StageKind::ReadyForPickup,
-    label: "Siap diambil",
-    meaning: "Barang menunggu di konter untuk diambil pelanggan.",
+    label: "Ready for pickup",
+    meaning: "Goods wait at the counter for the customer to collect.",
     side: StageSide::Origin,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
-    emits: &[Emission::Claim { claim: ClaimKind::ReadyForPickup }],
+    emits: &[Emission::Claim {
+        claim: ClaimKind::ReadyForPickup,
+    }],
     journal: JournalRule::Never,
     count: CountRule::CarriesUpstream,
     blind: false,
@@ -697,8 +732,8 @@ static READY_FOR_PICKUP: StageSpec = StageSpec {
 
 static HANDOVER_WITH_PROOF: StageSpec = StageSpec {
     kind: StageKind::HandoverWithProof,
-    label: "Serah terima dengan bukti",
-    meaning: "Barang berpindah ke pihak luar (supplier atau pelanggan) dengan bukti tanda tangan atau nota retur.",
+    label: "Handover with proof",
+    meaning: "Goods pass to an outside party (a supplier or a customer) against a signature or a signed return note.",
     side: StageSide::Origin,
     executed_at: ExecutedAt::Hub,
     custody: Custody::HandsOver,
@@ -723,8 +758,9 @@ static HANDOVER_WITH_PROOF: StageSpec = StageSpec {
 
 static APPROVAL: StageSpec = StageSpec {
     kind: StageKind::Approval,
-    label: "Persetujuan",
-    meaning: "Seseorang selain pengaju menyetujui atau menolak, sebelum barang bergerak.",
+    label: "Approval",
+    meaning:
+        "Somebody other than the person who asked approves or declines, before any goods move.",
     side: StageSide::HeadOffice,
     executed_at: ExecutedAt::Hub,
     custody: Custody::None,
@@ -741,8 +777,8 @@ static APPROVAL: StageSpec = StageSpec {
 
 static ARRIVAL: StageSpec = StageSpec {
     kind: StageKind::Arrival,
-    label: "Kedatangan",
-    meaning: "Lori supplier datang dan diberi nomor delivery, diterima atau tidak barangnya.",
+    label: "Arrival",
+    meaning: "A supplier's lorry arrives and is given a delivery number, whether or not its goods are accepted.",
     side: StageSide::Destination,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
@@ -759,8 +795,8 @@ static ARRIVAL: StageSpec = StageSpec {
 
 static BLIND_COUNT: StageSpec = StageSpec {
     kind: StageKind::BlindCount,
-    label: "Hitung buta",
-    meaning: "Satu orang mencatat apa yang fisik datang, tanpa melihat kuantitas PO maupun harga.",
+    label: "Blind count",
+    meaning: "One person records what physically arrived, without seeing the ordered quantity or the price.",
     side: StageSide::Destination,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
@@ -777,8 +813,8 @@ static BLIND_COUNT: StageSpec = StageSpec {
 
 static VERIFICATION: StageSpec = StageSpec {
     kind: StageKind::Verification,
-    label: "Verifikasi",
-    meaning: "Orang kedua menerima hitungan checker. Sejak itu barang jadi stok operasional (accepted receipt).",
+    label: "Verification",
+    meaning: "A second person accepts the checker's count. From then on the goods are operational stock (an accepted receipt).",
     side: StageSide::Destination,
     executed_at: ExecutedAt::Node,
     custody: Custody::Accepts,
@@ -796,11 +832,13 @@ static VERIFICATION: StageSpec = StageSpec {
 static TAGGING: StageSpec = StageSpec {
     kind: StageKind::Tagging,
     label: "Tagging",
-    meaning: "Barang yang sudah diterima diberi identitas kita: artikel, SKU, dan tag EPC per potong.",
+    meaning: "Accepted goods are given our identity: article, SKU and an EPC tag per piece.",
     side: StageSide::Destination,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
-    emits: &[Emission::Record { record: "identification" }],
+    emits: &[Emission::Record {
+        record: "identification",
+    }],
     journal: JournalRule::Never,
     count: CountRule::CarriesUpstream,
     blind: false,
@@ -813,12 +851,15 @@ static TAGGING: StageSpec = StageSpec {
 
 static PUTAWAY: StageSpec = StageSpec {
     kind: StageKind::Putaway,
-    label: "Simpan ke rak",
-    meaning: "Barang pindah dari area penerimaan ke pool tujuan (rak Gudang).",
+    label: "Putaway",
+    meaning: "Goods move from the receiving area to the destination pool (the Gudang racks).",
     side: StageSide::Destination,
     executed_at: ExecutedAt::Node,
     custody: Custody::None,
-    emits: &[Emission::Movement { from: PoolStage::Pending, to: PoolStage::DestinationPool }],
+    emits: &[Emission::Movement {
+        from: PoolStage::Pending,
+        to: PoolStage::DestinationPool,
+    }],
     journal: JournalRule::Never,
     count: CountRule::CarriesUpstream,
     blind: false,

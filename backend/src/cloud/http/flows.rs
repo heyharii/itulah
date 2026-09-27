@@ -1,4 +1,4 @@
-//! Flow templates and flow documents on the wire: the hub's "Alur barang".
+//! Flow templates and flow documents on the wire: the hub's "Goods flows".
 //!
 //! # Templates — Admin's
 //!
@@ -288,8 +288,13 @@ pub async fn start_document(
     Json(request): Json<StartFlowRequest>,
 ) -> Result<Json<FlowDocumentView>, AppError> {
     Ok(Json(
-        store::start_flow_document(&state.db, &request, &actor_of(&principal), state.clock.now())
-            .await?,
+        store::start_flow_document(
+            &state.db,
+            &request,
+            &actor_of(&principal),
+            state.clock.now(),
+        )
+        .await?,
     ))
 }
 
@@ -348,7 +353,12 @@ pub async fn resume_stage(
     Json(request): Json<ResumeFlowRequest>,
 ) -> Result<Json<Value>, AppError> {
     Ok(Json(
-        store::resume_parked_stage(&state.db, &request, &actor_of(&principal), state.clock.now())
-            .await?,
+        store::resume_parked_stage(
+            &state.db,
+            &request,
+            &actor_of(&principal),
+            state.clock.now(),
+        )
+        .await?,
     ))
 }
