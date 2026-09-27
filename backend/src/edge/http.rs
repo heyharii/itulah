@@ -529,6 +529,32 @@ fn common_router() -> Router<EdgeState> {
         .route("/api/v1/auth/pins", post(set_user_pin))
         .route("/api/v1/auth/pins/{username}/clear", post(clear_user_pin))
         .route("/api/v1/auth/pin/claim", post(pin_claim))
+        // ── the machines enrolled to this node ──────────────────────────
+        //
+        // See `edge/devices.rs`. `identity`, `join` and `join/status` are
+        // spoken by a till that has no credential yet and are open; the
+        // peripherals report is signed by the till itself; everything else is
+        // a person signed in here.
+        .route("/api/v1/node/identity", get(node_identity))
+        .route("/api/v1/devices", get(list_devices))
+        .route("/api/v1/devices/join", post(join_node))
+        .route("/api/v1/devices/join/status", post(join_status))
+        .route("/api/v1/devices/joins", get(pending_joins))
+        .route(
+            "/api/v1/devices/joins/{join_id}/approve",
+            post(approve_join),
+        )
+        .route("/api/v1/devices/joins/{join_id}/refuse", post(refuse_join))
+        .route("/api/v1/devices/status", post(set_device_status))
+        .route("/api/v1/devices/printers", post(record_printer))
+        .route(
+            "/api/v1/devices/printers/{printer_id}",
+            post(change_printer),
+        )
+        .route(
+            "/api/v1/devices/self/peripherals",
+            post(set_till_peripherals),
+        )
         .route(RFID_OBSERVATION_PATH, post(rfid_observations))
         .route("/api/v1/inventory/pools", get(pools))
         .route("/api/v1/inventory/movements", get(movements))
@@ -1098,10 +1124,16 @@ async fn dc_print_koli_label(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
     Path(koli_id): Path<String>,
-    Json(request): Json<crate::edge::outbound::PrintKoliLabelRequest>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     require_permission(&state, principal, EdgePermission::DcOperate)?;
-    let result = run_blocking(move || state.inventory.print_koli_label(&koli_id, request)).await?;
+    let connection = state.auth.connection();
+    let result = run_blocking(move || {
+        let request: crate::edge::outbound::PrintKoliLabelRequest =
+            print_request(with_recorded_printer(&connection, body)?)?;
+        state.inventory.print_koli_label(&koli_id, request)
+    })
+    .await?;
     Ok(Json(serde_json::to_value(result)?))
 }
 
@@ -1282,10 +1314,12 @@ async fn dc_allotment_line_position(
 async fn dc_test_printer(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
-    Json(request): Json<TestPrinterRequest>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     require_permission(&state, principal, EdgePermission::DcOperate)?;
+    let connection = state.auth.connection();
     let result = run_blocking(move || {
+        let request: TestPrinterRequest = print_request(with_recorded_printer(&connection, body)?)?;
         crate::edge::printing::probe_printer(&request.printer_host, request.printer_port)
     })
     .await?;
@@ -1296,12 +1330,19 @@ async fn dc_test_printer(
 async fn dc_open_print_session(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
-    Json(mut request): Json<crate::edge::printing::OpenPrintSessionRequest>,
+    Json(body): Json<Value>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
-    if let Some(principal) = require_permission(&state, principal, EdgePermission::DcOperate)? {
-        request.actor_id = principal.username;
-    }
-    let result = run_blocking(move || state.inventory.open_print_session(request)).await?;
+    let principal = require_permission(&state, principal, EdgePermission::DcOperate)?;
+    let connection = state.auth.connection();
+    let result = run_blocking(move || {
+        let mut request: crate::edge::printing::OpenPrintSessionRequest =
+            print_request(with_recorded_printer(&connection, body)?)?;
+        if let Some(principal) = principal {
+            request.actor_id = principal.username;
+        }
+        state.inventory.open_print_session(request)
+    })
+    .await?;
     Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
 }
 
@@ -1364,11 +1405,16 @@ async fn dc_repoint_print_session(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
     Path(session_id): Path<String>,
-    Json(request): Json<crate::edge::printing::RepointPrinterRequest>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     require_permission(&state, principal, EdgePermission::DcOperate)?;
-    let result =
-        run_blocking(move || state.inventory.repoint_print_session(&session_id, request)).await?;
+    let connection = state.auth.connection();
+    let result = run_blocking(move || {
+        let request: crate::edge::printing::RepointPrinterRequest =
+            print_request(with_recorded_printer(&connection, body)?)?;
+        state.inventory.repoint_print_session(&session_id, request)
+    })
+    .await?;
     Ok(Json(serde_json::to_value(result)?))
 }
 
@@ -2535,11 +2581,16 @@ async fn store_print_receipt(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
     Path(sale_id): Path<String>,
-    Json(request): Json<crate::edge::till::PrintReceiptRequest>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     require_permission(&state, principal, EdgePermission::StoreSale)?;
-    let result =
-        run_blocking(move || state.inventory.print_sale_receipt(&sale_id, request)).await?;
+    let connection = state.auth.connection();
+    let result = run_blocking(move || {
+        let request: crate::edge::till::PrintReceiptRequest =
+            print_request(with_recorded_printer(&connection, body)?)?;
+        state.inventory.print_sale_receipt(&sale_id, request)
+    })
+    .await?;
     Ok(Json(result))
 }
 
@@ -3242,11 +3293,18 @@ async fn require_auth(
     // asked before anybody is signed in), while its POST — which changes what
     // the whole shop accepts — stays behind this middleware and behind the
     // `AuthAdmin` check inside the handler.
+    //
+    // A till that has not joined yet is in the same position: it asks who
+    // this node is, asks to join, and asks whether it was let in, all before
+    // it holds anything to authenticate with. Its status poll carries a proof
+    // made with the key it minted; its later peripherals report is signed
+    // like a claim. See `edge/devices.rs`.
     let open = matches!(
         path,
         "/api/v1/health"
             | "/api/v1/auth/login"
             | "/api/v1/auth/sso/exchange"
+            | "/api/v1/node/identity"
             | RFID_OBSERVATION_PATH
     ) || matches!(
         (request.method().as_str(), path),
@@ -3255,7 +3313,11 @@ async fn require_auth(
             "/api/v1/auth/methods" | "/api/v1/auth/fingerprints/roster"
         ) | (
             "POST",
-            "/api/v1/auth/fingerprints/claim" | "/api/v1/auth/pin/claim"
+            "/api/v1/auth/fingerprints/claim"
+                | "/api/v1/auth/pin/claim"
+                | "/api/v1/devices/join"
+                | "/api/v1/devices/join/status"
+                | "/api/v1/devices/self/peripherals"
         )
     );
     if !path.starts_with("/api/") || open {
@@ -3474,6 +3536,261 @@ async fn fingerprint_claim(
         "token_type": "Bearer",
         "expires_at_epoch": issued.expires_at.timestamp(),
     })))
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// The machines enrolled to this node
+// ════════════════════════════════════════════════════════════════════════════
+
+fn lock_devices(
+    connection: &Arc<std::sync::Mutex<rusqlite::Connection>>,
+) -> Result<std::sync::MutexGuard<'_, rusqlite::Connection>, EdgeError> {
+    crate::edge::devices::lock(connection)
+}
+
+/// Who this node is, for a till looking for its shop's server. Open, and
+/// carries nothing that is not printed on the shop's receipts.
+async fn node_identity(State(state): State<EdgeState>) -> Json<Value> {
+    Json(json!(crate::edge::devices::node_identity(
+        state.inventory.node()
+    )))
+}
+
+/// Every device this node holds, as head office will see it.
+async fn list_devices(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let connection = state.auth.connection();
+    let items = run_blocking(move || {
+        let guard = lock_devices(&connection)?;
+        crate::edge::devices::list_devices(&guard)
+    })
+    .await?;
+    Ok(Json(json!({ "items": items })))
+}
+
+/// A till asks to join. Answered with the code and number it shows while a
+/// supervisor decides.
+async fn join_node(
+    State(state): State<EdgeState>,
+    Json(request): Json<crate::sync::device::JoinRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let connection = state.auth.connection();
+    let node = state.inventory.node().clone();
+    let answer = run_blocking(move || {
+        let mut guard = lock_devices(&connection)?;
+        crate::edge::devices::begin_join(&mut guard, &node, request)
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(answer)?)))
+}
+
+async fn join_status(
+    State(state): State<EdgeState>,
+    Json(request): Json<crate::sync::device::JoinStatusRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let connection = state.auth.connection();
+    let node = state.inventory.node().clone();
+    let status = run_blocking(move || {
+        let mut guard = lock_devices(&connection)?;
+        crate::edge::devices::join_status(&mut guard, &node, &request)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(status)?))
+}
+
+/// The tills waiting for a supervisor. Readable by anybody signed in here,
+/// because the till that shows the prompt is usually a cashier's.
+async fn pending_joins(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let connection = state.auth.connection();
+    let items = run_blocking(move || {
+        let guard = lock_devices(&connection)?;
+        crate::edge::devices::pending_joins(&guard)
+    })
+    .await?;
+    Ok(Json(json!({ "items": items })))
+}
+
+/// Let a waiting till in. Who may is decided inside `approve_join`: a
+/// supervisor's finger (the grant in the body), or a supervisor session for a
+/// shop's first till, or an Admin.
+async fn approve_join(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(join_id): Path<String>,
+    Json(request): Json<crate::edge::devices::ApproveJoinRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let session = require_permission(&state, principal, EdgePermission::InventoryRead)?
+        .map(|who| (who.username, who.role));
+    let connection = state.auth.connection();
+    let approved = run_blocking(move || {
+        let mut guard = lock_devices(&connection)?;
+        crate::edge::devices::approve_join(
+            &mut guard,
+            &join_id,
+            request,
+            session.as_ref().map(|(name, role)| (name.as_str(), *role)),
+        )
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(approved)?))
+}
+
+async fn refuse_join(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(join_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let actor = require_permission(&state, principal, EdgePermission::DeviceAdmin)?
+        .map(|who| who.username)
+        .unwrap_or_else(|| "api".into());
+    let connection = state.auth.connection();
+    run_blocking(move || {
+        let guard = lock_devices(&connection)?;
+        crate::edge::devices::refuse_join(&guard, &join_id, &actor)
+    })
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct DeviceStatusRequest {
+    device_id: String,
+    status: String,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// Suspend, reactivate or revoke a till or a printer, here at the shop.
+async fn set_device_status(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(request): Json<DeviceStatusRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = require_permission(&state, principal, EdgePermission::DeviceAdmin)?
+        .map(|who| who.username)
+        .unwrap_or_else(|| "api".into());
+    let connection = state.auth.connection();
+    let device = run_blocking(move || {
+        let mut guard = lock_devices(&connection)?;
+        crate::edge::devices::set_status(
+            &mut guard,
+            request.device_id.trim(),
+            &request.status,
+            request.reason.as_deref(),
+            &actor,
+        )
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(device)?))
+}
+
+async fn record_printer(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(request): Json<crate::edge::devices::RecordPrinterRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let actor = require_permission(&state, principal, EdgePermission::DeviceAdmin)?
+        .map(|who| who.username)
+        .unwrap_or_else(|| "api".into());
+    let connection = state.auth.connection();
+    let printer = run_blocking(move || {
+        let mut guard = lock_devices(&connection)?;
+        crate::edge::devices::record_printer(&mut guard, request, &actor)
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(printer)?)))
+}
+
+async fn change_printer(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(printer_id): Path<String>,
+    Json(request): Json<crate::edge::devices::ChangePrinterRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = require_permission(&state, principal, EdgePermission::DeviceAdmin)?
+        .map(|who| who.username)
+        .unwrap_or_else(|| "api".into());
+    let connection = state.auth.connection();
+    let printer = run_blocking(move || {
+        let mut guard = lock_devices(&connection)?;
+        crate::edge::devices::change_printer(&mut guard, &printer_id, request, &actor)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(printer)?))
+}
+
+/// A till says what is plugged into it. Signed like a fingerprint claim, so a
+/// till can only ever describe itself.
+async fn set_till_peripherals(
+    State(state): State<EdgeState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, ApiError> {
+    let proof = terminal_proof(&headers)?;
+    let digest = crate::security::sha256_hex(&body);
+    let request: crate::edge::devices::PeripheralsRequest =
+        serde_json::from_slice(&body).map_err(|error| {
+            ApiError(EdgeError::Validation(format!(
+                "invalid peripherals report: {error}"
+            )))
+        })?;
+    let connection = state.auth.connection();
+    let device = run_blocking(move || {
+        let mut guard = lock_devices(&connection)?;
+        crate::edge::devices::set_peripherals(
+            &mut guard,
+            &proof,
+            "/api/v1/devices/self/peripherals",
+            &digest,
+            request.peripherals,
+        )
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(device)?))
+}
+
+/// When a print request names a recorded printer by `printer_id`, write the
+/// printer's address into it; otherwise leave the request exactly as sent, so
+/// every screen that still sends a host and port keeps working.
+///
+/// Blocking: call it inside `run_blocking`. Takes and releases the lock
+/// itself, before the print path takes it again.
+fn with_recorded_printer(
+    connection: &Arc<std::sync::Mutex<rusqlite::Connection>>,
+    mut body: Value,
+) -> Result<Value, EdgeError> {
+    let printer_id = body
+        .get("printer_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+    let Some(printer_id) = printer_id else {
+        return Ok(body);
+    };
+    let (host, port) = {
+        let guard = lock_devices(connection)?;
+        crate::edge::devices::resolve_printer(&guard, &printer_id)?
+    };
+    if let Value::Object(fields) = &mut body {
+        fields.insert("printer_host".into(), Value::String(host));
+        fields.insert("printer_port".into(), Value::from(port));
+    }
+    Ok(body)
+}
+
+/// A print request, after [`with_recorded_printer`], as the type its handler
+/// expects. A body that still does not fit is the caller's mistake, said so.
+fn print_request<T: serde::de::DeserializeOwned>(body: Value) -> Result<T, EdgeError> {
+    serde_json::from_value(body)
+        .map_err(|error| EdgeError::Validation(format!("invalid print request: {error}")))
 }
 
 /// What this shop's node accepts besides a password.

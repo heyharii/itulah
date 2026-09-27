@@ -400,6 +400,26 @@ pub(crate) const ATTENDANCE_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0040_a_terminal_greets_by_name_with_the_line_down.sql"
 ));
 
+/// A till asking to join this node, and every device's history. See the
+/// migration and `edge/devices.rs`.
+pub(crate) const DEVICE_JOIN_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0051_a_till_asks_its_node_to_join_and_a_supervisor_says_yes.sql"
+));
+
+/// A till's status, peripherals and join. ALTERs: applied once, probed by
+/// `edge_terminal.status`.
+pub(crate) const TILL_DEVICE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0052_a_till_knows_its_status_its_peripherals_and_how_it_joined.sql"
+));
+
+/// The printers this node knows by name.
+pub(crate) const PRINTER_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0053_a_printer_is_recorded_once_and_chosen_by_name.sql"
+));
+
 /// Why a session ended: one user, one device. An ALTER, applied through
 /// `edge::auth::ensure_session_reason`, which both this file and `EdgeAuth`
 /// call.
@@ -1168,7 +1188,22 @@ impl SqliteEdge {
                 .execute_batch(PURCHASE_UNIT_SCHEMA)
                 .map_err(db)?;
         }
-        // One user, one device (`0054`): an ALTER, probed by its column.
+        // Devices (`0051`–`0054`). The join queue, the device history and the
+        // printer register create rather than change, so they run on every
+        // open; the till's new columns and the session's reason are ALTERs,
+        // so each is probed by the column it adds.
+        connection.execute_batch(DEVICE_JOIN_SCHEMA).map_err(db)?;
+        let a_till_has_a_status: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('edge_terminal') WHERE name='status'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if a_till_has_a_status == 0 {
+            connection.execute_batch(TILL_DEVICE_SCHEMA).map_err(db)?;
+        }
+        connection.execute_batch(PRINTER_SCHEMA).map_err(db)?;
         crate::edge::auth::ensure_session_reason(&connection)?;
         if a_stream_says_whose_seqs_it_writes == 0 {
             connection

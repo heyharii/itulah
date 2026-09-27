@@ -128,6 +128,11 @@ pub enum EdgePermission {
     StoreReceive,
     InventoryMove,
     RfidObserve,
+    /// Record a printer, refuse a waiting till, suspend or revoke a device.
+    /// A supervisor's, because a till switched off at nine in the evening
+    /// cannot wait for head office. Letting a till *in* is decided inside
+    /// `edge::devices::approve_join`, which also accepts a supervisor's finger.
+    DeviceAdmin,
     AuthAdmin,
 }
 
@@ -137,7 +142,7 @@ impl EdgePermission {
             Self::InventoryRead | Self::DcOperate | Self::StoreSale | Self::RfidObserve => {
                 Role::Cashier
             }
-            Self::StoreReceive | Self::InventoryMove => Role::Supervisor,
+            Self::StoreReceive | Self::InventoryMove | Self::DeviceAdmin => Role::Supervisor,
             Self::AuthAdmin => Role::Admin,
         }
     }

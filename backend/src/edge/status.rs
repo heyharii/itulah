@@ -71,6 +71,21 @@ impl StatusSource {
                 .as_deref()
                 .map(|dir| Journal::new(dir).recent(60))
                 .unwrap_or_default(),
+            device_list: self.device_list(),
+        }
+    }
+
+    /// Every device enrolled here, for head office's registry. `None` only
+    /// when the node cannot read its own tables, which the cloud reads as
+    /// "no report this minute" rather than "no devices".
+    fn device_list(&self) -> Option<Vec<crate::sync::device::DeviceReport>> {
+        let connection = self.connection.lock().ok()?;
+        match crate::edge::devices::list_devices(&connection) {
+            Ok(devices) => Some(devices),
+            Err(error) => {
+                tracing::warn!(%error, "devices left out of the heartbeat");
+                None
+            }
         }
     }
 

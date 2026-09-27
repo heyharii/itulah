@@ -150,7 +150,12 @@ pub fn pair_terminal(
 /// Returns the terminal id in its stored spelling. Every refusal here is
 /// `Unauthorized` with one wording: "which of the six things was wrong" is a
 /// way to probe a node for valid terminal ids.
-fn verify_terminal(
+///
+/// Crate-visible because a till that joined by code (`edge/devices.rs`) signs
+/// its own reports the same way. `active` is the one switch read here, and
+/// `devices.rs` keeps it in step with the till's status: a suspended or
+/// revoked till is refused at this line.
+pub(crate) fn verify_terminal(
     tx: &Transaction<'_>,
     proof: &TerminalProof,
     method: &str,
