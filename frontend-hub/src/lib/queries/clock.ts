@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { clock } from "@/lib/api"
 import { toast } from "@/lib/toast"
+import { ApiError } from "@itulah/contract/client"
 
 /// The virtual business clock — or the absence of one.
 ///
@@ -13,14 +14,24 @@ import { toast } from "@/lib/toast"
 /// answer one question — is today real? — and nothing else.
 export const clockKeys = { clock: ["clock"] as const }
 
+/// A 403 is not "try again in five seconds" — it is "there is no clock here
+/// this session", the same fact `retry: false` already treats a single fetch
+/// to. `refetchInterval` and `refetchOnWindowFocus` read the query's own last
+/// error rather than a flag kept beside it, so the moment a control is turned
+/// ON again the very next successful poll (a fresh tab, say) resumes it —
+/// nothing here has to be told that happened.
+function unavailable(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403
+}
+
 export function useClockStatus() {
   return useQuery<ClockStatus>({
     queryKey: clockKeys.clock,
     queryFn: ({ signal }) => clock.status(signal),
-    refetchInterval: 5_000,
+    refetchInterval: (query) => (unavailable(query.state.error) ? false : 5_000),
     staleTime: 4_000,
     retry: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: (query) => !unavailable(query.state.error),
   })
 }
 
