@@ -25,6 +25,23 @@ use std::{
 use uuid::Uuid;
 
 pub const RFID_OBSERVATION_PATH: &str = "/api/v1/rfid/observations";
+/// A reader saying it is alive, with or without anything to file (sqlite
+/// 0064). Signed exactly as a batch is, over this path.
+pub const RFID_PING_PATH: &str = "/api/v1/rfid/ping";
+
+/// What a handheld or reader may say about itself — in a ping's body, or as
+/// the `device` object of a batch. Every field is optional: an older app
+/// sends none and loses nothing.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct RfidDeviceReport {
+    #[serde(default)]
+    pub battery_percent: Option<u8>,
+    #[serde(default)]
+    pub app_version: Option<String>,
+    /// When the operator last pulled the trigger, on the device's clock.
+    #[serde(default)]
+    pub last_scan_at: Option<DateTime<Utc>>,
+}
 pub const RFID_SIGNATURE_MAX_SKEW_SECONDS: u64 = 300;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -452,9 +469,164 @@ impl EdgeRfid {
             ],
         )
         .map_err(db)?;
+        // A batch is proof of life too, and may carry what the handheld
+        // knows about itself. A malformed `device` block is ignored rather
+        // than refusing the reads it came with.
+        let report = serde_json::from_slice::<Value>(raw_body)
+            .ok()
+            .and_then(|body| body.get("device").cloned())
+            .and_then(|device| serde_json::from_value::<RfidDeviceReport>(device).ok());
+        record_device_health(&tx, &device_id, business_now, report.as_ref())?;
         tx.commit().map_err(db)?;
         Ok(response)
     }
+
+    /// A reader saying it is alive (`POST /api/v1/rfid/ping`). Proven exactly
+    /// as a batch is — its key, a fresh sequence, a timestamp inside the
+    /// window — so a ping cannot be forged or replayed, and it moves nothing:
+    /// it is how a reader that is on and reading nothing is told apart from
+    /// one that is off.
+    pub fn ping(&self, proof: DeviceProof, raw_body: &[u8]) -> Result<Value, EdgeError> {
+        let device_id = normalize_device_id(&proof.device_id)?;
+        if proof.sequence < 1 {
+            return Err(EdgeError::Unauthorized(
+                "RFID device sequence must be positive".into(),
+            ));
+        }
+        if proof.signature.len() != 64
+            || !proof
+                .signature
+                .chars()
+                .all(|value| value.is_ascii_hexdigit())
+        {
+            return Err(EdgeError::Unauthorized(
+                "invalid RFID device signature".into(),
+            ));
+        }
+        let request_digest = security::sha256_hex(raw_body);
+        let now = Utc::now();
+        let business_now = self.clock.now();
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        let device: Option<(String, i64, String, i64)> = tx
+            .query_row(
+                "SELECT auth_key_sha256,active,valid_until,last_sequence
+                 FROM edge_rfid_device WHERE device_id=?1",
+                params![device_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()
+            .map_err(db)?;
+        let Some((signing_key, active, valid_until, last_sequence)) = device else {
+            return Err(EdgeError::Unauthorized("unknown RFID device".into()));
+        };
+        if active != 1 {
+            return Err(EdgeError::Unauthorized("RFID device is disabled".into()));
+        }
+        if parse_time(&valid_until)? <= now {
+            return Err(EdgeError::Unauthorized(
+                "RFID device offline lease has expired; reconnect this Edge to Cloud".into(),
+            ));
+        }
+        let expected = sign_rfid_request_at(
+            RFID_PING_PATH,
+            &signing_key,
+            &device_id,
+            proof.timestamp,
+            proof.sequence,
+            &request_digest,
+        );
+        if !security::constant_time_eq(&proof.signature.to_ascii_lowercase(), &expected) {
+            return Err(EdgeError::Unauthorized(
+                "invalid RFID device signature".into(),
+            ));
+        }
+        if business_now.timestamp().abs_diff(proof.timestamp) > RFID_SIGNATURE_MAX_SKEW_SECONDS {
+            return Err(EdgeError::Unauthorized(format!(
+                "RFID request timestamp is outside the {RFID_SIGNATURE_MAX_SKEW_SECONDS}-second window"
+            )));
+        }
+        if proof.sequence <= last_sequence {
+            return Err(EdgeError::Conflict(format!(
+                "RFID device sequence replayed; last accepted sequence is {last_sequence}"
+            )));
+        }
+        let report = if raw_body.iter().all(u8::is_ascii_whitespace) {
+            RfidDeviceReport::default()
+        } else {
+            serde_json::from_slice::<RfidDeviceReport>(raw_body)
+                .map_err(|error| EdgeError::Validation(format!("invalid RFID ping: {error}")))?
+        };
+        if report
+            .app_version
+            .as_deref()
+            .is_some_and(|version| version.len() > 64)
+        {
+            return Err(EdgeError::Validation(
+                "an app version is at most 64 characters".into(),
+            ));
+        }
+        if report.battery_percent.is_some_and(|battery| battery > 100) {
+            return Err(EdgeError::Validation(
+                "battery is a percentage, 0 to 100".into(),
+            ));
+        }
+        tx.execute(
+            "UPDATE edge_rfid_device
+             SET last_sequence=?2,last_request_digest=?3,last_seen_at=?4
+             WHERE device_id=?1",
+            params![
+                device_id,
+                proof.sequence,
+                request_digest,
+                time_text(business_now)
+            ],
+        )
+        .map_err(db)?;
+        record_device_health(&tx, &device_id, business_now, Some(&report))?;
+        tx.commit().map_err(db)?;
+        Ok(json!({ "device_id": device_id, "received_at": business_now }))
+    }
+}
+
+/// Write down that a reader proved itself now, with whatever it said about
+/// itself. A field it did not send keeps what it said before.
+fn record_device_health(
+    tx: &rusqlite::Transaction<'_>,
+    device_id: &str,
+    at: DateTime<Utc>,
+    report: Option<&RfidDeviceReport>,
+) -> Result<(), EdgeError> {
+    let report = report.cloned().unwrap_or_default();
+    let battery = report
+        .battery_percent
+        .filter(|battery| *battery <= 100)
+        .map(i64::from);
+    let app_version = report
+        .app_version
+        .filter(|version| version.len() <= 64 && !version.trim().is_empty());
+    tx.execute(
+        "INSERT INTO edge_rfid_device_health
+             (device_id, pinged_at, battery_percent, app_version, last_scan_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?2)
+         ON CONFLICT (device_id) DO UPDATE SET
+             pinged_at = excluded.pinged_at,
+             battery_percent = COALESCE(excluded.battery_percent, edge_rfid_device_health.battery_percent),
+             app_version = COALESCE(excluded.app_version, edge_rfid_device_health.app_version),
+             last_scan_at = COALESCE(excluded.last_scan_at, edge_rfid_device_health.last_scan_at),
+             updated_at = excluded.updated_at",
+        params![
+            device_id,
+            time_text(at),
+            battery,
+            app_version,
+            report.last_scan_at.map(time_text),
+        ],
+    )
+    .map_err(db)?;
+    Ok(())
 }
 
 pub fn derive_rfid_signing_key(device_key: &str) -> String {
@@ -518,9 +690,28 @@ pub fn sign_rfid_request(
     sequence: i64,
     body_sha256: &str,
 ) -> String {
-    let canonical = format!(
-        "POST\n{RFID_OBSERVATION_PATH}\n{device_id}\n{timestamp}\n{sequence}\n{body_sha256}"
-    );
+    sign_rfid_request_at(
+        RFID_OBSERVATION_PATH,
+        signing_key_sha256,
+        device_id,
+        timestamp,
+        sequence,
+        body_sha256,
+    )
+}
+
+/// The same signature over another RFID path (the ping): the path is part of
+/// the canonical, so a ping's proof never files a batch.
+pub fn sign_rfid_request_at(
+    path: &str,
+    signing_key_sha256: &str,
+    device_id: &str,
+    timestamp: i64,
+    sequence: i64,
+    body_sha256: &str,
+) -> String {
+    let canonical =
+        format!("POST\n{path}\n{device_id}\n{timestamp}\n{sequence}\n{body_sha256}");
     security::hmac_sha256_hex(signing_key_sha256.as_bytes(), canonical.as_bytes())
 }
 

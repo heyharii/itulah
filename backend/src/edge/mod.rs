@@ -61,8 +61,9 @@ pub use http::{
     store_router_with_sync,
 };
 pub use rfid::{
-    derive_rfid_signing_key, sign_rfid_request, DeviceProof, EdgeRfid, EdgeRfidObservationRequest,
-    RFID_OBSERVATION_PATH, RFID_SIGNATURE_MAX_SKEW_SECONDS,
+    derive_rfid_signing_key, sign_rfid_request, sign_rfid_request_at, DeviceProof, EdgeRfid,
+    EdgeRfidObservationRequest, RfidDeviceReport, RFID_OBSERVATION_PATH, RFID_PING_PATH,
+    RFID_SIGNATURE_MAX_SKEW_SECONDS,
 };
 pub use sqlite::SqliteEdge;
 pub use sync::SqliteSyncStore;

@@ -136,6 +136,71 @@ pub struct NodeStatus {
     /// build has always taken, and nothing newer".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
+    /// Spells in the last day when head office could not be reached while
+    /// this server kept running — the internet, not the machine. A machine
+    /// that was switched off says so with `Started` instead. `None` from a
+    /// node that predates the report (fleet status, 28 Sep 2026).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_outages: Option<Vec<LinkOutage>>,
+}
+
+/// One spell without head office while the server stayed up.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LinkOutage {
+    /// The last answer before the silence.
+    pub from: DateTime<Utc>,
+    /// The first answer after it.
+    pub to: DateTime<Utc>,
+    /// Facts written here meanwhile, and how many of them were sales: the
+    /// answer to "did the shop keep selling".
+    pub facts_written: i64,
+    pub sales_written: i64,
+}
+
+/// The kinds the outbox is broken down by on the fleet page.
+pub const QUEUE_SALES: &str = "SALES";
+pub const QUEUE_STOCK: &str = "STOCK";
+pub const QUEUE_ATTENDANCE: &str = "ATTENDANCE";
+pub const QUEUE_OTHER: &str = "OTHER";
+
+/// Which of the four a fact belongs to, by its event type. One spelling, so a
+/// node's queue and head office's reading of it never disagree.
+pub fn queue_kind(event_type: &str) -> &'static str {
+    if event_type.starts_with("sales.")
+        || event_type.starts_with("checkout.")
+        || event_type.starts_with("till.")
+    {
+        QUEUE_SALES
+    } else if event_type.starts_with("inventory.")
+        || event_type.starts_with("goods_receipt.")
+        || event_type.starts_with("tagging.")
+    {
+        QUEUE_STOCK
+    } else if event_type.starts_with("attendance.") {
+        QUEUE_ATTENDANCE
+    } else {
+        QUEUE_OTHER
+    }
+}
+
+/// Unsent facts of one kind.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QueuedFacts {
+    /// `SALES`, `STOCK`, `ATTENDANCE` or `OTHER` ([`queue_kind`]).
+    pub kind: String,
+    pub count: i64,
+    /// When the oldest of them was written.
+    pub oldest_at: Option<DateTime<Utc>>,
+}
+
+/// The daily backup, as the node last tried it (`edge/backup.rs`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupFacts {
+    pub last_attempt_at: Option<DateTime<Utc>>,
+    pub last_ok_at: Option<DateTime<Utc>>,
+    /// Set when the last attempt failed.
+    pub last_error: Option<String>,
+    pub last_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -150,6 +215,13 @@ pub struct SyncFacts {
     pub pending_facts: i64,
     pub oldest_pending_at: Option<DateTime<Utc>>,
     pub dead_lettered: i64,
+    /// The unsent facts by kind. `None` from a node that predates it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue: Option<Vec<QueuedFacts>>,
+    /// When the newest fact head office has acknowledged was written: "data
+    /// up to".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub newest_acked_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -173,6 +245,10 @@ pub struct MachineFacts {
     /// The UPS, when there is one to read (`edge/power.rs`).
     #[serde(default)]
     pub power: Option<PowerFacts>,
+    /// The last backup attempt and how it went. `last_backup_at` above is
+    /// the newest file on disk; this says whether the last try failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup: Option<BackupFacts>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -564,7 +640,17 @@ mod tests {
             incidents: vec![],
             device_list: None,
             capabilities: None,
+            link_outages: None,
         }
+    }
+
+    #[test]
+    fn facts_fall_into_the_four_queues() {
+        assert_eq!(queue_kind("sales.completed"), QUEUE_SALES);
+        assert_eq!(queue_kind("till.shift.recorded"), QUEUE_SALES);
+        assert_eq!(queue_kind("inventory.pick.v1"), QUEUE_STOCK);
+        assert_eq!(queue_kind("attendance.punch.recorded"), QUEUE_ATTENDANCE);
+        assert_eq!(queue_kind("store.expense.recorded"), QUEUE_OTHER);
     }
 
     #[test]

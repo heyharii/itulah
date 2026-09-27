@@ -146,6 +146,22 @@ async fn run_silent_node_sweep(pool: sqlx::PgPool) {
         if let Err(error) = postgres::sweep_silent_nodes(&pool).await {
             tracing::warn!(%error, "silent node sweep failed");
         }
+        // The fleet status page on the same minute: every part's colour and
+        // history written down, and its incidents raised, escalated and
+        // closed (`postgres::fleet_status`, 0637-0640).
+        match postgres::fleet_sweep(&pool).await {
+            Ok(report) if report.opened + report.notified + report.escalated + report.resolved > 0 => {
+                info!(
+                    opened = report.opened,
+                    notified = report.notified,
+                    escalated = report.escalated,
+                    resolved = report.resolved,
+                    "fleet incidents moved"
+                )
+            }
+            Ok(_) => {}
+            Err(error) => tracing::warn!(%error, "fleet sweep failed"),
+        }
     }
 }
 
@@ -378,6 +394,9 @@ async fn run_goods_receipt_posting_agent(pool: sqlx::PgPool) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
     loop {
         interval.tick().await;
+        // The fleet page's "automatic postings": this pass ran, and whether
+        // any part of it could not even look (`fleet_job_beat`, 0640).
+        let mut failed: Option<String> = None;
         match postgres::receipts_post_pending(&pool, false, "system:goods-receipt").await {
             Ok(sweep) => {
                 for posting in &sweep.posted {
@@ -395,7 +414,10 @@ async fn run_goods_receipt_posting_agent(pool: sqlx::PgPool) {
                     );
                 }
             }
-            Err(error) => tracing::error!(%error, "could not find goods receipts awaiting posting"),
+            Err(error) => {
+                tracing::error!(%error, "could not find goods receipts awaiting posting");
+                failed = Some(format!("goods receipts: {error}"));
+            }
         }
         // Goods moving between head office and the shops, booked in both
         // books at SJD dispatch and at receipt (client accountant, 25 Sep).
@@ -410,8 +432,12 @@ async fn run_goods_receipt_posting_agent(pool: sqlx::PgPool) {
         {
             Ok(0) => {}
             Ok(posted) => info!(posted, "posted goods-flow meanings"),
-            Err(error) => tracing::warn!(%error, "goods-flow postings await correction"),
+            Err(error) => {
+                tracing::warn!(%error, "goods-flow postings await correction");
+                failed.get_or_insert(format!("flow postings: {error}"));
+            }
         }
+        postgres::fleet_job_beat(&pool, postgres::JOB_POSTINGS, failed.as_deref()).await;
     }
 }
 

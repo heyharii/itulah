@@ -50,6 +50,8 @@ mod destinations;
 /// Every machine enrolled to a node, fed by heartbeats. See migration 0604.
 mod devices;
 mod discussion;
+/// Head office's fleet status page, sync freshness and alerts. See 0637-0640.
+mod fleet_status;
 mod documents;
 mod eligibility;
 mod employment;
@@ -248,6 +250,7 @@ pub use eligibility::*;
 pub use employment::*;
 pub use enrolment::*;
 pub use exit::*;
+pub use fleet_status::*;
 pub use files::*;
 pub use giro::*;
 pub use giro_print::*;

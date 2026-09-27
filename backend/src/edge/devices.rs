@@ -1745,6 +1745,7 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
                     status_changed_at: parse_time(row.get(7)?),
                     status_changed_by: row.get(8)?,
                     status_reason: row.get(9)?,
+                    health: till_health(&peripherals),
                     config: json!({ "peripherals": peripherals, "machine": machine }),
                     last_test_print_at: parse_time(row.get(12)?),
                     last_test_print_ok: row.get::<_, Option<i64>>(13)?.map(|ok| ok == 1),
@@ -1799,6 +1800,8 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
                     last_test_print_ok: row.get::<_, Option<i64>>(14)?.map(|ok| ok == 1),
                     last_test_print_error: row.get(15)?,
                     last_test_print_request_id: parse_uuid(row.get(16)?),
+                    // Filled below from the print queue.
+                    health: None,
                 })
             })
             .map_err(db)?;
@@ -1846,6 +1849,8 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
                     last_test_print_ok: None,
                     last_test_print_error: None,
                     last_test_print_request_id: None,
+                    // Filled below from the pings and the observations.
+                    health: None,
                 })
             })
             .map_err(db)?;
@@ -1872,5 +1877,189 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
             devices.push(reader);
         }
     }
+    let now = Utc::now();
+    for device in &mut devices {
+        match device.kind.as_str() {
+            KIND_PRINTER => device.health = printer_health(connection, &device.config, now),
+            kind if wire::is_rfid_kind(kind) => {
+                device.health = reader_health(connection, &device.device_id, now)
+            }
+            _ => {}
+        }
+    }
     Ok(devices)
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// How each device is doing, for head office's fleet status page
+// ════════════════════════════════════════════════════════════════════════════
+
+/// How long the reads-per-minute figure looks back.
+const READS_WINDOW_MINUTES: i64 = 15;
+
+/// A till's desk reader (the USB R3), from what the till last said is plugged
+/// in. The till reports `desk_reader` as the model it has configured (a
+/// string, or null for none); a till app that checks the USB bus also sends
+/// `desk_reader_attached` and, optionally, `reported_at`. No desk reader
+/// configured is no health to report.
+fn till_health(peripherals: &Value) -> Option<wire::DeviceHealth> {
+    let configured = peripherals.get("desk_reader")?;
+    let (model, attached_inline) = match configured {
+        Value::Null => return None,
+        Value::String(model) => (Some(model.clone()), None),
+        Value::Object(reader) => (
+            reader.get("model").and_then(Value::as_str).map(str::to_owned),
+            reader.get("attached").and_then(Value::as_bool),
+        ),
+        Value::Bool(false) => return None,
+        _ => (None, None),
+    };
+    let attached = peripherals
+        .get("desk_reader_attached")
+        .and_then(Value::as_bool)
+        .or(attached_inline);
+    let reported_at = peripherals
+        .get("reported_at")
+        .and_then(Value::as_str)
+        .and_then(|text| DateTime::parse_from_rfc3339(text).ok())
+        .map(|at| at.with_timezone(&Utc));
+    Some(wire::DeviceHealth {
+        desk_reader: Some(wire::DeskReaderHealth {
+            model,
+            attached,
+            reported_at,
+        }),
+        ..wire::DeviceHealth::default()
+    })
+}
+
+/// A label printer's last day, from the print queue: what it printed, what
+/// it could not encode, the tags thrown away on failed attempts, and whether
+/// its most recent attempt failed — its fault. A receipt printer has no queue
+/// here and reports only its last use.
+fn printer_health(
+    connection: &Connection,
+    config: &Value,
+    now: DateTime<Utc>,
+) -> Option<wire::DeviceHealth> {
+    let host = config.get("host").and_then(Value::as_str)?;
+    let port = config.get("port").and_then(Value::as_i64)?;
+    let since = stamp(now - Duration::hours(24));
+    let figures = connection
+        .query_row(
+            "SELECT max(i.printed_at),
+                    COALESCE(SUM(i.status = 'PRINTED' AND i.printed_at >= ?3), 0),
+                    COALESCE(SUM(i.status = 'FAILED' AND i.claimed_at >= ?3), 0),
+                    COALESCE(SUM(CASE WHEN i.claimed_at < ?3 OR i.claimed_at IS NULL THEN 0
+                                      WHEN i.status = 'FAILED' THEN i.attempts
+                                      WHEN i.attempts > 1 THEN i.attempts - 1
+                                      ELSE 0 END), 0)
+               FROM print_item i
+               JOIN print_session s ON s.session_id = i.session_id
+              WHERE s.printer_host = ?1 AND s.printer_port = ?2",
+            params![host, port, since],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )
+        .optional()
+        .ok()
+        .flatten();
+    let latest = connection
+        .query_row(
+            "SELECT i.status, i.last_error, i.claimed_at
+               FROM print_item i
+               JOIN print_session s ON s.session_id = i.session_id
+              WHERE s.printer_host = ?1 AND s.printer_port = ?2
+                AND i.status IN ('PRINTED', 'FAILED')
+              ORDER BY COALESCE(i.printed_at, i.claimed_at) DESC
+              LIMIT 1",
+            params![host, port],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .ok()
+        .flatten();
+    let (fault, fault_at) = match latest {
+        Some((status, error, at)) if status == "FAILED" => (
+            Some(error.unwrap_or_else(|| "the printer failed the last label".to_owned())),
+            parse_time(at),
+        ),
+        _ => (None, None),
+    };
+    let (last_print_at, printed, failed, void) = figures.unwrap_or((None, 0, 0, 0));
+    Some(wire::DeviceHealth {
+        last_print_at: parse_time(last_print_at),
+        labels_printed_24h: Some(printed),
+        encode_failures_24h: Some(failed),
+        void_tags_24h: Some(void),
+        fault,
+        fault_at,
+        ..wire::DeviceHealth::default()
+    })
+}
+
+/// A handheld's or fixed reader's activity: its last ping and what it said
+/// about itself (`edge_rfid_device_health`, sqlite 0064), the newest tag it
+/// filed and its reads per minute over the last quarter hour.
+fn reader_health(
+    connection: &Connection,
+    device_id: &str,
+    now: DateTime<Utc>,
+) -> Option<wire::DeviceHealth> {
+    let ping = connection
+        .query_row(
+            "SELECT pinged_at, battery_percent, app_version, last_scan_at
+               FROM edge_rfid_device_health WHERE device_id = ?1",
+            params![device_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .optional()
+        .ok()
+        .flatten();
+    let last_tag_at: Option<String> = connection
+        .query_row(
+            "SELECT max(last_seen_at) FROM edge_observation_sighting WHERE device_id = ?1",
+            params![device_id],
+            |row| row.get(0),
+        )
+        .ok()
+        .flatten();
+    let reads: i64 = connection
+        .query_row(
+            "SELECT COALESCE(SUM(read_count), 0) FROM edge_observation_sighting
+              WHERE device_id = ?1 AND last_seen_at >= ?2",
+            params![device_id, stamp(now - Duration::minutes(READS_WINDOW_MINUTES))],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let (pinged_at, battery, app_version, last_scan_at) = ping.unwrap_or((None, None, None, None));
+    Some(wire::DeviceHealth {
+        pinged_at: parse_time(pinged_at),
+        battery_percent: battery.and_then(|value| u8::try_from(value).ok()),
+        app_version,
+        last_scan_at: parse_time(last_scan_at),
+        last_tag_at: parse_time(last_tag_at),
+        reads_per_minute: Some(reads as f64 / READS_WINDOW_MINUTES as f64),
+        reads_window_minutes: Some(READS_WINDOW_MINUTES),
+        ..wire::DeviceHealth::default()
+    })
 }

@@ -70,6 +70,9 @@ fn status() -> NodeStatus {
                 machine_restarted: Some(false),
             },
         }],
+        device_list: None,
+        capabilities: None,
+        link_outages: None,
     }
 }
 
@@ -139,6 +142,12 @@ async fn a_condition_is_announced_once_and_its_end_once(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn silence_is_noticed_by_the_sweep_once(pool: PgPool) {
     register(&pool).await;
+    // With the fleet alerts on (0637), a silent server is theirs to announce;
+    // this is the older per-node alert, which still speaks when they are off.
+    sqlx::query("UPDATE fleet_setting SET alerts_enabled = false")
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("fleet alerts off: {error}"));
     cloud::record_heartbeat(&pool, ORIGIN, &status())
         .await
         .unwrap_or_else(|error| panic!("heartbeat: {error}"));

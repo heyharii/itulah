@@ -763,6 +763,21 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/sync/devices/{device_id}/status",
         post(fleet::device_status),
     )
+    // The fleet status page: every store and the gudang by the worst of its
+    // parts, sync as freshness and queues, incidents and their settings
+    // (`http::fleet`, `postgres::fleet_status`, 0637-0640).
+    .route("/api/v1/fleet/status", get(fleet::fleet_status))
+    .route("/api/v1/fleet/status/{unit}", get(fleet::fleet_status_of))
+    .route("/api/v1/fleet/sync", get(fleet::fleet_sync))
+    .route("/api/v1/fleet/incidents", get(fleet::fleet_incidents))
+    .route(
+        "/api/v1/fleet/incidents/{id}/acknowledge",
+        post(fleet::fleet_acknowledge),
+    )
+    .route(
+        "/api/v1/fleet/alert-settings",
+        get(fleet::fleet_alert_settings).put(fleet::fleet_update_alert_settings),
+    )
     .route("/api/v1/sync/enroll/claim", post(enrolment::claim))
     .route("/api/v1/sync/enroll/status", post(enrolment::status))
     .route("/api/v1/sync/commands", post(sync_issue_command))

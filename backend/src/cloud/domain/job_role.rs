@@ -353,6 +353,8 @@ pub const SECTION_RULES: &[SectionRule] = &[
     rule("/api/v1/invitations", &["system"], Reads::Same),
     rule("/api/v1/audit", &["system"], Reads::Also(&["finance"])),
     rule("/api/v1/sync", &["system"], Reads::Open),
+    // The fleet status page, sync freshness and alerts (0637-0640) are IT's.
+    rule("/api/v1/fleet", &["system"], Reads::Same),
     rule("/api/v1/organisation", &["system", "people"], Reads::Open),
     rule("/api/v1/vocabulary", &["system", "merchandise"], Reads::Open),
     // ── reports ────────────────────────────────────────────────────────

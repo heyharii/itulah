@@ -200,6 +200,73 @@ pub struct DeviceReport {
     /// without comparing two machines' clocks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_test_print_request_id: Option<Uuid>,
+    /// How the device is doing, as far as its node can tell. `None` from a
+    /// node that predates the fleet status page (28 Sep 2026); every field
+    /// inside is optional too, because a handheld on an older app sends none
+    /// of its own and a receipt printer has no reads to count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<DeviceHealth>,
+}
+
+/// What a node knows about one device's condition. Kind-specific groups, all
+/// optional; a screen shows "—" for what is absent, never an invented zero.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DeviceHealth {
+    // ---- a handheld or a fixed reader ----
+    /// When the device last pinged or filed a batch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinged_at: Option<DateTime<Utc>>,
+    /// Handheld: battery, as it last said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battery_percent: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_version: Option<String>,
+    /// Handheld: when its operator last pulled the trigger, as it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_scan_at: Option<DateTime<Utc>>,
+    /// The newest tag this device filed, from the observations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_tag_at: Option<DateTime<Utc>>,
+    /// Raw reads per minute over `reads_window_minutes`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reads_per_minute: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reads_window_minutes: Option<i64>,
+
+    // ---- a till ----
+    /// The USB desk reader (R3) hanging off this till, when the till has one
+    /// configured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desk_reader: Option<DeskReaderHealth>,
+
+    // ---- a printer ----
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_print_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels_printed_24h: Option<i64>,
+    /// Labels whose tag could not be written, still failed, in 24 hours.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encode_failures_24h: Option<i64>,
+    /// Tags spent on failed attempts in 24 hours: each is a label thrown
+    /// away.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub void_tags_24h: Option<i64>,
+    /// Set while the printer's most recent attempt failed: its fault.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fault: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fault_at: Option<DateTime<Utc>>,
+}
+
+/// The till's desk reader, from its peripherals report.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeskReaderHealth {
+    pub model: Option<String>,
+    /// `None` while the till only says it has one configured, not whether it
+    /// is plugged in (a till app older than the check).
+    pub attached: Option<bool>,
+    /// When the till last reported its peripherals.
+    pub reported_at: Option<DateTime<Utc>>,
 }
 
 // ---- Head office's decision, sent down ---------------------------------------

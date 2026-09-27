@@ -273,6 +273,12 @@ const RESERVED: &[(u32, u32, &str)] = &[
          0610-0614 on 27 Sep 2026 and needed four numbers; the books step filled \
          0605-0609 and the flow-template engine 0615-0619",
     ),
+    (
+        636,
+        636,
+        "left unused by the roles-and-invitations lane, which was given \
+         0633-0636 on 28 Sep 2026 and needed three numbers",
+    ),
 ];
 
 #[test]

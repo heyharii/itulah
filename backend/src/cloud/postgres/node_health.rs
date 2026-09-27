@@ -32,6 +32,16 @@ fn tone_text(tone: Tone) -> &'static str {
     }
 }
 
+/// The conditions the fleet alerts announce instead, while they are on.
+const FLEET_COVERED_CODES: [&str; 6] = [
+    "SILENT",
+    "OFFLINE",
+    "DISK_LOW",
+    "DISK_CRITICAL",
+    "UPS_LOW",
+    "ON_BATTERY",
+];
+
 /// Whether an assessment is something a person must hear about.
 fn worth_an_alert(assessment: &Assessment) -> bool {
     assessment.tone >= Tone::Warn && assessment.needs != Needs::Nobody
@@ -57,6 +67,15 @@ async fn announce(
     let place = if site_id.is_empty() { origin_id } else { site_id };
     if worth_an_alert(assessment) {
         if alerted.as_deref() == Some(assessment.code.as_str()) {
+            return Ok(());
+        }
+        // A silent server, a disk filling up and a UPS running down are
+        // parts of the fleet status page, whose incidents tell the right
+        // people once each (`fleet_status`, 0639). Told here as well, they
+        // would be told twice.
+        if FLEET_COVERED_CODES.contains(&assessment.code.as_str())
+            && super::fleet_status::fleet_alerts_enabled(&mut **tx).await?
+        {
             return Ok(());
         }
         let recipients = recipients_with_role(tx, &["ADMIN"]).await?;
@@ -170,6 +189,27 @@ pub async fn record_heartbeat(
         .bind(incident.at())
         .bind(kind)
         .bind(payload)
+        .execute(&mut *tx)
+        .await?;
+    }
+    // Internet outages the server stayed up through, filed like the journal's
+    // incidents: once each, however many heartbeats repeat them. The fleet
+    // page reads the newest as "the internet, and it kept selling".
+    for outage in status.link_outages.iter().flatten() {
+        sqlx::query(
+            "INSERT INTO node_incident (origin_id, at, kind, payload)
+             VALUES ($1, $2, 'CONNECTION_LOST', $3) ON CONFLICT DO NOTHING",
+        )
+        .bind(origin_id)
+        .bind(outage.to)
+        .bind(json!({
+            "kind": "CONNECTION_LOST",
+            "at": outage.to,
+            "from": outage.from,
+            "to": outage.to,
+            "facts_written": outage.facts_written,
+            "sales_written": outage.sales_written,
+        }))
         .execute(&mut *tx)
         .await?;
     }

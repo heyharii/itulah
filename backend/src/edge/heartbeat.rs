@@ -27,6 +27,12 @@ use std::{
 pub const INTERVAL: Duration = Duration::from_secs(60);
 const RETRY_AFTER_FAILURE: Duration = Duration::from_secs(15);
 
+/// A gap between two answers longer than this, with the process running
+/// throughout, is an internet outage: two missed heartbeats and a half.
+fn link_outage_after() -> chrono::Duration {
+    chrono::Duration::seconds(150)
+}
+
 #[derive(Deserialize)]
 struct Answer {
     server_time: DateTime<Utc>,
@@ -63,6 +69,24 @@ pub async fn send_once(
     let skew = (midpoint - answer.server_time).num_seconds();
     if let Ok(mut slot) = source.clock_skew.lock() {
         *slot = Some(skew);
+    }
+    // Head office answered. If the answer before this one was long enough
+    // ago, this process sat through a silence while it kept running: the
+    // internet, not the machine. Written down so the Fleet page can say the
+    // shop kept selling (sqlite 0065).
+    let answered_before = source
+        .last_answered
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.replace(sent_at));
+    if let Some(before) = answered_before.filter(|before| sent_at - *before > link_outage_after()) {
+        let recording = source.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Err(error) = recording.record_link_outage(before, sent_at) {
+                tracing::warn!(%error, "an internet outage was not written down");
+            }
+        })
+        .await;
     }
     // Head office answered, so a sync breaker still waiting out an outage is
     // waiting for nothing.
