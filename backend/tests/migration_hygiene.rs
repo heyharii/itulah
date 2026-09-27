@@ -273,6 +273,15 @@ const RESERVED: &[(u32, u32, &str)] = &[
          0610-0614 on 27 Sep 2026 and needed four numbers; the books step filled \
          0605-0609 and the flow-template engine 0615-0619",
     ),
+    (
+        630,
+        636,
+        "held by the lanes in flight on 28 Sep 2026 when the fleet-status lane \
+         was given 0637-0640: the roles-and-invitations lane has 0633-0636 on \
+         its own branch and another lane 0630-0632. Their files land with \
+         their branches; this entry shrinks as they do and goes the day all \
+         seven are here",
+    ),
 ];
 
 #[test]
