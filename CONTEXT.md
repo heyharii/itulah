@@ -361,7 +361,9 @@ Whatever the template, the invariants hold: a flow to our own site ends in
 Receive; to an outside party, in Handover with proof; goods between our own
 sites travel under a surat jalan; crossing units posts inter-unit
 automatically; supplier returns leave only from an HO site (stores never deal
-with suppliers); a template names meanings, never accounts (finance rule I9).
+with suppliers); goods never move from one store to another — they return to
+the Gudang and are allotted on (owner, 28 Sep 2026); a template names
+meanings, never accounts (finance rule I9).
 _Avoid_: workflow (for the template), process
 
 **Flow Document**:

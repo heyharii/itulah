@@ -514,6 +514,13 @@ pub fn validate_template(draft: &FlowTemplateDraft) -> Vec<TemplateProblem> {
                 "route.supplier_return_from_store",
                 "A return to a supplier leaves only from a site of the head-office unit (the Gudang). Stores never deal with suppliers.",
             ),
+        // The owner's ruling, 28 Sep 2026 (0628): goods never move from one
+        // store to another. They go back to the Gudang and are allotted on.
+        (RouteEnd::Site(SiteKind::Store), RouteEnd::Site(SiteKind::Store)) => problems.template(
+            "route",
+            "route.store_to_store",
+            "Goods never move from one store to another: return them to the Gudang, and head office allots them from there.",
+        ),
         _ => {}
     }
 
