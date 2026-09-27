@@ -1049,21 +1049,6 @@ pub trait EdgeInventory: Send + Sync {
             "return inspection is kept by the SQLite edge".into(),
         ))
     }
-    /// Tagged jobs whose goods are not yet recorded as put away.
-    fn putaway_work(&self) -> Result<super::flows::PutawayWork, EdgeError> {
-        Err(EdgeError::Forbidden(
-            "putaway is kept by the SQLite edge".into(),
-        ))
-    }
-    /// Record a tagged job's goods as put away.
-    fn put_away(
-        &self,
-        _request: super::flows::PutawayRequest,
-    ) -> Result<super::flows::PutawayResult, EdgeError> {
-        Err(EdgeError::Forbidden(
-            "putaway is kept by the SQLite edge".into(),
-        ))
-    }
     fn move_stock(&self, request: MoveRequest) -> Result<CommandResult, EdgeError>;
     /// Write down a checkout BEFORE asking anybody for money.
     ///

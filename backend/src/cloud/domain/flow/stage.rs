@@ -849,6 +849,11 @@ static TAGGING: StageSpec = StageSpec {
     parks: Some(ParkReason::Scan),
 };
 
+/// Putaway is not part of the company's process (the owner's ruling): tagging
+/// already lands a supplier's goods on the racks. The kind stays in the
+/// catalogue because the database's stage CHECKs list it and a stored template
+/// version names it (TERIMA_DARI_SUPPLIER v1, 0619); no current template uses
+/// it, and no node runs it (`flow_stages::stage_delegate` says `Missing`).
 static PUTAWAY: StageSpec = StageSpec {
     kind: StageKind::Putaway,
     label: "Putaway",

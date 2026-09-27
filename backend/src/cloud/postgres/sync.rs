@@ -2544,23 +2544,6 @@ async fn apply_one(
                     });
                 }
                 false
-            } else if event_type == crate::sync::flow::INVENTORY_PUTAWAY_V1 {
-                let event_id: Uuid = row.get("event_id");
-                let putaway = match crate::sync::flow::parse_putaway(&payload) {
-                    Ok(putaway) => putaway,
-                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
-                };
-                if let Err(error) = super::flow_stages::apply_putaway_tx(
-                    &mut tx, origin_id, generation, next, event_id, &putaway,
-                )
-                .await
-                {
-                    return Ok(ApplyStep::Blocked {
-                        seq: next,
-                        reason: block_diagnostic(&error),
-                    });
-                }
-                false
             } else if event_type == INVENTORY_POOL_SNAPSHOT_V1 {
                 let event_id: Uuid = row.get("event_id");
                 let snapshot = match serde_json::from_value::<PoolSnapshotPayload>(payload) {

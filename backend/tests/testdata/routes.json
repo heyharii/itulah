@@ -614,7 +614,6 @@ dc	GET	/api/v1/dc/picklists	-	-
 dc	GET	/api/v1/dc/print-sessions/{session_id}	-	-
 dc	GET	/api/v1/dc/purchase-counts	-	-
 dc	GET	/api/v1/dc/purchase-orders	-	-
-dc	GET	/api/v1/dc/putaways	-	-
 dc	GET	/api/v1/dc/shipments	-	-
 dc	GET	/api/v1/dc/shipments/{shipment_id}	-	-
 dc	GET	/api/v1/dc/tagging-jobs	-	-
@@ -654,7 +653,6 @@ dc	POST	/api/v1/dc/print-sessions/{session_id}/run	-	-
 dc	POST	/api/v1/dc/printer/test	-	-
 dc	POST	/api/v1/dc/purchase-counts	-	-
 dc	POST	/api/v1/dc/purchase-verifications	-	-
-dc	POST	/api/v1/dc/putaways	-	-
 dc	POST	/api/v1/dc/shipments	-	-
 dc	POST	/api/v1/dc/tagging-confirmations	-	-
 dc	POST	/api/v1/dc/tagging-jobs/{job_id}/label-preview	-	-

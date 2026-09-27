@@ -224,11 +224,19 @@ pub(crate) const FLOW_NOTICE_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0058_a_node_hears_what_its_goods_flows_did.sql"
 ));
 
-/// A store's return inspected and tagged goods put away (`0059`,
-/// `edge::flows`). Creates only, so it runs on every open.
+/// A store's return inspected (`0059`, `edge::flows`). Creates only, but it
+/// also creates the putaway table `0060` drops, so it runs only while its
+/// inspection tables are missing.
 pub(crate) const FLOW_STEP_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0059_a_return_is_inspected_and_tagged_goods_are_put_away.sql"
+));
+
+/// Putaway is not a step of ours (`0060`): the table 0059 made for it goes.
+/// Applied only while the table is there.
+pub(crate) const PUTAWAY_GONE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0060_putting_tagged_goods_away_is_not_a_step_of_ours.sql"
 ));
 
 /// Who raised a purchase order, and whether the centre cancelled it
@@ -1228,9 +1236,35 @@ impl SqliteEdge {
             .execute_batch(IN_TRANSIT_RELEASE_SCHEMA)
             .map_err(db)?;
         // Goods flows (`0058`, `0059`): what head office's flows said, and the
-        // inspections and putaways done here. Creates only, no probe.
+        // inspections done here. 0058 creates only, so no probe. 0059 also
+        // creates the putaway table, which `0060` drops: it runs while its
+        // last inspection table is missing — a node that has it has all of
+        // 0059 it keeps — and 0060 runs while the putaway table is there, so
+        // a start never makes the table again only to drop it.
         connection.execute_batch(FLOW_NOTICE_SCHEMA).map_err(db)?;
-        connection.execute_batch(FLOW_STEP_SCHEMA).map_err(db)?;
+        let inspections_are_kept: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type='table' AND name='return_inspection_unit'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if inspections_are_kept == 0 {
+            connection.execute_batch(FLOW_STEP_SCHEMA).map_err(db)?;
+        }
+        let putaways_are_kept: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='putaway'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if putaways_are_kept > 0 {
+            connection
+                .execute_batch(PUTAWAY_GONE_SCHEMA)
+                .map_err(db)?;
+        }
         // A cancelled order (`0047`): an ALTER, so probed first.
         let an_order_can_be_cancelled: i64 = connection
             .query_row(
@@ -5019,25 +5053,6 @@ impl EdgeInventory for SqliteEdge {
             &request,
             self.clock.now(),
         )?;
-        tx.commit().map_err(db)?;
-        Ok(result)
-    }
-
-    fn putaway_work(&self) -> Result<crate::edge::flows::PutawayWork, EdgeError> {
-        let connection = self.lock()?;
-        crate::edge::flows::putaway_work(&connection, &self.node)
-    }
-
-    fn put_away(
-        &self,
-        request: crate::edge::flows::PutawayRequest,
-    ) -> Result<crate::edge::flows::PutawayResult, EdgeError> {
-        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
-        let mut connection = self.lock()?;
-        let tx = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db)?;
-        let result = crate::edge::flows::put_away(&tx, &self.node, &request, self.clock.now())?;
         tx.commit().map_err(db)?;
         Ok(result)
     }

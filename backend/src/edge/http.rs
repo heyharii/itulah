@@ -237,12 +237,6 @@ pub fn dc_router_with_sync(
             "/api/v1/dc/inbound/{delivery_id}/inspection",
             get(dc_return_inspection).post(dc_inspect_return),
         )
-        // Tagged goods recorded as put away on the racks — the goods flow's
-        // Putaway stage.
-        .route(
-            "/api/v1/dc/putaways",
-            get(dc_putaway_work).post(dc_put_away),
-        )
         .route("/api/v1/dc/official-counts", get(dc_official_counts))
         .route(
             "/api/v1/dc/official-counts/{count_id}",
@@ -1768,30 +1762,6 @@ async fn dc_inspect_return(
     name_the_actor(&mut request.actor_id);
     let result =
         run_blocking(move || state.inventory.inspect_return(&delivery_id, request)).await?;
-    Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
-}
-
-/// Tagged jobs whose goods are not yet recorded as put away.
-async fn dc_putaway_work(
-    State(state): State<EdgeState>,
-    principal: Option<Extension<EdgePrincipal>>,
-) -> Result<Json<Value>, ApiError> {
-    require_permission(&state, principal, EdgePermission::InventoryRead)?;
-    let result = run_blocking(move || state.inventory.putaway_work()).await?;
-    Ok(Json(serde_json::to_value(result)?))
-}
-
-/// Record a tagged job's goods as put away on the racks.
-async fn dc_put_away(
-    State(state): State<EdgeState>,
-    principal: Option<Extension<EdgePrincipal>>,
-    Json(mut request): Json<crate::edge::flows::PutawayRequest>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
-    if let Some(principal) = require_permission(&state, principal, EdgePermission::DcOperate)? {
-        request.actor_id = principal.username;
-    }
-    name_the_actor(&mut request.actor_id);
-    let result = run_blocking(move || state.inventory.put_away(request)).await?;
     Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
 }
 

@@ -18,7 +18,7 @@ pub mod enrolment;
 pub mod escpos;
 pub mod fingerprint;
 /// Goods flows at this node: what head office's flows said about its site,
-/// and the Gudang's return inspection and putaway.
+/// and the Gudang's return inspection.
 pub mod flows;
 pub mod http;
 /// Deliveries head office announced to this shop, counted blind on arrival.
