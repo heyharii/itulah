@@ -53,7 +53,9 @@ pub struct GiroRow {
     /// The `account_link` source — `BCA`, `MANDIRI` — because it is what
     /// picks the leaf, not a display name.
     pub bank: String,
-    pub site_id: String,
+    /// Whose books the giro is drawn in: the unit that holds the bank account
+    /// (P14, 0608).
+    pub unit_id: String,
     pub amount_minor: i64,
     pub currency: String,
     pub issue_date: NaiveDate,
@@ -89,7 +91,7 @@ pub struct GiroRow {
 /// below binds it first for that reason: `days_overdue` has to agree with the
 /// list the row came out of, and a column that read the clock while the query
 /// filtered on a date would disagree with it by exactly the amount that matters.
-const GIRO_COLUMNS: &str = "g.giro_id, g.direction, g.number, g.bank, g.site_id,
+const GIRO_COLUMNS: &str = "g.giro_id, g.direction, g.number, g.bank, g.unit_id,
      g.amount_minor, g.currency, g.issue_date, g.due_date, g.status,
      (COALESCE($1::date, CURRENT_DATE) - g.due_date)::bigint AS days_overdue,
      g.supplier_payment_id, g.cash_document_id,
@@ -114,7 +116,7 @@ fn to_giro(row: &sqlx::postgres::PgRow) -> Result<GiroRow, AppError> {
         direction: row.try_get("direction")?,
         number: row.try_get("number")?,
         bank: row.try_get("bank")?,
-        site_id: row.try_get("site_id")?,
+        unit_id: row.try_get("unit_id")?,
         amount_minor: row.try_get("amount_minor")?,
         currency: row.try_get("currency")?,
         issue_date: row.try_get("issue_date")?,
@@ -231,14 +233,14 @@ pub async fn giro_board(pool: &PgPool, as_of: NaiveDate) -> Result<GiroBoard, Ap
                 (SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
                    FROM journal_line l
                    JOIN account_resolution m ON m.account_code = l.account_code
-                                            AND m.site_id = l.site_id
+                                            AND m.unit_id = l.unit_id
                   WHERE m.role = 'bank_giro'
                     AND m.source_type = 'COMPANY'
                     AND m.source_id = g.bank
-                    AND l.site_id = g.site_id) AS bank_balance_minor
+                    AND l.unit_id = g.unit_id) AS bank_balance_minor
            FROM giro g
           WHERE g.status IN ('ISSUED', 'DELIVERED', 'DUE')
-          GROUP BY g.bank, g.direction, g.site_id
+          GROUP BY g.bank, g.direction, g.unit_id
           ORDER BY g.direction, g.bank",
     )
     .bind(as_of)
@@ -312,7 +314,8 @@ pub(super) struct NewGiro {
     pub direction: &'static str,
     pub number: String,
     pub bank: String,
-    pub site_id: String,
+    /// The unit whose bank account it is drawn on (0608).
+    pub unit_id: String,
     pub amount_minor: i64,
     pub issue_date: NaiveDate,
     pub due_date: NaiveDate,
@@ -335,7 +338,7 @@ pub(super) async fn giro_insert(
     let giro_id = Uuid::new_v4();
     let result = sqlx::query(
         "INSERT INTO giro
-           (giro_id, direction, number, bank, site_id, amount_minor, currency,
+           (giro_id, direction, number, bank, unit_id, amount_minor, currency,
             issue_date, due_date, supplier_payment_id, cash_document_id,
             issue_entry_id, recorded_by)
          VALUES ($1,$2,$3,$4,$5,$6,'IDR',$7,$8,$9,$10,$11,$12)",
@@ -344,7 +347,7 @@ pub(super) async fn giro_insert(
     .bind(giro.direction)
     .bind(&giro.number)
     .bind(&giro.bank)
-    .bind(&giro.site_id)
+    .bind(&giro.unit_id)
     .bind(giro.amount_minor)
     .bind(giro.issue_date)
     .bind(giro.due_date)
@@ -381,7 +384,7 @@ async fn take_for_move(
     to: GiroState,
 ) -> Result<sqlx::postgres::PgRow, AppError> {
     let row = sqlx::query(
-        "SELECT giro_id, direction, number, bank, site_id, amount_minor, currency,
+        "SELECT giro_id, direction, number, bank, unit_id, amount_minor, currency,
                 status, issue_entry_id, supplier_payment_id, cash_document_id
            FROM giro WHERE giro_id = $1 FOR UPDATE",
     )
@@ -469,7 +472,7 @@ pub async fn giro_clear(
     let direction: String = row.try_get("direction")?;
     let number: String = row.try_get("number")?;
     let bank: String = row.try_get("bank")?;
-    let site_id: String = row.try_get("site_id")?;
+    let unit_id: String = row.try_get("unit_id")?;
     let amount: i64 = row.try_get("amount_minor")?;
     let currency: String = row.try_get("currency")?;
 
@@ -502,22 +505,22 @@ pub async fn giro_clear(
 
     // Both meanings resolved before anything is written, so an unmapped bank
     // is refused by name rather than arriving from the poster.
-    resolve_account_code(&mut *tx, "giro_outstanding", &site_id, &bank).await?;
-    resolve_account_code(&mut *tx, "bank_giro", &site_id, &bank).await?;
+    resolve_account_code(&mut *tx, "giro_outstanding", &unit_id, &bank).await?;
+    resolve_account_code(&mut *tx, "bank_giro", &unit_id, &bank).await?;
 
     let outgoing = direction == "OUT";
     let memo = format!("Giro {number} {bank}");
     let lines = if outgoing {
         vec![
-            PostingLine::debit("giro_outstanding", &site_id, amount).with_qualifier(&bank),
-            PostingLine::credit("bank_giro", &site_id, amount).with_qualifier(&bank),
+            PostingLine::debit("giro_outstanding", &unit_id, amount).with_qualifier(&bank),
+            PostingLine::credit("bank_giro", &unit_id, amount).with_qualifier(&bank),
         ]
     } else {
         // One a customer gave us: the receivable on the instrument becomes
         // money. Same two accounts, other way round.
         vec![
-            PostingLine::debit("bank_giro", &site_id, amount).with_qualifier(&bank),
-            PostingLine::credit("giro_outstanding", &site_id, amount).with_qualifier(&bank),
+            PostingLine::debit("bank_giro", &unit_id, amount).with_qualifier(&bank),
+            PostingLine::credit("giro_outstanding", &unit_id, amount).with_qualifier(&bank),
         ]
     };
 

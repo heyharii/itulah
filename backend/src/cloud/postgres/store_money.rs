@@ -78,7 +78,8 @@ pub enum StoreLedgerSide {
 pub struct StoreLedgerItem {
     pub account_key: String,
     pub qualifier: String,
-    pub site_id: String,
+    /// Whose books the balance is in: a unit (0605, 0607).
+    pub unit_id: String,
     /// `EMPLOYEE` for everything this lane opens: a store manager holding head
     /// office's money is a person, not a place.
     pub party_type: String,
@@ -123,7 +124,7 @@ async fn lane_b_ple_open(
         &super::payment_ledger::PaymentLedgerItem {
             account_key: item.account_key.clone(),
             qualifier: item.qualifier.clone(),
-            site_id: item.site_id.clone(),
+            unit_id: item.unit_id.clone(),
             party_type: super::payment_ledger::PaymentLedgerPartyType::parse(&item.party_type)?,
             party_id: item.party_id.clone(),
             party_name: item.party_name.clone(),
@@ -179,7 +180,7 @@ async fn lane_b_ple_settle(
     Ok(settled.applied_minor)
 }
 
-/// What one control account has open, for one site.
+/// What one control account has open, in one unit's books.
 ///
 /// One side of the equation this lane exists to make checkable: `Sum of open
 /// funds = payment ledger outstanding = the general ledger balance of Piutang
@@ -195,15 +196,15 @@ async fn lane_b_ple_settle(
 pub async fn store_ledger_outstanding(
     pool: &PgPool,
     account_key: &str,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
 ) -> Result<i64, AppError> {
     let row = sqlx::query(
         "SELECT COALESCE(SUM(outstanding_minor), 0)::bigint AS outstanding
            FROM payment_ledger_entry
-          WHERE account_key = $1 AND ($2::text IS NULL OR site_id = $2)",
+          WHERE account_key = $1 AND ($2::text IS NULL OR unit_id = $2)",
     )
     .bind(account_key.trim().to_ascii_lowercase())
-    .bind(site_id)
+    .bind(unit_id)
     .fetch_one(pool)
     .await?;
     Ok(row.try_get("outstanding")?)
@@ -250,16 +251,14 @@ pub(crate) async fn next_document_number(
     ))
 }
 
-async fn site_exists(tx: &mut Transaction<'_, Postgres>, site_id: &str) -> Result<(), AppError> {
-    let found = sqlx::query("SELECT 1 FROM site WHERE id = $1")
-        .bind(site_id)
-        .fetch_optional(&mut **tx)
-        .await?
-        .is_some();
-    if found {
+/// Refuse a unit the centre does not hold, by name. Store money is a unit's
+/// (0607), so every document here names one and is checked here rather than
+/// left to a foreign key with no sentence.
+async fn unit_is_known(tx: &mut Transaction<'_, Postgres>, unit_id: &str) -> Result<(), AppError> {
+    if super::sites::unit_exists(&mut **tx, unit_id).await? {
         Ok(())
     } else {
-        Err(AppError::NotFound(format!("there is no site {site_id}")))
+        Err(AppError::NotFound(format!("there is no unit {unit_id}")))
     }
 }
 
@@ -512,10 +511,11 @@ pub async fn cash_shift_equation(
 /// nothing has ever posted to it, because the only event that moves a float is
 /// a shift opening and shift openings stopped at the edge. Now they do not.
 ///
-///   Dr cashier_float [site] / Cr cash [site]
+///   Dr cashier_float [unit] / Cr cash [unit]
 ///
-/// Both at the shop, so no cross-site leg. Idempotent: a shift that already has
-/// an entry keeps it.
+/// A shift happens at a shop and keeps its site; the float is booked to the
+/// unit that owns the shop (`unit_of_site`). Both lines in that one unit, so no
+/// inter-unit leg. Idempotent: a shift that already has an entry keeps it.
 pub async fn cash_shift_post_float(
     pool: &PgPool,
     shift_id: Uuid,
@@ -543,6 +543,7 @@ pub async fn cash_shift_post_float(
                           "reason": "this shift opened with no float" }));
     }
     let site_id: String = row.try_get("site_id")?;
+    let unit_id = super::sites::unit_of_site(pool, &site_id).await?;
     let opened_at: DateTime<Utc> = row.try_get("opened_at")?;
     let posting_date = opened_at.date_naive();
 
@@ -554,8 +555,8 @@ pub async fn cash_shift_post_float(
         currency: "IDR".into(),
         memo: Some(format!("Modal kasir — shift {shift_id}")),
         lines: vec![
-            PostingLine::debit("cashier_float", &site_id, float),
-            PostingLine::credit("cash", &site_id, float),
+            PostingLine::debit("cashier_float", &unit_id, float),
+            PostingLine::credit("cash", &unit_id, float),
         ],
     };
     let mut tx = pool.begin().await?;
@@ -589,8 +590,10 @@ pub struct ApproveVarianceRequest {
 /// person accepting each one is how somebody notices that C007's afternoon
 /// shift is always forty thousand light.
 ///
-///   short  Dr cash_shortage [site] / Cr cash [site]
-///   over   Dr cash [site]          / Cr cash_variance [site]
+///   short  Dr cash_shortage [unit] / Cr cash [unit]
+///   over   Dr cash [unit]          / Cr cash_variance [unit]
+///
+/// The unit is the one that owns the shift's shop (`unit_of_site`).
 ///
 /// Two meanings and not one signed one, since 0296: `cash_variance` is on
 /// `4301`, a revenue account, and a short drawer debited there was a cost
@@ -655,15 +658,16 @@ pub async fn cash_shift_approve_variance(
         .or_else(|| closed_at.map(|at| at.date_naive()))
         .ok_or_else(|| AppError::Validation("a variance needs a date to be booked on".into()))?;
     let amount = variance.abs();
+    let unit_id = super::sites::unit_of_site(&mut *tx, &site_id).await?;
     let lines = if variance < 0 {
         vec![
-            PostingLine::debit("cash_shortage", &site_id, amount),
-            PostingLine::credit("cash", &site_id, amount),
+            PostingLine::debit("cash_shortage", &unit_id, amount),
+            PostingLine::credit("cash", &unit_id, amount),
         ]
     } else {
         vec![
-            PostingLine::debit("cash", &site_id, amount),
-            PostingLine::credit("cash_variance", &site_id, amount),
+            PostingLine::debit("cash", &unit_id, amount),
+            PostingLine::credit("cash_variance", &unit_id, amount),
         ]
     };
     let intent = PostingIntent {
@@ -703,11 +707,14 @@ pub async fn cash_shift_approve_variance(
     }))
 }
 
-/// The shifts at a shop, newest first, with the difference nobody has accepted
-/// flagged.
+/// The shifts at a unit's shops, newest first, with the difference nobody has
+/// accepted flagged.
+///
+/// Bounded by unit like every other list in this lane; a shift keeps its site
+/// and says which shop it was at.
 pub async fn cash_shift_list(
     pool: &PgPool,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     unapproved_only: bool,
     limit: i64,
 ) -> Result<Vec<Value>, AppError> {
@@ -717,14 +724,15 @@ pub async fn cash_shift_list(
                 s.expected_cash_minor, s.variance_minor, s.approved_by, s.approved_at,
                 s.float_out_entry_id, s.variance_entry_id, s.close_note
            FROM cash_shift s
-          WHERE ($1::text IS NULL OR s.site_id = $1)
+           JOIN site shop ON shop.id = s.site_id
+          WHERE ($1::text IS NULL OR shop.unit_id = $1)
             AND (NOT $2 OR (s.status = 'CLOSED'
                             AND s.variance_minor IS NOT NULL AND s.variance_minor <> 0
                             AND s.approved_at IS NULL))
           ORDER BY s.opened_at DESC
           LIMIT $3",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .bind(unapproved_only)
     .bind(limit.clamp(1, 500))
     .fetch_all(pool)
@@ -764,7 +772,8 @@ pub async fn cash_shift_list(
 
 #[derive(Debug, Deserialize)]
 pub struct PrepareDepositRequest {
-    pub site_id: String,
+    /// Whose takings these are: a unit (0607).
+    pub unit_id: String,
     pub amount_minor: i64,
     pub deposit_date: NaiveDate,
     /// Which head office account. Defaults to the shop's standing destination.
@@ -792,22 +801,22 @@ pub async fn store_deposit_prepare(
         ));
     }
     let mut tx = pool.begin().await?;
-    site_exists(&mut tx, &request.site_id).await?;
+    unit_is_known(&mut tx, &request.unit_id).await?;
 
     let (bank_key, bank_qualifier) = match (&request.bank_key, &request.bank_qualifier) {
         (Some(key), Some(qualifier)) => (key.clone(), qualifier.clone()),
         _ => {
             let row = sqlx::query(
-                "SELECT bank_key, bank_qualifier FROM store_bank_destination WHERE site_id = $1",
+                "SELECT bank_key, bank_qualifier FROM store_bank_destination WHERE unit_id = $1",
             )
-            .bind(&request.site_id)
+            .bind(&request.unit_id)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| {
                 AppError::Validation(format!(
                     "{} has no standing bank destination, so this deposit has to name one. Set \
-                     the shop's default under Store money → Banking.",
-                    request.site_id
+                     the store's default under Store money → Banking.",
+                    request.unit_id
                 ))
             })?;
             (row.try_get("bank_key")?, row.try_get("bank_qualifier")?)
@@ -825,13 +834,13 @@ pub async fn store_deposit_prepare(
     let deposit_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO store_deposit
-             (deposit_id, deposit_number, site_id, amount_minor, bank_key, bank_qualifier,
+             (deposit_id, deposit_number, unit_id, amount_minor, bank_key, bank_qualifier,
               status, prepared_by, deposit_date, remittance_line_id, note)
          VALUES ($1,$2,$3,$4,$5,$6,'PREPARED',$7,$8,$9,$10)",
     )
     .bind(deposit_id)
     .bind(&number)
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .bind(request.amount_minor)
     .bind(&bank_key)
     .bind(&bank_qualifier)
@@ -856,9 +865,9 @@ pub struct HandOverDepositRequest {
 
 /// The bag has left the shop.
 ///
-///   Dr affiliate_receivable [site, counter dc] / Cr cash [site]
+///   Dr affiliate_receivable [store, counter head office] / Cr cash [store]
 ///
-/// The shop's own books, balanced on their own: the cash on hand (1002) is
+/// The store's own books, balanced on their own: the cash on hand (1002) is
 /// gone and the shop owes head office that much less (the meaning resolves at
 /// a unit to 2028 Hutang Affiliasi Pembiayaan, owner 25 Sep / 0380). This used
 /// to post `Dr cash_in_transit / Cr cash`, and because `cash_in_transit` also
@@ -874,7 +883,7 @@ pub async fn store_deposit_hand_over(
     actor: &str,
 ) -> Result<Value, AppError> {
     let mut tx = pool.begin().await?;
-    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
+    let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
     let row = deposit_for_update(&mut tx, deposit_id).await?;
     let status: String = row.try_get("status")?;
     if status != "PREPARED" {
@@ -884,7 +893,7 @@ pub async fn store_deposit_hand_over(
             status.to_lowercase()
         )));
     }
-    let site_id: String = row.try_get("site_id")?;
+    let unit_id: String = row.try_get("unit_id")?;
     let amount: i64 = row.try_get("amount_minor")?;
     let number: String = row.try_get("deposit_number")?;
     let posting_date = request.posting_date.unwrap_or_else(|| {
@@ -900,10 +909,10 @@ pub async fn store_deposit_hand_over(
         currency: row.try_get::<String, _>("currency")?,
         memo: Some(format!("{number} — setoran keluar")),
         lines: vec![
-            PostingLine::debit("affiliate_receivable", &site_id, amount)
+            PostingLine::debit("affiliate_receivable", &unit_id, amount)
                 .with_qualifier("PEMBIAYAAN")
-                .with_counter_site(&head_office),
-            PostingLine::credit("cash", &site_id, amount),
+                .with_counter_unit(&head_office),
+            PostingLine::credit("cash", &unit_id, amount),
         ],
     };
     // Two postings on one document, so the step is named. See `lane_b_post`.
@@ -937,16 +946,16 @@ pub struct ConfirmDepositRequest {
 
 /// The bank agrees.
 ///
-///   Dr bank [dc, qualifier] / Cr affiliate_payable [dc, counter shop]
+///   Dr bank [head office, qualifier] / Cr affiliate_payable [head office, counter store]
 ///
 /// Head office's own books, balanced on their own: the bank received the money
 /// and head office's claim on the shop is that much less (the meaning resolves
 /// at head office to 1057 Piutang Affiliasi Pembiayaan, owner 25 Sep / 0380).
 /// The shop's matching half is `store_deposit_hand_over` above. Each entry
-/// balances in its own site, so the poster adds no leg and the pair shows as an
+/// balances in its own unit, so the poster adds no leg and the pair shows as an
 /// unmatched inter-unit balance until both exist — which is the owner's stated
 /// model (two documents, each balanced where it happened) rather than a single
-/// cross-site entry that hides the gap.
+/// inter-unit entry that hides the gap.
 ///
 /// One endpoint for both callers. The bank matcher calls it with a line id; a
 /// person reading a statement calls it with the line they found, or with
@@ -959,7 +968,7 @@ pub async fn store_deposit_confirm(
     actor: &str,
 ) -> Result<Value, AppError> {
     let mut tx = pool.begin().await?;
-    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
+    let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
     let row = deposit_for_update(&mut tx, deposit_id).await?;
     let number: String = row.try_get("deposit_number")?;
     let status: String = row.try_get("status")?;
@@ -972,7 +981,7 @@ pub async fn store_deposit_confirm(
             status.to_lowercase()
         )));
     }
-    let site_id: String = row.try_get("site_id")?;
+    let unit_id: String = row.try_get("unit_id")?;
     let amount: i64 = row.try_get("amount_minor")?;
     let bank_key: String = row.try_get("bank_key")?;
     let bank_qualifier: String = row.try_get("bank_qualifier")?;
@@ -993,7 +1002,7 @@ pub async fn store_deposit_confirm(
                 .with_qualifier(&bank_qualifier),
             PostingLine::credit("affiliate_payable", &head_office, amount)
                 .with_qualifier("PEMBIAYAAN")
-                .with_counter_site(&site_id),
+                .with_counter_unit(&unit_id),
         ],
     };
     let posted = lane_b_post(&mut tx, &intent, Some("IN"), actor).await?;
@@ -1029,21 +1038,21 @@ async fn deposit_for_update(
 
 pub async fn store_deposit_list(
     pool: &PgPool,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     status: Option<&str>,
     limit: i64,
 ) -> Result<Vec<Value>, AppError> {
     let rows = sqlx::query(
-        "SELECT deposit_id, deposit_number, site_id, amount_minor, currency, bank_key,
+        "SELECT deposit_id, deposit_number, unit_id, amount_minor, currency, bank_key,
                 bank_qualifier, status, prepared_by, deposit_date, deposited_at,
                 confirmed_at, bank_statement_line_id, remittance_line_id, note
            FROM store_deposit
-          WHERE ($1::text IS NULL OR site_id = $1)
+          WHERE ($1::text IS NULL OR unit_id = $1)
             AND ($2::text IS NULL OR status = $2)
           ORDER BY deposit_date DESC, deposit_number DESC
           LIMIT $3",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .bind(status)
     .bind(limit.clamp(1, 500))
     .fetch_all(pool)
@@ -1053,7 +1062,7 @@ pub async fn store_deposit_list(
             Ok(json!({
                 "deposit_id": row.try_get::<Uuid, _>("deposit_id")?,
                 "deposit_number": row.try_get::<String, _>("deposit_number")?,
-                "site_id": row.try_get::<String, _>("site_id")?,
+                "unit_id": row.try_get::<String, _>("unit_id")?,
                 "amount_minor": row.try_get::<i64, _>("amount_minor")?,
                 "currency": row.try_get::<String, _>("currency")?,
                 "bank_key": row.try_get::<String, _>("bank_key")?,
@@ -1088,7 +1097,8 @@ pub struct RemittanceLineRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct IssueRemittanceRequest {
-    pub site_id: String,
+    /// The store whose proceeds the order disposes of: a unit (0607).
+    pub unit_id: String,
     pub order_date: NaiveDate,
     /// The business day through which the proceeds are reconciled.
     #[serde(default)]
@@ -1118,7 +1128,7 @@ pub async fn remittance_order_issue(
     actor: &str,
 ) -> Result<Value, AppError> {
     let mut tx = pool.begin().await?;
-    site_exists(&mut tx, &request.site_id).await?;
+    unit_is_known(&mut tx, &request.unit_id).await?;
 
     // TODO(lane-H): tender reconciliation is a neighbouring lane
     // (`tender_reconciliation`, one row per shop per day per tender kind,
@@ -1156,16 +1166,16 @@ pub async fn remittance_order_issue(
             })?;
         let default = sqlx::query(
             "SELECT destination_kind, destination_ref, purpose
-               FROM store_remittance_default WHERE site_id = $1",
+               FROM store_remittance_default WHERE unit_id = $1",
         )
-        .bind(&request.site_id)
+        .bind(&request.unit_id)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| {
             AppError::Validation(format!(
                 "{} has no standing destination for its takings, so this order has to say where \
                  the money goes. Set the default under Store money → Remittance.",
-                request.site_id
+                request.unit_id
             ))
         })?;
         lines.push((
@@ -1199,13 +1209,13 @@ pub async fn remittance_order_issue(
     let order_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO remittance_order
-             (order_id, order_number, site_id, source, reconciled_through, status,
+             (order_id, order_number, unit_id, source, reconciled_through, status,
               issued_by, order_date, note)
          VALUES ($1,$2,$3,'SALES_PROCEEDS',$4,'ISSUED',$5,$6,$7)",
     )
     .bind(order_id)
     .bind(&number)
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .bind(reconciled_through)
     .bind(actor)
     .bind(request.order_date)
@@ -1397,7 +1407,7 @@ pub async fn remittance_order_link_execution(
 /// order somebody should be asking for rather than saying no twice.
 pub async fn remittance_authority(
     pool: &PgPool,
-    site_id: &str,
+    unit_id: &str,
     destination_kind: &str,
     destination_ref: &str,
     amount_minor: i64,
@@ -1408,13 +1418,13 @@ pub async fn remittance_authority(
                            WHERE e.line_id = l.line_id), 0)::bigint AS used
            FROM remittance_order_line l
            JOIN remittance_order o ON o.order_id = l.order_id
-          WHERE o.site_id = $1
+          WHERE o.unit_id = $1
             AND o.status = 'ISSUED'
             AND l.destination_kind = $2
             AND l.destination_ref = $3
           ORDER BY o.order_date, o.order_number, l.line_no",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .bind(destination_kind.trim().to_ascii_uppercase())
     .bind(destination_ref.trim())
     .fetch_all(pool)
@@ -1438,7 +1448,7 @@ pub async fn remittance_authority(
         }));
     }
     Ok(json!({
-        "site_id": site_id,
+        "unit_id": unit_id,
         "destination_kind": destination_kind,
         "destination_ref": destination_ref,
         "wanted_minor": amount_minor,
@@ -1446,7 +1456,7 @@ pub async fn remittance_authority(
         "available_minor": available,
         "lines": candidates,
         "refusal": if available >= amount_minor { Value::Null } else { json!(format!(
-            "{site_id} may not pay this out of its takings: no remittance order authorises it. \
+            "{unit_id} may not pay this out of its takings: no remittance order authorises it. \
              Sales proceeds are head office's money in the shop's custody — ask head office to \
              issue a remittance order naming this destination, or bank the takings and pay from \
              head office."))
@@ -1457,7 +1467,7 @@ pub async fn remittance_authority(
 /// One order, with its lines and its progress read off its executions.
 pub async fn remittance_order_view(pool: &PgPool, order_id: Uuid) -> Result<Value, AppError> {
     let order = sqlx::query(
-        "SELECT order_id, order_number, site_id, source, reconciled_through, amount_minor,
+        "SELECT order_id, order_number, unit_id, source, reconciled_through, amount_minor,
                 currency, status, issued_by, issued_at, order_date, note,
                 cancelled_by, cancelled_at, cancel_reason
            FROM remittance_order WHERE order_id = $1",
@@ -1473,7 +1483,7 @@ pub async fn remittance_order_view(pool: &PgPool, order_id: Uuid) -> Result<Valu
     Ok(json!({
         "order_id": order.try_get::<Uuid, _>("order_id")?,
         "order_number": order.try_get::<String, _>("order_number")?,
-        "site_id": order.try_get::<String, _>("site_id")?,
+        "unit_id": order.try_get::<String, _>("unit_id")?,
         "source": order.try_get::<String, _>("source")?,
         "reconciled_through": order.try_get::<Option<NaiveDate>, _>("reconciled_through")?,
         "amount_minor": order.try_get::<i64, _>("amount_minor")?,
@@ -1594,16 +1604,16 @@ async fn remittance_lines_and_standing(
 
 pub async fn remittance_order_list(
     pool: &PgPool,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     limit: i64,
 ) -> Result<Vec<Value>, AppError> {
     let rows = sqlx::query(
         "SELECT order_id FROM remittance_order
-          WHERE ($1::text IS NULL OR site_id = $1)
+          WHERE ($1::text IS NULL OR unit_id = $1)
           ORDER BY order_date DESC, order_number DESC
           LIMIT $2",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .bind(limit.clamp(1, 200))
     .fetch_all(pool)
     .await?;
@@ -1661,26 +1671,26 @@ pub struct SetRemittanceDefaultRequest {
 
 pub async fn remittance_default_set(
     pool: &PgPool,
-    site_id: &str,
+    unit_id: &str,
     request: &SetRemittanceDefaultRequest,
     actor: &str,
 ) -> Result<Value, AppError> {
     let mut tx = pool.begin().await?;
-    site_exists(&mut tx, site_id).await?;
+    unit_is_known(&mut tx, unit_id).await?;
     let kind = request.destination_kind.trim().to_ascii_uppercase();
     resolve_destination(&mut tx, &kind, request.destination_ref.trim(), None).await?;
     sqlx::query(
         "INSERT INTO store_remittance_default
-             (site_id, destination_kind, destination_ref, purpose, set_by)
+             (unit_id, destination_kind, destination_ref, purpose, set_by)
          VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (site_id) DO UPDATE SET
+         ON CONFLICT (unit_id) DO UPDATE SET
              destination_kind = EXCLUDED.destination_kind,
              destination_ref  = EXCLUDED.destination_ref,
              purpose          = EXCLUDED.purpose,
              set_by           = EXCLUDED.set_by,
              set_at           = now()",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .bind(&kind)
     .bind(request.destination_ref.trim())
     .bind(request.purpose.trim())
@@ -1688,7 +1698,7 @@ pub async fn remittance_default_set(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(json!({ "site_id": site_id, "destination_kind": kind }))
+    Ok(json!({ "unit_id": unit_id, "destination_kind": kind }))
 }
 
 // ---------------------------------------------------------------------------
@@ -1697,7 +1707,8 @@ pub async fn remittance_default_set(
 
 #[derive(Debug, Deserialize)]
 pub struct SendFundRequest {
-    pub site_id: String,
+    /// The unit the fund is held for (0607).
+    pub unit_id: String,
     /// The store manager who will hold it.
     pub custodian_employee_id: String,
     pub amount_minor: i64,
@@ -1715,9 +1726,9 @@ pub struct SendFundRequest {
     pub note: Option<String>,
 }
 
-/// Head office funds a shop.
+/// Head office funds a store.
 ///
-///   Dr store_manager_receivable [site] / Cr bank [dc, qualifier]
+///   Dr affiliate_receivable [head office, counter store] / Cr bank [head office, qualifier]
 ///
 /// and a Payment Ledger item against the custodian as an EMPLOYEE, so the float
 /// ages beside the supplier balances rather than in a column somebody has to
@@ -1738,8 +1749,8 @@ pub async fn operating_fund_send(
         ));
     }
     let mut tx = pool.begin().await?;
-    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
-    site_exists(&mut tx, &request.site_id).await?;
+    let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
+    unit_is_known(&mut tx, &request.unit_id).await?;
 
     let custodian = sqlx::query("SELECT id, code, status FROM employee WHERE id = $1")
         .bind(&request.custodian_employee_id)
@@ -1772,7 +1783,7 @@ pub async fn operating_fund_send(
         currency: "IDR".into(),
         memo: Some(format!(
             "{number} — dana operasional {} ({custodian_name})",
-            request.site_id
+            request.unit_id
         )),
         // Client accountant, 25 Sep (rule B): money from head office to a
         // unit is two halves, each balanced in its own books. This is head
@@ -1782,16 +1793,9 @@ pub async fn operating_fund_send(
         // Pembiayaan. Until then the pair is visibly unmatched in the
         // inter-unit reconciliation — money in transit.
         lines: vec![
-            {
-                let mut leg = PostingLine::debit(
-                    "affiliate_receivable",
-                    &head_office,
-                    request.amount_minor,
-                )
-                .with_qualifier("PEMBIAYAAN");
-                leg.counter_site_id = Some(request.site_id.clone());
-                leg
-            },
+            PostingLine::debit("affiliate_receivable", &head_office, request.amount_minor)
+                .with_qualifier("PEMBIAYAAN")
+                .with_counter_unit(&request.unit_id),
             PostingLine::credit(&request.bank_key, &head_office, request.amount_minor)
                 .with_qualifier(&request.bank_qualifier),
         ],
@@ -1806,15 +1810,15 @@ pub async fn operating_fund_send(
 
     sqlx::query(
         "INSERT INTO operating_fund
-             (fund_id, fund_number, site_id, custodian_employee_id, amount_minor,
-              bank_key, bank_qualifier, bank_site_id, payout_bank_name, payout_account_no,
+             (fund_id, fund_number, unit_id, custodian_employee_id, amount_minor,
+              bank_key, bank_qualifier, bank_unit_id, payout_bank_name, payout_account_no,
               payout_account_name, status, sent_by, value_date, due_date,
               journal_entry_id, payment_ledger_entry_id, note)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'SENT',$12,$13,$14,$15,$16,$17)",
     )
     .bind(fund_id)
     .bind(&number)
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .bind(&request.custodian_employee_id)
     .bind(request.amount_minor)
     .bind(&request.bank_key)
@@ -1849,8 +1853,8 @@ pub struct ReceiveFundRequest {
 }
 
 /// The unit's half of a transfer from head office (client accountant, rule B):
-/// Dr Petty Cash at the shop / Cr Hutang Affiliasi Pembiayaan (counter = head
-/// office), dated the day the shop confirms it. Head office's half was posted
+/// Dr Petty Cash in the store's books / Cr Hutang Affiliasi Pembiayaan (counter =
+/// head office), dated the day the shop confirms it. Head office's half was posted
 /// when the money was sent.
 pub async fn operating_fund_receive(
     pool: &PgPool,
@@ -1859,13 +1863,13 @@ pub async fn operating_fund_receive(
     actor: &str,
 ) -> Result<Value, AppError> {
     let mut tx = pool.begin().await?;
-    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
+    let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
     let fund = fund_for_update(&mut tx, fund_id).await?;
     let received: Option<DateTime<Utc>> = fund.try_get("received_at")?;
     if received.is_some() {
         return Err(AppError::Conflict("this fund has already been received".into()));
     }
-    let site_id: String = fund.try_get("site_id")?;
+    let unit_id: String = fund.try_get("unit_id")?;
     let number: String = fund.try_get("fund_number")?;
     let amount: i64 = fund.try_get("amount_minor")?;
     let intent = PostingIntent {
@@ -1874,15 +1878,12 @@ pub async fn operating_fund_receive(
         source_id: Some(fund_id.to_string()),
         rule_version: "operating_fund_receive/1".into(),
         currency: "IDR".into(),
-        memo: Some(format!("{number} — dana diterima di {site_id}")),
+        memo: Some(format!("{number} — dana diterima di {unit_id}")),
         lines: vec![
-            PostingLine::debit("petty_cash", &site_id, amount),
-            {
-                let mut leg = PostingLine::credit("affiliate_payable", &site_id, amount)
-                    .with_qualifier("PEMBIAYAAN");
-                leg.counter_site_id = Some(head_office.clone());
-                leg
-            },
+            PostingLine::debit("petty_cash", &unit_id, amount),
+            PostingLine::credit("affiliate_payable", &unit_id, amount)
+                .with_qualifier("PEMBIAYAAN")
+                .with_counter_unit(&head_office),
         ],
     };
     let posted = lane_b_post(&mut tx, &intent, Some("RECEIVED"), actor).await?;
@@ -1973,10 +1974,10 @@ pub struct SettleFundRequest {
 
 /// Account for money the custodian has spent, or handed back.
 ///
-///   VENDOR_BILL     Dr trade_payable [dc]         / Cr store_manager_receivable [site]
-///   PAYROLL         Dr payroll_payable [site]     / Cr store_manager_receivable [site]
-///   DIRECT_EXPENSE  Dr <expense key> [site]       / Cr store_manager_receivable [site]
-///   RETURN          Dr bank [dc, qualifier]       / Cr store_manager_receivable [site]
+///   VENDOR_BILL     Dr trade_payable [head office]   / Cr petty_cash [unit]
+///   PAYROLL         Dr payroll_payable [unit]        / Cr petty_cash [unit]
+///   DIRECT_EXPENSE  Dr <expense key> [unit]          / Cr petty_cash [unit]
+///   RETURN          Dr bank [head office, qualifier] / Cr petty_cash [unit]
 ///
 /// and `ple_settle` against the fund's open item, so the ageing report and the
 /// GL move together rather than being reconciled afterwards.
@@ -1997,9 +1998,9 @@ pub async fn fund_settlement_record(
     }
     let kind = request.kind.trim().to_ascii_uppercase();
     let mut tx = pool.begin().await?;
-    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
+    let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
     let fund = fund_for_update(&mut tx, request.fund_id).await?;
-    let site_id: String = fund.try_get("site_id")?;
+    let unit_id: String = fund.try_get("unit_id")?;
     let number: String = fund.try_get("fund_number")?;
     let sent: i64 = fund.try_get("amount_minor")?;
     let settled: i64 = fund.try_get("settled_minor")?;
@@ -2009,7 +2010,7 @@ pub async fn fund_settlement_record(
     let received: Option<DateTime<Utc>> = fund.try_get("received_at")?;
     if received.is_none() {
         return Err(AppError::Conflict(format!(
-            "fund {number} has not been confirmed as received at {site_id}; the shop confirms \
+            "fund {number} has not been confirmed as received by {unit_id}; the shop confirms \
              the money into its petty cash first, then spends it"
         )));
     }
@@ -2025,20 +2026,20 @@ pub async fn fund_settlement_record(
     let lines = match kind.as_str() {
         "VENDOR_BILL" => vec![
             PostingLine::debit("trade_payable", &head_office, request.amount_minor),
-            PostingLine::credit("petty_cash", &site_id, request.amount_minor),
+            PostingLine::credit("petty_cash", &unit_id, request.amount_minor),
         ],
         "PAYROLL" => vec![
-            PostingLine::debit("payroll_payable", &site_id, request.amount_minor),
-            PostingLine::credit("petty_cash", &site_id, request.amount_minor),
+            PostingLine::debit("payroll_payable", &unit_id, request.amount_minor),
+            PostingLine::credit("petty_cash", &unit_id, request.amount_minor),
         ],
         "DIRECT_EXPENSE" => {
             let key = request.expense_key.as_deref().ok_or_else(|| {
                 AppError::Validation("a direct expense has to say which account it lands in".into())
             })?;
             vec![
-                PostingLine::debit("expense", &site_id, request.amount_minor)
+                PostingLine::debit("expense", &unit_id, request.amount_minor)
                     .from_source("EXPENSE_CATEGORY", key),
-                PostingLine::credit("petty_cash", &site_id, request.amount_minor),
+                PostingLine::credit("petty_cash", &unit_id, request.amount_minor),
             ]
         }
         "RETURN" => vec![
@@ -2048,7 +2049,7 @@ pub async fn fund_settlement_record(
                 request.amount_minor,
             )
             .with_qualifier(&fund.try_get::<String, _>("bank_qualifier")?),
-            PostingLine::credit("petty_cash", &site_id, request.amount_minor),
+            PostingLine::credit("petty_cash", &unit_id, request.amount_minor),
         ],
         other => {
             return Err(AppError::Validation(format!(
@@ -2182,22 +2183,22 @@ pub async fn operating_fund_accountability(
 
 pub async fn operating_fund_list(
     pool: &PgPool,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     open_only: bool,
     limit: i64,
 ) -> Result<Vec<Value>, AppError> {
     let rows = sqlx::query(
-        "SELECT f.fund_id, f.fund_number, f.site_id, f.custodian_employee_id, f.amount_minor,
+        "SELECT f.fund_id, f.fund_number, f.unit_id, f.custodian_employee_id, f.amount_minor,
                 f.settled_minor, f.returned_minor, f.status, f.value_date, f.due_date,
                 f.bank_key, f.bank_qualifier, f.payout_bank_name, f.payout_account_no,
                 f.payout_account_name, f.payment_ledger_entry_id, f.note
            FROM operating_fund f
-          WHERE ($1::text IS NULL OR f.site_id = $1)
+          WHERE ($1::text IS NULL OR f.unit_id = $1)
             AND (NOT $2 OR f.status <> 'CLOSED')
           ORDER BY f.value_date DESC, f.fund_number DESC
           LIMIT $3",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .bind(open_only)
     .bind(limit.clamp(1, 500))
     .fetch_all(pool)
@@ -2210,7 +2211,7 @@ pub async fn operating_fund_list(
             Ok(json!({
                 "fund_id": row.try_get::<Uuid, _>("fund_id")?,
                 "fund_number": row.try_get::<String, _>("fund_number")?,
-                "site_id": row.try_get::<String, _>("site_id")?,
+                "unit_id": row.try_get::<String, _>("unit_id")?,
                 "custodian_employee_id": row.try_get::<String, _>("custodian_employee_id")?,
                 "amount_minor": sent,
                 "settled_minor": settled,
@@ -2369,7 +2370,7 @@ pub struct PayEmployeeRequest {
 
 /// The manager hands over one envelope.
 ///
-///   Dr payroll_payable [site] / Cr store_manager_receivable [site]
+///   Dr payroll_payable [unit] / Cr store_manager_receivable [unit]
 ///
 /// and never a second salary expense. Finance first submits the payroll
 /// accrual draft; this discharges the payable and reduces what the manager is
@@ -2468,7 +2469,8 @@ pub async fn payroll_payout_pay(
 
 #[derive(Debug, Deserialize)]
 pub struct PrepareHandoverRequest {
-    pub site_id: String,
+    /// The unit whose float changes hands (0607).
+    pub unit_id: String,
     pub from_employee_id: String,
     pub to_employee_id: String,
     pub handover_date: NaiveDate,
@@ -2492,17 +2494,17 @@ pub async fn custodian_handover_prepare(
         ));
     }
     let mut tx = pool.begin().await?;
-    site_exists(&mut tx, &request.site_id).await?;
+    unit_is_known(&mut tx, &request.unit_id).await?;
 
     let funds = sqlx::query(
         "SELECT fund_id, fund_number,
                 (amount_minor - settled_minor - returned_minor)::bigint AS outstanding
            FROM operating_fund
-          WHERE site_id = $1 AND custodian_employee_id = $2 AND status <> 'CLOSED'
+          WHERE unit_id = $1 AND custodian_employee_id = $2 AND status <> 'CLOSED'
           ORDER BY value_date, fund_number
             FOR UPDATE",
     )
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .bind(&request.from_employee_id)
     .fetch_all(&mut *tx)
     .await?;
@@ -2520,7 +2522,7 @@ pub async fn custodian_handover_prepare(
     if total == 0 {
         return Err(AppError::Conflict(format!(
             "{} is holding nothing at {}; there is no float to hand over",
-            request.from_employee_id, request.site_id
+            request.from_employee_id, request.unit_id
         )));
     }
 
@@ -2528,13 +2530,13 @@ pub async fn custodian_handover_prepare(
     let handover_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO custodian_handover
-             (handover_id, handover_number, site_id, from_employee_id, to_employee_id,
+             (handover_id, handover_number, unit_id, from_employee_id, to_employee_id,
               amount_minor, handover_date, prepared_by, note)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
     )
     .bind(handover_id)
     .bind(&number)
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .bind(&request.from_employee_id)
     .bind(&request.to_employee_id)
     .bind(total)
@@ -2569,8 +2571,8 @@ pub struct SignHandoverRequest {
 
 /// One of the two signs. When both have, the float changes hands.
 ///
-/// The general ledger account does not move: it is `1011102002` at that shop
-/// either way, so the entry debits and credits it and carries both names. What
+/// The general ledger account does not move: it is `1011102002` in that unit's
+/// books either way, so the entry debits and credits it and carries both names. What
 /// moves is the payment ledger party — the outgoing custodian's items are
 /// settled and the same total is opened against the incoming one, in the same
 /// transaction, against the same entry. The balance never silently changes
@@ -2635,16 +2637,16 @@ pub async fn custodian_handover_sign(
                           "signed": side, "posted": false }));
     }
 
-    let site_id: String = row.try_get("site_id")?;
+    let unit_id: String = row.try_get("unit_id")?;
     let from_employee: String = row.try_get("from_employee_id")?;
     let to_employee: String = row.try_get("to_employee_id")?;
     let amount: i64 = row.try_get("amount_minor")?;
     let number: String = row.try_get("handover_number")?;
     let handover_date: NaiveDate = row.try_get("handover_date")?;
 
-    let mut debit = PostingLine::debit("store_manager_receivable", &site_id, amount);
+    let mut debit = PostingLine::debit("store_manager_receivable", &unit_id, amount);
     debit.memo = Some(format!("diterima {to_employee}"));
-    let mut credit = PostingLine::credit("store_manager_receivable", &site_id, amount);
+    let mut credit = PostingLine::credit("store_manager_receivable", &unit_id, amount);
     credit.memo = Some(format!("diserahkan {from_employee}"));
 
     let intent = PostingIntent {
@@ -2707,7 +2709,7 @@ pub async fn custodian_handover_sign(
             &StoreLedgerItem {
                 account_key: "store_manager_receivable".into(),
                 qualifier: String::new(),
-                site_id: site_id.clone(),
+                unit_id: unit_id.clone(),
                 party_type: "EMPLOYEE".into(),
                 party_id: to_employee.clone(),
                 party_name: Some(to_name.clone()),
@@ -2766,19 +2768,19 @@ pub async fn custodian_handover_sign(
 
 pub async fn custodian_handover_list(
     pool: &PgPool,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     limit: i64,
 ) -> Result<Vec<Value>, AppError> {
     let rows = sqlx::query(
-        "SELECT handover_id, handover_number, site_id, from_employee_id, to_employee_id,
+        "SELECT handover_id, handover_number, unit_id, from_employee_id, to_employee_id,
                 amount_minor, handover_date, status, from_signed_by, from_signed_at,
                 to_signed_by, to_signed_at, journal_entry_id, note
            FROM custodian_handover
-          WHERE ($1::text IS NULL OR site_id = $1)
+          WHERE ($1::text IS NULL OR unit_id = $1)
           ORDER BY handover_date DESC, handover_number DESC
           LIMIT $2",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .bind(limit.clamp(1, 200))
     .fetch_all(pool)
     .await?;
@@ -2787,7 +2789,7 @@ pub async fn custodian_handover_list(
             Ok(json!({
                 "handover_id": row.try_get::<Uuid, _>("handover_id")?,
                 "handover_number": row.try_get::<String, _>("handover_number")?,
-                "site_id": row.try_get::<String, _>("site_id")?,
+                "unit_id": row.try_get::<String, _>("unit_id")?,
                 "from_employee_id": row.try_get::<String, _>("from_employee_id")?,
                 "to_employee_id": row.try_get::<String, _>("to_employee_id")?,
                 "amount_minor": row.try_get::<i64, _>("amount_minor")?,
@@ -2807,7 +2809,8 @@ pub async fn custodian_handover_list(
 
 #[derive(Debug, Deserialize)]
 pub struct ClaimExpenseRequest {
-    pub site_id: String,
+    /// The unit whose petty cash or fund paid (0607).
+    pub unit_id: String,
     /// PETTY_CASH or FUND_ALLOCATION. Anything else is refused by name.
     pub source: String,
     #[serde(default)]
@@ -2878,15 +2881,21 @@ pub async fn store_expense_claim(
     }
 
     let mut tx = pool.begin().await?;
-    site_exists(&mut tx, &request.site_id).await?;
-    // Counted under the internal id, printed under the display code (0603):
-    // the counter's scope does not move, so no number is ever issued twice.
-    let printed = super::sites::display_code(&mut *tx, &request.site_id)
+    unit_is_known(&mut tx, &request.unit_id).await?;
+    // Counted under the unit's internal id, printed under its client code
+    // (`unit.code`: HO, C001…). A petty-cash voucher is numbered per unit
+    // since 0607, which moved head office's counter from its Gudang's scope to
+    // its unit's and carried the last number with it, so no number is ever
+    // issued twice.
+    let printed = sqlx::query_scalar::<_, String>("SELECT code FROM unit WHERE id = $1")
+        .bind(&request.unit_id)
+        .fetch_optional(&mut *tx)
         .await?
+        .unwrap_or_else(|| request.unit_id.clone())
         .to_uppercase();
     let number = next_document_number(
         &mut tx,
-        &format!("KK:{}", request.site_id),
+        &format!("KK:{}", request.unit_id),
         &format!("KK-{printed}"),
         request.spent_on,
     )
@@ -2894,13 +2903,13 @@ pub async fn store_expense_claim(
     let expense_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO store_expense
-             (expense_id, expense_number, site_id, source, allocation_id, category,
+             (expense_id, expense_number, unit_id, source, allocation_id, category,
               amount_minor, spent_on, vendor, memo, photo_file_id, status, claimed_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'DRAFT',$12)",
     )
     .bind(expense_id)
     .bind(&number)
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .bind(&source)
     .bind(request.allocation_id)
     .bind(request.category.trim())
@@ -2933,9 +2942,9 @@ pub struct ApproveExpenseRequest {
 
 /// Approve an expense and put it in the books.
 ///
-///   Dr <the category's meaning> [site]
-///   Cr petty_cash [site]                    from the imprest
-///   Cr store_manager_receivable [site]      from a fund
+///   Dr <the category's meaning> [unit]
+///   Cr petty_cash [unit]                    from the imprest
+///   Cr store_manager_receivable [unit]      from a fund
 ///
 /// A fund expense also settles the manager's payment ledger item, through the
 /// same `DIRECT_EXPENSE` settlement any other direct cost uses — one document,
@@ -2995,7 +3004,7 @@ pub async fn store_expense_approve(
         )));
     }
 
-    let site_id: String = row.try_get("site_id")?;
+    let unit_id: String = row.try_get("unit_id")?;
     let source: String = row.try_get("source")?;
     let category: String = row.try_get("category")?;
     let spent_on: NaiveDate = row.try_get("spent_on")?;
@@ -3016,9 +3025,9 @@ pub async fn store_expense_approve(
         currency: row.try_get::<String, _>("currency")?,
         memo: Some(format!("{number} — {vendor}")),
         lines: vec![
-            PostingLine::debit("expense", &site_id, amount)
+            PostingLine::debit("expense", &unit_id, amount)
                 .from_source("EXPENSE_CATEGORY", &category),
-            PostingLine::credit(credit_key, &site_id, amount),
+            PostingLine::credit(credit_key, &unit_id, amount),
         ],
     };
     let posted = lane_b_post(&mut tx, &intent, None, actor).await?;
@@ -3134,21 +3143,21 @@ pub async fn store_expense_reject(
 
 pub async fn store_expense_list(
     pool: &PgPool,
-    site_id: Option<&str>,
+    unit_id: Option<&str>,
     status: Option<&str>,
     limit: i64,
 ) -> Result<Vec<Value>, AppError> {
     let rows = sqlx::query(
-        "SELECT expense_id, expense_number, site_id, source, allocation_id, category,
+        "SELECT expense_id, expense_number, unit_id, source, allocation_id, category,
                 amount_minor, currency, spent_on, vendor, memo, photo_file_id, status,
                 claimed_by, claimed_at, approved_by, approved_role, reject_reason
            FROM store_expense
-          WHERE ($1::text IS NULL OR site_id = $1)
+          WHERE ($1::text IS NULL OR unit_id = $1)
             AND ($2::text IS NULL OR status = $2)
           ORDER BY spent_on DESC, expense_number DESC
           LIMIT $3",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .bind(status)
     .bind(limit.clamp(1, 500))
     .fetch_all(pool)
@@ -3159,7 +3168,7 @@ pub async fn store_expense_list(
             Ok(json!({
                 "expense_id": row.try_get::<Uuid, _>("expense_id")?,
                 "expense_number": row.try_get::<String, _>("expense_number")?,
-                "site_id": row.try_get::<String, _>("site_id")?,
+                "unit_id": row.try_get::<String, _>("unit_id")?,
                 "source": row.try_get::<String, _>("source")?,
                 "allocation_id": row.try_get::<Option<Uuid>, _>("allocation_id")?,
                 "category": row.try_get::<String, _>("category")?,
@@ -3183,7 +3192,8 @@ pub async fn store_expense_list(
 
 #[derive(Debug, Deserialize)]
 pub struct ReplenishRequest {
-    pub site_id: String,
+    /// The unit whose imprest is topped up (0607).
+    pub unit_id: String,
     pub amount_minor: i64,
     pub replenish_date: NaiveDate,
     pub bank_key: String,
@@ -3198,9 +3208,9 @@ pub struct ReplenishRequest {
 
 /// Head office puts the imprest back.
 ///
-///   Dr petty_cash [site] / Cr bank [dc, qualifier]
+///   Dr petty_cash [store] / Cr bank [head office, qualifier]
 ///
-/// Not an expense: the expenses were posted one per receipt. Cross-site, and
+/// Not an expense: the expenses were posted one per receipt. Inter-unit, and
 /// the affiliate legs are the poster's job.
 pub async fn petty_cash_replenish(
     pool: &PgPool,
@@ -3213,8 +3223,8 @@ pub async fn petty_cash_replenish(
         ));
     }
     let mut tx = pool.begin().await?;
-    let head_office = super::sites::head_office_site_id(&mut *tx).await?;
-    site_exists(&mut tx, &request.site_id).await?;
+    let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
+    unit_is_known(&mut tx, &request.unit_id).await?;
     let number = next_document_number(&mut tx, "RPL", "KK-RPL", request.replenish_date).await?;
     let replenishment_id = Uuid::new_v4();
 
@@ -3226,10 +3236,10 @@ pub async fn petty_cash_replenish(
         currency: "IDR".into(),
         memo: Some(format!(
             "{number} — pengisian kas kecil {}",
-            request.site_id
+            request.unit_id
         )),
         lines: vec![
-            PostingLine::debit("petty_cash", &request.site_id, request.amount_minor),
+            PostingLine::debit("petty_cash", &request.unit_id, request.amount_minor),
             PostingLine::credit(&request.bank_key, &head_office, request.amount_minor)
                 .with_qualifier(&request.bank_qualifier),
         ],
@@ -3237,14 +3247,14 @@ pub async fn petty_cash_replenish(
     let posted = lane_b_post(&mut tx, &intent, None, actor).await?;
     sqlx::query(
         "INSERT INTO petty_cash_replenishment
-             (replenishment_id, replenishment_number, site_id, amount_minor, bank_key,
+             (replenishment_id, replenishment_number, unit_id, amount_minor, bank_key,
               bank_qualifier, replenish_date, covers_from, covers_to, issued_by,
               journal_entry_id, note)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
     )
     .bind(replenishment_id)
     .bind(&number)
-    .bind(&request.site_id)
+    .bind(&request.unit_id)
     .bind(request.amount_minor)
     .bind(&request.bank_key)
     .bind(&request.bank_qualifier)
@@ -3267,7 +3277,11 @@ pub async fn petty_cash_replenish(
 // Where a shop's money is
 // ---------------------------------------------------------------------------
 
-/// Everything a shop is holding, grouped the way the architecture separates it.
+/// Everything a store is holding, grouped the way the architecture separates it.
+///
+/// Asked of a unit (0607): the balances are the unit's books, the orders, funds
+/// and payment ledger items are the unit's, and the drawers are those of every
+/// shop the unit owns (`cash_shift` keeps its site).
 ///
 /// Two groups, and the split is the point.
 ///
@@ -3285,7 +3299,7 @@ pub async fn petty_cash_replenish(
 /// this whole lane exists to end.
 pub async fn store_cash_position(
     pool: &PgPool,
-    site_id: &str,
+    unit_id: &str,
     as_of: Option<NaiveDate>,
 ) -> Result<Value, AppError> {
     let when = as_of;
@@ -3301,11 +3315,11 @@ pub async fn store_cash_position(
            LEFT JOIN journal_entry e
                   ON e.entry_id = l.entry_id
                  AND ($2::date IS NULL OR e.posting_date <= $2)
-          WHERE m.site_id = $1
+          WHERE m.unit_id = $1
             AND m.role IN ('cash', 'petty_cash', 'cashier_float', 'cash_in_transit')
           GROUP BY m.role",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .bind(when)
     .fetch_all(pool)
     .await?;
@@ -3333,13 +3347,13 @@ pub async fn store_cash_position(
                     SELECT SUM(e.amount_minor) FROM remittance_order_execution e
                      WHERE e.line_id IN (SELECT l2.line_id FROM remittance_order_line l2
                                           JOIN remittance_order o2 ON o2.order_id = l2.order_id
-                                         WHERE o2.site_id = $1 AND o2.status = 'ISSUED')), 0), 0)
+                                         WHERE o2.unit_id = $1 AND o2.status = 'ISSUED')), 0), 0)
                 ::bigint AS unexecuted
            FROM remittance_order_line l
            JOIN remittance_order o ON o.order_id = l.order_id
-          WHERE o.site_id = $1 AND o.status = 'ISSUED'",
+          WHERE o.unit_id = $1 AND o.status = 'ISSUED'",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .fetch_one(pool)
     .await?;
     let awaiting_remittance: i64 = ordered
@@ -3348,9 +3362,9 @@ pub async fn store_cash_position(
 
     let funds = sqlx::query(
         "SELECT COALESCE(SUM(amount_minor - settled_minor - returned_minor), 0)::bigint AS open
-           FROM operating_fund WHERE site_id = $1 AND status <> 'CLOSED'",
+           FROM operating_fund WHERE unit_id = $1 AND status <> 'CLOSED'",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .fetch_one(pool)
     .await?;
     let funds_outstanding: i64 = funds.try_get("open")?;
@@ -3359,21 +3373,24 @@ pub async fn store_cash_position(
     // rather than instead of it: if the two disagree, that is the thing worth
     // knowing, and a position that showed only one of them would hide it.
     let ledger_outstanding =
-        store_ledger_outstanding(pool, "store_manager_receivable", Some(site_id)).await?;
+        store_ledger_outstanding(pool, "store_manager_receivable", Some(unit_id)).await?;
 
+    // A shift is at a shop; the unit's are those at every shop it owns.
     let unapproved = sqlx::query(
         "SELECT COUNT(*)::bigint AS n,
-                COALESCE(SUM(variance_minor), 0)::bigint AS total
-           FROM cash_shift
-          WHERE site_id = $1 AND status = 'CLOSED'
-            AND variance_minor IS NOT NULL AND variance_minor <> 0 AND approved_at IS NULL",
+                COALESCE(SUM(c.variance_minor), 0)::bigint AS total
+           FROM cash_shift c
+           JOIN site s ON s.id = c.site_id
+          WHERE s.unit_id = $1 AND c.status = 'CLOSED'
+            AND c.variance_minor IS NOT NULL AND c.variance_minor <> 0
+            AND c.approved_at IS NULL",
     )
-    .bind(site_id)
+    .bind(unit_id)
     .fetch_one(pool)
     .await?;
 
     Ok(json!({
-        "site_id": site_id,
+        "unit_id": unit_id,
         "as_of": when,
         // Where the money is, and what it is for.
         "physical": {
