@@ -7,19 +7,19 @@ import { cn } from "@/lib/utils"
 /// and the detail page never disagree about what "waiting for approval" is
 /// called or what colour it wears.
 
-export const STORE_STATUS_LABEL: Record<StoreStatus, string> = {
+const STORE_STATUS_LABEL: Record<StoreStatus, string> = {
   GETTING_READY: "Getting ready",
   OPEN: "Open",
   CLOSED: "Closed",
 }
 
-export const STORE_STATUS_TONE: Record<StoreStatus, Tone> = {
+const STORE_STATUS_TONE: Record<StoreStatus, Tone> = {
   GETTING_READY: "warn",
   OPEN: "ok",
   CLOSED: "neutral",
 }
 
-export const SERVER_STATE_LABEL: Record<ServerState, string> = {
+const SERVER_STATE_LABEL: Record<ServerState, string> = {
   NOT_INSTALLED: "Not installed",
   WAITING_TO_INSTALL: "Waiting to be installed",
   WAITING_FOR_APPROVAL: "Waiting for approval",
@@ -28,7 +28,7 @@ export const SERVER_STATE_LABEL: Record<ServerState, string> = {
   OFFLINE: "Offline",
 }
 
-export const SERVER_STATE_TONE: Record<ServerState, Tone> = {
+const SERVER_STATE_TONE: Record<ServerState, Tone> = {
   NOT_INSTALLED: "neutral",
   WAITING_TO_INSTALL: "warn",
   WAITING_FOR_APPROVAL: "warn",
@@ -37,10 +37,31 @@ export const SERVER_STATE_TONE: Record<ServerState, Tone> = {
   OFFLINE: "bad",
 }
 
+/// `StoreSummary.status` and `StoreServer.state` are generated as plain
+/// `string` (see `lib/queries/stores.ts`), so every reader of one goes
+/// through a function here rather than indexing the maps above directly —
+/// one place casts, and one place falls back for a value the server sends
+/// that this app does not have a word for yet.
+export function storeStatusLabel(status: string): string {
+  return STORE_STATUS_LABEL[status as StoreStatus] ?? status
+}
+
+export function storeStatusTone(status: string): Tone {
+  return STORE_STATUS_TONE[status as StoreStatus] ?? "neutral"
+}
+
+export function serverStateLabel(state: string): string {
+  return SERVER_STATE_LABEL[state as ServerState] ?? state
+}
+
+function serverStateTone(state: string): Tone {
+  return SERVER_STATE_TONE[state as ServerState] ?? "neutral"
+}
+
 /// A small dot in the server's colour, for a list row or an inline mention —
 /// the mock's `<span class="dot">`.
-export function ServerDot({ state }: { state: ServerState }) {
-  const tone = SERVER_STATE_TONE[state]
+export function ServerDot({ state }: { state: string }) {
+  const tone = serverStateTone(state)
   return (
     <span
       aria-hidden

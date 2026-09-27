@@ -11,7 +11,7 @@ import {
   type DeviceKind,
   type RegistryDevice,
 } from "@/lib/queries/system"
-import { testPrint, type StoreTillsStatus } from "@/lib/queries/stores"
+import { testPrint, type StoreTills } from "@/lib/queries/stores"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
 
@@ -43,7 +43,7 @@ export function DevicesTab({
   tills,
 }: {
   siteId: string
-  tills: StoreTillsStatus
+  tills: StoreTills
 }) {
   const devices = useQuery({
     queryKey: systemKeys.devices(),
@@ -99,7 +99,7 @@ function DeviceRow({ device }: { device: RegistryDevice }) {
     onSuccess: () =>
       void client.invalidateQueries({ queryKey: systemKeys.devices() }),
   })
-  const printable = device.kind === "TILL" || device.kind === "PRINTER"
+  const printable = device.can_test_print
 
   return (
     <li className="flex items-center gap-3 px-4 py-3">
@@ -131,14 +131,21 @@ function DeviceRow({ device }: { device: RegistryDevice }) {
           >
             {print.isPending ? "Asking…" : "Test print"}
           </Button>
+          {device.test_print_requested_at &&
+            !device.last_test_print_at &&
+            !print.isPending && (
+              <span className="text-meta text-mute">asked, waiting…</span>
+            )}
           {device.last_test_print_at && !print.isPending && (
             <span
               className={cn(
-                "text-meta",
+                "text-right text-meta",
                 device.last_test_print_ok ? "text-ok-fg" : "text-bad-fg"
               )}
             >
-              {device.last_test_print_ok ? "printed" : "failed"}{" "}
+              {device.last_test_print_ok
+                ? "printed"
+                : (device.last_test_print_error ?? "failed")}{" "}
               {ago(device.last_test_print_at)}
             </span>
           )}

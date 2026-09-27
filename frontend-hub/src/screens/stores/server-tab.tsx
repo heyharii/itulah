@@ -17,14 +17,11 @@ import {
   storeDetail,
   storesKeys,
   svgDataUri,
+  type StoreServer,
   type StoreServerInstall,
-  type StoreServerStatus,
   type StoreSummary,
 } from "@/lib/queries/stores"
-import {
-  SERVER_STATE_LABEL,
-  ServerDot,
-} from "@/screens/stores/shared"
+import { ServerDot, serverStateLabel } from "@/screens/stores/shared"
 import { saying } from "@/screens/system/units"
 
 /// Install the store's server, watch it get approved, and see it settle into
@@ -90,7 +87,7 @@ export function ServerTab({ store }: { store: StoreSummary }) {
       <div className="flex items-center gap-2">
         <ServerDot state={server.state} />
         <b className="text-[0.9375rem] text-ink">
-          {SERVER_STATE_LABEL[server.state]}
+          {serverStateLabel(server.state)}
         </b>
         <ServerAge server={server} />
       </div>
@@ -255,7 +252,7 @@ export function ServerTab({ store }: { store: StoreSummary }) {
   )
 }
 
-function ServerAge({ server }: { server: StoreServerStatus }) {
+function ServerAge({ server }: { server: StoreServer }) {
   if (server.state === "ONLINE" && server.last_seen_at) {
     return (
       <span className="text-meta text-mute">

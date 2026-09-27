@@ -5,6 +5,7 @@ import { useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { storeDetail, storesKeys } from "@/lib/queries/stores"
 import { queryState } from "@/lib/query-state"
@@ -17,7 +18,7 @@ import {
 } from "@/screens/stores/misc-tabs"
 import { OverviewTab } from "@/screens/stores/overview-tab"
 import { ServerTab } from "@/screens/stores/server-tab"
-import { STORE_STATUS_LABEL, STORE_STATUS_TONE } from "@/screens/stores/shared"
+import { storeStatusLabel, storeStatusTone } from "@/screens/stores/shared"
 
 const TABS = [
   { value: "overview", label: "Overview" },
@@ -67,13 +68,15 @@ export function StoreDetail() {
                 detail.data.store.code,
                 detail.data.address ?? detail.data.store.city,
                 detail.data.store.timezone,
-              ].join(" · ")
+              ]
+                .filter((part): part is string => part !== null)
+                .join(" · ")
             : undefined
         }
         actions={
           detail.data && (
-            <Pill tone={STORE_STATUS_TONE[detail.data.store.status]}>
-              {STORE_STATUS_LABEL[detail.data.store.status]}
+            <Pill tone={storeStatusTone(detail.data.store.status)}>
+              {storeStatusLabel(detail.data.store.status)}
             </Pill>
           )
         }
@@ -81,23 +84,46 @@ export function StoreDetail() {
 
       {queryState(detail, {
         loading: "Reading the store…",
-        render: (data) => (
-          <>
-            <SubTabs tabs={TABS} value={tab} onChange={(next) => setTab(next as Tab)} />
-            {tab === "overview" && <OverviewTab detail={data} />}
-            {tab === "server" && <ServerTab store={data.store} />}
-            {tab === "devices" && (
-              <DevicesTab siteId={data.store.site_id} tills={data.store.tills} />
-            )}
-            {tab === "team" && <TeamTab store={data.store} />}
-            {tab === "payments" && <PaymentsTab siteId={data.store.site_id} />}
-            {tab === "stock" && <StockTab siteId={data.store.site_id} />}
-            {tab === "facilities" && (
-              <FacilitiesTab siteId={data.store.site_id} />
-            )}
-          </>
-        ),
+        render: (data) => {
+          const siteId = data.store.site_id
+          return (
+            <>
+              <SubTabs
+                tabs={TABS}
+                value={tab}
+                onChange={(next) => setTab(next as Tab)}
+              />
+              {tab === "overview" && <OverviewTab detail={data} />}
+              {tab === "server" && <ServerTab store={data.store} />}
+              {tab === "devices" &&
+                (siteId ? (
+                  <DevicesTab siteId={siteId} tills={data.store.tills} />
+                ) : (
+                  <NoSiteYet />
+                ))}
+              {tab === "team" && <TeamTab store={data.store} />}
+              {tab === "payments" &&
+                (siteId ? <PaymentsTab siteId={siteId} /> : <NoSiteYet />)}
+              {tab === "stock" &&
+                (siteId ? <StockTab siteId={siteId} /> : <NoSiteYet />)}
+              {tab === "facilities" &&
+                (siteId ? <FacilitiesTab siteId={siteId} /> : <NoSiteYet />)}
+            </>
+          )
+        },
       })}
     </PageContent>
+  )
+}
+
+/// The rare store that has no shop site yet — `StoreSummary.site_id` is
+/// `null` only for a unit the wizard has not finished opening. Devices,
+/// Payments, Stock and Facilities all read a site, so each says this rather
+/// than passing a site id that does not exist.
+function NoSiteYet() {
+  return (
+    <EmptyState>
+      This store has no shop site yet, so there is nothing to read here.
+    </EmptyState>
   )
 }

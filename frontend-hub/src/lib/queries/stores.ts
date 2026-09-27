@@ -1,4 +1,32 @@
 import { node } from "@/lib/api"
+import type {
+  OpenedStore,
+  OpenStoreRequest,
+  StoreCheck,
+  StoreDetail,
+  StoreList,
+  StorePic,
+  StoreReadiness,
+  StoreServer,
+  StoreServerInstall,
+  StoreSummary,
+  StoreTills,
+  TestPrintRequested,
+} from "@itulah/contract"
+
+export type {
+  OpenedStore,
+  OpenStoreRequest,
+  StoreCheck,
+  StoreDetail,
+  StorePic,
+  StoreReadiness,
+  StoreServer,
+  StoreServerInstall,
+  StoreSummary,
+  StoreTills,
+  TestPrintRequested,
+}
 
 /// Stores — the hub's own page for opening a shop and watching it once it is
 /// trading.
@@ -13,13 +41,17 @@ import { node } from "@/lib/api"
 /// only sees its own slice. `/api/v1/stores` is that reading, done once on the
 /// server rather than stitched together in five queries per row.
 ///
-/// # TODO
-///
-/// These types are transcribed by hand against the shapes the backend agent
-/// is building alongside this screen (see the Stores backend branch). Swap
-/// them for `@itulah/contract` once that package exports
-/// `StoreSummary`/`StoreDetail`/`FlowNotice` — nothing below is generated.
+/// `Store*`, `OpenedStore` and `TestPrintRequested` are generated —
+/// `backend/src/cloud/http/stores.rs`, on `handheld-rfid`. `FlowNotice` below
+/// is not: there is no cloud endpoint's contract for it yet, only the edge
+/// node's own (`backend/src/edge/flows.rs`), so it stays hand-transcribed with
+/// its own TODO.
 
+/// `StoreSummary.status` and `StoreServer.state` come back as plain `string`
+/// — ts-rs carries a Rust enum's SHAPE across, not its variants, so the
+/// closed set each is drawn from lives here by hand, purely as the keys the
+/// label and tone maps below are indexed by. A value is cast into one of
+/// these only once it has actually been read off the field it names.
 export type StoreStatus = "GETTING_READY" | "OPEN" | "CLOSED"
 
 export type ServerState =
@@ -32,101 +64,12 @@ export type ServerState =
 
 /// A server state that is on its way somewhere else, rather than at rest.
 /// What the Server tab polls every 5 seconds for, and nothing else does.
-export function isTransitionalServerState(state: ServerState): boolean {
+export function isTransitionalServerState(state: string): boolean {
   return (
     state === "WAITING_TO_INSTALL" ||
     state === "WAITING_FOR_APPROVAL" ||
     state === "SYNCING"
   )
-}
-
-export interface StorePic {
-  readonly employee_id: string
-  readonly name: string
-}
-
-export interface StoreReadiness {
-  readonly done: number
-  readonly total: number
-}
-
-export interface StoreServerStatus {
-  readonly state: ServerState
-  readonly last_seen_at: string | null
-  /// The enrolment this server's install code was issued as, while one is
-  /// outstanding or waiting for approval. `null` once nothing is pending —
-  /// including once the server is online.
-  readonly enrolment_id: string | null
-}
-
-export interface StoreTillsStatus {
-  readonly active: number
-  readonly online: number
-  readonly waiting: number
-}
-
-export interface StoreSummary {
-  readonly unit_id: string
-  readonly code: string
-  readonly name: string
-  readonly status: StoreStatus
-  readonly opened_at: string | null
-  readonly site_id: string
-  readonly site_code: string
-  readonly city: string
-  readonly timezone: string
-  readonly pic: StorePic | null
-  readonly readiness: StoreReadiness
-  readonly server: StoreServerStatus
-  readonly tills: StoreTillsStatus
-}
-
-export type StoreCheckKey =
-  | "server"
-  | "tills"
-  | "team"
-  | "payments"
-  | "first_stock"
-
-export interface StoreCheck {
-  readonly key: StoreCheckKey
-  readonly ok: boolean
-  readonly required: boolean
-  readonly title: string
-  readonly detail: string | null
-}
-
-export interface StoreDetail {
-  readonly store: StoreSummary
-  readonly address: string | null
-  readonly checks: readonly StoreCheck[]
-  readonly can_open: boolean
-}
-
-export interface OpenStoreResult {
-  readonly unit_id: string
-  readonly opened_at: string
-  readonly opened_by: string
-}
-
-/// What issuing an install code for a store's server hands back. Same shape
-/// as `IssuedEnrolment` (`lib/queries/system.ts`) plus the QR this endpoint
-/// draws for the store, since a person standing at the server has no keyboard
-/// worth typing six characters on.
-export interface StoreServerInstall {
-  readonly enrolment_id: string
-  readonly code: string
-  readonly expires_at: string
-  readonly installer_url: string
-  /// An inline `<svg>…</svg>` string. Never dropped in with
-  /// `dangerouslySetInnerHTML` — built into a `data:image/svg+xml` URI and
-  /// handed to an `<img>` instead, so a byte this app did not draw is never
-  /// parsed as markup on the page. See `svgDataUri` below.
-  readonly qr_svg: string
-}
-
-export interface TestPrintResult {
-  readonly request_id: string
 }
 
 export const storesKeys = {
@@ -138,7 +81,7 @@ export const storesKeys = {
 
 export function listStores(signal?: AbortSignal): Promise<StoreSummary[]> {
   return node
-    .get<{ items: StoreSummary[] }>("/api/v1/stores", { signal })
+    .get<StoreList>("/api/v1/stores", { signal })
     .then((body) => body.items)
 }
 
@@ -159,9 +102,9 @@ export function storeDetail(
 /// rather than re-deriving its own from the checklist.
 export function openStore(
   unit: string,
-  body: { readonly note?: string }
-): Promise<OpenStoreResult> {
-  return node.post<OpenStoreResult>(
+  body: OpenStoreRequest
+): Promise<OpenedStore> {
+  return node.post<OpenedStore>(
     `/api/v1/stores/${encodeURIComponent(unit)}/open`,
     body
   )
@@ -169,7 +112,8 @@ export function openStore(
 
 /// Issue an install code and QR for this store's server. A store that already
 /// has one outstanding gets a new one — the new code cancels the old, same as
-/// `issueEnrolment` on System › Nodes.
+/// `issueEnrolment` on System › Nodes. Answers 201; `response.ok` covers that
+/// the same as 200, so nothing here has to name the status.
 export function installStoreServer(
   unit: string
 ): Promise<StoreServerInstall> {
@@ -185,12 +129,12 @@ export function svgDataUri(svg: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
 
-/// Ask a till or printer to print its test page. The answer is only that the
-/// node was asked (202) — whether it actually printed arrives later on the
+/// Ask a till or printer to print its test page. The answer (202) is only
+/// that the node was asked; whether it actually printed arrives later on the
 /// device's own register row as `last_test_print_at`/`last_test_print_ok`
 /// (see `RegistryDevice` in `lib/queries/system.ts`).
-export function testPrint(deviceId: string): Promise<TestPrintResult> {
-  return node.post<TestPrintResult>(
+export function testPrint(deviceId: string): Promise<TestPrintRequested> {
+  return node.post<TestPrintRequested>(
     `/api/v1/devices/${encodeURIComponent(deviceId)}/test-print`,
     {}
   )
@@ -198,11 +142,13 @@ export function testPrint(deviceId: string): Promise<TestPrintResult> {
 
 // ---- Flow notices: goods documents touching a site ------------------------
 //
-// Transcribed from the edge node's own `FlowNotice`/`FlowNoticeList`
-// (`backend/src/edge/flows.rs`), which is what a shop or the Gudang already
-// reads locally. The Stock tab asks the hub's own copy of the same shape,
-// filtered here to the documents that name this store's site at either end —
-// there is no site parameter to ask the server for on this endpoint yet.
+// TODO: transcribed by hand from the edge node's own `FlowNotice`/
+// `FlowNoticeList` (`backend/src/edge/flows.rs`), which is what a shop or the
+// Gudang already reads locally. There is no cloud endpoint's *generated*
+// contract for this yet — swap this for `@itulah/contract` the day one
+// exists. The Stock tab asks the hub's own copy of the same shape, filtered
+// here to the documents that name this store's site at either end, since
+// there is no site parameter to ask the server for on this endpoint.
 
 export type FlowNoticeStatus =
   | "REQUESTED"

@@ -579,11 +579,22 @@ export interface RegistryDevice {
   readonly source: DeviceSource
   /// Whether head office can suspend, reactivate or revoke it from here.
   readonly switchable: boolean
-  /// The last time head office asked this till or printer to print a test
-  /// page, and whether the node reported it as printed. Both `null` until the
-  /// first ask — see `testPrint` in `lib/queries/stores.ts`.
-  readonly last_test_print_at?: string | null
-  readonly last_test_print_ok?: boolean | null
+  /// The newest test page it printed, as its node reported it: when, whether
+  /// it came out, and why not — see `testPrint` in `lib/queries/stores.ts`.
+  /// Matches the generated `RegistryDevice` field for field (0632); kept here
+  /// by hand rather than switched to the import because `kind`/`status`/
+  /// `source` above stay the narrower unions this file already indexes by.
+  readonly last_test_print_at: string | null
+  readonly last_test_print_ok: boolean | null
+  readonly last_test_print_error: string | null
+  /// Head office's ask still in flight, cleared once the node reports it
+  /// finished.
+  readonly test_print_requested_at: string | null
+  readonly test_print_requested_by: string | null
+  readonly test_print_request_id: string | null
+  /// Whether head office can ask it for a test page from here: an active
+  /// till or printer on a node that takes the ask.
+  readonly can_test_print: boolean
 }
 
 export interface DeviceStatusEvent {

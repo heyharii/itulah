@@ -16,10 +16,10 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import {
   ReadinessRing,
-  SERVER_STATE_LABEL,
   ServerDot,
-  STORE_STATUS_LABEL,
-  STORE_STATUS_TONE,
+  serverStateLabel,
+  storeStatusLabel,
+  storeStatusTone,
 } from "@/screens/stores/shared"
 import { OpenStoresSheet } from "@/screens/setup/open-stores-sheet"
 
@@ -55,7 +55,7 @@ export function StoresList() {
       (store) =>
         store.name.toLowerCase().includes(text) ||
         store.code.toLowerCase().includes(text) ||
-        store.city.toLowerCase().includes(text)
+        (store.city ?? "").toLowerCase().includes(text)
     )
   }, [stores.data, search])
 
@@ -139,7 +139,7 @@ function StoreRow({ store }: { store: StoreSummary }) {
             </span>
           </span>
           <span className="block truncate text-meta text-body">
-            {store.city}
+            {store.city ?? "—"}
             {store.status === "OPEN" && store.opened_at
               ? ` · open since ${day(store.opened_at)}`
               : store.status === "CLOSED"
@@ -147,12 +147,12 @@ function StoreRow({ store }: { store: StoreSummary }) {
                 : " · getting ready"}
           </span>
         </span>
-        <Pill tone={STORE_STATUS_TONE[store.status]}>
-          {STORE_STATUS_LABEL[store.status]}
+        <Pill tone={storeStatusTone(store.status)}>
+          {storeStatusLabel(store.status)}
         </Pill>
         <span className="hidden shrink-0 items-center gap-1.5 text-meta text-body sm:flex">
           <ServerDot state={store.server.state} />
-          {SERVER_STATE_LABEL[store.server.state]}
+          {serverStateLabel(store.server.state)}
         </span>
         <span className="hidden w-28 shrink-0 text-right text-meta text-body md:block">
           {store.tills.waiting > 0

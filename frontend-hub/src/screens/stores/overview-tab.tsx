@@ -37,8 +37,8 @@ export function OverviewTab({ detail }: { detail: StoreDetailAnswer }) {
       <Card className="p-4">
         <Facts>
           <Fact term="Code">{store.code}</Fact>
-          <Fact term="City">{store.city}</Fact>
-          <Fact term="Timezone">{store.timezone}</Fact>
+          <Fact term="City">{store.city ?? "—"}</Fact>
+          <Fact term="Timezone">{store.timezone ?? "—"}</Fact>
           <Fact term="PIC">{store.pic?.name ?? "Not appointed yet"}</Fact>
           <Fact term="Address">{address ?? "Not entered yet"}</Fact>
           {store.status === "OPEN" && (
