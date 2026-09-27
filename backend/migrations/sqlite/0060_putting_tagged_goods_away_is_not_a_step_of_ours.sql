@@ -1,0 +1,24 @@
+-- 0060: Putting tagged goods away is not a step of ours.
+--
+-- 0059 gave the Gudang two steps of the goods flows: inspecting a store's
+-- return, and recording that a tagged job's goods were put away. The owner
+-- ruled that putaway is not part of the company's process — tagging already
+-- lands a supplier's goods on the racks in the ledger, and nobody records a
+-- second time that they were shelved. So the putaway endpoints and the
+-- `inventory.putaway.v1` fact are gone (`edge::flows`, `postgres::flow_stages`),
+-- and the table they wrote goes with them.
+--
+-- The inspection 0059 created alongside it stays exactly as it was: it is a
+-- real step (good goods to the racks, damaged to reject) and a flow's Inspect
+-- stage waits for it.
+--
+-- 0059 is not edited — a node that already ran it has the table, and one built
+-- from scratch runs it and then this. `edge/sqlite.rs` applies 0059 only while
+-- its inspection tables are missing, so the table dropped here is not made
+-- again on the next start, and applies this only while the table exists.
+--
+-- Nothing reads a putaway row. A node that recorded one before this sent its
+-- fact already; head office keeps it (`edge_goods_step`, postgres 0625) and
+-- passes any later one through as a type it no longer acts on.
+
+DROP TABLE IF EXISTS putaway;

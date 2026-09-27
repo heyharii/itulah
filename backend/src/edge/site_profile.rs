@@ -26,6 +26,10 @@ pub struct KnownSite {
     pub name: String,
     pub timezone: String,
     pub utc_offset_minutes: i32,
+    /// Whether head office has opened the store this site belongs to
+    /// (`0061`, postgres 0630). `None`: head office has not said — an older
+    /// centre, or a directory written before the column — read as open.
+    pub opened: Option<bool>,
 }
 
 impl KnownSite {
@@ -52,15 +56,16 @@ pub fn replace(
         tx.execute(
             "INSERT INTO site_directory
                  (site_id, kind, code, name, timezone, utc_offset_minutes, is_own,
-                  policy_version, received_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                  policy_version, received_at, opened)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(site_id) DO UPDATE SET
                  kind = excluded.kind, code = excluded.code, name = excluded.name,
                  timezone = excluded.timezone,
                  utc_offset_minutes = excluded.utc_offset_minutes,
                  is_own = MAX(site_directory.is_own, excluded.is_own),
                  policy_version = excluded.policy_version,
-                 received_at = excluded.received_at",
+                 received_at = excluded.received_at,
+                 opened = excluded.opened",
             params![
                 profile.site_id,
                 profile.kind,
@@ -71,6 +76,7 @@ pub fn replace(
                 i64::from(is_own),
                 policy_version,
                 received_at,
+                profile.opened.map(i64::from),
             ],
         )
         .map(|_| ())
@@ -84,7 +90,7 @@ pub fn replace(
     Ok(())
 }
 
-const COLUMNS: &str = "SELECT site_id, kind, code, name, timezone, utc_offset_minutes
+const COLUMNS: &str = "SELECT site_id, kind, code, name, timezone, utc_offset_minutes, opened
                          FROM site_directory";
 
 fn known_site(row: &rusqlite::Row<'_>) -> rusqlite::Result<KnownSite> {
@@ -95,6 +101,7 @@ fn known_site(row: &rusqlite::Row<'_>) -> rusqlite::Result<KnownSite> {
         name: row.get(3)?,
         timezone: row.get(4)?,
         utc_offset_minutes: row.get(5)?,
+        opened: row.get::<_, Option<i64>>(6)?.map(|opened| opened == 1),
     })
 }
 
@@ -120,6 +127,14 @@ pub fn known(connection: &Connection, site_id: &str) -> Option<KnownSite> {
         .optional()
         .ok()
         .flatten()
+}
+
+/// Whether this node's store may trade: head office has opened it, or has
+/// not said. Only an explicit "not opened" from head office closes the till
+/// — a node that has not heard, or an older centre that never says, keeps
+/// trading as it always did.
+pub fn own_store_is_open(connection: &Connection) -> bool {
+    own(connection).and_then(|site| site.opened).unwrap_or(true)
 }
 
 /// Minutes east of UTC where this node's day turns over, when head office

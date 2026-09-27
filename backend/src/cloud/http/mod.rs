@@ -100,6 +100,9 @@ pub mod setup;
 pub mod statement_intake;
 pub mod stock_ledger;
 pub mod store_money;
+/// Opening a store: the Stores list and page, "Open store", installing the
+/// store's server, and a device's test page. See `postgres/stores.rs`.
+pub mod stores;
 pub mod supplier_banks;
 pub mod supplier_contacts;
 pub mod suppliers;
@@ -393,6 +396,24 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/organisation/units/{unit}/pic",
         get(unit_register::pic_history).post(unit_register::appoint_pic),
+    )
+    // Opening a store (`store-opening-flow.html`): the Stores list and each
+    // store's page with its readiness checks, head office's "Open store", and
+    // a code to install the store's server. Reads are head office's, checked
+    // in the handler; the writes are Admin's, at the path and in the handler.
+    // The machine that claims the code is approved or refused under
+    // `/api/v1/sync/enrollments` like every other.
+    .route("/api/v1/stores", get(stores::list))
+    .route("/api/v1/stores/{unit}", get(stores::detail))
+    .route("/api/v1/stores/{unit}/open", post(stores::open))
+    .route(
+        "/api/v1/stores/{unit}/server/install",
+        post(stores::install_server),
+    )
+    // Head office asks a till or a network printer for a test page.
+    .route(
+        "/api/v1/devices/{device_id}/test-print",
+        post(stores::test_print),
     )
     // Flows of goods as templates (0615-0619). Reading a template is
     // anybody's; writing one is Admin's, at the path and in the handler.

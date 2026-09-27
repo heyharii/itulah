@@ -418,6 +418,25 @@ fn the_wire_types_are_written_for_the_browser() {
         OpenStoresAnswer,
         StartBooksRequest,
     );
+    // Opening a store: the Stores list and page with their readiness checks,
+    // head office's "Open store", the install code for the store's server,
+    // and the device register with its test pages.
+    for_contract!(
+        &config,
+        StoreList,
+        StoreSummary,
+        StoreDetail,
+        StoreCheck,
+        StoreServer,
+        StoreTills,
+        StorePic,
+        StoreReadiness,
+        OpenStoreRequest,
+        OpenedStore,
+        StoreServerInstall,
+        RegistryDevice,
+        TestPrintRequested,
+    );
     // Where the words go on a bank's own giro leaf.
     inventory_backend::cloud::postgres::GiroPrintTemplate::export_all(&config)
         .unwrap_or_else(|e| panic!("GiroPrintTemplate: {e}"));

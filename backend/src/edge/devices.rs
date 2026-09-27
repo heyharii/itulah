@@ -40,6 +40,15 @@
 //! [`list_devices`] is what the heartbeat carries (`edge/status.rs`) and what
 //! the cloud's registry is fed from. Head office's suspend and revoke arrive as
 //! a `device.status.set.v1` command ([`apply_status_command`]).
+//!
+//! # A test page, asked for from head office
+//!
+//! `device.test_print.v1` ([`apply_test_print_command`]) is kept in
+//! `edge_device_request` until it is carried out. A network printer's page
+//! this node prints itself ([`spawn_test_printer`]); a till's the till prints
+//! on its own receipt printer, picking the ask up with its signed poll
+//! ([`till_requests`]) and reporting back ([`record_till_test_print`]). The
+//! outcome is kept on the device's row and reported in the heartbeat.
 
 use chrono::{DateTime, Duration, FixedOffset, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -52,9 +61,10 @@ use crate::edge::domain::Role;
 use crate::edge::fingerprint::{self, TerminalProof};
 use crate::security;
 use crate::sync::device::{
-    self as wire, DeviceReport, DeviceStatusCommand, JoinAnswer, JoinRequest, JoinStatus,
-    JoinStatusRequest, NodeIdentity, KIND_PRINTER, KIND_RFID_READER, KIND_TILL, STATUS_ACTIVE,
-    STATUS_REVOKED, STATUS_SUSPENDED,
+    self as wire, DeviceReport, DeviceStatusCommand, DeviceTestPrintCommand, JoinAnswer,
+    JoinRequest, JoinStatus, JoinStatusRequest, NodeIdentity, TestPrintResult, TillRequest,
+    TillRequests, KIND_PRINTER, KIND_RFID_READER, KIND_TILL, STATUS_ACTIVE, STATUS_REVOKED,
+    STATUS_SUSPENDED,
 };
 use crate::sync::enrolment::is_key_digest;
 
@@ -80,6 +90,10 @@ fn parse_time(value: Option<String>) -> Option<DateTime<Utc>> {
     value
         .and_then(|text| DateTime::parse_from_rfc3339(&text).ok())
         .map(|at| at.with_timezone(&Utc))
+}
+
+fn parse_uuid(value: Option<String>) -> Option<Uuid> {
+    value.and_then(|text| Uuid::parse_str(&text).ok())
 }
 
 fn parse_json(value: Option<String>) -> Value {
@@ -1260,6 +1274,430 @@ pub fn set_peripherals(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Test pages head office asks for
+// ════════════════════════════════════════════════════════════════════════════
+
+/// How often this node looks for test pages its network printers owe.
+const TEST_PAGE_ROUND: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How long an ask waits to be carried out before it is given up on: a till
+/// switched off for the night must not print last week's pages at dawn.
+const TEST_PAGE_PATIENCE_MINUTES: i64 = 60;
+
+/// The longest reason for a failed page this node keeps.
+const TEST_PRINT_ERROR_CHARS: usize = 500;
+
+/// Which kind of device this node holds under an id, if it prints.
+fn printing_kind_of(
+    connection: &Connection,
+    device_id: &str,
+) -> Result<Option<&'static str>, EdgeError> {
+    let till: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM edge_terminal WHERE terminal_id=?1)",
+            params![device_id],
+            |row| row.get(0),
+        )
+        .map_err(db)?;
+    if till {
+        return Ok(Some(KIND_TILL));
+    }
+    let printer: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM edge_printer WHERE printer_id=?1)",
+            params![device_id],
+            |row| row.get(0),
+        )
+        .map_err(db)?;
+    Ok(printer.then_some(KIND_PRINTER))
+}
+
+/// Head office asked for a test page (`device.test_print.v1`). Kept until it
+/// is carried out: by this node for a network printer
+/// ([`print_waiting_test_pages`]), by the till itself for a till
+/// ([`till_requests`]).
+///
+/// Like a status decision, an ask this node cannot carry out — a device it
+/// never had — is logged and passed over rather than refused: a blocked
+/// command stream would hold the price book back for a test page.
+pub fn apply_test_print_command(
+    connection: &Connection,
+    command: &DeviceTestPrintCommand,
+) -> Result<(), EdgeError> {
+    let device_id = command.device_id.trim();
+    let Some(kind) = printing_kind_of(connection, device_id)? else {
+        tracing::warn!(device = %device_id, "head office asked for a test page from a device this node does not hold");
+        return Ok(());
+    };
+    connection
+        .execute(
+            "INSERT INTO edge_device_request
+               (request_id,device_id,kind,request,requested_by,requested_at,received_at)
+             VALUES (?1,?2,?3,'TEST_PRINT',?4,?5,?6)
+             ON CONFLICT(request_id) DO NOTHING",
+            params![
+                command.request_id.to_string(),
+                device_id,
+                kind,
+                command.requested_by.trim(),
+                stamp(command.requested_at),
+                stamp(Utc::now())
+            ],
+        )
+        .map_err(db)?;
+    Ok(())
+}
+
+/// Give up on asks nobody carried out in time. They reach head office as
+/// finished (`last_test_print_request_id`), with no page to show for them.
+fn expire_stale_requests(connection: &Connection, now: DateTime<Utc>) -> Result<(), EdgeError> {
+    connection
+        .execute(
+            "UPDATE edge_device_request SET status='EXPIRED', completed_at=?1
+              WHERE status='PENDING' AND received_at <= ?2",
+            params![
+                stamp(now),
+                stamp(now - Duration::minutes(TEST_PAGE_PATIENCE_MINUTES))
+            ],
+        )
+        .map_err(db)?;
+    Ok(())
+}
+
+fn clamp_error(error: Option<String>) -> Option<String> {
+    error
+        .map(|text| {
+            text.trim()
+                .chars()
+                .take(TEST_PRINT_ERROR_CHARS)
+                .collect::<String>()
+        })
+        .filter(|text| !text.is_empty())
+}
+
+/// `GET /api/v1/devices/self/requests`, signed by the till: what head office
+/// left for it, oldest first. The till prints each and reports it with
+/// [`record_till_test_print`]; until then an ask stays here.
+pub fn till_requests(
+    connection: &mut Connection,
+    proof: &TerminalProof,
+    path: &str,
+    body_sha256: &str,
+) -> Result<TillRequests, EdgeError> {
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db)?;
+    let terminal_id = fingerprint::verify_terminal(&tx, proof, "GET", path, body_sha256)?;
+    expire_stale_requests(&tx, Utc::now())?;
+    // The recorded printer this till's receipts go to, by the id its own
+    // peripherals report named — a till keeps the id, the node the address.
+    // Anything unreadable is "none": the till then prints where it can.
+    let printer: Option<(String, i64)> = tx
+        .query_row(
+            "SELECT p.host, p.port
+               FROM edge_terminal t
+               JOIN edge_printer p
+                 ON p.printer_id = json_extract(t.peripherals_json, '$.receipt_printer.printer_id')
+              WHERE t.terminal_id=?1 AND p.status='ACTIVE'",
+            params![terminal_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .ok()
+        .flatten();
+    let items = {
+        let mut statement = tx
+            .prepare(
+                "SELECT request_id, request, requested_by, requested_at
+                   FROM edge_device_request
+                  WHERE device_id=?1 AND kind='TILL' AND status='PENDING'
+                  ORDER BY requested_at
+                  LIMIT 10",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map(params![terminal_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(db)?;
+        let mut items = Vec::new();
+        for row in rows {
+            let (request_id, request, requested_by, requested_at) = row.map_err(db)?;
+            let Ok(request_id) = Uuid::parse_str(&request_id) else {
+                continue;
+            };
+            items.push(TillRequest {
+                request_id,
+                request,
+                requested_by,
+                requested_at: parse_stamp(&requested_at)?,
+                printer_host: printer.as_ref().map(|(host, _)| host.clone()),
+                printer_port: printer
+                    .as_ref()
+                    .map(|(_, port)| u16::try_from(*port).unwrap_or(9100)),
+            });
+        }
+        items
+    };
+    tx.commit().map_err(db)?;
+    Ok(TillRequests { items })
+}
+
+/// `POST /api/v1/devices/self/test-print-result`, signed by the till: how a
+/// test page came out, whether head office asked for it or somebody pressed
+/// "test print" at the till. Kept on the till's row and carried to head
+/// office in the next heartbeat.
+pub fn record_till_test_print(
+    connection: &mut Connection,
+    proof: &TerminalProof,
+    path: &str,
+    body_sha256: &str,
+    result: TestPrintResult,
+) -> Result<DeviceReport, EdgeError> {
+    let error = if result.ok {
+        None
+    } else {
+        Some(
+            clamp_error(result.error)
+                .unwrap_or_else(|| "the till could not print the test page".to_string()),
+        )
+    };
+    let now = stamp(Utc::now());
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db)?;
+    let terminal_id = fingerprint::verify_terminal(&tx, proof, "POST", path, body_sha256)?;
+    if let Some(request_id) = result.request_id {
+        // Only this till's own ask, and only once.
+        tx.execute(
+            "UPDATE edge_device_request SET status='DONE', ok=?3, error=?4, completed_at=?5
+              WHERE request_id=?1 AND device_id=?2 AND status='PENDING'",
+            params![
+                request_id.to_string(),
+                terminal_id,
+                i64::from(result.ok),
+                error,
+                now
+            ],
+        )
+        .map_err(db)?;
+    }
+    tx.execute(
+        "UPDATE edge_terminal
+            SET last_test_print_at=?2, last_test_print_ok=?3, last_test_print_error=?4
+          WHERE terminal_id=?1",
+        params![terminal_id, now, i64::from(result.ok), error],
+    )
+    .map_err(db)?;
+    tx.commit().map_err(db)?;
+    find_device(connection, &terminal_id)
+}
+
+/// A test page this node owes one of its network printers.
+struct PrinterTestPage {
+    request_id: String,
+    printer_id: String,
+    label: String,
+    host: String,
+    port: u16,
+    language: Option<String>,
+    purpose: String,
+    status: String,
+    requested_by: String,
+}
+
+fn waiting_printer_pages(connection: &Connection) -> Result<Vec<PrinterTestPage>, EdgeError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT r.request_id, p.printer_id, p.label, p.host, p.port, p.language, p.purpose,
+                    p.status, r.requested_by
+               FROM edge_device_request r
+               JOIN edge_printer p ON p.printer_id = r.device_id
+              WHERE r.kind='PRINTER' AND r.status='PENDING'
+              ORDER BY r.requested_at
+              LIMIT 10",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(PrinterTestPage {
+                request_id: row.get(0)?,
+                printer_id: row.get(1)?,
+                label: row.get(2)?,
+                host: row.get(3)?,
+                port: u16::try_from(row.get::<_, i64>(4)?).unwrap_or(9100),
+                language: row.get(5)?,
+                purpose: row.get(6)?,
+                status: row.get(7)?,
+                requested_by: row.get(8)?,
+            })
+        })
+        .map_err(db)?;
+    let mut pages = Vec::new();
+    for row in rows {
+        pages.push(row.map_err(db)?);
+    }
+    Ok(pages)
+}
+
+/// Text that is safe inside a ZPL field or a TSPL string.
+fn printable(text: &str) -> String {
+    text.chars()
+        .map(|character| match character {
+            '^' | '~' | '"' | '\\' => ' ',
+            character if character.is_control() => ' ',
+            character => character,
+        })
+        .collect()
+}
+
+/// The page itself, in the printer's own language: on a receipt printer
+/// ESC/POS, on a label printer ZPL or TSPL. Printed in Indonesian, like every
+/// paper the shop reads.
+fn test_page_bytes(page: &PrinterTestPage, shop: &str, printed_at: &str) -> Vec<u8> {
+    let language = page
+        .language
+        .as_deref()
+        .map(str::to_ascii_uppercase)
+        .unwrap_or_else(|| {
+            if page.purpose == "RECEIPT" {
+                "ESCPOS".to_string()
+            } else {
+                crate::edge::zpl::PrinterLanguage::from_env()
+                    .as_str()
+                    .to_string()
+            }
+        });
+    let label = printable(&page.label);
+    let shop = printable(shop);
+    let asked_by = printable(&page.requested_by);
+    match language.as_str() {
+        "ESCPOS" => {
+            // Reset, centre, bold on; the title; bold off.
+            let mut bytes: Vec<u8> = vec![0x1b, b'@', 0x1b, b'a', 1, 0x1b, b'E', 1];
+            bytes.extend_from_slice(b"HALAMAN UJI\n");
+            bytes.extend_from_slice(&[0x1b, b'E', 0]);
+            bytes.extend_from_slice(
+                format!("{label}\n{shop}\n{printed_at}\nDiminta oleh {asked_by}\n\n\n\n")
+                    .as_bytes(),
+            );
+            // Feed and cut.
+            bytes.extend_from_slice(&[0x1d, b'V', 66, 0x50]);
+            bytes
+        }
+        "TSPL" => format!(
+            "SIZE 50 mm,30 mm\r\nGAP 2 mm,0 mm\r\nCLS\r\n\
+             TEXT 20,20,\"3\",0,1,1,\"HALAMAN UJI\"\r\n\
+             TEXT 20,70,\"2\",0,1,1,\"{label}\"\r\n\
+             TEXT 20,105,\"2\",0,1,1,\"{shop}\"\r\n\
+             TEXT 20,140,\"2\",0,1,1,\"{printed_at}\"\r\n\
+             PRINT 1\r\n"
+        )
+        .into_bytes(),
+        _ => format!(
+            "^XA^CI28\
+             ^FO30,30^A0N,40,40^FDHALAMAN UJI^FS\
+             ^FO30,85^A0N,26,26^FD{label}^FS\
+             ^FO30,120^A0N,26,26^FD{shop}^FS\
+             ^FO30,155^A0N,26,26^FD{printed_at}^FS\
+             ^XZ"
+        )
+        .into_bytes(),
+    }
+}
+
+fn record_printer_test_print(
+    connection: &Connection,
+    page: &PrinterTestPage,
+    outcome: Result<(), String>,
+    at: DateTime<Utc>,
+) -> Result<(), EdgeError> {
+    let ok = outcome.is_ok();
+    let error = clamp_error(outcome.err());
+    let at = stamp(at);
+    connection
+        .execute(
+            "UPDATE edge_device_request SET status='DONE', ok=?2, error=?3, completed_at=?4
+              WHERE request_id=?1 AND status='PENDING'",
+            params![page.request_id, i64::from(ok), error, at],
+        )
+        .map_err(db)?;
+    connection
+        .execute(
+            "UPDATE edge_printer
+                SET last_test_print_at=?2, last_test_print_ok=?3, last_test_print_error=?4,
+                    last_used_at=CASE WHEN ?3 = 1 THEN ?2 ELSE last_used_at END
+              WHERE printer_id=?1",
+            params![page.printer_id, at, i64::from(ok), error],
+        )
+        .map_err(db)?;
+    Ok(())
+}
+
+/// Print every test page this node owes its network printers, and write down
+/// how each came out. Blocking: the socket to a printer is opened here, with
+/// the lock released while it is.
+pub fn print_waiting_test_pages(
+    connection: &std::sync::Mutex<Connection>,
+) -> Result<usize, EdgeError> {
+    let (pages, shop, offset) = {
+        let guard = lock(connection)?;
+        expire_stale_requests(&guard, Utc::now())?;
+        let shop = crate::edge::site_profile::own(&guard)
+            .map(|site| format!("{} {}", site.display_code(), site.name))
+            .unwrap_or_default();
+        (
+            waiting_printer_pages(&guard)?,
+            shop,
+            crate::edge::site_profile::utc_offset_minutes(&guard),
+        )
+    };
+    for page in &pages {
+        let now = Utc::now();
+        let printed_at = FixedOffset::east_opt(offset * 60)
+            .map(|zone| now.with_timezone(&zone).format("%d/%m/%Y %H:%M").to_string())
+            .unwrap_or_else(|| now.format("%d/%m/%Y %H:%M UTC").to_string());
+        let outcome = if page.status == STATUS_ACTIVE {
+            crate::edge::printing::send_bytes(
+                &page.host,
+                page.port,
+                &test_page_bytes(page, &shop, &printed_at),
+            )
+            .map_err(|error| error.to_string())
+        } else {
+            Err(format!(
+                "{} is {} at this node",
+                page.label,
+                page.status.to_ascii_lowercase()
+            ))
+        };
+        let guard = lock(connection)?;
+        record_printer_test_print(&guard, page, outcome, Utc::now())?;
+    }
+    Ok(pages.len())
+}
+
+/// Look for owed test pages every few seconds, for as long as the node runs.
+pub fn spawn_test_printer(connection: std::sync::Arc<std::sync::Mutex<Connection>>) {
+    tokio::spawn(async move {
+        loop {
+            let shared = connection.clone();
+            match tokio::task::spawn_blocking(move || print_waiting_test_pages(&shared)).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(error)) => tracing::warn!(%error, "test pages were not printed this round"),
+                Err(error) => tracing::warn!(%error, "the test-page round did not run"),
+            }
+            tokio::time::sleep(TEST_PAGE_ROUND).await;
+        }
+    });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Everything, as head office will see it
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -1282,7 +1720,11 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
             .prepare(
                 "SELECT terminal_id, label, status, last_seen_at, paired_at, paired_by,
                         replaces_terminal_id, status_changed_at, status_changed_by,
-                        status_reason, peripherals_json, machine_json
+                        status_reason, peripherals_json, machine_json,
+                        last_test_print_at, last_test_print_ok, last_test_print_error,
+                        (SELECT r.request_id FROM edge_device_request r
+                          WHERE r.device_id = edge_terminal.terminal_id AND r.status <> 'PENDING'
+                          ORDER BY r.completed_at DESC LIMIT 1)
                    FROM edge_terminal
                   ORDER BY paired_at",
             )
@@ -1304,6 +1746,10 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
                     status_changed_by: row.get(8)?,
                     status_reason: row.get(9)?,
                     config: json!({ "peripherals": peripherals, "machine": machine }),
+                    last_test_print_at: parse_time(row.get(12)?),
+                    last_test_print_ok: row.get::<_, Option<i64>>(13)?.map(|ok| ok == 1),
+                    last_test_print_error: row.get(14)?,
+                    last_test_print_request_id: parse_uuid(row.get(15)?),
                 })
             })
             .map_err(db)?;
@@ -1316,7 +1762,11 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
             .prepare(
                 "SELECT printer_id, label, status, last_used_at, created_at, created_by,
                         status_changed_at, status_changed_by, status_reason,
-                        host, port, language, purpose
+                        host, port, language, purpose,
+                        last_test_print_at, last_test_print_ok, last_test_print_error,
+                        (SELECT r.request_id FROM edge_device_request r
+                          WHERE r.device_id = edge_printer.printer_id AND r.status <> 'PENDING'
+                          ORDER BY r.completed_at DESC LIMIT 1)
                    FROM edge_printer
                   ORDER BY created_at",
             )
@@ -1345,6 +1795,10 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
                         "language": language,
                         "purpose": purpose,
                     }),
+                    last_test_print_at: parse_time(row.get(13)?),
+                    last_test_print_ok: row.get::<_, Option<i64>>(14)?.map(|ok| ok == 1),
+                    last_test_print_error: row.get(15)?,
+                    last_test_print_request_id: parse_uuid(row.get(16)?),
                 })
             })
             .map_err(db)?;
@@ -1388,6 +1842,10 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
                     status_changed_by: None,
                     status_reason: None,
                     config: json!({ "valid_until": valid_until }),
+                    last_test_print_at: None,
+                    last_test_print_ok: None,
+                    last_test_print_error: None,
+                    last_test_print_request_id: None,
                 })
             })
             .map_err(db)?;

@@ -1570,6 +1570,13 @@ pub struct SiteProfile {
     /// out by head office, which has a tz database; a node has none, and every
     /// zone the company trades in keeps one offset all year.
     pub utc_offset_minutes: i32,
+    /// Whether head office has opened the unit this site belongs to
+    /// (`unit.opened_at`, postgres 0630). A store's tills open no shift
+    /// until it has. Absent from an older centre, which a node reads as
+    /// opened: every store it knew was trading. Outside `content_hash` like
+    /// the rest of the site fields — `SiteProfile` is not hashed at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opened: Option<bool>,
 }
 
 pub fn auth_policy_content_hash(snapshot: &AuthPolicySnapshot) -> String {

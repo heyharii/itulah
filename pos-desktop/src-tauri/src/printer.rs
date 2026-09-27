@@ -26,7 +26,7 @@ use serde_json::json;
 use tauri::Manager;
 
 use crate::edge::{self, Node};
-use crate::peripherals::RECEIPT_USB;
+use crate::peripherals::{RECEIPT_NONE, RECEIPT_RECORDED, RECEIPT_USB};
 
 /// What the sale screen is told after a print.
 #[derive(Serialize)]
@@ -142,6 +142,10 @@ pub async fn print_receipt_here(
 }
 
 /// A few lines to prove the cable, the name and the paper, without a sale.
+///
+/// The outcome is told to the node as well (`requests::report`), off this
+/// call: head office's store page counts a test page from the till's own
+/// button the same as one it asked for.
 #[tauri::command]
 pub async fn test_usb_printer(app: tauri::AppHandle) -> Result<PrintedHere, String> {
     edge::off_the_window(move || {
@@ -151,13 +155,116 @@ pub async fn test_usb_printer(app: tauri::AppHandle) -> Result<PrintedHere, Stri
         bytes
             .extend_from_slice(format!("Tes printer kasir\n{label}\n{printer}\n\n\n\n").as_bytes());
         bytes.extend_from_slice(&[0x1d, b'V', 66, 0]); // GS V B 0: feed and cut.
-        send_raw(&printer, "Tes printer kasir", &bytes)?;
+        let outcome = send_raw(&printer, "Tes printer kasir", &bytes);
+        let reporting = app.clone();
+        let told = outcome.clone();
+        std::thread::spawn(move || crate::requests::report(&reporting, None, &told));
+        outcome?;
         Ok(PrintedHere {
             bytes: bytes.len(),
             printer,
         })
     })
     .await
+}
+
+/// A test page head office asked for, printed on the receipt printer this
+/// till was set up with — the USB printer by its name on this machine, a
+/// network printer at its address (the one typed in the settings, or the one
+/// the node recorded, which the node sends with the ask) — and nothing when
+/// the till has no receipt printer. Returns what it printed to.
+///
+/// In the till's language, like every paper the shop reads.
+pub(crate) fn print_test_page(
+    app: &tauri::AppHandle,
+    asked_by: &str,
+    recorded: Option<(String, u16)>,
+) -> Result<String, String> {
+    let config = edge::lock(app.state::<Node>().inner()).clone();
+    let shop = config
+        .joined
+        .as_ref()
+        .map(|joined| {
+            [joined.site_code.as_deref(), joined.site_name.as_deref()]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    let page = |printer: &str| -> Vec<u8> {
+        // Reset, centre, bold on; the title; bold off.
+        let mut bytes: Vec<u8> = vec![0x1b, b'@', 0x1b, b'a', 1, 0x1b, b'E', 1];
+        bytes.extend_from_slice(b"HALAMAN UJI\n");
+        bytes.extend_from_slice(&[0x1b, b'E', 0]);
+        bytes.extend_from_slice(
+            format!(
+                "{}\n{shop}\n{printer}\nDiminta oleh {asked_by}\n\n\n\n",
+                config.terminal_id
+            )
+            .as_bytes(),
+        );
+        bytes.extend_from_slice(&[0x1d, b'V', 66, 0]); // Feed and cut.
+        bytes
+    };
+    match config.peripherals.receipt_printer.as_str() {
+        RECEIPT_USB => {
+            let printer = usb_printer(app)?;
+            send_raw(&printer, "Halaman uji", &page(&printer))?;
+            Ok(printer)
+        }
+        RECEIPT_RECORDED => {
+            let (host, port) = recorded.ok_or_else(|| {
+                "Printer jaringan kasir ini tidak aktif lagi di node, jadi halaman uji \
+                 tidak bisa dicetak."
+                    .to_string()
+            })?;
+            let printer = format!("{host}:{port}");
+            send_network(&host, port, &page(&printer))?;
+            Ok(printer)
+        }
+        RECEIPT_NONE => Err("Kasir ini tidak memakai printer struk.".into()),
+        // RECEIPT_ADDRESS, and a till set up before the choice existed.
+        _ => {
+            let host = config
+                .printer_host
+                .as_deref()
+                .map(str::trim)
+                .filter(|host| !host.is_empty())
+                .ok_or_else(|| "Alamat printer struk kasir ini belum diisi.".to_string())?
+                .to_string();
+            let printer = format!("{host}:{}", config.printer_port);
+            send_network(&host, config.printer_port, &page(&printer))?;
+            Ok(printer)
+        }
+    }
+}
+
+/// Bytes to a network printer's raw port (9100), straight from this till.
+fn send_network(host: &str, port: u16, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    let patience = Duration::from_secs(5);
+    let addresses: Vec<_> = (host, port)
+        .to_socket_addrs()
+        .map_err(|error| format!("Alamat printer {host} tidak dikenal: {error}"))?
+        .collect();
+    let mut last = format!("Printer di {host}:{port} tidak menjawab.");
+    for address in addresses {
+        match TcpStream::connect_timeout(&address, patience) {
+            Ok(mut stream) => {
+                let _ = stream.set_write_timeout(Some(patience));
+                return stream
+                    .write_all(bytes)
+                    .and_then(|()| stream.flush())
+                    .map_err(|error| format!("Halaman uji tidak terkirim ke {address}: {error}"));
+            }
+            Err(error) => last = format!("Printer di {address} tidak bisa dihubungi: {error}"),
+        }
+    }
+    Err(last)
 }
 
 /// The printers this machine has, by the names the spooler (or CUPS) knows

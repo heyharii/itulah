@@ -83,6 +83,8 @@ pub fn required_role(method: &str, path: &str) -> Role {
         "/api/v1/sync/nodes",
         // The device registry, and switching a shop's till off from here.
         "/api/v1/sync/devices",
+        // Asking a till or a printer for a test page from head office.
+        "/api/v1/devices",
         "/api/v1/sync/commands",
         // Both lanes of the sync plus the request-log failure counts and the
         // open exposures: the operator's view, not a till's. Its siblings
@@ -234,6 +236,15 @@ pub fn required_role(method: &str, path: &str) -> Role {
     // picker is asked to follow it — but writing one is head office's
     // administrator's, because a template decides who may send goods where.
     if path.starts_with("/api/v1/flow-templates") && !method.eq_ignore_ascii_case("GET") {
+        return Role::Admin;
+    }
+    // Opening a store and issuing its server's install code are head
+    // office's Admin's (`http/stores.rs`). Reading the stores is head office's
+    // — an Admin or anybody posted there — which the handler checks, so the
+    // read keeps the blanket rule below.
+    if (path == "/api/v1/stores" || path.starts_with("/api/v1/stores/"))
+        && !method.eq_ignore_ascii_case("GET")
+    {
         return Role::Admin;
     }
     if method.eq_ignore_ascii_case("GET") {

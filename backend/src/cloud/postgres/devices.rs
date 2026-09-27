@@ -38,8 +38,10 @@
 
 use crate::cloud::application::AppError;
 use crate::sync::device::{
-    self as wire, DeviceReport, DeviceStatusCommand, COMMAND_DEVICE_STATUS_SET, STATUS_ACTIVE,
+    self as wire, DeviceReport, DeviceStatusCommand, DeviceTestPrintCommand,
+    COMMAND_DEVICE_STATUS_SET, COMMAND_DEVICE_TEST_PRINT, STATUS_ACTIVE, TEST_PRINT_CAPABILITY,
 };
+use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -104,6 +106,16 @@ pub async fn record_reported_devices(
         } else {
             json!({})
         };
+        // A test page is kept whole or not at all (0632): when it was
+        // printed, whether it came out, and why not.
+        let printed = match (report.last_test_print_at, report.last_test_print_ok) {
+            (Some(at), Some(ok)) => Some((at, ok)),
+            _ => None,
+        };
+        let printed_error = printed
+            .filter(|(_, ok)| !ok)
+            .and(report.last_test_print_error.as_deref())
+            .map(|error| error.chars().take(500).collect::<String>());
 
         let current: Option<(String, String)> =
             sqlx::query_as("SELECT origin_id, status FROM device WHERE device_id = $1 FOR UPDATE")
@@ -141,6 +153,24 @@ pub async fn record_reported_devices(
                          requested_reason = CASE WHEN requested_status = $5 THEN NULL ELSE requested_reason END,
                          requested_command_id = CASE WHEN requested_status = $5 THEN NULL ELSE requested_command_id END,
                          requested_status = CASE WHEN requested_status = $5 THEN NULL ELSE requested_status END,
+                         last_test_print_ok = CASE
+                             WHEN $11::timestamptz IS NOT NULL
+                              AND (last_test_print_at IS NULL OR $11 >= last_test_print_at)
+                             THEN $12 ELSE last_test_print_ok END,
+                         last_test_print_error = CASE
+                             WHEN $11::timestamptz IS NOT NULL
+                              AND (last_test_print_at IS NULL OR $11 >= last_test_print_at)
+                             THEN $13 ELSE last_test_print_error END,
+                         last_test_print_at = CASE
+                             WHEN $11::timestamptz IS NOT NULL
+                              AND (last_test_print_at IS NULL OR $11 >= last_test_print_at)
+                             THEN $11 ELSE last_test_print_at END,
+                         test_print_requested_at = CASE WHEN test_print_request_id = $14::uuid
+                             THEN NULL ELSE test_print_requested_at END,
+                         test_print_requested_by = CASE WHEN test_print_request_id = $14::uuid
+                             THEN NULL ELSE test_print_requested_by END,
+                         test_print_request_id = CASE WHEN test_print_request_id = $14::uuid
+                             THEN NULL ELSE test_print_request_id END,
                          updated_at = now()
                      WHERE device_id = $1",
                 )
@@ -154,6 +184,10 @@ pub async fn record_reported_devices(
                 .bind(&report.replaces)
                 .bind(report.registered_at)
                 .bind(&report.registered_by)
+                .bind(printed.map(|(at, _)| at))
+                .bind(printed.map(|(_, ok)| ok))
+                .bind(&printed_error)
+                .bind(report.last_test_print_request_id)
                 .execute(&mut **tx)
                 .await?;
                 Some(previous)
@@ -162,7 +196,8 @@ pub async fn record_reported_devices(
                 let inserted = sqlx::query(
                     "INSERT INTO device
                          (device_id, kind, origin_id, site_id, label, status, last_seen_at,
-                          config, replaces_device_id, registered_at, registered_by, rfid_device_id)
+                          config, replaces_device_id, registered_at, registered_by, rfid_device_id,
+                          last_test_print_at, last_test_print_ok, last_test_print_error)
                      VALUES ($1,
                              CASE WHEN $2 IN ('RFID_READER', 'HANDHELD')
                                   THEN COALESCE((SELECT r.kind FROM rfid_device r WHERE r.device_id = $1), $2)
@@ -170,7 +205,8 @@ pub async fn record_reported_devices(
                              $3, $4, $5, $6, $7, $8, $9, $10, $11,
                              CASE WHEN $2 IN ('RFID_READER', 'HANDHELD')
                                   THEN (SELECT r.device_id FROM rfid_device r WHERE r.device_id = $1)
-                             END)
+                             END,
+                             $12, $13, $14)
                      ON CONFLICT (device_id) DO NOTHING",
                 )
                 .bind(device_id)
@@ -184,6 +220,9 @@ pub async fn record_reported_devices(
                 .bind(&report.replaces)
                 .bind(report.registered_at)
                 .bind(&report.registered_by)
+                .bind(printed.map(|(at, _)| at))
+                .bind(printed.map(|(_, ok)| ok))
+                .bind(&printed_error)
                 .execute(&mut **tx)
                 .await?
                 .rows_affected();
@@ -228,6 +267,7 @@ pub async fn record_reported_devices(
 
 /// One device as the hub shows it.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct RegistryDevice {
     pub device_id: String,
     pub kind: String,
@@ -245,6 +285,9 @@ pub struct RegistryDevice {
     pub requested_at: Option<DateTime<Utc>>,
     pub requested_reason: Option<String>,
     pub last_seen_at: Option<DateTime<Utc>>,
+    /// Kind-specific and never secret: a printer's host and port, a till's
+    /// peripherals and machine, a reader's pools.
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub config: Value,
     pub replaces_device_id: Option<String>,
     pub rfid_device_id: Option<String>,
@@ -261,15 +304,33 @@ pub struct RegistryDevice {
     /// till or a printer, not yet revoked, on a node that takes device
     /// commands.
     pub switchable: bool,
+    /// The newest test page it printed, as its node reported it (0632):
+    /// when, whether it came out, and why not.
+    pub last_test_print_at: Option<DateTime<Utc>>,
+    pub last_test_print_ok: Option<bool>,
+    pub last_test_print_error: Option<String>,
+    /// Head office's test-page ask still in flight, cleared when the node
+    /// reports it finished.
+    pub test_print_requested_at: Option<DateTime<Utc>>,
+    pub test_print_requested_by: Option<String>,
+    pub test_print_request_id: Option<Uuid>,
+    /// Whether head office can ask it for a test page from here: an active
+    /// till or printer on a node that takes the ask.
+    pub can_test_print: bool,
 }
 
+/// The register's columns. `$1` is [`TEST_PRINT_CAPABILITY`], bound by
+/// every reader so the capability is spelled once.
 const REGISTRY_SELECT: &str = "
     SELECT d.device_id, d.kind, d.origin_id, c.label AS node_label, d.site_id,
            s.name AS site_name, d.label, d.status, d.requested_status, d.requested_by,
            d.requested_at, d.requested_reason, d.last_seen_at, d.config,
            d.replaces_device_id, d.rfid_device_id, d.attendance_terminal_id,
            d.registered_at, d.registered_by, d.first_reported_at, d.updated_at, d.source,
-           COALESCE(h.status ? 'device_list', false) AS node_takes_commands
+           d.last_test_print_at, d.last_test_print_ok, d.last_test_print_error,
+           d.test_print_requested_at, d.test_print_requested_by, d.test_print_request_id,
+           COALESCE(h.status ? 'device_list', false) AS node_takes_commands,
+           COALESCE(h.status -> 'capabilities' ? $1, false) AS node_takes_test_print
       FROM device_register d
       LEFT JOIN site s ON s.id = d.site_id
       LEFT JOIN sync_origin_credential c ON c.origin_id = d.origin_id
@@ -279,8 +340,20 @@ fn registry_row(row: &sqlx::postgres::PgRow) -> RegistryDevice {
     let kind: String = row.get("kind");
     let status: String = row.get("status");
     let node_takes_commands: bool = row.get("node_takes_commands");
+    let node_takes_test_print: bool = row.get("node_takes_test_print");
+    let source: String = row.get("source");
     RegistryDevice {
         switchable: node_takes_commands && wire::node_owns(&kind) && status != wire::STATUS_REVOKED,
+        can_test_print: node_takes_test_print
+            && source == "NODE"
+            && wire::prints_test_page(&kind)
+            && status == STATUS_ACTIVE,
+        last_test_print_at: row.get("last_test_print_at"),
+        last_test_print_ok: row.get("last_test_print_ok"),
+        last_test_print_error: row.get("last_test_print_error"),
+        test_print_requested_at: row.get("test_print_requested_at"),
+        test_print_requested_by: row.get("test_print_requested_by"),
+        test_print_request_id: row.get("test_print_request_id"),
         device_id: row.get("device_id"),
         kind,
         origin_id: row.get("origin_id"),
@@ -302,7 +375,7 @@ fn registry_row(row: &sqlx::postgres::PgRow) -> RegistryDevice {
         registered_by: row.get("registered_by"),
         first_reported_at: row.get("first_reported_at"),
         updated_at: row.get("updated_at"),
-        source: row.get("source"),
+        source,
     }
 }
 
@@ -314,16 +387,21 @@ pub async fn device_registry(
 ) -> Result<Vec<RegistryDevice>, AppError> {
     let sql = format!(
         "{REGISTRY_SELECT}
-          WHERE ($1::text IS NULL OR d.site_id = $1)
+          WHERE ($2::text IS NULL OR d.site_id = $2)
           ORDER BY d.site_id, d.kind, d.label"
     );
-    let rows = sqlx::query(&sql).bind(site_id).fetch_all(pool).await?;
+    let rows = sqlx::query(&sql)
+        .bind(TEST_PRINT_CAPABILITY)
+        .bind(site_id)
+        .fetch_all(pool)
+        .await?;
     Ok(rows.iter().map(registry_row).collect())
 }
 
 pub async fn registry_device(pool: &PgPool, device_id: &str) -> Result<RegistryDevice, AppError> {
-    let sql = format!("{REGISTRY_SELECT} WHERE d.device_id = $1");
+    let sql = format!("{REGISTRY_SELECT} WHERE d.device_id = $2");
     let row = sqlx::query(&sql)
+        .bind(TEST_PRINT_CAPABILITY)
         .bind(device_id)
         .fetch_optional(pool)
         .await?
@@ -572,4 +650,108 @@ pub async fn request_device_status(
     .await?;
     tx.commit().await?;
     registry_device(pool, device_id).await
+}
+
+/// `POST /api/v1/devices/{device_id}/test-print`: accepted, and on its way.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TestPrintRequested {
+    /// Head office's id for the ask. The register shows it in
+    /// `test_print_request_id` until the node reports it finished.
+    pub request_id: Uuid,
+}
+
+/// Head office asks a till or a network printer for a test page.
+///
+/// Sent as a signed `device.test_print.v1` to the device's node, and written
+/// on the device's row as the ask in flight, in one transaction. Only to a
+/// node whose heartbeat says it takes the ask: an older build would block its
+/// whole command stream on a type it does not know, which is worse than the
+/// person at the shop pressing "test print" themselves. The outcome comes
+/// back in a later heartbeat (`record_reported_devices`).
+pub async fn request_test_print(
+    pool: &PgPool,
+    device_id: &str,
+    actor: &str,
+) -> Result<TestPrintRequested, AppError> {
+    let mut tx = pool.begin().await?;
+    let row: Option<(String, String, String, String, Option<bool>)> = sqlx::query_as(
+        "SELECT d.kind, d.status, d.origin_id, d.label,
+                (h.status -> 'capabilities' ? $2)
+           FROM device d
+           LEFT JOIN node_heartbeat h ON h.origin_id = d.origin_id
+          WHERE d.device_id = $1
+            FOR UPDATE OF d",
+    )
+    .bind(device_id)
+    .bind(TEST_PRINT_CAPABILITY)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((kind, status, origin_id, label, takes_it)) = row else {
+        let linked: Option<String> = sqlx::query_scalar(
+            "SELECT kind FROM device_register WHERE device_id = $1 AND source <> 'NODE'",
+        )
+        .bind(device_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        return Err(match linked {
+            Some(kind) => AppError::Conflict(format!(
+                "a {} prints no test page from here",
+                kind.to_ascii_lowercase().replace('_', " ")
+            )),
+            None => AppError::NotFound(format!("device {device_id}")),
+        });
+    };
+    if !wire::prints_test_page(&kind) {
+        return Err(AppError::Conflict(format!(
+            "a {} prints no test page; only a till or a network printer does",
+            kind.to_ascii_lowercase().replace('_', " ")
+        )));
+    }
+    if status != STATUS_ACTIVE {
+        return Err(AppError::Conflict(format!(
+            "{label} is {}; reactivate it before asking it to print",
+            status.to_ascii_lowercase()
+        )));
+    }
+    if takes_it != Some(true) {
+        return Err(AppError::Conflict(
+            "this device's store server runs a version that cannot print a test page for head \
+             office; update the server, or press test print at the store"
+                .into(),
+        ));
+    }
+    let request_id = Uuid::new_v4();
+    let now = Utc::now();
+    let command = DeviceTestPrintCommand {
+        request_id,
+        device_id: device_id.to_string(),
+        kind,
+        requested_by: actor.to_string(),
+        requested_at: now,
+    };
+    let payload = serde_json::to_value(&command)?;
+    super::sync::issue_command_tx(
+        &mut tx,
+        COMMAND_DEVICE_TEST_PRINT,
+        &payload,
+        actor,
+        None,
+        std::slice::from_ref(&origin_id),
+    )
+    .await?;
+    sqlx::query(
+        "UPDATE device
+            SET test_print_requested_at = $2, test_print_requested_by = $3,
+                test_print_request_id = $4, updated_at = now()
+          WHERE device_id = $1",
+    )
+    .bind(device_id)
+    .bind(now)
+    .bind(actor)
+    .bind(request_id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(TestPrintRequested { request_id })
 }

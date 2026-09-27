@@ -15,6 +15,7 @@ use crate::edge::{
     StoreInvoiceDocumentRequest, TaggingConfirmRequest, RFID_OBSERVATION_PATH,
 };
 use crate::security::{self, CSRF_COOKIE, SESSION_COOKIE};
+use crate::sync::device::{SELF_REQUESTS_PATH, SELF_TEST_PRINT_RESULT_PATH};
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, Path, Query, Request, State},
@@ -236,12 +237,6 @@ pub fn dc_router_with_sync(
         .route(
             "/api/v1/dc/inbound/{delivery_id}/inspection",
             get(dc_return_inspection).post(dc_inspect_return),
-        )
-        // Tagged goods recorded as put away on the racks — the goods flow's
-        // Putaway stage.
-        .route(
-            "/api/v1/dc/putaways",
-            get(dc_putaway_work).post(dc_put_away),
         )
         .route("/api/v1/dc/official-counts", get(dc_official_counts))
         .route(
@@ -639,6 +634,10 @@ fn common_router() -> Router<EdgeState> {
             "/api/v1/devices/self/peripherals",
             post(set_till_peripherals),
         )
+        // What head office left for a till (a test page, today), and how the
+        // page came out: both signed by the till itself.
+        .route(SELF_REQUESTS_PATH, get(till_requests))
+        .route(SELF_TEST_PRINT_RESULT_PATH, post(till_test_print_result))
         .route(RFID_OBSERVATION_PATH, post(rfid_observations))
         .route("/api/v1/inventory/pools", get(pools))
         // What the goods flows touching this site did, as head office relayed
@@ -692,14 +691,16 @@ async fn health(State(state): State<EdgeState>) -> Json<Value> {
             "inventory.pools.owned",
             "inventory.movements.read",
             crate::sync::workflow::GOODS_ROUTES_CAPABILITY,
-            crate::sync::flow::FLOWS_CAPABILITY
+            crate::sync::flow::FLOWS_CAPABILITY,
+            crate::sync::device::TEST_PRINT_CAPABILITY
         ]),
         EdgeRole::Store => json!([
             "inventory.pools.owned",
             "inventory.movements.read",
             crate::sync::workflow::STORE_INBOUND_CAPABILITY,
             crate::sync::workflow::GOODS_ROUTES_CAPABILITY,
-            crate::sync::flow::FLOWS_CAPABILITY
+            crate::sync::flow::FLOWS_CAPABILITY,
+            crate::sync::device::TEST_PRINT_CAPABILITY
         ]),
     };
     let policy = state.auth.policy_version().ok().flatten();
@@ -1768,30 +1769,6 @@ async fn dc_inspect_return(
     name_the_actor(&mut request.actor_id);
     let result =
         run_blocking(move || state.inventory.inspect_return(&delivery_id, request)).await?;
-    Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
-}
-
-/// Tagged jobs whose goods are not yet recorded as put away.
-async fn dc_putaway_work(
-    State(state): State<EdgeState>,
-    principal: Option<Extension<EdgePrincipal>>,
-) -> Result<Json<Value>, ApiError> {
-    require_permission(&state, principal, EdgePermission::InventoryRead)?;
-    let result = run_blocking(move || state.inventory.putaway_work()).await?;
-    Ok(Json(serde_json::to_value(result)?))
-}
-
-/// Record a tagged job's goods as put away on the racks.
-async fn dc_put_away(
-    State(state): State<EdgeState>,
-    principal: Option<Extension<EdgePrincipal>>,
-    Json(mut request): Json<crate::edge::flows::PutawayRequest>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
-    if let Some(principal) = require_permission(&state, principal, EdgePermission::DcOperate)? {
-        request.actor_id = principal.username;
-    }
-    name_the_actor(&mut request.actor_id);
-    let result = run_blocking(move || state.inventory.put_away(request)).await?;
     Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
 }
 
@@ -3576,7 +3553,7 @@ async fn require_auth(
         (request.method().as_str(), path),
         (
             "GET",
-            "/api/v1/auth/methods" | "/api/v1/auth/fingerprints/roster"
+            "/api/v1/auth/methods" | "/api/v1/auth/fingerprints/roster" | SELF_REQUESTS_PATH
         ) | (
             "POST",
             "/api/v1/auth/fingerprints/claim"
@@ -3584,6 +3561,7 @@ async fn require_auth(
                 | "/api/v1/devices/join"
                 | "/api/v1/devices/join/status"
                 | "/api/v1/devices/self/peripherals"
+                | SELF_TEST_PRINT_RESULT_PATH
         )
     );
     if !path.starts_with("/api/") || open {
@@ -4022,6 +4000,54 @@ async fn set_till_peripherals(
             "/api/v1/devices/self/peripherals",
             &digest,
             request.peripherals,
+        )
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(device)?))
+}
+
+/// What head office left for this till — a test page, today. Signed like the
+/// peripherals report, so a till only ever reads its own.
+async fn till_requests(
+    State(state): State<EdgeState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let proof = terminal_proof(&headers)?;
+    // A GET signs the empty body, as the fingerprint roster does.
+    let digest = crate::security::sha256_hex(b"");
+    let connection = state.auth.connection();
+    let requests = run_blocking(move || {
+        let mut guard = lock_devices(&connection)?;
+        crate::edge::devices::till_requests(&mut guard, &proof, SELF_REQUESTS_PATH, &digest)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(requests)?))
+}
+
+/// How a till's test page came out, whether head office asked for it or
+/// somebody pressed "test print" at the till.
+async fn till_test_print_result(
+    State(state): State<EdgeState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, ApiError> {
+    let proof = terminal_proof(&headers)?;
+    let digest = crate::security::sha256_hex(&body);
+    let result: crate::sync::device::TestPrintResult =
+        serde_json::from_slice(&body).map_err(|error| {
+            ApiError(EdgeError::Validation(format!(
+                "invalid test print result: {error}"
+            )))
+        })?;
+    let connection = state.auth.connection();
+    let device = run_blocking(move || {
+        let mut guard = lock_devices(&connection)?;
+        crate::edge::devices::record_till_test_print(
+            &mut guard,
+            &proof,
+            SELF_TEST_PRINT_RESULT_PATH,
+            &digest,
+            result,
         )
     })
     .await?;

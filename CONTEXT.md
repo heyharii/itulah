@@ -329,7 +329,9 @@ A step type whose meaning — its movements, its journal meaning, the proof it
 requires, its fixed rules — lives in code: pick, pack, close koli (KOLI),
 ship (into a **Surat Jalan**), load (onto a **Dispatch**), depart, receive,
 inspect, ready for pickup, handover, approval; and the receiving stages
-arrival, blind count, verification, tagging, putaway. Pack, close koli, ship
+arrival, blind count, verification, tagging. (Putaway stays in the catalogue
+for old template versions, but is not part of our process and nothing runs
+it: tagging already lands the goods on the racks.) Pack, close koli, ship
 and load can be taken back one step (unpack, unship, unload) while nothing has
 departed.
 _Avoid_: status
