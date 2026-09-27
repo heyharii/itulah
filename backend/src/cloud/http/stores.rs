@@ -4,12 +4,15 @@
 //!
 //! # Who
 //!
-//! Reading is head office's: an Admin, or anybody posted at the head-office
-//! unit. A store's own people see their store through their node, not here,
-//! and a call a store's node relays for them is refused. Opening a store and
+//! Reading follows reach. Head office, the owner, an Admin and IT read every
+//! store; a store's manager or supervisor reads their own, the unit they are
+//! posted to (`postgres::store_reach`). The section gate has already asked
+//! that their job includes `stores`. A call a store's node relays is refused:
+//! a store's till has no business on these pages. Opening a store and
 //! issuing a server code are Admin's alone — at the path
 //! (`domain::auth::required_role`) and again here, so a `role_permission`
 //! override that lowered the path's rung cannot hand either to anybody else.
+//! Both reads say so in `can_manage`, for the hub to hide those buttons.
 //!
 //! Approving or refusing the machine that claims a code stays where every
 //! enrolment is decided: `POST /api/v1/sync/enrollments/{id}/approve` and
@@ -19,7 +22,7 @@ use super::auth::Principal;
 use crate::cloud::{
     application::{AppError, AppState},
     domain::Role,
-    postgres::{self as infrastructure, OpenStoreRequest},
+    postgres::{self as infrastructure, OpenStoreRequest, StoreReach},
 };
 use axum::{
     body::Bytes,
@@ -28,29 +31,27 @@ use axum::{
     Extension, Json,
 };
 
-/// An Admin, or somebody posted at head office — never a call a store's node
+/// The stores this caller may read — never through a call a store's node
 /// relayed.
-async fn require_head_office(state: &AppState, principal: &Principal) -> Result<(), AppError> {
+async fn reach_of(state: &AppState, principal: &Principal) -> Result<StoreReach, AppError> {
     if principal.relayed.is_some() {
         return Err(AppError::Forbidden(
-            "the stores are head office's page; a store's till cannot read them".into(),
+            "the stores pages are the hub's; a store's till cannot read them".into(),
         ));
     }
-    if principal.role >= Role::Admin {
-        return Ok(());
+    if principal.role >= Role::Admin || principal.job.holds_everything() {
+        return Ok(StoreReach::Every);
     }
-    let caller = infrastructure::caller_record(&state.db, &principal.username).await?;
-    match caller.posting {
-        Some((_, kind)) if kind == "HO" => Ok(()),
-        _ => Err(AppError::Forbidden(format!(
-            "{} is not posted at head office, which is who reads the stores",
-            principal.username
-        ))),
-    }
+    infrastructure::store_reach(&state.db, &principal.username).await
+}
+
+/// May this caller open stores and install their servers?
+fn may_manage(principal: &Principal) -> bool {
+    principal.role >= Role::Admin && principal.relayed.is_none()
 }
 
 fn require_admin(principal: &Principal, what: &str) -> Result<(), AppError> {
-    if principal.role >= Role::Admin && principal.relayed.is_none() {
+    if may_manage(principal) {
         return Ok(());
     }
     Err(AppError::Forbidden(format!(
@@ -58,13 +59,15 @@ fn require_admin(principal: &Principal, what: &str) -> Result<(), AppError> {
     )))
 }
 
-/// `GET /api/v1/stores`: every store, by its code.
+/// `GET /api/v1/stores`: the stores within the caller's reach, by code.
 pub async fn list(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<infrastructure::StoreList>, AppError> {
-    require_head_office(&state, &principal).await?;
-    Ok(Json(infrastructure::list_stores(&state.db).await?))
+    let reach = reach_of(&state, &principal).await?;
+    Ok(Json(
+        infrastructure::list_stores(&state.db, &reach, may_manage(&principal)).await?,
+    ))
 }
 
 /// `GET /api/v1/stores/{unit}`: one store's page, with its checks.
@@ -73,9 +76,15 @@ pub async fn detail(
     Extension(principal): Extension<Principal>,
     Path(unit): Path<String>,
 ) -> Result<Json<infrastructure::StoreDetail>, AppError> {
-    require_head_office(&state, &principal).await?;
+    let unit = unit.trim();
+    if !reach_of(&state, &principal).await?.covers(unit) {
+        return Err(AppError::Forbidden(format!(
+            "{} may read only the store they are posted to",
+            principal.username
+        )));
+    }
     Ok(Json(
-        infrastructure::store_detail(&state.db, unit.trim()).await?,
+        infrastructure::store_detail(&state.db, unit, may_manage(&principal)).await?,
     ))
 }
 

@@ -60,8 +60,12 @@ pub const DEFAULT_STORE_INSTALLER_URL: &str = "/downloads/itulah-store-setup.msi
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct StorePic {
     pub employee_id: String,
-    /// The person's name, or their badge code when no profile says.
+    /// The person's name: their HR profile's, else the name on their login
+    /// or their invitation. Their badge code only when none of those says.
     pub name: String,
+    /// Their badge code (`ITL-62EF783F`), for a screen that shows it beside
+    /// the name.
+    pub code: String,
 }
 
 /// How many of the checks pass.
@@ -146,12 +150,43 @@ pub struct StoreDetail {
     pub checks: Vec<StoreCheck>,
     /// Getting ready, and every required check passes.
     pub can_open: bool,
+    /// Whether the caller may open the store and install its server — an
+    /// Admin at head office. The hub hides both buttons otherwise; the
+    /// server refuses them either way.
+    pub can_manage: bool,
 }
 
+/// The stores within the caller's reach: every one for head office, the
+/// owner, an Admin and IT; their own for a store's manager or supervisor.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct StoreList {
     pub items: Vec<StoreSummary>,
+    /// Whether the caller may open new stores and install servers — an Admin
+    /// at head office. The hub hides those buttons otherwise; the server
+    /// refuses them either way.
+    pub can_manage: bool,
+}
+
+/// Which stores a caller may read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StoreReach {
+    /// Every store: head office, the owner, an Admin, IT.
+    Every,
+    /// The one unit the caller is posted to.
+    Unit(String),
+    /// None: posted nowhere.
+    Nothing,
+}
+
+impl StoreReach {
+    pub fn covers(&self, unit_id: &str) -> bool {
+        match self {
+            Self::Every => true,
+            Self::Unit(mine) => mine == unit_id,
+            Self::Nothing => false,
+        }
+    }
 }
 
 /// `POST /api/v1/stores/{unit}/open`.
@@ -244,7 +279,7 @@ const STORE_FACTS: &str = "
     )
     SELECT st.unit_id, st.code, st.name, st.unit_status, st.opened_at,
            st.site_id, st.site_code, st.city, st.timezone,
-           pic.employee_id AS pic_employee_id, pic.pic_name,
+           pic.employee_id AS pic_employee_id, pic.pic_name, pic.pic_code,
            node.origin_id IS NOT NULL AS has_node,
            hb.received_at AS heartbeat_at,
            COALESCE(CASE WHEN jsonb_typeof(hb.status -> 'devices' -> 'terminals_waiting') = 'number'
@@ -268,10 +303,16 @@ const STORE_FACTS: &str = "
            NULLIF(btrim(addr.address), '') AS address
       FROM store st
       LEFT JOIN LATERAL (
-          SELECT p.employee_id, COALESCE(pr.full_name, e.code) AS pic_name
+          SELECT p.employee_id, e.code AS pic_code,
+                 COALESCE(pr.full_name, login.display_name,
+                          (SELECT i.name FROM user_invitation i
+                            WHERE i.employee_id = p.employee_id
+                            ORDER BY i.created_at DESC LIMIT 1),
+                          e.code) AS pic_name
             FROM unit_pic p
             JOIN employee e ON e.id = p.employee_id AND e.status = 'ACTIVE'
             LEFT JOIN employee_profile pr ON pr.employee_id = p.employee_id
+            LEFT JOIN app_user login ON login.employee_id = p.employee_id
            WHERE p.unit_id = st.unit_id
              AND p.valid_from <= st.today
              AND (p.valid_to IS NULL OR p.valid_to > st.today)
@@ -379,6 +420,7 @@ async fn store_facts(
         .map(|row| -> Result<StoreFacts, AppError> {
             let pic_employee: Option<String> = row.try_get("pic_employee_id")?;
             let pic_name: Option<String> = row.try_get("pic_name")?;
+            let pic_code: Option<String> = row.try_get("pic_code")?;
             Ok(StoreFacts {
                 unit_id: row.try_get("unit_id")?,
                 code: row.try_get("code")?,
@@ -389,9 +431,13 @@ async fn store_facts(
                 site_code: row.try_get("site_code")?,
                 city: row.try_get("city")?,
                 timezone: row.try_get("timezone")?,
-                pic: pic_employee.map(|employee_id| StorePic {
-                    name: pic_name.unwrap_or_else(|| employee_id.clone()),
-                    employee_id,
+                pic: pic_employee.map(|employee_id| {
+                    let code = pic_code.unwrap_or_else(|| employee_id.clone());
+                    StorePic {
+                        name: pic_name.unwrap_or_else(|| code.clone()),
+                        code,
+                        employee_id,
+                    }
                 }),
                 heartbeat_at: row.try_get("heartbeat_at")?,
                 has_node: row.try_get("has_node")?,
@@ -711,29 +757,83 @@ fn detail_of(facts: &StoreFacts, now: DateTime<Utc>) -> (StoreDetail, Vec<String
         address: facts.address.clone(),
         checks: judged.into_iter().map(|one| one.check).collect(),
         can_open,
+        can_manage: false,
     };
     (detail, blockers)
 }
 
 // ── the reads ────────────────────────────────────────────────────────────
 
-/// Every store, by its client code.
-pub async fn list_stores(pool: &PgPool) -> Result<StoreList, AppError> {
-    let mut connection = pool.acquire().await?;
+/// Which stores this login may read: every one when their job role signs in
+/// at every server (the owner, an Admin, IT) or they are posted at head
+/// office; otherwise the unit they are posted to, which for a store's manager
+/// or supervisor is their store. The rung's own answer — an Admin reads every
+/// store — is the handler's, before this is asked.
+pub async fn store_reach(pool: &PgPool, username: &str) -> Result<StoreReach, AppError> {
+    let row = sqlx::query(
+        "SELECT COALESCE(r.node_reach = 'EVERY', false) AS every_server,
+                a.unit_id, unit.kind
+           FROM app_user u
+           LEFT JOIN job_role r ON r.code = u.role_code
+           LEFT JOIN employee_assignment a
+                  ON a.employee_id = u.employee_id AND a.valid_to IS NULL
+           LEFT JOIN unit ON unit.id = a.unit_id
+          WHERE u.username = $1",
+    )
+    .bind(username)
+    .fetch_optional(pool)
+    .await?;
+    let Some(row) = row else {
+        return Ok(StoreReach::Nothing);
+    };
+    let every_server: bool = row.try_get("every_server")?;
+    let unit_id: Option<String> = row.try_get("unit_id")?;
+    let kind: Option<String> = row.try_get("kind")?;
+    Ok(if every_server || kind.as_deref() == Some("HO") {
+        StoreReach::Every
+    } else {
+        unit_id.map_or(StoreReach::Nothing, StoreReach::Unit)
+    })
+}
+
+/// The stores within `reach`, by their client code.
+pub async fn list_stores(
+    pool: &PgPool,
+    reach: &StoreReach,
+    can_manage: bool,
+) -> Result<StoreList, AppError> {
+    let facts = match reach {
+        StoreReach::Nothing => Vec::new(),
+        StoreReach::Every => {
+            let mut connection = pool.acquire().await?;
+            store_facts(&mut connection, None).await?
+        }
+        // `STORE_FACTS` keeps units of kind STORE only, so somebody posted
+        // at a unit that is not a store is given an empty list.
+        StoreReach::Unit(unit_id) => {
+            let mut connection = pool.acquire().await?;
+            store_facts(&mut connection, Some(unit_id)).await?
+        }
+    };
     let now = Utc::now();
-    let items = store_facts(&mut connection, None)
-        .await?
+    let items = facts
         .iter()
         .map(|facts| summary_of(facts, &judge(facts, now), now))
         .collect();
-    Ok(StoreList { items })
+    Ok(StoreList { items, can_manage })
 }
 
 /// One store's page: its summary, address and checks.
-pub async fn store_detail(pool: &PgPool, unit_id: &str) -> Result<StoreDetail, AppError> {
+pub async fn store_detail(
+    pool: &PgPool,
+    unit_id: &str,
+    can_manage: bool,
+) -> Result<StoreDetail, AppError> {
     let mut connection = pool.acquire().await?;
     let facts = one_store(&mut connection, unit_id).await?;
-    Ok(detail_of(&facts, Utc::now()).0)
+    let mut detail = detail_of(&facts, Utc::now()).0;
+    detail.can_manage = can_manage;
+    Ok(detail)
 }
 
 async fn one_store(connection: &mut PgConnection, unit_id: &str) -> Result<StoreFacts, AppError> {
@@ -1012,6 +1112,7 @@ mod tests {
         ready.pic = Some(StorePic {
             employee_id: "e1".into(),
             name: "Rina".into(),
+            code: "ITL-62EF783F".into(),
         });
         ready.received_reference = Some("ALR-00000012".into());
         ready.received_at = Some(now - Duration::hours(2));

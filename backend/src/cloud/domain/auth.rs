@@ -266,9 +266,9 @@ pub fn required_role(method: &str, path: &str) -> Role {
         return Role::Admin;
     }
     // Opening a store and issuing its server's install code are head
-    // office's Admin's (`http/stores.rs`). Reading the stores is head office's
-    // — an Admin or anybody posted there — which the handler checks, so the
-    // read keeps the blanket rule below.
+    // office's Admin's (`http/stores.rs`). Reading the stores follows reach —
+    // every store for head office, one's own for a store's manager — which
+    // the handler checks, so the read keeps the blanket rule below.
     if (path == "/api/v1/stores" || path.starts_with("/api/v1/stores/"))
         && !method.eq_ignore_ascii_case("GET")
     {
