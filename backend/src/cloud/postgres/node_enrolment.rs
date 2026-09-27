@@ -322,13 +322,26 @@ pub async fn claim_node_enrolment(
     .bind(&claimed_from)
     .execute(&mut *tx)
     .await?;
+    let site_id: String = row.get("site_id");
+    // The page at the shop says which store this machine is becoming the
+    // server for by the code and name people know, never the internal id.
+    let site = sqlx::query("SELECT code, name FROM site WHERE id = $1")
+        .bind(&site_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let (site_code, site_name) = match site {
+        Some(site) => (site.try_get("code")?, site.try_get("name")?),
+        None => (None, None),
+    };
     tx.commit().await?;
     Ok(ClaimAnswer {
         enrolment_id,
         origin_id: row.get("origin_id"),
-        site_id: row.get("site_id"),
+        site_id,
         node_role: row.get("node_role"),
         verification,
+        site_code,
+        site_name,
     })
 }
 
