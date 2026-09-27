@@ -47,4 +47,4 @@ UPDATE edge_transfer_allotment_attribution attribution
    AND attribution.release_origin_id IS NULL;
 
 COMMENT ON COLUMN edge_transfer_allotment_attribution.release_command_id IS
-    'The inventory.in_transit.release.v1 command that told the origin to let go of this EPC (0612); NULL until its node can take one.';
+    'The inventory.in_transit.release.v1 command that told the origin to let go of this EPC (0613); NULL until its node can take one.';
