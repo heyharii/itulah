@@ -206,6 +206,9 @@ pub enum RecordKind {
     RfidDevice,
     Origin,
     SyncCommand,
+    // The organisation: a store, the Gudang, head office. What head office
+    // opens, acts on and is told about (0649).
+    Unit,
     // Workplace
     Document,
     Discussion,
@@ -221,7 +224,7 @@ impl RecordKind {
     /// Exported because two guards read it: the conformance test that compares
     /// this list against the `record_kind` table, and the catalogue that
     /// records which kind each route files under.
-    pub const ALL: [Self; 72] = [
+    pub const ALL: [Self; 73] = [
         Self::Article,
         Self::ArticleSetup,
         Self::Colour,
@@ -288,6 +291,7 @@ impl RecordKind {
         Self::RfidDevice,
         Self::Origin,
         Self::SyncCommand,
+        Self::Unit,
         Self::Document,
         Self::Discussion,
         Self::Conversation,
@@ -365,6 +369,7 @@ impl RecordKind {
             Self::RfidDevice => "rfid_device",
             Self::Origin => "origin",
             Self::SyncCommand => "sync_command",
+            Self::Unit => "unit",
             Self::Document => "document",
             Self::Discussion => "discussion",
             Self::Conversation => "conversation",
@@ -444,6 +449,7 @@ impl RecordKind {
             Self::RfidDevice => "RFID device",
             Self::Origin => "Node",
             Self::SyncCommand => "Sync command",
+            Self::Unit => "Unit",
             Self::Document => "Document",
             Self::Discussion => "Discussion",
             Self::Conversation => "Conversation",
@@ -535,6 +541,7 @@ impl RecordKind {
             Self::HireProposal => "/api/v1/hire-proposals",
             Self::AppUser | Self::RfidDevice | Self::Origin => "/api/v1/auth/users",
             Self::SyncCommand => "/api/v1/sync/commands",
+            Self::Unit => "/api/v1/stores",
             Self::Document => "/api/v1/documents",
             Self::Discussion => "/api/v1/discussions",
             Self::Conversation => "/api/v1/chat/conversations",
@@ -690,6 +697,9 @@ const ROUTE_SUBJECTS: &[(&str, RecordKind)] = &[
     // line is an act against that supplier item — which is the record with a
     // sheet, and the one a buyer would ask about.
     ("/api/v1/sourcing-basket/{}", RecordKind::SupplierItem),
+    // A store's page and everything head office does to it — open it, act
+    // on its server, answer its exceptions — is about the store's unit.
+    ("/api/v1/stores/{}", RecordKind::Unit),
     ("/api/v1/supplier-items/{}", RecordKind::SupplierItem),
     ("/api/v1/suppliers/{}", RecordKind::Supplier),
     ("/api/v1/sync/commands/{}", RecordKind::SyncCommand),
