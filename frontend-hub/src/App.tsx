@@ -116,18 +116,20 @@ export function App() {
             clearSignedOutElsewhere()
             // Writing the answer rather than waiting for a refetch clears the
             // login box without a flicker: the login response already carries
-            // the person the server just authenticated. But `SessionUser`
-            // predates job roles and carries none of `role_code`, `sections`
-            // or `read_only` the way `/auth/me`'s `CloudMe` does — so this is
-            // believed only for a moment, and invalidated right behind it,
-            // rather than forever (`useIdentity`'s `staleTime` is `Infinity`):
-            // the sidebar's section gate and `useCanWrite` need the real
-            // answer, not this narrower one.
+            // the person the server just authenticated. Cloud's `login` now
+            // answers with the same `role_code`/`role_name`/`sections`/
+            // `read_only` `/auth/me`'s `CloudMe` does, so this is believed
+            // outright rather than for a moment. An Edge login, or a Cloud
+            // node that predates the fields, omits them — `role_code` is the
+            // one that matters, since a fail-open `useSections`/`useCanWrite`
+            // treat its absence as "not yet answered" — and only then is
+            // `/auth/me` asked to fill in the rest.
             queryClient.setQueryData<Identity | null>(
               cacheKey.me(),
               signedIn.user as Identity
             )
-            void queryClient.invalidateQueries({ queryKey: cacheKey.me() })
+            if (signedIn.user.role_code === undefined)
+              void queryClient.invalidateQueries({ queryKey: cacheKey.me() })
           }}
         />
       </main>
