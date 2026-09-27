@@ -32,17 +32,19 @@ export function initials(name: string): string {
 
 /// The codes the next `count` stores will get, after the ones that exist.
 ///
-/// A preview only: the server assigns the codes, in the same order, and its
-/// answer replaces these. Read from the highest existing number rather than
-/// the count, so a store that was closed does not have its code handed out
-/// again.
+/// A preview only: the server gives each new store the next number in the
+/// client's `C001` series — its unit's code (`unit.code`) — in the same
+/// order, and its answer replaces these. Read from the highest number in the
+/// series rather than the count, so a store that was closed does not have
+/// its code handed out again; a code outside the series (`TGL`) is not a
+/// number to follow, here or on the server.
 export function nextCodes(
   existing: readonly SetupStore[],
   count: number
 ): string[] {
   const highest = existing.reduce((top, store) => {
-    const number = Number.parseInt(store.unit_code.replace(/\D/g, ""), 10)
-    return Number.isFinite(number) ? Math.max(top, number) : top
+    const series = /^C(\d{1,9})$/.exec(store.unit_code)
+    return series ? Math.max(top, Number(series[1])) : top
   }, 0)
   return Array.from(
     { length: count },

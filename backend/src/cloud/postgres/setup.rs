@@ -3,19 +3,23 @@
 //!
 //! # Opening a store is data
 //!
-//! A store is not one row. It is a site, its floor, back-room and reject
-//! pools, a return pool for it at the warehouse, a leaf per outbound stage at
-//! the warehouse with its name on it (0009, 0252), a place per pool per state,
-//! a posting for HR (`org_place`) and the payment methods its tills show
+//! A store is not one row. It is a unit — what owns the books and the people,
+//! and what the client's code names (0600) — and the unit's shop: a site, its
+//! back-room, floor, reject and outbound pools, a return pool for it at the
+//! Gudang, a place per pool per state, and the payment methods its tills show
 //! (0474). That shape has changed a dozen times since 0002 wrote it with
 //! `generate_series(1, 13)`, and it will change again.
 //!
-//! So the shape is data: `site_template_row` (0521) holds whole pool and place
-//! rows taken from the first store and the head office, with the ids and the
-//! name as tokens. Opening a store — or making the head office, for a company
-//! that has none — puts the new values in and inserts the rows through
-//! `jsonb_populate_record`. No store has to exist for the first one to be
-//! opened, and nothing here names a pool.
+//! So the shape is data, and none of it is written here. Which pools a site
+//! of each kind gets is `pool_template` (0610), and the database furnishes a
+//! site the moment it is inserted: `site_is_given_its_pools` gives it every
+//! pool its kind's template names, each with its places, and
+//! `store_unit_is_given_its_return_pools` gives a new store unit its return
+//! pool at head office's Gudang. Opening a store — or making head office, for
+//! a company that has none — is inserting the unit and then its site. No
+//! store has to exist for the first one to be opened, and nothing here names
+//! a pool. (0521's `site_template_row`, which copied the first store's rows,
+//! was a second source of the same shape; 0622 retired it.)
 //!
 //! # Payment methods: cash only
 //!
@@ -38,6 +42,13 @@ use uuid::Uuid;
 
 const LEGAL_FORMS: [&str; 4] = ["PT", "CV", "UD", "PERORANGAN"];
 const MAX_STORES_AT_ONCE: usize = 50;
+/// The longest client code a store may be given. `unit.code` sets no length,
+/// but the shop prints as the code with `-TOKO` after it, and `site.code`
+/// holds at most 32 characters (0603).
+const MAX_UNIT_CODE: usize = 20;
+/// The longest number read as part of the client's `C001` series: nine
+/// digits, which an `int` holds on both sides of the wire.
+const MAX_SERIES_DIGITS: usize = 9;
 
 /// The company as its owner described it.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -71,9 +82,12 @@ pub struct SaveSetupCompanyRequest {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct SetupStore {
-    /// The client code, `C001` — what the store is called on paper.
+    /// The store's client code, `C001` — its unit's code (`unit.code`), what
+    /// the store is called on paper.
     pub unit_code: String,
+    /// The unit's name, `Bumiayu`.
     pub name: String,
+    /// Where its shop is, and the clock the shop keeps.
     pub city: String,
     pub timezone: String,
     pub node_connected: bool,
@@ -113,6 +127,14 @@ pub struct NewStore {
     pub name: String,
     /// Empty when not known yet; the clock then defaults to WIB.
     pub city: String,
+    /// The client's own code for the store, `C014`, when the caller has one.
+    /// It becomes the unit's code (`unit.code`), the one place a client code
+    /// lives, and the shop prints as `C014-TOKO`. Absent or blank, the store
+    /// is given the next number in the client's `C001` series — which is what
+    /// the wizard does: it sends no code and shows that number as a preview.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub code: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -169,8 +191,12 @@ pub async fn setup_status(pool: &PgPool) -> Result<SetupStatus, AppError> {
         })
         .transpose()?;
 
+    // A store is a unit of kind STORE, called by its code and its name; the
+    // city, the clock, the node, the tender and the address are its shop's.
+    // One row per shop — which is one per store while no store trades from
+    // two premises.
     let store_rows = sqlx::query(
-        "SELECT COALESCE(s.client_code, s.id) AS unit_code, s.name, s.city, s.timezone,
+        "SELECT u.code AS unit_code, u.name, s.city, s.timezone,
                 EXISTS (SELECT 1 FROM sync_origin_credential c
                          WHERE c.site_id = s.id) AS node_connected,
                 EXISTS (SELECT 1 FROM payment_method_site m
@@ -181,8 +207,9 @@ pub async fn setup_status(pool: &PgPool) -> Result<SetupStatus, AppError> {
                          WHERE d.site_id = s.id
                            AND btrim(COALESCE(d.address, '')) <> '') AS has_address
            FROM site s
-          WHERE s.kind = 'STORE'
-          ORDER BY s.client_code NULLS LAST, s.id",
+           JOIN unit u ON u.id = s.unit_id
+          WHERE u.kind = 'STORE' AND s.kind = 'STORE'
+          ORDER BY u.code, s.id",
     )
     .fetch_all(pool)
     .await?;
@@ -294,8 +321,9 @@ pub async fn save_setup_company(
     };
 
     let mut transaction = pool.begin().await?;
-    // A company with no head office yet gets one, from the template: the
-    // office and, when there is one, the warehouse are the same site today.
+    // A company with no head office yet gets one: its unit and its site, the
+    // site furnished from the pool template. The office and, when there is
+    // one, the warehouse are the same site today.
     if head_office(&mut transaction).await?.is_none() {
         open_head_office(&mut transaction).await?;
     }
@@ -350,6 +378,31 @@ pub async fn save_setup_company(
 // ── step 2: the stores ───────────────────────────────────────────────────
 
 /// Open one store or fifty, in one transaction — all of them or none.
+///
+/// # The unit first, then its shop
+///
+/// A store is a unit (0600): what owns the books and the people, and what the
+/// client's code names. So each one is made in that order — the unit, with its
+/// code and its name, and then its shop, a site that belongs to it
+/// (`site.unit_id`), keeps the city's clock and prints as `C014-TOKO`
+/// (`site.code`, 0603). The code is written on the unit and nowhere else, and
+/// the database furnishes both as they land: the unit its return pool at the
+/// Gudang, the shop its own pools and places (0610).
+///
+/// # The code
+///
+/// The caller's own, when it sends one; otherwise the next number in the
+/// client's `C001` series, after the highest any unit holds — not after the
+/// count, so a store that closed never has its code handed out again. A code
+/// another unit already holds is refused by name before anything is written.
+///
+/// # Ids are minted, never read back
+///
+/// The unit's and the shop's id are internal and never shown. They are made
+/// from the code at birth — `store-c014`, the shop keyed like its unit, as
+/// every store so far is — so they are unique without asking anything, and
+/// nothing reads meaning out of them afterwards: the next store's code comes
+/// from `unit.code`, and what a site is comes from its row.
 pub async fn open_stores(
     pool: &PgPool,
     request: OpenStoresRequest,
@@ -365,16 +418,30 @@ pub async fn open_stores(
             "at most {MAX_STORES_AT_ONCE} stores at once"
         )));
     }
-    let mut wanted = Vec::with_capacity(request.stores.len());
+    // Each store as asked for: its own code when one was sent, its name and
+    // its city.
+    let mut wanted: Vec<(Option<String>, String, String)> =
+        Vec::with_capacity(request.stores.len());
     for store in &request.stores {
         let name = required(&store.name, "store name", 80)?;
+        let code = unit_code_of(store.code.as_deref(), &name)?;
         let city = store.city.trim().to_owned();
         if city.chars().count() > 80 {
             return Err(AppError::Validation(format!(
                 "the city for {name} is too long"
             )));
         }
-        wanted.push((name, city));
+        if let Some(code) = &code {
+            if wanted
+                .iter()
+                .any(|(other, _, _)| other.as_ref() == Some(code))
+            {
+                return Err(AppError::Validation(format!(
+                    "the code {code} is given to two stores"
+                )));
+            }
+        }
+        wanted.push((code, name, city));
     }
 
     let mut transaction = pool.begin().await?;
@@ -388,67 +455,102 @@ pub async fn open_stores(
     {
         return Ok(serde_json::from_value(response)?);
     }
-    // Two people opening stores at once would read the same "next number".
+    // Two people opening stores at once would read the same next number, or
+    // both find a code free.
     sqlx::query("SELECT pg_advisory_xact_lock(hashtext('setup.stores.open'))")
         .execute(&mut *transaction)
         .await?;
 
-    // A store's return pool and outbound leaves live at the head office, so
-    // there must be one — and a template to make the store from.
-    let ho_id = head_office(&mut transaction)
-        .await?
-        .ok_or_else(|| AppError::Conflict("describe the business first".into()))?;
-    let has_template: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM site_template_row WHERE template = 'STORE')",
-    )
-    .fetch_one(&mut *transaction)
-    .await?;
-    if !has_template {
+    // A store's returned goods land at head office's Gudang, so there must be
+    // a head office — found by its kind — and a shop must have pools to open
+    // with.
+    if head_office(&mut transaction).await?.is_none() {
+        return Err(AppError::Conflict("describe the business first".into()));
+    }
+    if !has_pool_template(&mut transaction, "STORE").await? {
         return Err(AppError::Conflict(
             "there is no store template to open a store from".into(),
         ));
     }
 
-    let mut next_id: i32 = sqlx::query_scalar(
-        "SELECT COALESCE(max(substring(id FROM '^store-([0-9]+)$')::int), 0) FROM site",
+    // The client's series continues after the highest number any unit holds,
+    // and after any the caller sent, so a code given in this batch is not
+    // given again to the row below it.
+    let mut highest: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(max(substring(code FROM '^C([0-9]{1,9})$')::int), 0) FROM unit",
     )
     .fetch_one(&mut *transaction)
     .await?;
-    let mut next_code: i32 = sqlx::query_scalar(
-        "SELECT COALESCE(max(substring(client_code FROM '^C([0-9]+)$')::int), 0) FROM site",
-    )
-    .fetch_one(&mut *transaction)
-    .await?;
+    for (code, _, _) in &wanted {
+        if let Some(number) = code.as_deref().and_then(series_number) {
+            highest = highest.max(number);
+        }
+    }
+    let mut stores = Vec::with_capacity(wanted.len());
+    for (code, name, city) in wanted {
+        let code = match code {
+            Some(code) => code,
+            None => {
+                highest += 1;
+                format!("C{highest:03}")
+            }
+        };
+        stores.push((code, name, city));
+    }
 
-    let mut created = Vec::with_capacity(wanted.len());
-    for (name, city) in wanted {
-        next_id += 1;
-        next_code += 1;
-        let site_id = format!("store-{next_id:02}");
-        let code = format!("C{next_code:03}");
+    // A code somebody already has is refused by name, before any row is
+    // written, so the owner reads which one rather than a unique index.
+    let codes: Vec<String> = stores.iter().map(|(code, _, _)| code.clone()).collect();
+    let taken: Vec<String> =
+        sqlx::query_scalar("SELECT code FROM unit WHERE code = ANY($1) ORDER BY code")
+            .bind(&codes)
+            .fetch_all(&mut *transaction)
+            .await?;
+    if !taken.is_empty() {
+        let verb = if taken.len() == 1 {
+            "belongs"
+        } else {
+            "belong"
+        };
+        return Err(AppError::Conflict(format!(
+            "{} already {verb} to another unit",
+            taken.join(", ")
+        )));
+    }
+
+    let mut created = Vec::with_capacity(stores.len());
+    for (code, name, city) in stores {
+        let unit_id = format!("store-{}", code.to_ascii_lowercase());
+        let site_id = unit_id.clone();
         let timezone = timezone_of(&city);
 
+        // The unit: the books, the people and the client's code are its. Its
+        // return pool at the Gudang comes with it
+        // (`store_unit_is_given_its_return_pools`).
+        sqlx::query("INSERT INTO unit (id, code, name, kind) VALUES ($1, $2, $3, 'STORE')")
+            .bind(&unit_id)
+            .bind(&code)
+            .bind(&name)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| duplicate_as_conflict(error, &code))?;
+
+        // Its shop, which belongs to it and prints as its code. Its pools and
+        // their places come with it (`site_is_given_its_pools`).
         sqlx::query(
-            "INSERT INTO site (id, name, kind, edge_node_id, client_code, city, timezone)
-             VALUES ($1, $2, 'STORE', $3, $4, $5, $6)",
+            "INSERT INTO site (id, name, kind, edge_node_id, unit_id, code, city, timezone)
+             VALUES ($1, $2, 'STORE', $3, $4, $5, $6, $7)",
         )
         .bind(&site_id)
         .bind(&name)
-        .bind(format!("store-edge-{next_id:02}"))
-        .bind(&code)
+        .bind(format!("{site_id}-edge"))
+        .bind(&unit_id)
+        .bind(format!("{code}-TOKO"))
         .bind(&city)
         .bind(timezone)
         .execute(&mut *transaction)
         .await
-        .map_err(|error| duplicate_as_conflict(error, &name))?;
-
-        instantiate(&mut transaction, "STORE", &site_id, &name, &ho_id).await?;
-
-        sqlx::query("INSERT INTO org_place (id, name, kind, site_id) VALUES ($1, $2, 'STORE', $1)")
-            .bind(&site_id)
-            .bind(&name)
-            .execute(&mut *transaction)
-            .await?;
+        .map_err(|error| duplicate_as_conflict(error, &code))?;
 
         sqlx::query(
             "INSERT INTO payment_method_site (method_code, site_id, set_by)
@@ -480,85 +582,77 @@ pub async fn open_stores(
     Ok(answer)
 }
 
-/// The head office, when there is one: the first site of kind HO.
+/// Head office's site, when there is one — found by its kind, through the one
+/// definition of head office (`head_office_site_id()`, 0603), and never by an
+/// id.
 async fn head_office(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<Option<String>, AppError> {
     Ok(
-        sqlx::query_scalar("SELECT id FROM site WHERE kind = 'HO' ORDER BY created_at, id LIMIT 1")
-            .fetch_optional(&mut **transaction)
+        sqlx::query_scalar::<_, Option<String>>("SELECT head_office_site_id()")
+            .fetch_one(&mut **transaction)
             .await?,
     )
 }
 
-/// Make the head office for a company that has none: the site, its pools and
-/// places from the template, and the HR posting everybody at head office is
-/// filed under.
-///
-/// The id is `dc` because `operational_pool` still checks it by name on a
-/// store's return pool (0001, see 0521). It is internal and never shown; the
-/// code people see is `HO`.
-async fn open_head_office(transaction: &mut Transaction<'_, Postgres>) -> Result<(), AppError> {
-    const HO: &str = "dc";
-    let has_template: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM site_template_row WHERE template = 'HEAD_OFFICE')",
+/// Whether the pool template furnishes a site of this kind (0610). Without it
+/// a site would open with nowhere to put a single piece, so it is refused
+/// instead.
+async fn has_pool_template(
+    transaction: &mut Transaction<'_, Postgres>,
+    site_kind: &str,
+) -> Result<bool, AppError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM pool_template WHERE site_kind = $1)",
     )
+    .bind(site_kind)
     .fetch_one(&mut **transaction)
-    .await?;
-    if !has_template {
+    .await?)
+}
+
+/// Make head office for a company that has none: its unit, then its site — the
+/// same order a store is made in, and the same furnishing: the site is given
+/// the Gudang's pools and places by the template as it lands (0610). A company
+/// that already has the unit of kind HO keeps it (`head_office_unit_id()`,
+/// 0605); only the premises are made.
+///
+/// Both ids are minted here, where there is nothing yet to look up: `ho` for
+/// the unit, as head office's unit is keyed wherever it already exists, and
+/// `ho-gudang` for its site. They are internal and never shown — people read
+/// the unit's code, `HO`, and the site's, `HO-GUDANG` — and everything after
+/// the insert finds head office by its kind.
+async fn open_head_office(transaction: &mut Transaction<'_, Postgres>) -> Result<(), AppError> {
+    if !has_pool_template(transaction, "HO").await? {
         return Err(AppError::Conflict(
             "there is no head-office template to set the company up from".into(),
         ));
     }
+
+    // The unit people at head office are posted to, and whose books carry
+    // every inter-unit balance: the one of kind HO, made when absent.
+    let existing = sqlx::query_scalar::<_, Option<String>>("SELECT head_office_unit_id()")
+        .fetch_one(&mut **transaction)
+        .await?;
+    let unit_id: String = match existing {
+        Some(unit_id) => unit_id,
+        None => {
+            sqlx::query_scalar(
+                "INSERT INTO unit (id, code, name, kind)
+                 VALUES ('ho', 'HO', 'Head Office', 'HO')
+                 RETURNING id",
+            )
+            .fetch_one(&mut **transaction)
+            .await?
+        }
+    };
+
     sqlx::query(
-        "INSERT INTO site (id, name, kind, edge_node_id, client_code)
-         VALUES ($1, 'Head office', 'HO', $2, 'HO')",
+        "INSERT INTO site (id, name, kind, edge_node_id, unit_id, code)
+         VALUES ('ho-gudang', 'Head office', 'HO', 'ho-gudang-edge', $1, 'HO-GUDANG')",
     )
-    .bind(HO)
-    .bind(format!("{HO}-edge-01"))
+    .bind(&unit_id)
     .execute(&mut **transaction)
     .await?;
-    // The head-office unit that people are posted to comes with the site:
-    // the insert above names no unit, so `site_resolves_its_unit` (0620)
-    // finds or makes the one of kind HO. `org_place` is gone (0601).
-    instantiate(transaction, "HEAD_OFFICE", "no-store", "no-store", HO).await?;
-    Ok(())
-}
-
-/// Insert a template's rows with the tokens replaced: pools first, then the
-/// places on them.
-///
-/// The replacement is textual, on the JSON, so the name goes in JSON-escaped —
-/// a store called `Toko "Baru"` must not end the string it is written into.
-async fn instantiate(
-    transaction: &mut Transaction<'_, Postgres>,
-    template: &str,
-    site_id: &str,
-    name: &str,
-    ho_id: &str,
-) -> Result<(), AppError> {
-    let quoted = serde_json::to_string(name)?;
-    let escaped_name = &quoted[1..quoted.len() - 1];
-    for table in ["operational_pool", "inventory_place"] {
-        // The table is one of two literals above, never input.
-        sqlx::query(&format!(
-            "INSERT INTO {table}
-             SELECT (jsonb_populate_record(NULL::{table},
-                      replace(replace(replace(r.row_json::text,
-                          '{{{{store}}}}', $2),
-                          '{{{{store_name}}}}', $3),
-                          '{{{{ho}}}}', $4)::jsonb)).*
-               FROM site_template_row r
-              WHERE r.template = $1 AND r.table_name = '{table}'
-              ORDER BY r.position"
-        ))
-        .bind(template)
-        .bind(site_id)
-        .bind(escaped_name)
-        .bind(ho_id)
-        .execute(&mut **transaction)
-        .await?;
-    }
     Ok(())
 }
 
@@ -653,6 +747,44 @@ fn required(value: &str, label: &str, max: usize) -> Result<String, AppError> {
     Ok(trimmed.to_owned())
 }
 
+/// A store's client code as the caller sent it, if it sent one: ` c014` is
+/// `C014`, and blank is none — the store is then given the next number in the
+/// series.
+///
+/// Letters and digits, as `unit.code` admits (0600), and short enough that
+/// the shop's printed code, `C014-TOKO`, still fits `site.code` (0603).
+fn unit_code_of(value: Option<&str>, store: &str) -> Result<Option<String>, AppError> {
+    let code = value.unwrap_or_default().trim().to_ascii_uppercase();
+    if code.is_empty() {
+        return Ok(None);
+    }
+    if code.len() > MAX_UNIT_CODE
+        || !code
+            .chars()
+            .all(|character| character.is_ascii_uppercase() || character.is_ascii_digit())
+    {
+        return Err(AppError::Validation(format!(
+            "{code} is not a store code for {store}: letters and digits only, at \
+             most {MAX_UNIT_CODE}, e.g. C014"
+        )));
+    }
+    Ok(Some(code))
+}
+
+/// The number a code holds in the client's `C001` series — `C014` is 14 — or
+/// `None` for a code outside it. The same reading as the SQL that finds the
+/// highest one (`open_stores`) and the hub's preview (`screens/setup/names.ts`).
+fn series_number(code: &str) -> Option<i32> {
+    let digits = code.strip_prefix('C')?;
+    if digits.is_empty()
+        || digits.len() > MAX_SERIES_DIGITS
+        || !digits.chars().all(|character| character.is_ascii_digit())
+    {
+        return None;
+    }
+    digits.parse().ok()
+}
+
 /// An NPWP as somebody typed it, as the sixteen digits that are stored.
 ///
 /// Punctuation is dropped (`01.234.567.8-901.000` is how it is printed on the
@@ -688,7 +820,7 @@ fn period_of(value: &str) -> Result<(i32, i32), AppError> {
 /// typed (`screens/setup/names.ts`), decided here because the site stores it.
 /// Western Indonesia unless the city is one of the central or eastern ones.
 fn timezone_of(city: &str) -> &'static str {
-    const WITA: [&str; 17] = [
+    const WITA: [&str; 18] = [
         "bali",
         "denpasar",
         "badung",
@@ -706,6 +838,7 @@ fn timezone_of(city: &str) -> &'static str {
         "kendari",
         "gorontalo",
         "bontang",
+        "tarakan",
     ];
     const WIT: [&str; 10] = [
         "jayapura",
@@ -734,10 +867,13 @@ fn timezone_of(city: &str) -> &'static str {
     }
 }
 
-fn duplicate_as_conflict(error: sqlx::Error, name: &str) -> AppError {
+/// A unique index that refused a new unit or its shop, as a conflict naming
+/// the store's code: another request took it in the meantime, or a site
+/// already has the id or the printed code the new one would get.
+fn duplicate_as_conflict(error: sqlx::Error, code: &str) -> AppError {
     match &error {
         sqlx::Error::Database(db) if db.code().as_deref() == Some("23505") => AppError::Conflict(
-            format!("store {name} collides with a code that already exists"),
+            format!("store {code} collides with a unit or a site that already exists"),
         ),
         _ => AppError::Database(error),
     }
