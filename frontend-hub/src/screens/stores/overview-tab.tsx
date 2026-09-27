@@ -13,6 +13,7 @@ import {
   type StoreDetail as StoreDetailAnswer,
 } from "@/lib/queries/stores"
 import { cn } from "@/lib/utils"
+import { FleetStoreStrip } from "@/screens/system/fleet-shared"
 import { Section } from "@/screens/stores/shared"
 
 /// Name, address, PIC, the checklist, and the one button this whole module
@@ -34,6 +35,12 @@ export function OverviewTab({ detail }: { detail: StoreDetailAnswer }) {
 
   return (
     <div className="flex max-w-2xl flex-col gap-5">
+      {/* The same row the fleet page draws for this store
+          (`screens/system/fleet-health.tsx`), one line — its server, its
+          sync and its devices are the Server, Devices and Sync tabs; the
+          full detail is System › Store servers. */}
+      <FleetStoreStrip unitId={store.unit_id} />
+
       <Card className="p-4">
         <Facts>
           <Fact term="Code">{store.code}</Fact>
