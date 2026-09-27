@@ -865,13 +865,26 @@ impl ActionType for CompleteStage {
                 claim: ClaimKind::ReadyForPickup,
                 lines: lines_of(&handled),
             }),
-            StageKind::Verification => effects.extend(movement(
-                index,
-                kind,
-                PoolStage::OutsideParty,
-                PoolStage::Pending,
-                &handled,
-            )),
+            // The approved count is the receipt. It waits in Pending only for
+            // a template that still puts goods away after it (version 1);
+            // without a Putaway stage — the company's process (0629) — the
+            // goods are the Gudang's stock the moment the count is approved.
+            StageKind::Verification => {
+                let putaway_follows = state.stages[index + 1..]
+                    .iter()
+                    .any(|later| later.kind() == StageKind::Putaway);
+                effects.extend(movement(
+                    index,
+                    kind,
+                    PoolStage::OutsideParty,
+                    if putaway_follows {
+                        PoolStage::Pending
+                    } else {
+                        PoolStage::DestinationPool
+                    },
+                    &handled,
+                ))
+            }
             StageKind::Putaway => effects.extend(movement(
                 index,
                 kind,

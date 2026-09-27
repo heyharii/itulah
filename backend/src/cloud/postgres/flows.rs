@@ -2445,10 +2445,9 @@ pub async fn start_flow_for_allotment_tx(
 
 /// Start the receiving flow for a purchase order delivered to a site, inside
 /// the order's transaction. The route is supplier → the site, which 0615 and
-/// 0616 both refuse unless the site is head office's.
-///
-/// NOT YET CALLED: the purchase-order activation path should call it with the
-/// buyer's actor and `FlowRole::HoBuyer`.
+/// 0616 both refuse unless the site is head office's. Both ways an order is
+/// raised call it — `create_purchase_order_as` and
+/// `create_catalog_purchase_order` — with the buyer as `FlowRole::HoBuyer`.
 pub async fn start_flow_for_purchase_order_tx(
     tx: &mut Transaction<'_, Postgres>,
     purchase_order_id: Uuid,

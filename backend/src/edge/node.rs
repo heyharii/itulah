@@ -25,8 +25,8 @@ use crate::edge::console::{self, StopReason};
 use crate::edge::heartbeat;
 use crate::edge::status::StatusSource;
 use crate::edge::{
-    enrolment, store_router_with_sync, EdgeAuth, EdgeAuthConfig, EdgeRole, NodeContext, SiteId,
-    SqliteEdge,
+    dc_router_with_sync, enrolment, store_router_with_sync, EdgeAuth, EdgeAuthConfig, EdgeRole,
+    NodeContext, SiteId, SqliteEdge,
 };
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
@@ -595,7 +595,14 @@ pub async fn run(
     let site_id =
         SiteId::new(std::env::var("INVENTORY_SITE_ID").unwrap_or_else(|_| "store-07".into()))?;
     let node_id = std::env::var("INVENTORY_NODE_ID").unwrap_or_else(|_| format!("{site_id}-edge"));
-    let node = NodeContext::new(node_id, EdgeRole::Store, site_id)?;
+    // What head office enrolled this machine as: a shop's server or the
+    // Gudang's. One program serves both; the routes follow the role. A
+    // node.env from before the role was written down is a shop's.
+    let role = match std::env::var("INVENTORY_NODE_ROLE") {
+        Ok(role) if !role.trim().is_empty() => role.trim().parse::<EdgeRole>()?,
+        _ => EdgeRole::Store,
+    };
+    let node = NodeContext::new(node_id, role, site_id)?;
     // Kept for the LAN advertisement, which starts once the listener is up.
     let lan_identity = node.clone();
     let generation = crate::edge::sync::EdgeSyncConfig::generation_from_env()?;
@@ -664,13 +671,15 @@ pub async fn run(
     let _advertisement =
         crate::edge::discovery::advertise(&lan_identity, inventory.connection(), bind);
     sd_notify("READY=1\nSTATUS=Serving");
-    let router = store_router_with_sync(inventory.clone(), auth, frontend, sync)?.merge(
-        console::router(console::Console {
-            source,
-            data_dir: data_dir.clone(),
-            stop: stop_tx.clone(),
-        }),
-    );
+    let routes = match role {
+        EdgeRole::Dc => dc_router_with_sync(inventory.clone(), auth, frontend, sync)?,
+        EdgeRole::Store => store_router_with_sync(inventory.clone(), auth, frontend, sync)?,
+    };
+    let router = routes.merge(console::router(console::Console {
+        source,
+        data_dir: data_dir.clone(),
+        stop: stop_tx.clone(),
+    }));
     // With the caller's address, which is how the console knows a request
     // came from the machine itself.
     axum::serve(

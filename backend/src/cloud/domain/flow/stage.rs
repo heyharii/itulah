@@ -818,7 +818,9 @@ static VERIFICATION: StageSpec = StageSpec {
     side: StageSide::Destination,
     executed_at: ExecutedAt::Node,
     custody: Custody::Accepts,
-    emits: &[Emission::Movement { from: PoolStage::OutsideParty, to: PoolStage::Pending }],
+    // Into the destination pool: with no putaway after it (0629) the approved
+    // count is stock. A version-1 document with Putaway still waits in Pending.
+    emits: &[Emission::Movement { from: PoolStage::OutsideParty, to: PoolStage::DestinationPool }],
     journal: JournalRule::Never,
     count: CountRule::CarriesUpstream,
     blind: false,

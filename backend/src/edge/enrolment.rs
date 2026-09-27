@@ -229,6 +229,7 @@ fn node_env(pending: &Pending, generation: i64) -> String {
          # machine, enrol the new machine from the hub; do not copy this file.\n\
          INVENTORY_SITE_ID={site}\n\
          INVENTORY_NODE_ID={origin}\n\
+         INVENTORY_NODE_ROLE={role}\n\
          INVENTORY_ORIGIN_GENERATION={generation}\n\
          INVENTORY_AUTH_MODE=required\n\
          SYNC_UPLOAD_URL={cloud}\n\
@@ -236,6 +237,7 @@ fn node_env(pending: &Pending, generation: i64) -> String {
         at = Utc::now().to_rfc3339(),
         site = pending.site_id,
         origin = pending.origin_id,
+        role = pending.node_role,
         cloud = pending.cloud_url,
         key = crate::edge::secret::seal(&pending.key),
     )
@@ -555,6 +557,7 @@ mod tests {
         for line in [
             "INVENTORY_SITE_ID=store-07",
             "INVENTORY_NODE_ID=store-07",
+            "INVENTORY_NODE_ROLE=STORE",
             "INVENTORY_ORIGIN_GENERATION=2",
             "SYNC_UPLOAD_URL=https://cloud.example",
             "INVENTORY_AUTH_MODE=required",

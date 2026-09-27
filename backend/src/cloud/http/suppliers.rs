@@ -586,6 +586,7 @@ pub async fn create_catalog_purchase_order(
         &state.db,
         request,
         &principal.username,
+        Some(&principal.flow_actor()),
         &key,
         &request_digest,
     )

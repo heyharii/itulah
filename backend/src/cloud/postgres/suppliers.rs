@@ -2497,6 +2497,7 @@ pub async fn create_catalog_purchase_order(
     pool: &PgPool,
     request: CatalogPurchaseOrderRequest,
     actor: &str,
+    flow_actor: Option<&crate::cloud::domain::flow::Actor>,
     idempotency_key: &str,
     digest: &str,
 ) -> Result<CatalogPurchaseOrderReceipt, AppError> {
@@ -2589,13 +2590,16 @@ pub async fn create_catalog_purchase_order(
     .map_err(|error| map_catalog_purchase_error(error, &po_number))?;
 
     let mut wire_lines = Vec::with_capacity(snapshots.len());
+    let mut flow_lines: Vec<(Uuid, i64)> = Vec::with_capacity(snapshots.len());
     for (index, item) in snapshots.into_iter().enumerate() {
         let line_number = i32::try_from(index + 1)
             .map_err(|_| AppError::Validation("purchase order has too many lines".into()))?;
+        let po_line_id = Uuid::new_v4();
+        flow_lines.push((po_line_id, item.quantity));
         wire_lines.push(
             insert_catalog_line(
                 &mut transaction,
-                Uuid::new_v4(),
+                po_line_id,
                 purchase_order_id,
                 line_number,
                 item,
@@ -2632,6 +2636,22 @@ pub async fn create_catalog_purchase_order(
     .bind(command_id)
     .execute(&mut *transaction)
     .await?;
+    // The order's receiving flow, as a raw order starts it
+    // (`create_purchase_order_as`): the buyer who raised it is the one who
+    // approves the Gudang's blind count. Its lines are the purchase lines,
+    // because the goods have no SKU until Article Setup.
+    if let Some(flow_actor) = flow_actor {
+        super::flows::start_flow_for_purchase_order_tx(
+            &mut transaction,
+            purchase_order_id,
+            &destination_site_id,
+            &supplier_code,
+            &flow_lines,
+            flow_actor,
+            Utc::now(),
+        )
+        .await?;
+    }
 
     let receipt = CatalogPurchaseOrderReceipt {
         purchase_order_id,
@@ -3837,9 +3857,12 @@ pub struct PurchaseDestination {
     pub node_role: String,
 }
 
-/// Every site that can receive a delivery.
+/// Every site a supplier's delivery can be ordered to: the Gudang's servers.
 ///
-/// Cloud itself is excluded: the centre has no floor to put stock on. So is any
+/// A shop never receives from a supplier — goods reach it only as head
+/// office allots them from the Gudang, and an order to a shop is refused
+/// (`inventory_dc_owner_tx`), so a shop is never offered here (owner, 28 Sep
+/// 2026). Cloud itself is excluded: the centre has no floor to put stock on. So is any
 /// node with inventory switched off, and any registration that never named a
 /// site — both would offer a destination the goods receipt could not be booked
 /// against.
@@ -3866,8 +3889,7 @@ pub async fn purchase_destinations(pool: &PgPool) -> Result<Vec<PurchaseDestinat
            FROM sync_origin_credential
           WHERE inventory_enabled
             AND site_id IS NOT NULL
-            AND node_role IS NOT NULL
-            AND node_role <> 'CLOUD'
+            AND node_role = 'DC'
           ORDER BY site_id, origin_id",
     )
     .fetch_all(pool)
