@@ -38,6 +38,10 @@ pub async fn save_company(
 
 /// Step 2, and Buka toko over Lokasi afterwards. Idempotent on the key: a
 /// retry after a timeout that did land opens the stores once.
+///
+/// Every store names its manager; each is invited in the same transaction
+/// and the answer carries their join links, once (0634). A store without a
+/// manager is a 422 that names it, and nothing is opened.
 pub async fn open_stores(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -49,8 +53,16 @@ pub async fn open_stores(
         "actor": &principal.username,
         "request": &request,
     }))?;
-    let answer =
-        infrastructure::open_stores(&state.db, request, &principal.username, &key, &digest).await?;
+    let origin = super::invitations::link_origin(&headers, state.config.auth_cookie_secure)?;
+    let answer = infrastructure::open_stores(
+        &state.db,
+        request,
+        &principal.username,
+        &key,
+        &digest,
+        &origin,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(answer)))
 }
 

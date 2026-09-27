@@ -8,6 +8,7 @@ use crate::cloud::application::{
     AppError, ChangePasswordRequest, CreateUserRequest, ProvisionAccountRequest,
     ProvisionedAccount, ResetPasswordRequest, SetUserRoleRequest,
 };
+use crate::cloud::domain::job_role::JobGrant;
 use crate::cloud::domain::Role;
 use crate::security;
 use chrono::{DateTime, Duration, Utc};
@@ -35,6 +36,11 @@ async fn hash_password(password: &str) -> Result<String, AppError> {
         .await
         .map_err(|error| AppError::Configuration(format!("password worker failed: {error}")))?
         .map_err(AppError::Validation)
+}
+
+/// Hash a password somebody has just chosen, with the house minimum length.
+pub async fn hash_new_password(password: &str) -> Result<String, AppError> {
+    hash_password(password).await
 }
 
 async fn password_matches(stored_hash: &str, password: &str) -> Result<bool, AppError> {
@@ -75,8 +81,10 @@ pub async fn bootstrap_admin(
         Some(password) => {
             let hash = hash_password(password).await?;
             sqlx::query(
-                "INSERT INTO app_user(id,username,display_name,password_hash,role,created_by) \
-                 VALUES($1,'admin','Administrator',$2,'ADMIN','bootstrap') \
+                // The first account on an empty database owns the company
+                // (0633): somebody has to hold OWNER, and nobody else exists.
+                "INSERT INTO app_user(id,username,display_name,password_hash,role,role_code,created_by) \
+                 VALUES($1,'admin','Administrator',$2,'ADMIN','OWNER','bootstrap') \
                  ON CONFLICT (username) DO NOTHING",
             )
             .bind(Uuid::new_v4())
@@ -194,7 +202,28 @@ pub struct SessionUser {
     pub username: String,
     pub display_name: String,
     pub role: Role,
+    /// The job role (0633), read with the session on every request: a role
+    /// edited or changed holds from the next click, not the next sign-in.
+    pub job: JobGrant,
     pub csrf_token_sha256: String,
+}
+
+/// The job role on a row that selected `role_code`, `role_name`,
+/// `flow_roles`, `sections` and `read_only` (a `LEFT JOIN job_role`). A row
+/// with no role behind it — which the foreign key forbids — grants nothing.
+pub fn job_grant_of(row: &sqlx::postgres::PgRow) -> Result<JobGrant, AppError> {
+    let code: Option<String> = row.try_get("role_code")?;
+    let name: Option<String> = row.try_get("role_name")?;
+    let flow_roles: Option<Vec<String>> = row.try_get("flow_roles")?;
+    let sections: Option<Vec<String>> = row.try_get("sections")?;
+    let read_only: Option<bool> = row.try_get("read_only")?;
+    Ok(JobGrant::from_stored(
+        code.unwrap_or_default(),
+        name.unwrap_or_default(),
+        &flow_roles.unwrap_or_default(),
+        sections.unwrap_or_default(),
+        read_only.unwrap_or(true),
+    ))
 }
 
 pub async fn create_session(
@@ -202,10 +231,25 @@ pub async fn create_session(
     user: &AuthenticatedUser,
     ttl_minutes: i64,
 ) -> Result<IssuedSession, AppError> {
+    let mut transaction = pool.begin().await?;
+    let issued =
+        create_session_tx(&mut transaction, user.id, user.auth_version, ttl_minutes).await?;
+    transaction.commit().await?;
+    Ok(issued)
+}
+
+/// Open a session inside the caller's transaction — the same session a
+/// sign-in opens, for a caller that has just made the account in that
+/// transaction (accepting an invitation, 0634).
+pub async fn create_session_tx(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+    auth_version: i64,
+    ttl_minutes: i64,
+) -> Result<IssuedSession, AppError> {
     let token = security::random_token();
     let csrf_token = security::random_token();
     let expires_at = Utc::now() + Duration::minutes(ttl_minutes.max(1));
-    let mut transaction = pool.begin().await?;
     // One user, one device (migration 0395): this sign-in ends every other
     // live session of the account, in the same transaction that opens it, so
     // two sign-ins racing each other cannot both survive.
@@ -214,8 +258,8 @@ pub async fn create_session(
             SET revoked_at = now(), revoked_reason = 'SIGNED_IN_ELSEWHERE'
           WHERE user_id = $1 AND revoked_at IS NULL",
     )
-    .bind(user.id)
-    .execute(&mut *transaction)
+    .bind(user_id)
+    .execute(&mut **transaction)
     .await?;
     sqlx::query(
         "INSERT INTO auth_session
@@ -225,12 +269,11 @@ pub async fn create_session(
     .bind(Uuid::new_v4())
     .bind(security::sha256_hex(&token))
     .bind(security::sha256_hex(&csrf_token))
-    .bind(user.id)
-    .bind(user.auth_version)
+    .bind(user_id)
+    .bind(auth_version)
     .bind(expires_at)
-    .execute(&mut *transaction)
+    .execute(&mut **transaction)
     .await?;
-    transaction.commit().await?;
     Ok(IssuedSession {
         token,
         csrf_token,
@@ -247,9 +290,11 @@ pub async fn authenticate_session(
     idle_minutes: i64,
 ) -> Result<SessionUser, AppError> {
     let row = sqlx::query(
-        "SELECT s.session_id,s.csrf_token_sha256,u.username,u.display_name,u.role
+        "SELECT s.session_id,s.csrf_token_sha256,u.username,u.display_name,u.role,
+                u.role_code,r.name AS role_name,r.flow_roles,r.sections,r.read_only
          FROM auth_session s
          JOIN app_user u ON u.id=s.user_id
+         LEFT JOIN job_role r ON r.code=u.role_code
          WHERE s.token_sha256=$1
            AND s.revoked_at IS NULL
            AND s.expires_at>now()
@@ -290,6 +335,7 @@ pub async fn authenticate_session(
         username: row.get("username"),
         display_name: row.get("display_name"),
         role,
+        job: job_grant_of(&row)?,
         csrf_token_sha256: row.get("csrf_token_sha256"),
     })
 }
@@ -328,6 +374,7 @@ pub async fn create_user(
     }
     let hash = hash_password(&request.password).await?;
     let id = Uuid::new_v4();
+    // A rung only: the trigger gives it that rung's default job role (0633).
     let result = sqlx::query(
         "INSERT INTO app_user(id,username,display_name,password_hash,role,created_by) \
          VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (username) DO NOTHING",
@@ -345,13 +392,36 @@ pub async fn create_user(
             "username '{username}' already exists"
         )));
     }
+    let (role, role_code): (String, String) =
+        sqlx::query_as("SELECT role, role_code FROM app_user WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
+    super::follow_login(pool, id, created_by).await;
     Ok(json!({
         "id": id,
         "username": username,
         "display_name": display_name,
-        "role": request.role.as_str(),
+        "role": role,
+        "role_code": role_code,
         "active": true
     }))
+}
+
+/// A job role code a caller named, checked against `job_role`, or `None`.
+async fn known_role_code(pool: &PgPool, asked: Option<&str>) -> Result<Option<String>, AppError> {
+    let Some(asked) = asked.map(str::trim).filter(|code| !code.is_empty()) else {
+        return Ok(None);
+    };
+    let code = asked.to_ascii_uppercase();
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM job_role WHERE code = $1)")
+        .bind(&code)
+        .fetch_one(pool)
+        .await?;
+    if !exists {
+        return Err(AppError::Validation(format!("there is no job role {code}")));
+    }
+    Ok(Some(code))
 }
 
 /// Every account at the centre, and who each one belongs to.
@@ -390,6 +460,33 @@ pub struct UserRow {
     pub employee_name: Option<String>,
     pub unit_id: Option<String>,
     pub unit_name: Option<String>,
+    /// The job role (0633): its code and its name.
+    pub role_code: String,
+    pub role_name: String,
+    /// The role's server reach: `NONE`, `UNIT` or `EVERY` (0635). With the
+    /// posting above it is the reason for every derived server below.
+    pub node_reach: String,
+    /// Every store or gudang server this login may sign in at.
+    pub nodes: Vec<UserNode>,
+}
+
+/// One server a login may sign in at, and whether its role put it there.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UserNode {
+    pub origin_id: String,
+    pub label: Option<String>,
+    pub site_id: Option<String>,
+    pub site_name: Option<String>,
+    /// `STORE` or `DC`.
+    pub node_role: Option<String>,
+    /// The rung this login holds there.
+    pub edge_role: String,
+    /// False when this one server, or the login, is switched off.
+    pub active: bool,
+    /// True when the job role and the posting put it here (0635); false for
+    /// a grant made by hand in System > Access, which keeps its own password.
+    pub derived: bool,
 }
 
 /// One value a filter can take, and how many logins would still be there.
@@ -524,6 +621,7 @@ const USER_ROWS: &str = "
            u.employee_id, e.code AS employee_code, e.status AS employee_status,
            p.full_name AS employee_name,
            a.unit_id, unit.name AS unit_name,
+           u.role_code, jr.name AS role_name, jr.node_reach,
            -- Three states, not two: an open login for somebody whose
            -- employment has ended is a working credential for a person who
            -- has gone, and it is the row the console is opened to find.
@@ -537,6 +635,7 @@ const USER_ROWS: &str = "
       LEFT JOIN employee_assignment a
              ON a.employee_id = e.id AND a.valid_to IS NULL
       LEFT JOIN unit unit ON unit.id = a.unit_id
+      LEFT JOIN job_role jr ON jr.code = u.role_code
      -- A login, a name, a badge number and the name on the badge. Not the
      -- personal data the profile join happens to reach — see `UserScope::q`.
      WHERE ($1::text IS NULL
@@ -603,16 +702,34 @@ pub async fn list_users(pool: &PgPool, scope: UserScope) -> Result<UserList, App
     // pushed through. Materialised, this reads the whole table and sorts it
     // to hand back one page; inlined, it seeks the index. See
     // `postgres::audit::list_audit`, where the difference was measured.
+    // The servers are read for the page only, after the limit: the facet
+    // counts below share `USER_ROWS` and have no use for them.
     let rows = sqlx::query(&format!(
         "WITH searched AS NOT MATERIALIZED ({USER_ROWS}),
               kept AS NOT MATERIALIZED (
              SELECT * FROM searched {USER_FILTERS}
+         ),
+              page AS (
+             SELECT * FROM kept
+              WHERE $6::uuid IS NULL
+                 OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $6)
+              ORDER BY {order}
+              LIMIT $7
          )
-         SELECT * FROM kept
-          WHERE $6::uuid IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE id = $6)
-          ORDER BY {order}
-          LIMIT $7"
+         SELECT page.*,
+                (SELECT COALESCE(json_agg(json_build_object(
+                            'origin_id', ea.origin_id, 'label', o.label,
+                            'site_id', o.site_id, 'site_name', st.name,
+                            'node_role', o.node_role, 'edge_role', ea.edge_role,
+                            'active', ea.active AND page.active,
+                            'derived', ea.source = 'ROLE')
+                          ORDER BY ea.origin_id), '[]'::json)
+                   FROM edge_identity_assignment ea
+                   JOIN sync_origin_credential o ON o.origin_id = ea.origin_id
+                   LEFT JOIN site st ON st.id = o.site_id
+                  WHERE ea.user_id = page.id) AS nodes
+           FROM page
+          ORDER BY {order}"
     ))
     .bind(&needle)
     .bind(&scope.role)
@@ -652,6 +769,14 @@ pub async fn list_users(pool: &PgPool, scope: UserScope) -> Result<UserList, App
                 employee_name: row.try_get("employee_name")?,
                 unit_id: row.try_get("unit_id")?,
                 unit_name: row.try_get("unit_name")?,
+                role_code: row.try_get("role_code")?,
+                role_name: row
+                    .try_get::<Option<String>, _>("role_name")?
+                    .unwrap_or_default(),
+                node_reach: row
+                    .try_get::<Option<String>, _>("node_reach")?
+                    .unwrap_or_else(|| "NONE".to_owned()),
+                nodes: serde_json::from_value(row.try_get::<Value, _>("nodes")?)?,
             })
         })
         .collect::<Result<Vec<_>, AppError>>()?;
@@ -728,7 +853,7 @@ pub async fn set_user_role(
     request: SetUserRoleRequest,
     actor_username: &str,
 ) -> Result<Value, AppError> {
-    let row = sqlx::query("SELECT username,role FROM app_user WHERE id=$1")
+    let row = sqlx::query("SELECT username,role,role_code FROM app_user WHERE id=$1")
         .bind(user_id)
         .fetch_optional(pool)
         .await?
@@ -740,35 +865,67 @@ pub async fn set_user_role(
     if username == actor_username {
         return Err(AppError::Conflict("cannot change your own role".into()));
     }
+    // The job role when one is named (0633) — the rung follows it; a bare
+    // rung, from a screen that predates job roles, gives that rung's default
+    // role. The last owner is kept by the database either way.
+    let role_code = known_role_code(pool, request.role_code.as_deref()).await?;
+    if role_code.is_none() && request.role.is_none() {
+        return Err(AppError::Validation("name the job role (role_code)".into()));
+    }
     let previous: String = row.get("role");
+    let previous_code: String = row.get("role_code");
     let mut tx = pool.begin().await?;
-    sqlx::query(
-        "UPDATE app_user SET role=$2,auth_version=auth_version+1,updated_at=now() WHERE id=$1",
-    )
-    .bind(user_id)
-    .bind(request.role.as_str())
-    .execute(&mut *tx)
-    .await?;
+    match &role_code {
+        Some(code) => {
+            sqlx::query(
+                "UPDATE app_user SET role_code=$2,auth_version=auth_version+1,updated_at=now()
+                  WHERE id=$1",
+            )
+            .bind(user_id)
+            .bind(code)
+            .execute(&mut *tx)
+            .await?;
+        }
+        None => {
+            sqlx::query(
+                "UPDATE app_user SET role=$2,auth_version=auth_version+1,updated_at=now()
+                  WHERE id=$1",
+            )
+            .bind(user_id)
+            .bind(request.role.map(|role| role.as_str()))
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
     sqlx::query("UPDATE auth_session SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1")
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
+    // Which servers they sign in at follows the role (0635).
+    let origins = super::reconcile_node_access_tx(&mut tx, Some(user_id), actor_username).await?;
+    let (role, now_code): (String, String) =
+        sqlx::query_as("SELECT role, role_code FROM app_user WHERE id=$1")
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await?;
     tx.commit().await?;
+    super::publish_node_access(pool, &origins, actor_username).await;
     tracing::info!(
         actor = actor_username,
         subject = username.as_str(),
-        from = previous.as_str(),
-        to = request.role.as_str(),
+        from = previous_code.as_str(),
+        to = now_code.as_str(),
         "administrator changed a role"
     );
     Ok(json!({
         "username": username,
-        "role": request.role.as_str(),
+        "role": role,
+        "role_code": now_code,
         "previous_role": previous,
-        // Says plainly that this did not touch any Edge. Somebody promoted at
-        // head office is still whatever they were at the till until their
-        // assignment is upserted too.
-        "edge_roles_unchanged": true,
+        "previous_role_code": previous_code,
+        // The servers whose sign-in list this changed, now told (0635). A
+        // hand grant made in System > Access is not touched by a role change.
+        "servers_changed": origins,
     }))
 }
 
@@ -840,6 +997,9 @@ pub async fn change_password(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    // A server this login signs in at by role checks this very password
+    // (0635), so it is told now rather than at the next lease renewal.
+    super::tell_derived_servers(pool, user_id, username).await;
     Ok(json!({ "username": username, "changed": true }))
 }
 
@@ -882,6 +1042,7 @@ pub async fn admin_reset_password(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    super::tell_derived_servers(pool, user_id, actor_username).await;
     tracing::info!(
         actor = actor_username,
         subject = username.as_str(),
@@ -945,20 +1106,22 @@ pub async fn provision_account(
     // Hashed before the transaction opens: argon2id is deliberately slow, and
     // holding a row lock across it would make issuing one account contend with
     // every other write to that employee.
+    let role_code = known_role_code(pool, request.role_code.as_deref()).await?;
     let hash = hash_password(&request.password).await?;
     let actor = authorization.actor().to_string();
 
     let mut tx = pool.begin().await?;
     let user_id = Uuid::new_v4();
     let created = sqlx::query(
-        "INSERT INTO app_user(id,username,display_name,password_hash,role,created_by) \
-         VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (username) DO NOTHING",
+        "INSERT INTO app_user(id,username,display_name,password_hash,role,role_code,created_by) \
+         VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (username) DO NOTHING",
     )
     .bind(user_id)
     .bind(&username)
     .bind(&display_name)
     .bind(hash)
     .bind(request.role.as_str())
+    .bind(role_code.as_deref())
     .bind(&actor)
     .execute(&mut *tx)
     .await?;
@@ -968,7 +1131,12 @@ pub async fn provision_account(
         )));
     }
     super::bind_new_account(&mut tx, employee_id, user_id, authorization).await?;
+    // The servers their role and posting reach (0635), in the same
+    // transaction as the account: a login that exists and cannot sign in
+    // where it works is the gap this closes.
+    let origins = super::reconcile_node_access_tx(&mut tx, Some(user_id), &actor).await?;
     tx.commit().await?;
+    super::publish_node_access(pool, &origins, &actor).await;
 
     let Some(edge) = request.edge else {
         return Ok(ProvisionedAccount {

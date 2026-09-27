@@ -41,6 +41,7 @@ mod ids;
 mod integrity;
 mod interunit;
 mod inventory;
+pub mod job_role;
 mod leave;
 mod movement;
 mod observation;

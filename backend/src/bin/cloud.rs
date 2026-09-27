@@ -575,9 +575,21 @@ async fn run_integrity_agent(pool: sqlx::PgPool) {
 }
 
 async fn run_auth_policy_refresh_agent(pool: sqlx::PgPool) {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 60 * 60));
+    // Every five minutes rather than every six hours: besides renewing
+    // leases, this is what tells a server whose sign-in list changed without
+    // anybody publishing it — a node enrolled, a role's reach edited, a
+    // publication that failed (0635). The queries are cheap when nothing is
+    // due, and the lease rule inside them is unchanged.
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5 * 60));
     loop {
         interval.tick().await;
+        // Who signs in where follows role and posting; this is the sweep that
+        // catches whatever changed without a hook (0635).
+        if let Err(error) =
+            postgres::reconcile_node_access(&pool, None, "system:node-access").await
+        {
+            tracing::error!(%error, "failed to re-derive who signs in at which server");
+        }
         match postgres::due_auth_policy_origins(&pool).await {
             Ok(origins) => {
                 for origin_id in origins {

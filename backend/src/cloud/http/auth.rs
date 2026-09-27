@@ -16,7 +16,11 @@ use crate::cloud::{
         SetRfidDeviceKindRequest, SetUserActiveRequest, SetUserRoleRequest,
         UpsertEdgeAssignmentRequest,
     },
-    domain::{relay, required_role, role_allows, RecordKind, Role, UnitId},
+    domain::{
+        flow::Actor,
+        job_role::{self, JobGrant},
+        relay, required_role, role_allows, RecordKind, Role, UnitId,
+    },
     http::audit::{id_in, DeclaredSubject},
     postgres as infrastructure,
 };
@@ -45,6 +49,9 @@ pub struct Principal {
     pub username: String,
     pub display_name: String,
     pub role: Role,
+    /// The caller's job role (0633): the flow roles and hub sections it
+    /// holds. Read with the session on every request, never carried in it.
+    pub job: JobGrant,
     pub authenticated_with_cookie: bool,
     /// The node this call was relayed through, for a call a store node carried
     /// up on its signed-in manager's behalf. `None` for every session of the
@@ -70,6 +77,16 @@ pub struct RelayBinding {
 }
 
 impl Principal {
+    /// The caller as the flow engine judges them: by the flow roles their job
+    /// role holds (0633), not by their rung.
+    pub fn flow_actor(&self) -> Actor {
+        Actor {
+            id: self.username.clone(),
+            rung: self.role,
+            flow_roles: Some(self.job.flow_roles_held()),
+        }
+    }
+
     /// The unit a relayed call may reach, and no other; `None` when unbound.
     pub fn bound_unit(&self) -> Option<&UnitId> {
         self.relayed.as_ref().map(|binding| &binding.unit_id)
@@ -182,6 +199,13 @@ fn is_public(path: &str) -> bool {
     if path.starts_with("/api/v1/sync/points/redeem-requests") {
         return true;
     }
+    // Opening a join link and accepting it (0634). The person has no account
+    // yet — that is what the link is for. The token is the credential,
+    // checked in the handler (`http::invitations`), which also answers an
+    // unknown token the same way whatever it looks like.
+    if path.starts_with("/api/v1/invitations/accept/") {
+        return true;
+    }
     matches!(
         path,
         "/api/v1/health"
@@ -245,6 +269,7 @@ pub async fn require_auth(
             username: "development".to_owned(),
             display_name: "Development".to_owned(),
             role: Role::Admin,
+            job: JobGrant::everything(),
             authenticated_with_cookie: false,
             relayed: None,
         });
@@ -280,6 +305,9 @@ pub async fn require_auth(
 
     let method = request.method().as_str().to_owned();
     gate_role_with(&method, &path, role, &permission_overrides(&state).await)?;
+    // The second question, after the rung: does this person's job include
+    // the part of the hub the path belongs to (0633)?
+    job_role::section_gate(&method, &path, &session.job).map_err(AppError::Forbidden)?;
 
     if authenticated_with_cookie && !matches!(request.method().as_str(), "GET" | "HEAD" | "OPTIONS")
     {
@@ -309,6 +337,7 @@ pub async fn require_auth(
         username: session.username,
         display_name: session.display_name,
         role,
+        job: session.job,
         authenticated_with_cookie,
         relayed: None,
     };
@@ -508,6 +537,9 @@ async fn relayed_principal(
         username: subject.username,
         display_name: subject.display_name,
         role: relay::relayed_role(subject.role, subject.edge_role),
+        // Not gated by section: a relayed call is the store app's, through
+        // the relay's own allowlist, not the hub's (`domain::job_role`).
+        job: subject.job,
         authenticated_with_cookie: false,
         relayed: Some(RelayBinding {
             origin_id: origin.origin_id,
@@ -516,6 +548,52 @@ async fn relayed_principal(
             unit_id,
         }),
     })
+}
+
+/// `me`, for any principal. Also what accepting an invitation answers.
+pub fn cloud_me(
+    username: String,
+    display_name: String,
+    role: Role,
+    job: &JobGrant,
+) -> CloudMe {
+    CloudMe {
+        username,
+        display_name,
+        role: role.into(),
+        role_code: job.code.clone(),
+        role_name: job.name.clone(),
+        sections: job.sections_held(),
+        read_only: job.read_only,
+    }
+}
+
+/// Set a fresh session's two cookies on a response, exactly as signing in
+/// does — shared with accepting an invitation, which signs the person in.
+pub fn with_session_cookies(
+    state: &AppState,
+    mut response: Response,
+    issued: &infrastructure::IssuedSession,
+) -> Result<Response, AppError> {
+    let max_age = state.config.auth_token_ttl_minutes.max(1) * 60;
+    let session_cookie = security::set_cookie(
+        SESSION_COOKIE,
+        &issued.token,
+        max_age,
+        state.config.auth_cookie_secure,
+        true,
+    );
+    let csrf_cookie = security::set_cookie(
+        CSRF_COOKIE,
+        &issued.csrf_token,
+        max_age,
+        state.config.auth_cookie_secure,
+        false,
+    );
+    prevent_auth_caching(&mut response);
+    append_cookie(&mut response, session_cookie)?;
+    append_cookie(&mut response, csrf_cookie)?;
+    Ok(response)
 }
 
 pub async fn login(
@@ -571,11 +649,13 @@ pub async fn login(
 }
 
 pub async fn me(Extension(principal): Extension<Principal>) -> Json<CloudMe> {
-    Json(CloudMe {
-        username: principal.username,
-        display_name: principal.display_name,
-        role: principal.role.into(),
-    })
+    let job = principal.job.clone();
+    Json(cloud_me(
+        principal.username,
+        principal.display_name,
+        principal.role,
+        &job,
+    ))
 }
 
 #[derive(serde::Deserialize)]

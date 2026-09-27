@@ -414,9 +414,12 @@ async fn a_record_carries_what_was_done_to_it_and_what_was_said_about_it(pool: P
 
 /// One route, fifty-seven gates.
 ///
-/// A cashier may read a sale and may not read what the company owes — which is
-/// the rule `required_role` has always enforced on `/api/v1/finance/…` and
-/// which a single generic route would have quietly dropped.
+/// A store manager may read a sale and may not read what the company owes —
+/// the rule `/api/v1/finance/…` enforces (since 0633 by the job role's hub
+/// sections as well as the rung), and which a single generic route would have
+/// quietly dropped. A cashier holds no hub section at all, so the delegation
+/// is shown with the store manager: same route, one record allowed and one
+/// refused.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_records_surface_borrows_the_gate_of_the_record_it_names(pool: PgPool) {
     cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
@@ -436,9 +439,11 @@ async fn the_records_surface_borrows_the_gate_of_the_record_it_names(pool: PgPoo
         ],
         Some(json!({
             "username": "cashier.gate",
-            "display_name": "Kasir Gerbang",
+            "display_name": "Kepala Toko Gerbang",
             "password": CASHIER_PASSWORD,
-            "role": "CASHIER"
+            // A rung only: the default job role for it, STORE_MANAGER, which
+            // holds `sales` and not `finance`.
+            "role": "SUPERVISOR"
         })),
     )
     .await;
@@ -456,7 +461,7 @@ async fn the_records_surface_borrows_the_gate_of_the_record_it_names(pool: PgPoo
     assert_eq!(
         sale.status,
         StatusCode::OK,
-        "a cashier may read the sale she rang up: {:?}",
+        "a store manager may read her store's sale: {:?}",
         sale.body
     );
 
@@ -471,7 +476,7 @@ async fn the_records_surface_borrows_the_gate_of_the_record_it_names(pool: PgPoo
     assert_eq!(
         bill.status,
         StatusCode::FORBIDDEN,
-        "holding a till token is not a reason to read what the company owes"
+        "running a store is not a reason to read what the company owes"
     );
 
     let note = send(

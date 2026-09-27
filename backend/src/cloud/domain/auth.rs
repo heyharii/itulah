@@ -67,7 +67,21 @@ pub fn required_role(method: &str, path: &str) -> Role {
     if method == "POST" && path == "/api/v1/auth/edge-sso-ticket" {
         return Role::Cashier;
     }
+    // Opening a join link and accepting it (0634). Public — `is_public` lets
+    // them through before this is asked, like `/auth/login` — so the answer
+    // here is the one the route catalogue prints, not a gate anybody meets.
+    if path.starts_with("/api/v1/invitations/accept/") {
+        return Role::Cashier;
+    }
+    // Job roles (0633): reading the list is everybody's — a screen names a
+    // colleague's role — and changing one is the administrator's, because a
+    // role decides what everybody holding it may do.
+    if path.starts_with("/api/v1/roles") && !method.eq_ignore_ascii_case("GET") {
+        return Role::Admin;
+    }
     let admin_prefixes = [
+        // Inviting people, and the links head office has handed out (0634).
+        "/api/v1/invitations",
         "/api/v1/auth/users",
         "/api/v1/auth/edge-assignments",
         "/api/v1/auth/edge-policies",
@@ -398,6 +412,25 @@ mod tests {
             // that happens to be the same for everything.
             let _ = required_role("GET", path);
         }
+    }
+
+    #[test]
+    fn inviting_and_editing_roles_is_the_administrators() {
+        assert_eq!(required_role("POST", "/api/v1/invitations"), Role::Admin);
+        assert_eq!(required_role("GET", "/api/v1/invitations"), Role::Admin);
+        assert_eq!(
+            required_role("POST", "/api/v1/invitations/abc/renew"),
+            Role::Admin
+        );
+        assert_eq!(required_role("GET", "/api/v1/roles"), Role::Cashier);
+        assert_eq!(required_role("PUT", "/api/v1/roles/FINANCE"), Role::Admin);
+        assert_eq!(required_role("DELETE", "/api/v1/roles/X"), Role::Admin);
+        // The join link itself is public; the catalogue's answer for it is the
+        // lowest rung, not Admin by the prefix above it.
+        assert_eq!(
+            required_role("POST", "/api/v1/invitations/accept/tok"),
+            Role::Cashier
+        );
     }
 
     #[test]

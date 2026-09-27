@@ -320,6 +320,10 @@ pub enum AppError {
     Configuration(String),
     #[error("invalid request: {0}")]
     Validation(String),
+    /// Well-formed, and missing something the business requires — a store
+    /// opened without its manager. 422 rather than 400.
+    #[error("invalid request: {0}")]
+    Unprocessable(String),
     #[error("not found: {0}")]
     NotFound(String),
     #[error("conflict: {0}")]
@@ -361,6 +365,7 @@ impl IntoResponse for AppError {
         }
         let status = match self {
             Self::Validation(_) => StatusCode::BAD_REQUEST,
+            Self::Unprocessable(_) => StatusCode::UNPROCESSABLE_ENTITY,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
