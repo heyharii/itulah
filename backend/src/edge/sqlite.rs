@@ -400,6 +400,14 @@ pub(crate) const ATTENDANCE_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0040_a_terminal_greets_by_name_with_the_line_down.sql"
 ));
 
+/// Why a session ended: one user, one device. An ALTER, applied through
+/// `edge::auth::ensure_session_reason`, which both this file and `EdgeAuth`
+/// call.
+pub(crate) const SESSION_REASON_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0054_a_person_is_signed_in_on_one_device_at_a_node.sql"
+));
+
 /// Darkness and speed on the print session. See the migration.
 pub(crate) const PRINT_MACHINE_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -1160,6 +1168,8 @@ impl SqliteEdge {
                 .execute_batch(PURCHASE_UNIT_SCHEMA)
                 .map_err(db)?;
         }
+        // One user, one device (`0054`): an ALTER, probed by its column.
+        crate::edge::auth::ensure_session_reason(&connection)?;
         if a_stream_says_whose_seqs_it_writes == 0 {
             connection
                 .execute_batch(SYNC_HANDSHAKE_SCHEMA)
