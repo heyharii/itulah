@@ -480,6 +480,15 @@ pub(crate) const RFID_DEVICE_KIND_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0056_a_node_knows_which_readers_are_carried.sql"
 ));
 
+/// Whether this node's store is open, and head office's test-print asks with
+/// their outcome on each till and printer (`0061`). ALTERs, probed by
+/// `site_directory.opened`; after the site directory (`0049`), the till's
+/// device columns (`0051`) and the printer register (`0052`).
+pub(crate) const STORE_OPEN_AND_TEST_PRINT_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0061_a_node_knows_its_store_is_open_and_a_device_prints_a_test_page.sql"
+));
+
 /// Darkness and speed on the print session. See the migration.
 pub(crate) const PRINT_MACHINE_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -1324,6 +1333,20 @@ impl SqliteEdge {
         if a_reader_has_a_kind == 0 {
             connection
                 .execute_batch(RFID_DEVICE_KIND_SCHEMA)
+                .map_err(db)?;
+        }
+        // Whether the store is open, and test pages (`0061`): ALTERs, so
+        // probed by the first column the file adds.
+        let the_directory_knows_opening: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('site_directory') WHERE name='opened'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if the_directory_knows_opening == 0 {
+            connection
+                .execute_batch(STORE_OPEN_AND_TEST_PRINT_SCHEMA)
                 .map_err(db)?;
         }
         if a_stream_says_whose_seqs_it_writes == 0 {

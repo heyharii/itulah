@@ -1115,13 +1115,18 @@ async fn site_profiles(
         // `site_business_timezone`, not the column: it is the one reader that
         // turns a zone written as WIB/WITA/WIT (0520's spelling) into a name
         // a node can use, and it is what the centre cuts the same day with.
-        "SELECT id, kind, code, name, site_business_timezone(id) AS timezone,
-                (EXTRACT(EPOCH FROM ($1::timestamptz AT TIME ZONE site_business_timezone(id))
+        //
+        // `opened` is the unit's (0630): a site's tills trade once head
+        // office has opened the unit that owns it.
+        "SELECT s.id, s.kind, s.code, s.name, site_business_timezone(s.id) AS timezone,
+                (EXTRACT(EPOCH FROM ($1::timestamptz AT TIME ZONE site_business_timezone(s.id))
                                   - ($1::timestamptz AT TIME ZONE 'UTC')) / 60)::int
                     AS utc_offset_minutes,
-                id IS NOT DISTINCT FROM head_office_site_id() AS is_head_office
-           FROM site
-          ORDER BY id",
+                s.id IS NOT DISTINCT FROM head_office_site_id() AS is_head_office,
+                u.opened_at IS NOT NULL AS opened
+           FROM site s
+           LEFT JOIN unit u ON u.id = s.unit_id
+          ORDER BY s.id",
     )
     .bind(at)
     .fetch_all(&mut **tx)
@@ -1137,6 +1142,7 @@ async fn site_profiles(
             name: row.try_get("name")?,
             timezone: row.try_get("timezone")?,
             utc_offset_minutes: row.try_get("utc_offset_minutes")?,
+            opened: Some(row.try_get("opened")?),
         };
         if profile.site_id == node.site_id.as_str() {
             own = Some(profile.clone());
