@@ -2923,8 +2923,36 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             crate::edge::ops::enqueue_update(update);
             Ok(())
         }
+        // A store action to follow (`edge/ops.rs`): written down with the
+        // command, so accepting it and remembering it are one event. Only
+        // ever sent to a node advertising `node.actions.v1`.
+        crate::sync::node_ops::NODE_SYNC_NOW => {
+            let action = crate::sync::node_ops::parse_action(&command.payload).map_err(err)?;
+            crate::edge::ops::record_received(
+                tx,
+                action.action_id,
+                crate::sync::node_ops::NODE_SYNC_NOW,
+                &action.reason,
+                false,
+            )
+            .map_err(err)?;
+            crate::edge::ops::enqueue_sync_now(action);
+            Ok(())
+        }
+        // The marker behind re-sent initial data. Everything ahead of it in
+        // the stream is applied by now, so it is done where it stands.
+        crate::sync::node_ops::NODE_RESNAPSHOT => {
+            let action = crate::sync::node_ops::parse_action(&command.payload).map_err(err)?;
+            crate::edge::ops::record_resnapshot(tx, &action).map_err(err)?;
+            crate::edge::heartbeat::soon();
+            Ok(())
+        }
         kind if crate::sync::node_ops::is_node_op(kind) => {
             let payload = crate::sync::node_ops::parse(&command.payload).map_err(err)?;
+            if let Some(action_id) = payload.action_id {
+                crate::edge::ops::record_received(tx, action_id, kind, &payload.reason, payload.force)
+                    .map_err(err)?;
+            }
             crate::edge::ops::enqueue(kind, payload);
             Ok(())
         }

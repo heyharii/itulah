@@ -202,6 +202,9 @@ pub const SECTION_RULES: &[SectionRule] = &[
     rule("/api/v1/payment-terms", &["finance"], Reads::Open),
     rule("/api/v1/store-money", &["finance", "stores"], Reads::Same),
     // ── stores: a store's own page and opening checklist ───────────────
+    // Its Actions menu too (`/stores/{unit}/actions`, remote actions of 28
+    // Sep 2026): the section lets `stores` through, and acting is further
+    // held to an Admin, the owner or IT in `http/stores.rs`.
     rule("/api/v1/stores", &["stores"], Reads::Same),
     // ── procurement ────────────────────────────────────────────────────
     rule(
@@ -504,6 +507,17 @@ mod tests {
                 assert!(SECTIONS.contains(section), "{} names {section}", rule.prefix);
             }
         }
+    }
+
+    #[test]
+    fn a_stores_actions_belong_to_the_stores_section() {
+        let path = "/api/v1/stores/store-c014/actions/restart_server";
+        assert_eq!(sections_for("POST", path), Some(vec!["stores"]));
+        let it = job("IT", &["system", "stores"], false);
+        assert!(section_gate("POST", path, &it).is_ok());
+        assert!(section_gate("GET", "/api/v1/stores/store-c014/actions/history", &it).is_ok());
+        let finance = job("FINANCE", &["finance", "reports"], false);
+        assert!(section_gate("POST", path, &finance).is_err());
     }
 
     #[test]

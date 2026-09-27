@@ -413,6 +413,19 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/stores/{unit}/server/install",
         post(stores::install_server),
     )
+    // A store's Actions menu (remote actions, 28 Sep 2026): what may be done
+    // to its server and devices, doing it, and where each action got to.
+    // Reads follow reach; acting is an Admin's, the owner's or IT's, checked
+    // in the handler (IT is on the Supervisor rung, which the path allows).
+    .route("/api/v1/stores/{unit}/actions", get(stores::actions))
+    .route(
+        "/api/v1/stores/{unit}/actions/history",
+        get(stores::action_history),
+    )
+    .route(
+        "/api/v1/stores/{unit}/actions/{key}",
+        post(stores::request_action),
+    )
     // Head office asks a till or a network printer for a test page.
     .route(
         "/api/v1/devices/{device_id}/test-print",

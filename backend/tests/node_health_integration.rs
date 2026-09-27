@@ -73,6 +73,7 @@ fn status() -> NodeStatus {
         device_list: None,
         capabilities: None,
         link_outages: None,
+        action_results: None,
     }
 }
 

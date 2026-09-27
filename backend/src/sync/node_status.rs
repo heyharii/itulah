@@ -142,6 +142,12 @@ pub struct NodeStatus {
     /// node that predates the report (fleet status, 28 Sep 2026).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link_outages: Option<Vec<LinkOutage>>,
+    /// What came of the store actions head office asked for lately
+    /// (`sync::node_ops::ActionReport`), unfinished ones and those finished
+    /// in the last two hours. `None` from a node that predates remote
+    /// actions (28 Sep 2026).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_results: Option<Vec<crate::sync::node_ops::ActionReport>>,
 }
 
 /// One spell without head office while the server stayed up.
@@ -641,6 +647,7 @@ mod tests {
             device_list: None,
             capabilities: None,
             link_outages: None,
+            action_results: None,
         }
     }
 

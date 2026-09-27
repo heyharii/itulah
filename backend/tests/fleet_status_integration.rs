@@ -74,6 +74,7 @@ fn status() -> NodeStatus {
         device_list: Some(vec![]),
         capabilities: None,
         link_outages: None,
+        action_results: None,
     }
 }
 

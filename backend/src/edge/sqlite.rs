@@ -253,6 +253,13 @@ pub(crate) const NODE_HEALTH_MEMORY_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0065_a_node_remembers_its_last_backup_and_its_lost_internet.sql"
 ));
 
+/// What head office asked this node to do and what came of it (`0067`,
+/// `edge::ops`): the node's side of a store's Actions menu. Creates only.
+pub(crate) const NODE_ACTION_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0067_a_node_writes_down_what_head_office_asked_it_to_do.sql"
+));
+
 /// Who raised a purchase order, and whether the centre cancelled it
 /// (`0047`). ALTERs, so applied only when the columns are absent.
 pub(crate) const PURCHASE_ORDER_CANCEL_SCHEMA: &str = include_str!(concat!(
@@ -1296,6 +1303,8 @@ impl SqliteEdge {
         connection
             .execute_batch(NODE_HEALTH_MEMORY_SCHEMA)
             .map_err(db)?;
+        // Remote actions (`0067`): what head office asked for. Creates only.
+        connection.execute_batch(NODE_ACTION_SCHEMA).map_err(db)?;
         // A cancelled order (`0047`): an ALTER, so probed first.
         let an_order_can_be_cancelled: i64 = connection
             .query_row(

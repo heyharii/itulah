@@ -269,6 +269,16 @@ pub fn required_role(method: &str, path: &str) -> Role {
     // office's Admin's (`http/stores.rs`). Reading the stores follows reach —
     // every store for head office, one's own for a store's manager — which
     // the handler checks, so the read keeps the blanket rule below.
+    // Acting on a store's server from its Actions menu (remote actions, 28
+    // Sep 2026) is an Admin's, the owner's or IT's — and IT is on the
+    // Supervisor rung, so the path lets that rung through and the handler
+    // (`http/stores.rs`) holds everybody else back by job role.
+    if path.starts_with("/api/v1/stores/")
+        && path.split('/').nth(5) == Some("actions")
+        && !method.eq_ignore_ascii_case("GET")
+    {
+        return Role::Supervisor;
+    }
     if (path == "/api/v1/stores" || path.starts_with("/api/v1/stores/"))
         && !method.eq_ignore_ascii_case("GET")
     {

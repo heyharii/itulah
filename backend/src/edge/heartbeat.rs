@@ -27,6 +27,17 @@ use std::{
 pub const INTERVAL: Duration = Duration::from_secs(60);
 const RETRY_AFTER_FAILURE: Duration = Duration::from_secs(15);
 
+/// Woken when there is news head office is waiting for — an action it asked
+/// for moved on (`edge/ops.rs`) — so the hub hears in seconds, not at the
+/// top of the next minute.
+static SOON: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Send the next heartbeat now rather than when the minute is up. Several
+/// calls before it goes collapse into one.
+pub fn soon() {
+    SOON.notify_one();
+}
+
 /// A gap between two answers longer than this, with the process running
 /// throughout, is an internet outage: two missed heartbeats and a half.
 fn link_outage_after() -> chrono::Duration {
@@ -134,7 +145,10 @@ pub fn spawn(source: Arc<StatusSource>) {
                     RETRY_AFTER_FAILURE
                 }
             };
-            tokio::time::sleep(wait).await;
+            tokio::select! {
+                () = tokio::time::sleep(wait) => {}
+                () = SOON.notified() => {}
+            }
         }
     });
 }

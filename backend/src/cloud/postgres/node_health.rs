@@ -157,6 +157,11 @@ pub async fn record_heartbeat(
     if let Some(devices) = &status.device_list {
         super::devices::record_reported_devices(&mut tx, origin_id, devices).await?;
     }
+    // What came of the store actions head office asked this node for
+    // (`store_actions.rs`). Absent from a node that predates them.
+    if let Some(reports) = &status.action_results {
+        super::store_actions::record_action_reports(&mut tx, origin_id, reports).await?;
+    }
     // A node that takes the goods-route commands is told, in instalments, to
     // let go of what it sent that has since been counted in elsewhere
     // (inventory-fleet G3) — including every pair matched while it ran an

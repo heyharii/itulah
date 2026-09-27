@@ -5252,7 +5252,9 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
         return Err(AppError::Validation("command_type is required".into()));
     }
     match command_type {
-        kind if crate::sync::node_ops::is_node_op(kind) => {
+        kind if crate::sync::node_ops::is_node_op(kind)
+            || crate::sync::node_ops::is_action_op(kind) =>
+        {
             crate::sync::node_ops::validate(kind, payload).map_err(AppError::Validation)?;
         }
         COMMAND_ACTIVATE_PUBLICATION => {
@@ -5718,6 +5720,13 @@ pub async fn commands_for(
     .bind(limit)
     .fetch_all(pool)
     .await?;
+    // A store action carried by one of these is now SENT
+    // (`store_actions.rs`). Never allowed to fail the node's sync.
+    if let Some(through) = rows.iter().map(|row| row.get::<i64, _>("seq")).max() {
+        if let Err(error) = super::store_actions::mark_sent(pool, origin_id, after_seq, through).await {
+            tracing::warn!(%error, origin_id, "store actions were not marked sent");
+        }
+    }
     Ok(rows
         .into_iter()
         .map(|row| {
@@ -5783,6 +5792,11 @@ pub async fn record_command_ack(
     .bind(bounded)
     .execute(pool)
     .await?;
+    // What this ack means for the store actions it carries
+    // (`store_actions.rs`). Never allowed to fail the node's sync.
+    if let Err(error) = super::store_actions::settle_after_ack(pool, origin_id).await {
+        tracing::warn!(%error, origin_id, "store actions were not settled after an ack");
+    }
     Ok(())
 }
 
