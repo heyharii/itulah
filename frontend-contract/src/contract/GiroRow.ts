@@ -9,10 +9,15 @@ export type GiroRow = { giro_id: string,
  */
 direction: string, number: string, 
 /**
- * The `account_map` qualifier — `BCA`, `MANDIRI` — because it is what
+ * The `account_link` source — `BCA`, `MANDIRI` — because it is what
  * picks the leaf, not a display name.
  */
-bank: string, site_id: string, amount_minor: number, currency: string, issue_date: string, due_date: string, status: string, 
+bank: string, 
+/**
+ * Whose books the giro is drawn in: the unit that holds the bank account
+ * (P14, 0608).
+ */
+unit_id: string, amount_minor: number, currency: string, issue_date: string, due_date: string, status: string, 
 /**
  * Days past due, negative while it is still ahead. Derived on read rather
  * than stored, because it changes every midnight and a stored copy would

@@ -11,7 +11,8 @@ kind: string, employer_borne: boolean, paid_from_accrual: boolean, retired: bool
  */
 role: string, 
 /**
- * How many sites the component resolves an account at. A component that
- * resolves nowhere makes a payroll run that pays it refuse, by name.
+ * How many units' books the component resolves an account in. A
+ * component that resolves nowhere makes a payroll run that pays it
+ * refuse, by name.
  */
-linked_sites: number, };
+linked_units: number, };

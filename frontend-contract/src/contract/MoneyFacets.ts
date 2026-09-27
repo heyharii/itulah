@@ -9,4 +9,4 @@ import type { MoneyFacet } from "./MoneyFacet";
  * "Show me what disagrees with the bank" is the question; scrolling 139 rows
  * looking for red is the workaround it replaces.
  */
-export type MoneyFacets = { pots: Array<MoneyFacet>, sites: Array<MoneyFacet>, flags: Array<MoneyFacet>, };
+export type MoneyFacets = { pots: Array<MoneyFacet>, units: Array<MoneyFacet>, flags: Array<MoneyFacet>, };

@@ -3,7 +3,7 @@
 /**
  * One control account, as the Payment Ledger has it and as the books have it.
  */
-export type PaymentLedgerIntegrityRow = { account_key: string, qualifier: string, site_id: string, side: string, 
+export type PaymentLedgerIntegrityRow = { account_key: string, qualifier: string, unit_id: string, side: string, 
 /**
  * `None` when nothing is mapped for this triple, which is a finding in
  * itself: the balance has no line in the books to be compared with.

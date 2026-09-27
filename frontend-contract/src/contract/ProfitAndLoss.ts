@@ -21,7 +21,11 @@ import type { FinancialStatementLine } from "./FinancialStatementLine";
  * Costs are positive numbers and are subtracted; `non_operating` is signed —
  * income positive, cost negative — because the client's block mixes both.
  */
-export type ProfitAndLoss = { from: string, to: string, site_id: string | null, revenue_minor: number, cost_of_sales_minor: number, gross_profit_minor: number, operating_expenses_minor: number, gross_operating_profit_minor: number, other_operating_expenses_minor: number, net_operating_profit_minor: number, 
+export type ProfitAndLoss = { from: string, to: string, 
+/**
+ * One unit's books (0605), or the company's when absent.
+ */
+unit_id: string | null, revenue_minor: number, cost_of_sales_minor: number, gross_profit_minor: number, operating_expenses_minor: number, gross_operating_profit_minor: number, other_operating_expenses_minor: number, net_operating_profit_minor: number, 
 /**
  * Signed: OTHER_INCOME − OTHER_EXPENSE + OTHER_NET.
  */

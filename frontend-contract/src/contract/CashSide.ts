@@ -3,8 +3,8 @@
 /**
  * One side of a document, as a caller says it.
  *
- * Either a meaning resolved through `account_map` for that location, or a
- * client account code a person chose — the same choice `poster::LineAccount`
+ * Either a meaning resolved through `account_resolution` in that unit's books, or
+ * a client account code a person chose — the same choice `poster::LineAccount`
  * models, for the same reason. The money side always has a meaning; the other
  * side, when it is a bank charge or a donation, usually has none.
  */
@@ -18,4 +18,8 @@ export type CashSide = { semantic_key: string | null, qualifier: string, account
  * post. Refused beside `semantic_key`, because the map already chose the
  * pair and a second answer could only disagree with it.
  */
-category_code: string | null, site_id: string, };
+category_code: string | null, 
+/**
+ * Whose books this side is in: a unit (0608).
+ */
+unit_id: string, };

@@ -5,7 +5,7 @@ import type { PaymentLedgerAgingRow } from "./PaymentLedgerAgingRow";
 /**
  * What is open, how old, and whose.
  */
-export type PaymentLedgerAging = { as_of: string, site_id: string | null, 
+export type PaymentLedgerAging = { as_of: string, unit_id: string | null, 
 /**
  * Per control account triple. Heaviest first: an ageing report is read to
  * decide what to chase next.

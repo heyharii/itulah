@@ -9,4 +9,8 @@ category_code: string | null,
 /**
  * A meaning named directly, for the narration no category covers yet.
  */
-semantic_key: string | null, qualifier: string, site_id: string | null, party: string | null, active: boolean | null, note: string | null, };
+semantic_key: string | null, qualifier: string, 
+/**
+ * The unit whose books the meaning resolves in. Head office's when absent.
+ */
+unit_id: string | null, party: string | null, active: boolean | null, note: string | null, };

@@ -5,7 +5,11 @@ import type { InterunitPair } from "./InterunitPair";
 /**
  * Every pair, both columns, and what has been moving.
  */
-export type InterunitReport = { head_office_site_id: string, pairs: Array<InterunitPair>, movements: Array<InterunitMovement>, 
+export type InterunitReport = { 
+/**
+ * Head office's unit, found by its kind.
+ */
+head_office_unit_id: string, pairs: Array<InterunitPair>, movements: Array<InterunitMovement>, 
 /**
  * Pairs whose two sides disagree, as `store-03 BARANG`. Empty is the
  * answer, and a screen should say so rather than showing an empty list.

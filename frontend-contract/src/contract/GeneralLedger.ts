@@ -5,7 +5,7 @@ import type { GeneralLedgerRow } from "./GeneralLedgerRow";
 /**
  * One account's movements over a window, with the balance walking down it.
  */
-export type GeneralLedger = { account_code: string, account_name: string, site_id: string | null, from: string, to: string, 
+export type GeneralLedger = { account_code: string, account_name: string, unit_id: string | null, from: string, to: string, 
 /**
  * What the account held the day before `from`. Without it the first
  * running figure would be a movement pretending to be a balance.

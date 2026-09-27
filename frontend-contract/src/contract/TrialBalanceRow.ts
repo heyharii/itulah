@@ -7,4 +7,8 @@ export type TrialBalanceRow = { account_code: string, name: string, root_class: 
 /**
  * Tree depth from the root, independent of the account number.
  */
-depth: number, site_id: string | null, debit_minor: number, credit_minor: number, };
+depth: number, 
+/**
+ * Whose books the line is in (0605).
+ */
+unit_id: string | null, debit_minor: number, credit_minor: number, };

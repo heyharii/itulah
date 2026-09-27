@@ -7,10 +7,10 @@ import type { JournalFacet } from "./JournalFacet";
 export type JournalFacets = { kinds: Array<JournalFacet>, 
 /**
  * **These do not add up to `total`, and that is not a fault.** An entry
- * with lines at two locations is counted under both, because it genuinely
- * touched both — a payment settling Bandung's and Cikupa's bills is one
- * entry and two shops' business. A panel whose numbers summed to the total
- * would have to pick one location per entry, and there is no honest way to
- * pick.
+ * with lines in two units' books is counted under both, because it
+ * genuinely touched both — a payment settling Bandung's and Cikupa's bills
+ * is one entry and two stores' business. A panel whose numbers summed to
+ * the total would have to pick one unit per entry, and there is no honest
+ * way to pick.
  */
-sites: Array<JournalFacet>, };
+units: Array<JournalFacet>, };

@@ -16,4 +16,8 @@ account_name: string,
  * expense says, and the person filing it needs to see "Listrik" beside it
  * to know which slip they are holding.
  */
-category_code: string | null, category_name: string | null, site_id: string, };
+category_code: string | null, category_name: string | null, 
+/**
+ * Whose books this side is in.
+ */
+unit_id: string, };
