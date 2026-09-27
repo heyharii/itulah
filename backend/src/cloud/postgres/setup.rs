@@ -91,6 +91,32 @@ pub struct SetupStore {
     pub city: String,
     pub timezone: String,
     pub node_connected: bool,
+    /// The store's manager's join link — present on every store
+    /// `POST /api/v1/setup/stores` opens, and shown that once; `null` when a
+    /// store is read back (the setup status), since only the link's hash is
+    /// kept (0634).
+    #[serde(default)]
+    pub manager_invitation: Option<StoreManagerInvitation>,
+}
+
+/// The invitation a store is opened with: its manager joins by this link,
+/// as STORE_MANAGER, and is made the store's PIC when they do (0634).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreManagerInvitation {
+    pub invitation_id: Uuid,
+    pub name: String,
+    /// `{origin}/join/{token}`. Shown once.
+    pub link: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Who will run a store being opened. Required: every store is opened with
+/// its manager (owner, 28 Sep 2026).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct NewStoreManager {
+    pub name: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -135,6 +161,13 @@ pub struct NewStore {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
     pub code: Option<String>,
+    /// The store's manager, who is invited with it. Required — a store
+    /// without one is refused with a 422 naming it, and nothing is opened.
+    /// Optional here only so that refusal can name the store, rather than a
+    /// parser saying a field is missing.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "NewStoreManager | null"))]
+    pub manager: Option<NewStoreManager>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -223,6 +256,7 @@ pub async fn setup_status(pool: &PgPool) -> Result<SetupStatus, AppError> {
             city: row.try_get("city")?,
             timezone: row.try_get("timezone")?,
             node_connected: row.try_get("node_connected")?,
+            manager_invitation: None,
         };
         if !store.node_connected {
             without_node += 1;
@@ -409,6 +443,7 @@ pub async fn open_stores(
     actor: &str,
     idempotency_key: &str,
     digest: &str,
+    link_origin: &str,
 ) -> Result<OpenStoresAnswer, AppError> {
     if request.stores.is_empty() {
         return Err(AppError::Validation("name at least one store".into()));
@@ -418,12 +453,44 @@ pub async fn open_stores(
             "at most {MAX_STORES_AT_ONCE} stores at once"
         )));
     }
-    // Each store as asked for: its own code when one was sent, its name and
-    // its city.
-    let mut wanted: Vec<(Option<String>, String, String)> =
+    // Every store is opened with its manager (owner, 28 Sep 2026). Asked of
+    // the whole request before anything is written, and the refusal names
+    // every store that is missing one, so the form can be fixed in one go.
+    let unmanned: Vec<String> = request
+        .stores
+        .iter()
+        .filter(|store| {
+            store
+                .manager
+                .as_ref()
+                .is_none_or(|manager| manager.name.trim().is_empty())
+        })
+        .map(|store| {
+            let name = store.name.trim();
+            if name.is_empty() {
+                "a store with no name".to_owned()
+            } else {
+                name.to_owned()
+            }
+        })
+        .collect();
+    if !unmanned.is_empty() {
+        return Err(AppError::Unprocessable(format!(
+            "every store is opened with its manager; name the manager of {}",
+            unmanned.join(", ")
+        )));
+    }
+    // Each store as asked for: its own code when one was sent, its name, its
+    // city and its manager.
+    let mut wanted: Vec<(Option<String>, String, String, String)> =
         Vec::with_capacity(request.stores.len());
     for store in &request.stores {
         let name = required(&store.name, "store name", 80)?;
+        let manager = store
+            .manager
+            .as_ref()
+            .map(|manager| manager.name.trim().to_owned())
+            .unwrap_or_default();
         let code = unit_code_of(store.code.as_deref(), &name)?;
         let city = store.city.trim().to_owned();
         if city.chars().count() > 80 {
@@ -434,14 +501,14 @@ pub async fn open_stores(
         if let Some(code) = &code {
             if wanted
                 .iter()
-                .any(|(other, _, _)| other.as_ref() == Some(code))
+                .any(|(other, _, _, _)| other.as_ref() == Some(code))
             {
                 return Err(AppError::Validation(format!(
                     "the code {code} is given to two stores"
                 )));
             }
         }
-        wanted.push((code, name, city));
+        wanted.push((code, name, city, manager));
     }
 
     let mut transaction = pool.begin().await?;
@@ -453,7 +520,22 @@ pub async fn open_stores(
     )
     .await?
     {
-        return Ok(serde_json::from_value(response)?);
+        // The same request again — a retry after a timeout. The stores were
+        // opened once and are not opened again, but the links were never
+        // kept (0634): each manager's invitation is renewed, so the answer
+        // carries links that work and any link the lost answer held stops.
+        let mut answer: OpenStoresAnswer = serde_json::from_value(response)?;
+        for store in &mut answer.created {
+            if let Some(invitation) = store.manager_invitation.as_mut() {
+                let minted =
+                    super::renew_invitation_tx(&mut transaction, invitation.invitation_id, actor)
+                        .await?;
+                invitation.expires_at = minted.expires_at;
+                invitation.link = minted.issued(link_origin).link;
+            }
+        }
+        transaction.commit().await?;
+        return Ok(answer);
     }
     // Two people opening stores at once would read the same next number, or
     // both find a code free.
@@ -481,13 +563,13 @@ pub async fn open_stores(
     )
     .fetch_one(&mut *transaction)
     .await?;
-    for (code, _, _) in &wanted {
+    for (code, _, _, _) in &wanted {
         if let Some(number) = code.as_deref().and_then(series_number) {
             highest = highest.max(number);
         }
     }
     let mut stores = Vec::with_capacity(wanted.len());
-    for (code, name, city) in wanted {
+    for (code, name, city, manager) in wanted {
         let code = match code {
             Some(code) => code,
             None => {
@@ -495,12 +577,12 @@ pub async fn open_stores(
                 format!("C{highest:03}")
             }
         };
-        stores.push((code, name, city));
+        stores.push((code, name, city, manager));
     }
 
     // A code somebody already has is refused by name, before any row is
     // written, so the owner reads which one rather than a unique index.
-    let codes: Vec<String> = stores.iter().map(|(code, _, _)| code.clone()).collect();
+    let codes: Vec<String> = stores.iter().map(|(code, _, _, _)| code.clone()).collect();
     let taken: Vec<String> =
         sqlx::query_scalar("SELECT code FROM unit WHERE code = ANY($1) ORDER BY code")
             .bind(&codes)
@@ -519,7 +601,7 @@ pub async fn open_stores(
     }
 
     let mut created = Vec::with_capacity(stores.len());
-    for (code, name, city) in stores {
+    for (code, name, city, manager) in stores {
         let unit_id = format!("store-{}", code.to_ascii_lowercase());
         let site_id = unit_id.clone();
         let timezone = timezone_of(&city);
@@ -562,20 +644,50 @@ pub async fn open_stores(
         .execute(&mut *transaction)
         .await?;
 
+        // Its manager: an employment record posted here and a join link, in
+        // this same transaction — a store and nobody to run it do not exist
+        // one without the other. They become its PIC when they join.
+        let invited = super::invite_tx(
+            &mut transaction,
+            &super::InvitePerson {
+                name: manager,
+                role_code: super::STORE_MANAGER.to_owned(),
+                unit_id: unit_id.clone(),
+                position: None,
+            },
+            actor,
+        )
+        .await?
+        .issued(link_origin);
+
         created.push(SetupStore {
             unit_code: code,
             name,
             city,
             timezone: timezone.to_owned(),
             node_connected: false,
+            manager_invitation: Some(StoreManagerInvitation {
+                invitation_id: invited.invitation_id,
+                name: invited.name,
+                link: invited.link,
+                expires_at: invited.expires_at,
+            }),
         });
     }
 
     let answer = OpenStoresAnswer { created };
+    // Kept for a retry without the links: only a token's hash may be stored
+    // (0634). A retry renews them (above).
+    let mut kept = answer.clone();
+    for store in &mut kept.created {
+        if let Some(invitation) = store.manager_invitation.as_mut() {
+            invitation.link.clear();
+        }
+    }
     complete_idempotent(
         &mut transaction,
         idempotency_key,
-        &serde_json::to_value(&answer)?,
+        &serde_json::to_value(&kept)?,
     )
     .await?;
     transaction.commit().await?;
