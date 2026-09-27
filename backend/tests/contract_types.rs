@@ -631,6 +631,25 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("UserFacets: {e}"));
     inventory_backend::cloud::postgres::UserFacet::export_all(&config)
         .unwrap_or_else(|e| panic!("UserFacet: {e}"));
+    // Job roles (0633), the servers a login signs in at (0635), and inviting
+    // people by a link (0634) — with the manager a store is opened with.
+    for_contract!(
+        &config,
+        UserNode,
+        JobRole,
+        JobRoleList,
+        JobRolePatch,
+        InvitePerson,
+        InviteRequest,
+        IssuedInvitation,
+        IssuedInvitationList,
+        InvitationRow,
+        InvitationList,
+        InvitationPreview,
+        AcceptInvitationRequest,
+        StoreManagerInvitation,
+        NewStoreManager,
+    );
     inventory_backend::cloud::postgres::EdgeAssignmentList::export_all(&config)
         .unwrap_or_else(|e| panic!("EdgeAssignmentList: {e}"));
     inventory_backend::cloud::postgres::EdgeAssignmentRow::export_all(&config)

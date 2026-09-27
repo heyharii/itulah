@@ -25,6 +25,11 @@ password: string,
  */
 role: Role, 
 /**
+ * The job role (0633). When given, the rung follows it and `role` is
+ * ignored; the servers the role and posting reach are granted with it.
+ */
+role_code?: string, 
+/**
  * Access to one node, when the person works at one. Absent for head
  * office, who sign in at the centre and at no till.
  */

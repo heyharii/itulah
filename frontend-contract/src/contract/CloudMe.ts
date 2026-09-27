@@ -2,6 +2,24 @@
 import type { Role } from "./Role";
 
 /**
- * `GET /api/v1/auth/me` at Cloud.
+ * `GET /api/v1/auth/me` at Cloud — and what accepting an invitation answers, 
+ * since it signs the person in.
  */
-export type CloudMe = { username: string, display_name: string, role: Role, };
+export type CloudMe = { username: string, display_name: string, 
+/**
+ * The rung, which the job role names.
+ */
+role: Role, 
+/**
+ * The job role (0633): `STORE_MANAGER`, and how the hub names it.
+ */
+role_code: string, role_name: string, 
+/**
+ * The hub sections this person may use — every one for OWNER and ADMIN.
+ * The hub hides the rest; the server refuses them either way.
+ */
+sections: Array<string>, 
+/**
+ * GET only (the auditor): the hub hides every button that writes.
+ */
+read_only: boolean, };
