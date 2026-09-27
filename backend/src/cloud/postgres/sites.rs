@@ -27,7 +27,8 @@ use crate::ids::SiteKind;
 use chrono::{DateTime, Utc};
 
 /// The time zone every site had before `site.timezone` existed, and the
-/// answer when there is no row to ask.
+/// answer when there is no row to ask — the same fallback the SQL function
+/// `site_business_timezone` ends in.
 pub const FALLBACK_TIMEZONE: &str = "Asia/Jakarta";
 
 /// The site whose books carry every inter-unit balance: the one of kind `HO`.
@@ -88,16 +89,13 @@ pub async fn business_timezone(
     executor: impl sqlx::PgExecutor<'_>,
     site_id: Option<&str>,
 ) -> Result<String, AppError> {
-    Ok(sqlx::query_scalar::<_, String>(
-        "SELECT COALESCE(
-                    (SELECT timezone FROM site WHERE id = $1),
-                    (SELECT timezone FROM site WHERE id = head_office_site_id()),
-                    $2)",
+    // The SQL function is the one definition (0474); this only asks it.
+    Ok(
+        sqlx::query_scalar::<_, String>("SELECT site_business_timezone($1)")
+            .bind(site_id)
+            .fetch_one(executor)
+            .await?,
     )
-    .bind(site_id)
-    .bind(FALLBACK_TIMEZONE)
-    .fetch_one(executor)
-    .await?)
 }
 
 /// Head office's time zone: the clock a read about the whole company uses.
@@ -118,16 +116,33 @@ pub async fn business_utc_offset_minutes(
     at: DateTime<Utc>,
 ) -> Result<i32, AppError> {
     Ok(sqlx::query_scalar::<_, i32>(
-        "SELECT (EXTRACT(EPOCH FROM ($2::timestamptz AT TIME ZONE chosen.zone_name)
-                                  - ($2::timestamptz AT TIME ZONE 'UTC')) / 60)::int
-           FROM (SELECT COALESCE(
-                            (SELECT timezone FROM site WHERE id = $1),
-                            (SELECT timezone FROM site WHERE id = head_office_site_id()),
-                            $3) AS zone_name) chosen",
+        "SELECT (EXTRACT(EPOCH FROM ($2::timestamptz AT TIME ZONE site_business_timezone($1))
+                                  - ($2::timestamptz AT TIME ZONE 'UTC')) / 60)::int",
     )
     .bind(site_id)
     .bind(at)
-    .bind(FALLBACK_TIMEZONE)
+    .fetch_one(executor)
+    .await?)
+}
+
+/// Minutes east of UTC at one instant where an HR place stands: the zone of
+/// the site the place sits at, or head office's for a place with none.
+///
+/// The one reader of `org_place` in this module, kept here so that when HR
+/// moves from `org_place` to `unit` this is the one query that follows it.
+pub async fn place_utc_offset_minutes(
+    executor: impl sqlx::PgExecutor<'_>,
+    place_id: &str,
+    at: DateTime<Utc>,
+) -> Result<i32, AppError> {
+    Ok(sqlx::query_scalar::<_, i32>(
+        "SELECT (EXTRACT(EPOCH FROM ($2::timestamptz AT TIME ZONE chosen.zone_name)
+                                  - ($2::timestamptz AT TIME ZONE 'UTC')) / 60)::int
+           FROM (SELECT site_business_timezone(
+                            (SELECT site_id FROM org_place WHERE id = $1)) AS zone_name) chosen",
+    )
+    .bind(place_id)
+    .bind(at)
     .fetch_one(executor)
     .await?)
 }

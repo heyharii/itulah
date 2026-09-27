@@ -15,8 +15,14 @@
 
 use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
 
-/// Minutes east of UTC where a business day turns over, when nobody says.
-/// WIB: the shops are Indonesian and so is the day they close.
+/// Minutes east of UTC where a business day turns over when there is no site
+/// to ask: Asia/Jakarta, the zone every site kept before `site.timezone`
+/// existed (0474).
+///
+/// A FALLBACK and nothing more. A day is cut where the site is: the centre
+/// reads `site.timezone` (`cloud::postgres::sites`), a node reads what head
+/// office told it (`edge::site_profile`). This answers only for a node that
+/// has not heard yet, or a caller with no site at all.
 pub const DEFAULT_UTC_OFFSET_MINUTES: i32 = 7 * 60;
 
 /// What day it is where the shops are — never `Utc::now().date_naive()`.
@@ -35,9 +41,19 @@ pub const DEFAULT_UTC_OFFSET_MINUTES: i32 = 7 * 60;
 ///
 /// One function so there is one spelling. A second `now + offset` somewhere is
 /// how the two drift apart again.
+///
+/// `utc_offset_minutes` is the site's (or, for a company-wide question, head
+/// office's) — read from data by the caller, never assumed here.
+#[must_use]
+pub fn local_today_at(utc_offset_minutes: i32) -> NaiveDate {
+    (Utc::now() + Duration::minutes(i64::from(utc_offset_minutes))).date_naive()
+}
+
+/// [`local_today_at`] at [`DEFAULT_UTC_OFFSET_MINUTES`], for a caller that has
+/// no site to ask. Live code asks.
 #[must_use]
 pub fn local_today() -> NaiveDate {
-    (Utc::now() + Duration::minutes(i64::from(DEFAULT_UTC_OFFSET_MINUTES))).date_naive()
+    local_today_at(DEFAULT_UTC_OFFSET_MINUTES)
 }
 
 /// How wide a column is.
@@ -149,17 +165,23 @@ pub fn window_of(
 ///
 /// It reaches only the day-of-week and time-of-day conditions. An absolute
 /// window is an instant, and an instant is the same moment everywhere.
+///
+/// `utc_offset_minutes` is the shop's own clock, read from data by the caller
+/// — `site.timezone` at the centre, the site profile head office sent on a
+/// node — so a shop in Makassar starts its Monday at its own midnight.
 pub fn pricing_context(
     site_id: &str,
     channel: &str,
     at: chrono::DateTime<Utc>,
+    utc_offset_minutes: i32,
 ) -> pricing_engine::PricingContext {
     let mut context = pricing_engine::PricingContext::new(site_id, channel, at);
-    context.utc_offset_minutes = DEFAULT_UTC_OFFSET_MINUTES;
+    context.utc_offset_minutes = utc_offset_minutes;
     context
 }
 
-/// A caller's offset, or WIB, clamped to somewhere on Earth.
+/// A caller's offset, or the fallback, clamped to somewhere on Earth. Callers
+/// pass the site's own offset as the caller's when the caller named none.
 pub fn offset_of(minutes: Option<i32>) -> i32 {
     minutes
         .unwrap_or(DEFAULT_UTC_OFFSET_MINUTES)

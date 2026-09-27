@@ -34,10 +34,10 @@
 //!
 //! # Which day a sale belongs to
 //!
-//! The shop's own, at `DEFAULT_UTC_OFFSET_MINUTES`. A sale rung at 23:40 in
-//! Jakarta belongs to that day even though it is already tomorrow in UTC, and
-//! truncating a `timestamptz` would use whatever the server's timezone happens
-//! to be set to. Same reading `reports.rs` uses, deliberately: a day that
+//! The shop's own, by the time zone its `site` row keeps (`site_local_date`,
+//! 0474). A sale rung at 23:40 in the shop belongs to that day even though it
+//! is already tomorrow in UTC, and truncating a `timestamptz` would use
+//! whatever the server's timezone happens to be set to. Same reading `reports.rs` uses, deliberately: a day that
 //! closed on the takings report and a day that posted to the ledger have to be
 //! the same day or nobody can reconcile the two.
 //!
@@ -57,8 +57,7 @@ use crate::cloud::domain::sales_posting::{
     RecordedVat,
     TenderBucket, RETURN_CREDIT,
 };
-use crate::reporting::DEFAULT_UTC_OFFSET_MINUTES;
-use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::BTreeMap;
@@ -287,11 +286,23 @@ async fn day_rules(pool: &PgPool) -> Result<DayRules, AppError> {
     })
 }
 
-fn day_window(business_date: NaiveDate) -> (DateTime<Utc>, DateTime<Utc>) {
-    let midnight = business_date.and_time(NaiveTime::MIN);
-    let start = Utc
-        .from_utc_datetime(&(midnight - Duration::minutes(i64::from(DEFAULT_UTC_OFFSET_MINUTES))));
-    (start, start + Duration::hours(24))
+/// The instants a shop's day starts and ends at: its own midnights, in the
+/// zone its `site` row keeps. Postgres does the arithmetic because it holds the
+/// tz database.
+async fn day_window(
+    pool: &PgPool,
+    site_id: &str,
+    business_date: NaiveDate,
+) -> Result<(DateTime<Utc>, DateTime<Utc>), AppError> {
+    let row = sqlx::query(
+        "SELECT ($1::date::timestamp AT TIME ZONE site_business_timezone($2)) AS start_at,
+                (($1::date + 1)::timestamp AT TIME ZONE site_business_timezone($2)) AS end_at",
+    )
+    .bind(business_date)
+    .bind(site_id)
+    .fetch_one(pool)
+    .await?;
+    Ok((row.try_get("start_at")?, row.try_get("end_at")?))
 }
 
 /// How a bucket is keyed while the two populations are being merged.
@@ -645,7 +656,7 @@ async fn read_day(
     site_id: &str,
     business_date: NaiveDate,
 ) -> Result<DayReading, AppError> {
-    let (start, end) = day_window(business_date);
+    let (start, end) = day_window(pool, site_id, business_date).await?;
     let mut buckets = Buckets::default();
 
     // ── the fleet's own tills, synced up ────────────────────────────────────
@@ -1370,13 +1381,11 @@ pub async fn sales_posting_generate_days(
     let days = sqlx::query(
         "SELECT site_id, business_date FROM (
              SELECT site_id,
-                    ((occurred_at AT TIME ZONE 'UTC') + make_interval(mins => $4))::date
-                        AS business_date
+                    site_local_date(occurred_at, site_id) AS business_date
                FROM edge_sale
              UNION
              SELECT site_id,
-                    ((completed_at AT TIME ZONE 'UTC') + make_interval(mins => $4))::date
-                        AS business_date
+                    site_local_date(completed_at, site_id) AS business_date
                FROM sale WHERE status = 'COMPLETED'
          ) days
           WHERE ($1::text IS NULL OR site_id = $1)
@@ -1388,7 +1397,6 @@ pub async fn sales_posting_generate_days(
     .bind(site.as_deref())
     .bind(request.from)
     .bind(request.to)
-    .bind(DEFAULT_UTC_OFFSET_MINUTES)
     .fetch_all(pool)
     .await?;
 
@@ -1593,8 +1601,7 @@ async fn sales_posting_consume_cost(
              SELECT sl.sku_id, SUM(sl.quantity)::bigint AS qty
                FROM sale s JOIN sale_line sl ON sl.sale_id = s.id
               WHERE s.status = 'COMPLETED' AND s.site_id = $1
-                AND ((s.completed_at AT TIME ZONE 'UTC')
-                     + make_interval(mins => $3))::date = $2
+                AND site_local_date(s.completed_at, $1) = $2
               GROUP BY sl.sku_id
              UNION ALL
              SELECT sk.id, SUM(el.quantity)::bigint
@@ -1605,15 +1612,13 @@ async fn sales_posting_consume_cost(
                       ON sk.sku_code = el.sku_code
               WHERE e.site_id = $1
                 AND e.status = 'COMPLETED'
-                AND ((e.occurred_at AT TIME ZONE 'UTC')
-                     + make_interval(mins => $3))::date = $2
+                AND site_local_date(e.occurred_at, $1) = $2
               GROUP BY sk.id
          ), restocked AS (
              SELECT rl.sku_id, SUM(rl.quantity)::bigint AS qty
                FROM sale_return r JOIN sale_return_line rl ON rl.return_id = r.id
               WHERE r.site_id = $1 AND rl.restock
-                AND ((r.created_at AT TIME ZONE 'UTC')
-                     + make_interval(mins => $3))::date = $2
+                AND site_local_date(r.created_at, $1) = $2
               GROUP BY rl.sku_id
          )
          SELECT COALESCE(so.sku_id, rs.sku_id) AS sku_id,
@@ -1626,7 +1631,6 @@ async fn sales_posting_consume_cost(
     )
     .bind(site_id)
     .bind(business_date)
-    .bind(DEFAULT_UTC_OFFSET_MINUTES)
     .fetch_all(&mut **tx)
     .await?;
     // Where the goods stood: the site's floor, falling back to its warehouse
@@ -2017,14 +2021,13 @@ struct FoundTender {
 async fn find_tender(pool: &PgPool, tender_id: Uuid) -> Result<FoundTender, AppError> {
     let synced = sqlx::query(
         "SELECT s.site_id,
-                ((s.occurred_at AT TIME ZONE 'UTC') + make_interval(mins => $2))::date AS day,
+                site_local_date(s.occurred_at, s.site_id) AS day,
                 t.method, t.acquirer, t.reference, t.card_kind, t.amount_minor
            FROM edge_sale_tender t
            JOIN edge_sale s ON s.sale_id = t.sale_id
           WHERE t.tender_id = $1",
     )
     .bind(tender_id)
-    .bind(DEFAULT_UTC_OFFSET_MINUTES)
     .fetch_optional(pool)
     .await?;
     if let Some(row) = synced {
@@ -2047,14 +2050,13 @@ async fn find_tender(pool: &PgPool, tender_id: Uuid) -> Result<FoundTender, AppE
 
     let central = sqlx::query(
         "SELECT s.site_id,
-                ((s.completed_at AT TIME ZONE 'UTC') + make_interval(mins => $2))::date AS day,
+                site_local_date(s.completed_at, s.site_id) AS day,
                 p.method, p.acquirer, p.reference, p.card_kind, p.amount_minor
            FROM sale_payment p
            JOIN sale s ON s.id = p.sale_id
           WHERE p.id = $1 AND s.completed_at IS NOT NULL",
     )
     .bind(tender_id)
-    .bind(DEFAULT_UTC_OFFSET_MINUTES)
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("tender {tender_id}")))?;

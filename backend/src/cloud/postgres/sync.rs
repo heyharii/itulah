@@ -7956,7 +7956,7 @@ const ORDER_BOOK_ROWS: &str = "
            (b.order_status = 'ISSUED'
             AND NOT b.all_lines_settled
             AND b.received_stock_units < b.expected_stock_units
-            AND b.expected_arrival < (now() AT TIME ZONE 'Asia/Jakarta')::date) AS overdue,
+            AND b.expected_arrival < site_local_date(now(), b.destination_site_id)) AS overdue,
            -- The house order as one number, so a keyset can seek on it: late
            -- orders first, the longest-late at the top; then everything else,
            -- the newest issued first.
@@ -7964,7 +7964,7 @@ const ORDER_BOOK_ROWS: &str = "
                WHEN b.order_status = 'ISSUED'
                     AND NOT b.all_lines_settled
                     AND b.received_stock_units < b.expected_stock_units
-                    AND b.expected_arrival < (now() AT TIME ZONE 'Asia/Jakarta')::date
+                    AND b.expected_arrival < site_local_date(now(), b.destination_site_id)
                     THEN extract(epoch FROM b.expected_arrival::timestamp)::bigint
                ELSE 1000000000000
                     - extract(epoch FROM COALESCE(b.issued_at, TIMESTAMPTZ 'epoch'))::bigint

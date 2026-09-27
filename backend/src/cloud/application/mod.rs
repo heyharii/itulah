@@ -969,8 +969,8 @@ pub struct SaleQuery {
     /// Last day in the window, INCLUSIVE — a caller asking for "1 to 30
     /// September" means the thirtieth to be in it, as everywhere else here.
     pub to: Option<NaiveDate>,
-    /// Minutes east of UTC the two dates are read in; defaults to WIB
-    /// (UTC+7 = 420), like every other dated read in this module.
+    /// Minutes east of UTC the two dates are read in; defaults to the named
+    /// shop's own clock (`site.timezone`), head office's for the fleet.
     pub utc_offset_minutes: Option<i32>,
     pub limit: Option<i64>,
 }
@@ -1381,8 +1381,8 @@ pub struct DailyReportQuery {
     pub site_id: String,
     /// Local business date the report covers (YYYY-MM-DD).
     pub date: NaiveDate,
-    /// Minutes east of UTC for the business-day boundary; defaults to WIB
-    /// (UTC+7 = 420) when omitted.
+    /// Minutes east of UTC for the business-day boundary; defaults to the
+    /// shop's own clock (`site.timezone`) when omitted.
     pub utc_offset_minutes: Option<i32>,
 }
 
@@ -1403,8 +1403,9 @@ pub struct SalesSeriesQuery {
     pub to: NaiveDate,
     /// `day` (default) · `week` (ISO, Monday) · `month`.
     pub bucket: Option<String>,
-    /// Minutes east of UTC for the business-day boundary; defaults to WIB
-    /// (UTC+7 = 420) when omitted, like the daily report.
+    /// Minutes east of UTC for the business-day boundary; defaults to head
+    /// office's clock (`site.timezone`) when omitted — a chart of the fleet
+    /// keeps the company's day.
     pub utc_offset_minutes: Option<i32>,
 }
 

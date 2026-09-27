@@ -47,8 +47,10 @@ pub async fn run_spec(
     let narrowed = with_overlay(spec, overlay);
     let spec = &narrowed;
     let checked = check(spec).map_err(|problems| AppError::Validation(problems.join("; ")))?;
-    let day = crate::cloud::reports::compile::business_day(now);
-    let query = compile(&checked, now);
+    // Head office's clock: a report is the company's (`site.timezone`, 0474).
+    let offset = super::sites::business_utc_offset_minutes(pool, None, now).await?;
+    let day = crate::cloud::reports::compile::business_day(now, offset);
+    let query = compile(&checked, now, offset);
 
     let mut statement = sqlx::query(&query.sql);
     for parameter in &query.params {
@@ -130,7 +132,8 @@ async fn totals_for(
     flat.present = Default::default();
 
     let checked = check(&flat).map_err(|problems| AppError::Validation(problems.join("; ")))?;
-    let query = compile(&checked, now);
+    let offset = super::sites::business_utc_offset_minutes(pool, None, now).await?;
+    let query = compile(&checked, now, offset);
     let mut statement = sqlx::query(&query.sql);
     for parameter in &query.params {
         statement = match parameter {

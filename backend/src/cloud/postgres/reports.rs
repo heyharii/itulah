@@ -13,7 +13,7 @@
 //! yet have a sync fact.
 
 use crate::cloud::application::{AppError, DailyReportQuery, SalesSeriesQuery, SalesWindowQuery};
-use crate::reporting::{buckets_between, offset_of, Bucket, DEFAULT_UTC_OFFSET_MINUTES};
+use crate::reporting::{buckets_between, offset_of, Bucket};
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
@@ -27,11 +27,20 @@ pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Resul
         .await?
         .ok_or_else(|| AppError::NotFound("site".into()))?;
 
-    let offset_minutes = query
-        .utc_offset_minutes
-        .unwrap_or(DEFAULT_UTC_OFFSET_MINUTES)
-        .clamp(-14 * 60, 14 * 60);
     let midnight = query.date.and_time(NaiveTime::MIN);
+    // The caller's offset, else the shop's own clock (`site.timezone`, 0474).
+    let offset_minutes = match query.utc_offset_minutes {
+        Some(minutes) => minutes,
+        None => {
+            super::sites::business_utc_offset_minutes(
+                pool,
+                Some(site_id.as_str()),
+                Utc.from_utc_datetime(&midnight),
+            )
+            .await?
+        }
+    }
+    .clamp(-14 * 60, 14 * 60);
     let start: DateTime<Utc> =
         Utc.from_utc_datetime(&(midnight - Duration::minutes(i64::from(offset_minutes))));
     let end = start + Duration::hours(24);
@@ -190,7 +199,12 @@ pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Resul
 /// voided one is a sale that did not happen; neither is takings.
 pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Value, AppError> {
     let bucket = Bucket::parse(query.bucket.as_deref()).map_err(AppError::Validation)?;
-    let offset_minutes = offset_of(query.utc_offset_minutes);
+    // The caller's offset, else head office's clock: a chart of the whole
+    // fleet keeps the company's day (`site.timezone`, 0474).
+    let offset_minutes = match query.utc_offset_minutes {
+        Some(minutes) => offset_of(Some(minutes)),
+        None => super::sites::business_utc_offset_minutes(pool, None, Utc::now()).await?,
+    };
     let (start, end) = crate::reporting::window_of(query.from, query.to, offset_minutes)
         .map_err(AppError::Validation)?;
 
@@ -332,7 +346,14 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
         None => None,
     };
 
-    let offset_minutes = offset_of(query.utc_offset_minutes);
+    // The caller's offset, else the named shop's clock, else head office's.
+    let offset_minutes = match query.utc_offset_minutes {
+        Some(minutes) => offset_of(Some(minutes)),
+        None => {
+            super::sites::business_utc_offset_minutes(pool, site_id.as_deref(), Utc::now())
+                .await?
+        }
+    };
     let (start, end) = crate::reporting::window_of(query.from, query.to, offset_minutes)
         .map_err(AppError::Validation)?;
     let limit = query.limit.unwrap_or(200).clamp(1, 1000);

@@ -11,9 +11,11 @@ use super::catalogue::{dataset, Dataset, Kind};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
-/// Minutes east of UTC for the business day. WIB, the same default the sales
-/// reports use, so a report's "day" and a shop's day are the same day.
-pub const LOCAL_OFFSET_MINUTES: i32 = 420;
+/// Minutes east of UTC for the business day when there is no site to ask —
+/// the one fallback `reporting` keeps. A report runs on head office's clock,
+/// read from `site.timezone` (0474) and handed to `compile`; this answers only
+/// where no caller can.
+pub const LOCAL_OFFSET_MINUTES: i32 = crate::reporting::DEFAULT_UTC_OFFSET_MINUTES;
 
 /// The coarseness of the time axis. A closed set rather than a string handed to
 /// `date_trunc`, which accepts `century` and `microseconds` and would produce a

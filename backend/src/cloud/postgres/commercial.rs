@@ -1170,7 +1170,14 @@ pub async fn resolve_offer(pool: &PgPool, query: ResolveOfferQuery) -> Result<Va
     let merchandise =
         super::pricing::load_merchandise(&mut tx, Some(std::slice::from_ref(&sku_code))).await?;
     tx.commit().await?;
-    let context = crate::reporting::pricing_context(&query.site_id, query.channel.as_str(), at);
+    let utc_offset_minutes =
+        super::sites::business_utc_offset_minutes(pool, Some(query.site_id.as_str()), at).await?;
+    let context = crate::reporting::pricing_context(
+        &query.site_id,
+        query.channel.as_str(),
+        at,
+        utc_offset_minutes,
+    );
     let priced = price_catalog(
         &pricing.snapshot,
         &context,
@@ -1249,7 +1256,10 @@ pub async fn list_resolved_offers(
     let merchandise = super::pricing::load_merchandise(&mut tx, None).await?;
     tx.commit().await?;
 
-    let context = crate::reporting::pricing_context(site_id, channel.as_str(), at);
+    let utc_offset_minutes =
+        super::sites::business_utc_offset_minutes(pool, Some(site_id), at).await?;
+    let context =
+        crate::reporting::pricing_context(site_id, channel.as_str(), at, utc_offset_minutes);
     let products: Vec<CartLine> = pricing
         .sku_id_by_code
         .keys()
@@ -1725,8 +1735,15 @@ pub async fn simulate(
     let merchandise = super::pricing::load_merchandise(&mut tx, None).await?;
     tx.commit().await?;
 
-    let mut context =
-        crate::reporting::pricing_context(&request.site_id, request.channel.as_str(), at);
+    let utc_offset_minutes =
+        super::sites::business_utc_offset_minutes(pool, Some(request.site_id.as_str()), at)
+            .await?;
+    let mut context = crate::reporting::pricing_context(
+        &request.site_id,
+        request.channel.as_str(),
+        at,
+        utc_offset_minutes,
+    );
     context.coupon_codes = request.coupon_codes.clone();
     context.customer_id = request.customer_id.clone();
 
@@ -2614,7 +2631,11 @@ pub async fn article_prices(
             row.pending_publication = pending.clone();
         }
         pending_by_site.insert(site_id.clone(), pending);
-        let context = crate::reporting::pricing_context(&site_id, channel.as_str(), at);
+        let utc_offset_minutes =
+            super::sites::business_utc_offset_minutes(&mut *tx, Some(site_id.as_str()), at)
+                .await?;
+        let context =
+            crate::reporting::pricing_context(&site_id, channel.as_str(), at, utc_offset_minutes);
 
         // ONE call for the whole page, not one per style.
         //

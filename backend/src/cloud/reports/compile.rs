@@ -53,6 +53,9 @@ struct Builder {
     /// is needed. Reused rather than re-bound because a report whose bucket and
     /// whose hour column disagreed about the timezone would be very hard to see.
     offset: Option<String>,
+    /// Minutes east of UTC that offset binds: head office's clock, read from
+    /// `site.timezone` by the caller (0474).
+    offset_minutes: i32,
     /// The business instant as a SQL literal, substituted into every `$NOW`
     /// token (the same shape as `$OFFSET`: a static catalogue dimension cannot
     /// carry a bind parameter). One literal per query, so every column of one
@@ -75,10 +78,8 @@ impl Builder {
         // meet it — the failure is a runtime "function does not exist", not a
         // compile error, so it belongs where it cannot be forgotten at a use
         // site rather than repeated at four of them.
-        let placeholder = format!(
-            "{}::int",
-            self.bind(Param::Int(LOCAL_OFFSET_MINUTES.into()))
-        );
+        let minutes = self.offset_minutes;
+        let placeholder = format!("{}::int", self.bind(Param::Int(minutes.into())));
         self.offset = Some(placeholder.clone());
         placeholder
     }
@@ -99,19 +100,22 @@ impl Builder {
 }
 
 /// The business day a report is run on, from the business instant the clock
-/// reported.
-pub fn business_day(now: DateTime<Utc>) -> NaiveDate {
-    (now + chrono::Duration::minutes(i64::from(LOCAL_OFFSET_MINUTES))).date_naive()
+/// reported, on a clock `utc_offset_minutes` east of UTC — head office's, read
+/// from `site.timezone` by the caller.
+pub fn business_day(now: DateTime<Utc>, utc_offset_minutes: i32) -> NaiveDate {
+    (now + chrono::Duration::minutes(i64::from(utc_offset_minutes))).date_naive()
 }
 
-/// Build the query for a checked spec, as of the business instant `now`.
-pub fn compile(checked: &Checked<'_>, now: DateTime<Utc>) -> Query {
+/// Build the query for a checked spec, as of the business instant `now`, on a
+/// clock `utc_offset_minutes` east of UTC (head office's; see `business_day`).
+pub fn compile(checked: &Checked<'_>, now: DateTime<Utc>, utc_offset_minutes: i32) -> Query {
     let dataset = checked.dataset;
     let spec = checked.spec;
     let mut builder = Builder {
         params: Vec::new(),
         base: 0,
         offset: None,
+        offset_minutes: utc_offset_minutes,
         now_literal: crate::clock::sql_now_literal(now),
     };
 
@@ -174,7 +178,7 @@ pub fn compile(checked: &Checked<'_>, now: DateTime<Utc>) -> Query {
     // The period, resolved on the local clock and compared as an instant. The
     // end is the midnight *after* the last local day, because a reader asking
     // for "to the first" means the whole of the first.
-    let today = business_day(now);
+    let today = business_day(now, utc_offset_minutes);
     if let Some((from, to)) = spec.period.resolve(today) {
         let offset = builder.offset();
         let from_param = builder.bind(Param::Date(from));
@@ -280,6 +284,10 @@ pub fn narrow(
         params: Vec::new(),
         base: bound,
         offset: None,
+        // A narrowing is a segment's, over the member directory, and none of
+        // that dataset's dimensions reads the local clock; were one to, it
+        // would bind the fallback zone rather than guess a shop.
+        offset_minutes: LOCAL_OFFSET_MINUTES,
         now_literal: crate::clock::sql_now_literal(now),
     };
 
@@ -442,7 +450,7 @@ mod tests {
             "sort": { "key": "gross", "desc": true }
         }));
         let checked = checked(&spec);
-        let query = compile(&checked, now());
+        let query = compile(&checked, now(), LOCAL_OFFSET_MINUTES);
 
         assert!(query.sql.contains("FROM sale_line sl"));
         assert!(
@@ -481,7 +489,7 @@ mod tests {
             "measures": ["sales"]
         }));
         let checked = checked(&spec);
-        let query = compile(&checked, now());
+        let query = compile(&checked, now(), LOCAL_OFFSET_MINUTES);
 
         let offsets = query
             .params
@@ -504,12 +512,12 @@ mod tests {
             "period": { "kind": "relative", "last": 7, "unit": "day" },
             "measures": ["gross"]
         }));
-        let resolved = spec.period.resolve(business_day(now()));
+        let resolved = spec.period.resolve(business_day(now(), LOCAL_OFFSET_MINUTES));
         assert_eq!(
             resolved,
             Some((
                 NaiveDate::from_ymd_opt(2026, 8, 28).unwrap_or_default(),
-                business_day(now())
+                business_day(now(), LOCAL_OFFSET_MINUTES)
             )),
             "seven days inclusive of today"
         );
@@ -622,7 +630,7 @@ mod tests {
         assert_eq!(narrowed.filters.len(), 2);
 
         let checked = checked(&narrowed);
-        let query = compile(&checked, now());
+        let query = compile(&checked, now(), LOCAL_OFFSET_MINUTES);
         assert!(
             query.sql.contains("(s.channel) = $"),
             "the spec's own clause"
@@ -714,7 +722,7 @@ mod tests {
             "present": { "kpis": ["gross"] }
         }));
         let checked = checked(&spec);
-        let query = compile(&checked, now());
+        let query = compile(&checked, now(), LOCAL_OFFSET_MINUTES);
         assert!(!query.sql.contains("GROUP BY"));
         assert_eq!(checked.spec.present.kpis, vec!["gross".to_owned()]);
         let _ = Present::default();

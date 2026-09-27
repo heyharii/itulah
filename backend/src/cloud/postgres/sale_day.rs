@@ -266,7 +266,18 @@ struct DayFacts {
 /// the same day. They would otherwise disagree for seven hours out of every
 /// twenty-four and nothing would say so.
 pub async fn sale_days(pool: &PgPool, scope: SaleDayScope) -> Result<SaleDayPage, AppError> {
-    let offset_minutes = offset_of(scope.utc_offset_minutes);
+    // The caller's offset; else one shop's own clock when one shop is asked
+    // for, and head office's for the fleet (`site.timezone`, 0474).
+    let offset_minutes = match scope.utc_offset_minutes {
+        Some(minutes) => offset_of(Some(minutes)),
+        None => {
+            let only = match scope.sites.as_slice() {
+                [one] => Some(one.trim().to_ascii_lowercase()),
+                _ => None,
+            };
+            super::sites::business_utc_offset_minutes(pool, only.as_deref(), Utc::now()).await?
+        }
+    };
     let sites = (!scope.sites.is_empty()).then(|| {
         scope
             .sites

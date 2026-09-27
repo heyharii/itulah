@@ -32,7 +32,6 @@ use crate::cloud::{
     },
     postgres::{self as infrastructure, CorrectionRow, PunchRow},
 };
-use crate::reporting::DEFAULT_UTC_OFFSET_MINUTES;
 use axum::{
     extract::{Path, Query, State},
     Extension, Json,
@@ -536,13 +535,15 @@ pub async fn record_own_punch(
     })?;
     let place = PlaceId::try_new(place).map_err(invalid)?;
 
-    // The server's clock, converted to the place's own day. One offset for the
-    // whole estate — every unit is in Indonesia and `org_place` holds no
-    // timezone — and it is `reporting`'s constant rather than a second copy,
-    // because a shop's business day turning over at a different hour here than
-    // in the sales reports is the kind of disagreement nothing catches.
+    // The server's clock, converted to the place's own day: the zone of the
+    // site the place sits at (`site.timezone`, 0474), read through the same
+    // SQL function the sales reports cut their days with, because a shop's
+    // business day turning over at a different hour here than there is the
+    // kind of disagreement nothing catches.
     let now = Utc::now();
-    let local = now + chrono::Duration::minutes(i64::from(DEFAULT_UTC_OFFSET_MINUTES));
+    let offset =
+        infrastructure::sites::place_utc_offset_minutes(&state.db, place.as_str(), now).await?;
+    let local = now + chrono::Duration::minutes(i64::from(offset));
     let local_minute = MinuteOfDay::try_new(
         u16::try_from(local.time().num_seconds_from_midnight() / 60).unwrap_or(u16::MAX),
     )

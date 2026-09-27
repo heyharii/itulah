@@ -90,6 +90,31 @@ ALTER TABLE site
 COMMENT ON COLUMN site.timezone IS
     'IANA time zone the site keeps its business day in (0474). Every "which day was this" at the site reads it; cloud-wide reads use head office''s.';
 
+-- The one definition of "whose clock", for SQL: the named site's zone, else
+-- head office's (a site id the centre holds no row for, or none at all),
+-- else the zone every site kept before this column existed. Rust's
+-- `sites::business_timezone` selects the same function.
+CREATE FUNCTION site_business_timezone(text) RETURNS text
+LANGUAGE sql STABLE AS $$
+    SELECT COALESCE(
+        (SELECT timezone FROM site WHERE id = $1),
+        (SELECT timezone FROM site WHERE id = head_office_site_id()),
+        'Asia/Jakarta')
+$$;
+
+COMMENT ON FUNCTION site_business_timezone(text) IS
+    'The IANA zone a site cuts its day in: its own, else head office''s, else Asia/Jakarta (0474). NULL asks for head office''s.';
+
+-- The day an instant falls on where a site is. Replaces every
+-- `(x AT TIME ZONE 'UTC') + make_interval(mins => 420)` the code carried.
+CREATE FUNCTION site_local_date(timestamptz, text) RETURNS date
+LANGUAGE sql STABLE AS $$
+    SELECT ($1 AT TIME ZONE site_business_timezone($2))::date
+$$;
+
+COMMENT ON FUNCTION site_local_date(timestamptz, text) IS
+    'The calendar date of an instant in the named site''s zone (0474); NULL site means head office''s.';
+
 -- ---------------------------------------------------------------------------
 -- 3. Display code
 -- ---------------------------------------------------------------------------

@@ -172,7 +172,12 @@ pub fn sales_series(
     query: SalesSeriesQuery,
 ) -> Result<SalesSeries, EdgeError> {
     let bucket = Bucket::parse(query.bucket.as_deref()).map_err(EdgeError::Validation)?;
-    let offset_minutes = offset_of(query.utc_offset_minutes);
+    // The caller's offset, else this shop's own clock as head office told it.
+    let offset_minutes = offset_of(
+        query
+            .utc_offset_minutes
+            .or_else(|| crate::edge::site_profile::own_utc_offset_minutes(connection)),
+    );
     let (start, end) =
         window_of(query.from, query.to, offset_minutes).map_err(EdgeError::Validation)?;
     // `completed_at` is RFC3339 in UTC with a `Z` (see `sqlite.rs`), so the
@@ -260,7 +265,11 @@ pub fn sales_window(
     site_id: &str,
     query: SalesWindowQuery,
 ) -> Result<SalesWindow, EdgeError> {
-    let offset_minutes = offset_of(query.utc_offset_minutes);
+    let offset_minutes = offset_of(
+        query
+            .utc_offset_minutes
+            .or_else(|| crate::edge::site_profile::own_utc_offset_minutes(connection)),
+    );
     let (start, end) =
         window_of(query.from, query.to, offset_minutes).map_err(EdgeError::Validation)?;
     let limit = query.limit.unwrap_or(200).clamp(1, 1000);

@@ -579,6 +579,22 @@ async fn run_auth_policy_refresh_agent(pool: sqlx::PgPool) {
     }
 }
 
+/// Today at head office, by the zone its `site` row keeps (0474).
+///
+/// The schedulers below run for the whole company, so they keep head office's
+/// calendar. A tick that cannot ask the database uses the fallback zone rather
+/// than skipping: every job it drives is claimed once per day in
+/// `scheduled_job_run`, so a wrong-by-an-hour guess costs nothing twice.
+async fn head_office_today(pool: &sqlx::PgPool) -> chrono::NaiveDate {
+    match postgres::sites::business_utc_offset_minutes(pool, None, chrono::Utc::now()).await {
+        Ok(offset) => inventory_backend::reporting::local_today_at(offset),
+        Err(error) => {
+            tracing::warn!(%error, "head office's clock unreadable; using the fallback zone");
+            inventory_backend::reporting::local_today()
+        }
+    }
+}
+
 /// The clock's HR pass.
 ///
 /// Hourly rather than daily, for the reason the integrity agent gives: a
@@ -596,7 +612,7 @@ async fn run_hr_scheduler(pool: sqlx::PgPool) {
     info!("HR scheduler started: accrual, expiry, roster carry, nudges");
     loop {
         interval.tick().await;
-        let today = inventory_backend::reporting::local_today();
+        let today = head_office_today(&pool).await;
         let results = inventory_backend::cloud::postgres::run_all(&pool, today).await;
         for result in &results {
             match result.status.as_str() {
@@ -631,7 +647,7 @@ async fn run_reminder_scheduler(pool: sqlx::PgPool) {
     info!("reminder scheduler started: GA contracts, papers, supplier bills, tax deadlines");
     loop {
         interval.tick().await;
-        let today = inventory_backend::reporting::local_today();
+        let today = head_office_today(&pool).await;
         for result in postgres::run_reminders(&pool, today).await {
             match result.status.as_str() {
                 "FAILED" => tracing::error!(
@@ -666,7 +682,7 @@ async fn run_marketing_scheduler(pool: sqlx::PgPool) {
     info!("marketing scheduler started: rollouts, stale shops, guardrails, tomorrow's calendar");
     loop {
         interval.tick().await;
-        let today = inventory_backend::reporting::local_today();
+        let today = head_office_today(&pool).await;
         let sweep_guardrails = tick % 5 == 0;
         tick = tick.wrapping_add(1);
         for result in

@@ -76,10 +76,6 @@ const MAX_TOOL_ROUNDS: usize = 6;
 /// ceiling rather than a timeout risk.
 const MAX_TOKENS: u32 = 8_000;
 
-/// Minutes east of UTC for the business day. The same default the sales
-/// reports use — WIB — so "today" means the same thing to the assistant as it
-/// does to the screen the reader is looking at.
-const LOCAL_OFFSET_MINUTES: i32 = 420;
 
 /// How many rows of a query the model is shown.
 ///
@@ -434,7 +430,12 @@ async fn run_turn(
     // round see it unchanged at the head of a growing conversation.
     let mut messages: Vec<Value> = vec![json!({
         "role": "system",
-        "content": system_prompt(state, principal, ask.page),
+        "content": system_prompt(
+            state,
+            principal,
+            ask.page,
+            local_now(head_office_offset(&state.db).await),
+        ),
     })];
     // What was said before, then what is being asked now. Roles that are
     // neither are dropped rather than coerced: the only writer of this table
@@ -1288,7 +1289,8 @@ async fn run_tool(state: &AppState, name: &str, input: &Value) -> Result<ToolOut
                 DailyReportQuery {
                     site_id,
                     date,
-                    utc_offset_minutes: Some(LOCAL_OFFSET_MINUTES),
+                    // The shop's own clock, which the report reads itself.
+                    utc_offset_minutes: None,
                 },
             )
             .await
@@ -1302,7 +1304,8 @@ async fn run_tool(state: &AppState, name: &str, input: &Value) -> Result<ToolOut
                     from,
                     to,
                     bucket: text("bucket"),
-                    utc_offset_minutes: Some(LOCAL_OFFSET_MINUTES),
+                    // Head office's clock, which the report reads itself.
+                    utc_offset_minutes: None,
                 },
             )
             .await
@@ -1315,7 +1318,7 @@ async fn run_tool(state: &AppState, name: &str, input: &Value) -> Result<ToolOut
                     status: text("status"),
                     from: None,
                     to: None,
-                    utc_offset_minutes: Some(LOCAL_OFFSET_MINUTES),
+                    utc_offset_minutes: None,
                     limit: Some(number("limit").unwrap_or(25).clamp(1, 200)),
                 },
             )
@@ -1324,7 +1327,10 @@ async fn run_tool(state: &AppState, name: &str, input: &Value) -> Result<ToolOut
         "missing_stock" => infrastructure::list_missing(&state.db).await,
         "commercial_activation" => infrastructure::commercial_activation(&state.db).await,
         "trial_balance" => {
-            let as_of = date("as_of")?.unwrap_or_else(|| local_today().date());
+            let as_of = match date("as_of")? {
+                Some(day) => day,
+                None => local_now(head_office_offset(&state.db).await).date(),
+            };
             infrastructure::trial_balance(
                 &state.db,
                 infrastructure::TrialBalanceScope {
@@ -1427,9 +1433,19 @@ async fn run_tool(state: &AppState, name: &str, input: &Value) -> Result<ToolOut
         .map_err(|error| error.to_string())
 }
 
-/// Now, on the business clock the reports use.
-fn local_today() -> chrono::NaiveDateTime {
-    let offset = chrono::Duration::minutes(LOCAL_OFFSET_MINUTES.into());
+/// Minutes east of UTC at head office now: the clock "today" means to the
+/// assistant, and the one the reports cut a company-wide day with
+/// (`site.timezone`, 0474). The fallback zone if the database cannot be asked,
+/// because a greeting is not worth failing a page over.
+async fn head_office_offset(pool: &sqlx::PgPool) -> i32 {
+    infrastructure::sites::business_utc_offset_minutes(pool, None, Utc::now())
+        .await
+        .unwrap_or(crate::reporting::DEFAULT_UTC_OFFSET_MINUTES)
+}
+
+/// Now, on a business clock `utc_offset_minutes` east of UTC.
+fn local_now(utc_offset_minutes: i32) -> chrono::NaiveDateTime {
+    let offset = chrono::Duration::minutes(utc_offset_minutes.into());
     (Utc::now() + offset).naive_utc()
 }
 
@@ -1439,8 +1455,12 @@ fn local_today() -> chrono::NaiveDateTime {
 /// figures mean, and how the answer will be drawn. Everything about the data
 /// itself arrives through tools, because a system prompt describing the
 /// business is a second copy of the business that goes stale.
-fn system_prompt(state: &AppState, principal: &Principal, page: Option<&str>) -> String {
-    let now = local_today();
+fn system_prompt(
+    state: &AppState,
+    principal: &Principal,
+    page: Option<&str>,
+    now: chrono::NaiveDateTime,
+) -> String {
     let where_from = match page {
         Some(path) => format!("They are looking at `{path}` in the hub right now.\n"),
         None => String::new(),
@@ -1450,8 +1470,9 @@ fn system_prompt(state: &AppState, principal: &Principal, page: Option<&str>) ->
 clothing retailer running one distribution centre and a fleet of shops. You are \
 answering {name} ({role}) on node `{node}`.\n\
 {where_from}\n\
-Today is {today} (local business day, UTC+7). The business day ends at that \
-boundary, so \"today\" means the local date above.\n\n\
+Today is {today} (head office's local business day; each shop keeps its own \
+zone in `site.timezone`). The business day ends at local midnight, so \"today\" \
+means the local date above.\n\n\
 What you can reach:\n\
 - Nine curated reads — stock by pool, prices by shop, daily takings, sales over \
 time, receipts, missing stock, commercial activation, articles, trial balance. \
@@ -1520,7 +1541,8 @@ pub async fn brief(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<Value>, AppError> {
-    let today = local_today().date();
+    let now = local_now(head_office_offset(&state.db).await);
+    let today = now.date();
     let yesterday = today - chrono::Duration::days(1);
     // A fortnight, so the sparkline has a shape and last week is on it.
     let from = today - chrono::Duration::days(13);
@@ -1531,7 +1553,7 @@ pub async fn brief(
             from,
             to: today,
             bucket: Some("day".into()),
-            utc_offset_minutes: Some(LOCAL_OFFSET_MINUTES),
+            utc_offset_minutes: None,
         },
     )
     .await?;
@@ -1550,7 +1572,7 @@ pub async fn brief(
     let gross = |on: NaiveDate| -> i64 { gross_on(&series, on) };
 
     Ok(Json(json!({
-        "greeting": greeting(local_today().hour()),
+        "greeting": greeting(now.hour()),
         "who": principal.display_name,
         "as_of": today,
         "trade": {

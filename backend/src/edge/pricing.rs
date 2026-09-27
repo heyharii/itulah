@@ -923,7 +923,12 @@ pub fn store_catalog(
     at: DateTime<Utc>,
 ) -> Result<Vec<CatalogRow>, EdgeError> {
     let snapshot = load_snapshot(connection, site_id, channel)?;
-    let context = crate::reporting::pricing_context(site_id, channel, at);
+    let context = crate::reporting::pricing_context(
+        site_id,
+        channel,
+        at,
+        crate::edge::site_profile::utc_offset_minutes(connection),
+    );
 
     let mut statement = connection
         .prepare(
@@ -1040,7 +1045,12 @@ pub fn store_catalog_page(
     let sku_codes: Vec<String> = scanned.iter().map(|(code, ..)| code.clone()).collect();
     let next_cursor = has_more.then(|| sku_codes.last().cloned()).flatten();
     let snapshot = load_snapshot_for(connection, site_id, channel, Some(&sku_codes))?;
-    let context = crate::reporting::pricing_context(site_id, channel, at);
+    let context = crate::reporting::pricing_context(
+        site_id,
+        channel,
+        at,
+        crate::edge::site_profile::utc_offset_minutes(connection),
+    );
     let facts = merchandise(connection, Some(&sku_codes))?;
     let products: Vec<CartLine> = sku_codes
         .iter()
@@ -1277,7 +1287,12 @@ pub fn store_offers(
         // window and the counter come to disagree for a reason nobody can see.
         tax_rules: load_tax_rules(connection)?,
     };
-    let context = crate::reporting::pricing_context(site_id, channel, at);
+    let context = crate::reporting::pricing_context(
+        site_id,
+        channel,
+        at,
+        crate::edge::site_profile::utc_offset_minutes(connection),
+    );
     let faces = load_campaign_faces(connection)?;
 
     let mut running = Vec::new();
@@ -1770,7 +1785,12 @@ pub fn quote(
             return Ok(None);
         }
     }
-    let mut context = crate::reporting::pricing_context(site_id, channel, at);
+    let mut context = crate::reporting::pricing_context(
+        site_id,
+        channel,
+        at,
+        crate::edge::site_profile::utc_offset_minutes(connection),
+    );
     context.coupon_codes = coupon_codes.to_vec();
     context.customer_id = customer_id.map(str::to_string);
     // Handed to the engine rather than added on afterwards, because the engine

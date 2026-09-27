@@ -245,7 +245,7 @@ pub(super) async fn cost_layer_on_setup(
 ) -> Result<(), AppError> {
     let Some(line) = sqlx::query(
         "SELECT l.receipt_id, pl.article_code, l.quantity, pl.unit_price_minor,
-                (l.verified_at AT TIME ZONE 'Asia/Jakarta')::date AS accepted_on
+                site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id)) AS accepted_on
            FROM goods_receipt_line l
            JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
           WHERE l.receipt_line_id = $1 AND l.posting_id IS NOT NULL",
@@ -517,11 +517,11 @@ pub async fn receipt_post(
     posting_date: Option<NaiveDate>,
     actor: &str,
 ) -> Result<ReceiptPosting, AppError> {
-    // The days still to value, in the company's own calendar: a lorry accepted
-    // at half past six in the morning in Bandung was accepted that day, not
-    // the day before, whatever UTC says.
+    // The days still to value, in the receiving site's own calendar
+    // (`site.timezone`, 0474): a lorry accepted at half past six in the
+    // morning was accepted that day, not the day before, whatever UTC says.
     let days: Vec<NaiveDate> = sqlx::query_scalar(
-        "SELECT DISTINCT (l.verified_at AT TIME ZONE 'Asia/Jakarta')::date
+        "SELECT DISTINCT site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id))
            FROM goods_receipt_line l
           WHERE l.receipt_id = $1 AND l.posting_id IS NULL
           ORDER BY 1",
@@ -598,12 +598,12 @@ async fn receipt_post_tranche(
 
     let lines = sqlx::query(
         "SELECT l.receipt_line_id, pl.article_code, l.quantity, pl.unit_price_minor,
-                (l.verified_at AT TIME ZONE 'Asia/Jakarta')::date AS accepted_on
+                site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id)) AS accepted_on
            FROM goods_receipt_line l
            JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
           WHERE l.receipt_id = $1
             AND l.posting_id IS NULL
-            AND ($2::date IS NULL OR (l.verified_at AT TIME ZONE 'Asia/Jakarta')::date = $2)
+            AND ($2::date IS NULL OR site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id)) = $2)
           ORDER BY pl.line_number, l.receipt_line_id",
     )
     .bind(receipt_id)

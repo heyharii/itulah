@@ -387,9 +387,18 @@ pub async fn acq_receivable_aging(
     Query(query): Query<AcqAgingQuery>,
 ) -> Result<Json<AcquirerReceivableAging>, AppError> {
     allowed(&principal, Role::Supervisor, "read the acquirer ageing")?;
-    let as_of = query
-        .as_of
-        .unwrap_or_else(|| infrastructure::acquirer_business_date(chrono::Utc::now()));
+    // Today where the named shop is, or at head office when none is named.
+    let as_of = match query.as_of {
+        Some(day) => day,
+        None => {
+            infrastructure::acquirer_business_date(
+                &state.db,
+                some_text(&query.site),
+                chrono::Utc::now(),
+            )
+            .await?
+        }
+    };
     Ok(Json(
         infrastructure::acq_receivable_aging(
             &state.db,

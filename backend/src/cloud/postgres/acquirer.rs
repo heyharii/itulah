@@ -48,15 +48,10 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
-/// The business day is UTC+7, so an evening's takings are dated by the shop's
-/// own calendar and not by London's. The same shift `reports.rs` applies, and
-/// the same reason: dating by UTC moves everything rung after five in the
-/// afternoon into tomorrow.
-const BUSINESS_DAY_MINUTES: i64 = 420;
-
-/// A sale's trading day, in SQL, from `edge_sale e`.
-const SALE_BUSINESS_DATE: &str =
-    "((e.occurred_at AT TIME ZONE 'UTC') + make_interval(mins => 420))::date";
+/// A sale's trading day, in SQL, from `edge_sale e`: the date the shop's own
+/// clock showed (`site.timezone`, 0474), not London's. Dating by UTC moves
+/// everything rung after the shop's UTC midnight into tomorrow.
+const SALE_BUSINESS_DATE: &str = "site_local_date(e.occurred_at, e.site_id)";
 
 // ---------------------------------------------------------------------------
 // The shop's evening
@@ -421,8 +416,7 @@ const RECON_FROM: &str = "
           JOIN edge_sale e USING (sale_id)
          WHERE e.site_id = r.site_id
            AND st.method = r.tender_kind
-           AND ((e.occurred_at AT TIME ZONE 'UTC') + make_interval(mins => 420))::date
-               = r.business_date
+           AND site_local_date(e.occurred_at, e.site_id) = r.business_date
     ) t ON true
     LEFT JOIN LATERAL (
         SELECT SUM(l.amount_minor)::bigint AS batch_minor,
@@ -2452,11 +2446,23 @@ pub async fn acq_settlement_unmapped_keys(
     Ok(missing)
 }
 
-/// The business day of an instant, in the shop's own calendar.
+/// The business day of an instant, in the shop's own calendar — or head
+/// office's, when no shop is named.
 ///
-/// Exposed because the tests and any caller turning a timestamp into a trading
-/// day must use the same 420 minutes the SQL above does; two answers to "which
-/// day was this" is how a reconciliation comes to be missing one receipt.
-pub fn acquirer_business_date(at: DateTime<Utc>) -> NaiveDate {
-    (at + chrono::Duration::minutes(BUSINESS_DAY_MINUTES)).date_naive()
+/// Exposed because any caller turning a timestamp into a trading day must use
+/// the same clock the SQL above does (`site_local_date`, 0474); two answers to
+/// "which day was this" is how a reconciliation comes to be missing one
+/// receipt.
+pub async fn acquirer_business_date(
+    executor: impl sqlx::PgExecutor<'_>,
+    site_id: Option<&str>,
+    at: DateTime<Utc>,
+) -> Result<NaiveDate, AppError> {
+    Ok(
+        sqlx::query_scalar::<_, NaiveDate>("SELECT site_local_date($1, $2)")
+            .bind(at)
+            .bind(site_id)
+            .fetch_one(executor)
+            .await?,
+    )
 }
