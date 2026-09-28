@@ -3943,10 +3943,12 @@ impl EdgeInventory for SqliteEdge {
         // Which garments come off the racks. FIFO by when they were created, so
         // the oldest stock leaves first and nothing quietly ages at the back.
         //
-        // No allotment is consulted here. Picking fetches a SKU and a number;
-        // which piece serves which shop is settled when it goes into a carton,
-        // and a pick that had already chosen would be making that decision
-        // invisibly, on the strength of nothing but an allotment's age.
+        // Which piece serves which shop is settled when it goes into a carton,
+        // not here: a pick fetches a SKU and a number. But only a number some
+        // allotment still needs (owner, 28 Sep 2026). A pick nobody allotted
+        // moves goods into the pick area with no destination, where they stop
+        // counting as the warehouse's — and the next allotment for them is
+        // refused for stock the building plainly holds.
         // The shelf the pick comes off: the one named, when goods rest there
         // (a shop picks a return off its floor or its reject), else the
         // stockroom, as every pick at the Gudang always was.
@@ -3969,6 +3971,59 @@ impl EdgeInventory for SqliteEdge {
             state: InventoryState::Normal,
         };
 
+        // What the open allotments still need of this SKU off this shelf:
+        // accepted, not cancelled, not yet in a carton — less what already
+        // waits in the pick area for a carton. Picked and packed rise
+        // together when a unit goes into a koli, so "not yet picked" on the
+        // line is "not yet packed".
+        let shelf_pool = match &warehouse {
+            Place::Operational { pool, .. } => pool.id(),
+            _ => request.source_pool_id.clone(),
+        };
+        let still_needed: i64 = tx
+            .query_row(
+                "SELECT COALESCE(SUM(line.accepted_quantity - line.cancelled_quantity
+                                     - line.picked_quantity), 0)
+                   FROM dc_allotment_work_line line
+                   JOIN dc_allotment_work work ON work.allotment_id = line.allotment_id
+                  WHERE work.application_status = 'ACCEPTED'
+                    AND work.fulfillment_status IN ('OPEN', 'IN_PROGRESS')
+                    AND line.sku_code = ?1
+                    AND line.source_pool_id IN (?2, ?3)",
+                params![request.sku_code, shelf_pool, request.source_pool_id],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        let waiting_in_pick_area: i64 = tx
+            .query_row(
+                "SELECT COALESCE(SUM(projection.quantity), 0)
+                   FROM inventory_projection projection
+                   JOIN inventory_subject subject ON subject.id = projection.subject_id
+                  WHERE projection.place_id = ?1 AND projection.quantity > 0
+                    AND subject.sku_code = ?2",
+                params![picking.id(), request.sku_code],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        let room = still_needed - waiting_in_pick_area;
+        if room <= 0 {
+            return Err(EdgeError::Conflict(if still_needed == 0 {
+                format!(
+                    "no open allotment needs {} from {}: pick only what head office allotted",
+                    request.sku_code, shelf_pool
+                )
+            } else {
+                format!(
+                    "the open allotments need {still_needed} of {}, and {waiting_in_pick_area} \
+                     already wait in the pick area: pack those first",
+                    request.sku_code
+                )
+            }));
+        }
+        // More than is needed is a short pick of what is needed, stated as
+        // such in the answer, never a trolley of goods going nowhere.
+        let to_pick = request.quantity.min(room);
+
         let found = {
             let mut statement = tx
                 .prepare(
@@ -3982,10 +4037,9 @@ impl EdgeInventory for SqliteEdge {
                 )
                 .map_err(db)?;
             let rows = statement
-                .query_map(
-                    params![warehouse.id(), request.sku_code, request.quantity],
-                    |row| row.get::<_, String>(0),
-                )
+                .query_map(params![warehouse.id(), request.sku_code, to_pick], |row| {
+                    row.get::<_, String>(0)
+                })
                 .map_err(db)?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(db)?;

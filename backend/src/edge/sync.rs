@@ -1061,13 +1061,28 @@ fn apply_allotment_activation(
     let mut available_by_stock = BTreeMap::<(String, String), i64>::new();
     let mut shortages = Vec::new();
     for ((pool_id, sku_code), requested) in &requested_by_stock {
+        // The supply head office measures (`ELIGIBLE_SUPPLY_PLACES`): a
+        // stockroom together with the pick area beside it. A unit carried to
+        // the pick area is still unpacked, so the reservation below still
+        // counts it; measuring the racks alone subtracted it twice and
+        // refused allotments for goods the building held.
+        let shelf = format!("{pool_id}:on_hand");
+        let pick_area = match OperationalPool::from_str(pool_id) {
+            Ok(pool) if matches!(pool.role(), crate::pool_role::PoolRole::Stockroom) => {
+                let area = OperationalPool::DcOutboundPicking {
+                    dc_id: node.site_id.clone(),
+                };
+                format!("{}:on_hand", area.id())
+            }
+            _ => shelf.clone(),
+        };
         let physical: i64 = tx
             .query_row(
                 "SELECT COALESCE(SUM(projection.quantity),0)
                  FROM inventory_projection projection
                  JOIN inventory_subject subject ON subject.id=projection.subject_id
-                 WHERE projection.place_id=?1 AND subject.sku_code=?2",
-                params![format!("{pool_id}:on_hand"), sku_code],
+                 WHERE projection.place_id IN (?1, ?3) AND subject.sku_code=?2",
+                params![shelf, sku_code, pick_area],
                 |row| row.get(0),
             )
             .map_err(err)?;
