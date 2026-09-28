@@ -43,7 +43,7 @@ async fn bank_account(pool: &PgPool, ledger: &str, site: &str, bank: &str, numbe
         pool,
         &cloud::DescribeBankAccountRequest {
             ledger_account_code: ledger.into(),
-            site_id: site.into(),
+            unit_id: site.into(),
             bank_code: Some(bank.into()),
             bank_name: String::new(),
             account_no: number.into(),
@@ -147,19 +147,19 @@ async fn every_meaning_a_writer_names_resolves_at_every_site(pool: PgPool) {
         ("asset_disposal_result", ""), ("asset_disposal_loss", ""), ("work_in_progress", ""),
         ("intangible_asset", "PRE_OPENING"), ("amortisation_expense", "PRE_OPENING"),
         ("accumulated_amortisation", "PRE_OPENING"), ("prepaid_expense", ""),
-        ("expense_electricity", ""), ("expense_water", ""), ("expense_telephone", ""),
-        ("expense_household", ""), ("expense_stationery", ""), ("expense_repairs", ""),
-        ("expense_transport", ""), ("expense_cleaning", ""), ("expense_misc", ""),
+        ("electricity_expense", ""), ("water_expense", ""), ("telephone_expense", ""),
+        ("expense", "expense_household"), ("expense", "expense_stationery"), ("repair_expense", ""),
+        ("expense", "expense_transport"), ("cleaning_expense", ""), ("miscellaneous_expense", ""),
         ("affiliate_receivable", "LAIN"), ("affiliate_payable", "LAIN"),
     ];
     let mut missing = Vec::new();
     for (key, qualifier) in named {
         let unresolved: Vec<String> = sqlx::query_scalar(
-            "SELECT s.id FROM site s
+            "SELECT u.id FROM unit u
               WHERE NOT EXISTS (
                   SELECT 1 FROM account_resolution m
                     JOIN ledger_account a ON a.account_code = m.account_code
-                   WHERE m.role = $1 AND m.site_id = s.id AND m.source_type = 'COMPANY'
+                   WHERE m.role = $1 AND m.unit_id = u.id
                      AND m.source_id = $2
                      AND a.is_active AND NOT a.is_group AND m.category_code IS NULL)",
         )
@@ -188,7 +188,7 @@ async fn every_meaning_a_writer_names_resolves_at_every_site(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn each_source_kind_posts_through_the_client_chart(pool: PgPool) {
     open_september(&pool).await;
-    bank_account(&pool, "1005", "dc", "BCA", "8880012345").await;
+    bank_account(&pool, "1005", "ho", "BCA", "8880012345").await;
     let d = |key: &str, site: &str, q: &str| PostingLine::debit(key, site, 100_000).with_qualifier(q);
     let c = |key: &str, site: &str, q: &str| PostingLine::credit(key, site, 100_000).with_qualifier(q);
     let cases: Vec<(&str, Vec<PostingLine>)> = vec![
@@ -204,28 +204,28 @@ async fn each_source_kind_posts_through_the_client_chart(pool: PgPool) {
         ("STORE_DEPOSIT", vec![
             PostingLine::debit("affiliate_receivable", SITE, 100_000)
                 .with_qualifier("PEMBIAYAAN")
-                .with_counter_site("dc"),
-            PostingLine::credit("affiliate_payable", "dc", 100_000)
+                .with_counter_unit("ho"),
+            PostingLine::credit("affiliate_payable", "ho", 100_000)
                 .with_qualifier("PEMBIAYAAN")
-                .with_counter_site(SITE),
+                .with_counter_unit(SITE),
         ]),
-        ("STORE_EXPENSE", vec![d("expense_electricity", SITE, ""), c("petty_cash", SITE, "")]),
-        ("GIRO", vec![d("trade_payable", "dc", ""), c("giro_outstanding", "dc", "BCA")]),
-        ("PAYMENT", vec![d("giro_outstanding", "dc", "BCA"), c("bank_giro", "dc", "BCA")]),
-        ("TAX_SETTLEMENT", vec![d("pph21_payable", "dc", ""), c("bank_giro", "dc", "BCA")]),
-        ("SUPPLIER_ADVANCE", vec![d("advance_purchase", "dc", ""), c("bank_giro", "dc", "BCA")]),
-        ("EQUITY_MOVEMENT", vec![d("bank_giro", "dc", "BCA"), c("capital_contributed", "dc", "")]),
+        ("STORE_EXPENSE", vec![d("electricity_expense", SITE, ""), c("petty_cash", SITE, "")]),
+        ("GIRO", vec![d("trade_payable", "ho", ""), c("giro_outstanding", "ho", "BCA")]),
+        ("PAYMENT", vec![d("giro_outstanding", "ho", "BCA"), c("bank_giro", "ho", "BCA")]),
+        ("TAX_SETTLEMENT", vec![d("pph21_payable", "ho", ""), c("bank_giro", "ho", "BCA")]),
+        ("SUPPLIER_ADVANCE", vec![d("advance_purchase", "ho", ""), c("bank_giro", "ho", "BCA")]),
+        ("EQUITY_MOVEMENT", vec![d("bank_giro", "ho", "BCA"), c("capital_contributed", "ho", "")]),
         // 3004 Prive is reached by EQUITY_MOVEMENT and HO journals only (0380).
-        ("TRANSFER", vec![d("inventory", "dc", ""), c("inventory", "dc", "")]),
-        ("ASSET_DISPOSAL", vec![d("asset_disposal_loss", "dc", ""), c("work_in_progress", "dc", "")]),
+        ("TRANSFER", vec![d("inventory", "ho", ""), c("inventory", "ho", "")]),
+        ("ASSET_DISPOSAL", vec![d("asset_disposal_loss", "ho", ""), c("work_in_progress", "ho", "")]),
         ("AMORTIZATION_RUN", vec![d("amortisation_expense", SITE, "PRE_OPENING"), c("accumulated_amortisation", SITE, "PRE_OPENING")]),
         ("PREPAID_ALLOCATION", vec![d("expense_misc", SITE, ""), c("prepaid_expense", SITE, "")]),
         ("INVENTORY_WRITE_OFF", vec![d("inventory_damage", SITE, ""), c("inventory", SITE, "")]),
         ("STOCK_COUNT", vec![d("stock_loss", SITE, ""), c("inventory", SITE, "")]),
-        ("GOODS_RECEIPT", vec![d("inventory", "dc", ""), c("trade_payable", "dc", "")]),
-        ("SUPPLIER_INVOICE", vec![d("expense_repairs", "dc", ""), c("non_merchandise_payable", "dc", "")]),
+        ("GOODS_RECEIPT", vec![d("inventory", "ho", ""), c("trade_payable", "ho", "")]),
+        ("SUPPLIER_INVOICE", vec![d("repair_expense", "ho", ""), c("non_merchandise_payable", "ho", "")]),
         ("FULL_AND_FINAL", vec![d("employee_claim_payable", SITE, ""), c("petty_cash", SITE, "")]),
-        ("PETTY_REPLENISH", vec![d("petty_cash", "dc", ""), c("bank_giro", "dc", "BCA")]),
+        ("PETTY_REPLENISH", vec![d("petty_cash", "ho", ""), c("bank_giro", "ho", "BCA")]),
     ];
     let mut refused = Vec::new();
     for (kind, lines) in cases {
@@ -291,7 +291,7 @@ async fn synced_sale(
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_mixed_day_posts_once_and_parks_what_it_cannot_place(pool: PgPool) {
     open_september(&pool).await;
-    bank_account(&pool, "1005", "dc", "BCA", "8880012345").await;
+    bank_account(&pool, "1005", "ho", "BCA", "8880012345").await;
     sqlx::query(
         "INSERT INTO edc_terminal (site_id, terminal_id, bank_code, created_by)
          VALUES ($1, 'T-BNI-01', 'BNI', 'test')",
@@ -421,7 +421,7 @@ async fn a_mixed_day_posts_once_and_parks_what_it_cannot_place(pool: PgPool) {
     assert_eq!(curated.mdr_expected_minor, Some(3_330));
     // The MDR stays in the unit's books; head office only receives the money.
     assert_eq!(balance(&pool, "6005", Some(SITE)).await, 20_000);
-    assert_eq!(balance(&pool, "6005", Some("dc")).await, 0);
+    assert_eq!(balance(&pool, "6005", Some("ho")).await, 0);
     every_site_balances_in_its_own_books(&pool).await;
 }
 
@@ -455,7 +455,7 @@ async fn legs_of(pool: &PgPool, entry: Uuid) -> Vec<(String, String, String, i64
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn every_crossing_goes_through_the_affiliate_accounts(pool: PgPool) {
     open_september(&pool).await;
-    bank_account(&pool, "1005", "dc", "BCA", "8880012345").await;
+    bank_account(&pool, "1005", "ho", "BCA", "8880012345").await;
 
     // A unit pays head office's supplier out of its sales cash: HO Dr 2002 /
     // Cr 1057 (counter unit); unit Dr 2028 (counter HO) / Cr 1002. The unit
@@ -465,7 +465,7 @@ async fn every_crossing_goes_through_the_affiliate_accounts(pool: PgPool) {
         &intent(
             "PAYMENT",
             vec![
-                PostingLine::debit("trade_payable", "dc", 750_000),
+                PostingLine::debit("trade_payable", "ho", 750_000),
                 PostingLine::credit("cash", SITE, 750_000),
             ],
         ),
@@ -475,8 +475,8 @@ async fn every_crossing_goes_through_the_affiliate_accounts(pool: PgPool) {
     assert_eq!(
         legs_of(&pool, paid).await,
         vec![
-            ("dc".into(), "1057".into(), SITE.into(), -750_000),
-            (SITE.into(), "2028".into(), "dc".into(), 750_000),
+            ("ho".into(), "1057".into(), SITE.into(), -750_000),
+            (SITE.into(), "2028".into(), "ho".into(), 750_000),
         ]
     );
 
@@ -511,7 +511,7 @@ async fn every_crossing_goes_through_the_affiliate_accounts(pool: PgPool) {
     .unwrap_or_else(|error| panic!("transfer: {error}"));
     let legs = legs_of(&pool, moved).await;
     assert_eq!(legs.len(), 4);
-    assert!(legs.iter().all(|(site, _, counter, _)| site == "dc" || counter == "dc"));
+    assert!(legs.iter().all(|(site, _, counter, _)| site == "ho" || counter == "ho"));
     assert!(legs
         .iter()
         .all(|(_, code, _, _)| code == "1058" || code == "2029"));
@@ -524,7 +524,7 @@ async fn every_crossing_goes_through_the_affiliate_accounts(pool: PgPool) {
             "ASSET_TRANSFER",
             vec![
                 PostingLine::debit("work_in_progress", SITE, 90_000),
-                PostingLine::credit("work_in_progress", "dc", 90_000),
+                PostingLine::credit("work_in_progress", "ho", 90_000),
             ],
         ),
     )
@@ -534,7 +534,7 @@ async fn every_crossing_goes_through_the_affiliate_accounts(pool: PgPool) {
     assert_eq!(asset_legs.len(), 2, "{asset_legs:?}");
     assert!(
         asset_legs.iter().all(|(site, code, _, _)| {
-            if site == "dc" {
+            if site == "ho" {
                 code == "1059"
             } else {
                 code == "2030"
@@ -701,7 +701,7 @@ async fn payroll_accrues_by_component_and_payment_clears_the_payable(pool: PgPoo
         chrono::Datelike::month(&today) as i32,
     )
     .await;
-    bank_account(&pool, "1005", "dc", "BCA", "8880012345").await;
+    bank_account(&pool, "1005", "ho", "BCA", "8880012345").await;
     for id in ["emp-a", "emp-b", "emp-c"] {
         employee(&pool, id).await;
     }
@@ -765,17 +765,17 @@ async fn payroll_accrues_by_component_and_payment_clears_the_payable(pool: PgPoo
     // 7,600,000 of salary plus the 100,000 PPh 21 the company bears on top.
     assert_eq!(balance(&pool, "6012", Some(SITE)).await, 7_700_000, "store salary + employer PPh 21");
     assert_eq!(balance(&pool, "6018", Some(SITE)).await, store_thr, "store THR accrual");
-    assert_eq!(balance(&pool, "6028", Some("dc")).await, 600_000, "head-office meal");
-    assert_eq!(balance(&pool, "6026", Some("dc")).await, 6_000_000, "head-office salary");
-    assert_eq!(balance(&pool, "6012", Some("dc")).await, 0);
+    assert_eq!(balance(&pool, "6028", Some("ho")).await, 600_000, "head-office meal");
+    assert_eq!(balance(&pool, "6026", Some("ho")).await, 6_000_000, "head-office salary");
+    assert_eq!(balance(&pool, "6012", Some("ho")).await, 0);
     assert_eq!(balance(&pool, "2011", None).await, -100_000, "PPh 21 withheld");
     // BPJS is its own liability (owner, 25 Sep) rather than folded into 2017,
     // and PPh 21 is the company's expense — so the employee's net is the whole
     // gross and 2017 carries all 8,100,000.
     assert_eq!(balance(&pool, "2017", Some(SITE)).await, -8_100_000);
-    assert_eq!(balance(&pool, "2017", Some("dc")).await, -(6_600_000 - 120_000));
+    assert_eq!(balance(&pool, "2017", Some("ho")).await, -(6_600_000 - 120_000));
     assert_eq!(
-        balance(&pool, "2021", Some("dc")).await,
+        balance(&pool, "2021", Some("ho")).await,
         -120_000,
         "BPJS withheld, waiting on Finance to remit it"
     );
@@ -786,7 +786,7 @@ async fn payroll_accrues_by_component_and_payment_clears_the_payable(pool: PgPoo
     let fund = cloud::operating_fund_send(
         &pool,
         &cloud::SendFundRequest {
-            site_id: SITE.into(),
+            unit_id: SITE.into(),
             custodian_employee_id: "emp-a".into(),
             amount_minor: 8_100_000,
             value_date: day(),
@@ -804,7 +804,7 @@ async fn payroll_accrues_by_component_and_payment_clears_the_payable(pool: PgPoo
     .unwrap_or_else(|error| panic!("send: {error}"));
     let fund_id: Uuid = serde_json::from_value(fund["fund_id"].clone())
         .unwrap_or_else(|error| panic!("fund id: {error}"));
-    assert_eq!(balance(&pool, "1057", Some("dc")).await, 8_100_000, "HO half: Dr 1057");
+    assert_eq!(balance(&pool, "1057", Some("ho")).await, 8_100_000, "HO half: Dr 1057");
     assert_eq!(balance(&pool, "1003", Some(SITE)).await, 0, "not yet received");
     cloud::operating_fund_receive(
         &pool,
@@ -837,16 +837,16 @@ async fn payroll_accrues_by_component_and_payment_clears_the_payable(pool: PgPoo
         &intent(
             "PAYROLL_RUN",
             vec![
-                PostingLine::debit("payroll_payable", "dc", 6_480_000),
-                PostingLine::debit("bpjs_payable", "dc", 120_000),
-                PostingLine::credit("bank_giro", "dc", 6_600_000).with_qualifier("BCA"),
+                PostingLine::debit("payroll_payable", "ho", 6_480_000),
+                PostingLine::debit("bpjs_payable", "ho", 120_000),
+                PostingLine::credit("bank_giro", "ho", 6_600_000).with_qualifier("BCA"),
             ],
         ),
     )
     .await
     .unwrap_or_else(|error| panic!("ho payment: {error}"));
     assert_eq!(balance(&pool, "2017", None).await, 0, "2017 cleared by the payments");
-    assert_eq!(balance(&pool, "2021", Some("dc")).await, 0, "BPJS remitted");
+    assert_eq!(balance(&pool, "2021", Some("ho")).await, 0, "BPJS remitted");
     assert_eq!(balance(&pool, "1003", Some(SITE)).await, 0, "petty cash received and spent");
     every_site_balances_in_its_own_books(&pool).await;
 }

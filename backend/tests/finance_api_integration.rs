@@ -213,7 +213,7 @@ async fn a_user(
 fn line(account: &str, site: &str, debit: i64, credit: i64) -> Value {
     json!({
         "account": { "kind": "account", "account_code": account },
-        "site_id": site,
+        "unit_id": site,
         "debit_minor": debit,
         "credit_minor": credit,
     })
@@ -342,7 +342,9 @@ async fn retired_accounts_cannot_be_posted(pool: PgPool) {
     let app = app_with_admin(&pool).await;
     let admin = sign_in(&app, "admin", ADMIN_PASSWORD).await;
 
-    for retired in ["2003", "4009", "4010", "1110", "2032"] {
+    // 1110 Disposed Inventory is NOT here: 0380 reopened it (the client carries
+    // 2.73B on it) as a manual-only, opening-balance account.
+    for retired in ["2003", "4009", "4010", "2032"] {
         let refused = post_manual_journal(
             &app,
             &admin,
@@ -391,7 +393,7 @@ async fn rental_income_lands_on_8005(pool: PgPool) {
     let trial = get(
         &app,
         &admin,
-        "/api/v1/finance/trial-balance?site=store-01&as_of=2026-09-30",
+        "/api/v1/finance/trial-balance?unit=store-01&as_of=2026-09-30",
     )
     .await;
     assert_eq!(trial.status, StatusCode::OK, "trial: {:?}", trial.body);
@@ -417,7 +419,7 @@ async fn a_management_fee_crosses_on_lain_lain(pool: PgPool) {
         "/api/v1/finance/management-fees",
         write_headers(&admin.0, &admin.1),
         Some(json!({
-            "unit_site_id": SITE,
+            "unit_id": SITE,
             "amount_minor": 250_000,
             "effective_date": "2026-09-15",
             "memo": "management fee September",
@@ -429,7 +431,7 @@ async fn a_management_fee_crosses_on_lain_lain(pool: PgPool) {
     let store = get(
         &app,
         &admin,
-        "/api/v1/finance/trial-balance?site=store-01&as_of=2026-09-30",
+        "/api/v1/finance/trial-balance?unit=store-01&as_of=2026-09-30",
     )
     .await;
     assert_eq!(
@@ -447,7 +449,7 @@ async fn a_management_fee_crosses_on_lain_lain(pool: PgPool) {
     let ho = get(
         &app,
         &admin,
-        "/api/v1/finance/trial-balance?site=dc&as_of=2026-09-30",
+        "/api/v1/finance/trial-balance?unit=ho&as_of=2026-09-30",
     )
     .await;
     assert_eq!(ho.status, StatusCode::OK, "HO trial: {:?}", ho.body);
@@ -459,9 +461,9 @@ async fn a_management_fee_crosses_on_lain_lain(pool: PgPool) {
 
     let (ho_1059, unit_2030, affiliate): (i64, i64, i64) = sqlx::query_as(
         "SELECT COALESCE(SUM(debit_minor - credit_minor)
-                    FILTER (WHERE account_code = '1059' AND site_id = 'dc'), 0)::bigint,
+                    FILTER (WHERE account_code = '1059' AND unit_id = 'ho'), 0)::bigint,
                 COALESCE(SUM(debit_minor - credit_minor)
-                    FILTER (WHERE account_code = '2030' AND site_id = 'store-01'), 0)::bigint,
+                    FILTER (WHERE account_code = '2030' AND unit_id = 'store-01'), 0)::bigint,
                 COALESCE(SUM(debit_minor - credit_minor)
                     FILTER (WHERE account_code IN ('1059', '2030')), 0)::bigint
            FROM journal_line",
@@ -519,7 +521,7 @@ async fn closing_a_month_posts_nothing_to_retained_earnings(pool: PgPool) {
     let trial = send(
         app.clone(),
         "GET",
-        "/api/v1/finance/trial-balance?site=dc&as_of=2026-09-30",
+        "/api/v1/finance/trial-balance?unit=ho&as_of=2026-09-30",
         vec![(header::COOKIE.to_string(), admin.0.clone())],
         None,
     )
@@ -546,7 +548,7 @@ async fn manual_income_6002_is_a_finance_journal(pool: PgPool) {
     let posted = post_manual_journal(
         &app,
         &admin,
-        vec![line("1002", "dc", 10_000, 0), line("6002", "dc", 0, 10_000)],
+        vec![line("1002", "ho", 10_000, 0), line("6002", "ho", 0, 10_000)],
     )
     .await;
     assert_eq!(posted.status, StatusCode::OK, "admin: {:?}", posted.body);

@@ -36,7 +36,7 @@ use uuid::Uuid;
 
 const ACTOR: &str = "ana";
 const STORE: &str = "store-01";
-const HO: &str = "dc";
+const HO: &str = "ho";
 
 fn day() -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 9, 15).unwrap_or_else(|| panic!("bad date"))
@@ -65,7 +65,7 @@ async fn bank_account(pool: &PgPool, ledger: &str, site: &str, bank: &str, numbe
         pool,
         &cloud::DescribeBankAccountRequest {
             ledger_account_code: ledger.into(),
-            site_id: site.into(),
+            unit_id: site.into(),
             bank_code: Some(bank.into()),
             bank_name: String::new(),
             account_no: number.into(),
@@ -95,7 +95,7 @@ async fn try_post(pool: &PgPool, kind: &str, lines: Vec<PostingLine>) -> Result<
 /// (site, account_code, debit_minor, credit_minor) per line, in line order.
 async fn lines_of(pool: &PgPool, entry: Uuid) -> Vec<(String, String, i64, i64)> {
     sqlx::query(
-        "SELECT site_id, account_code, debit_minor, credit_minor
+        "SELECT unit_id, account_code, debit_minor, credit_minor
            FROM journal_line WHERE entry_id = $1 ORDER BY line_number",
     )
     .bind(entry)
@@ -105,7 +105,7 @@ async fn lines_of(pool: &PgPool, entry: Uuid) -> Vec<(String, String, i64, i64)>
     .into_iter()
     .map(|row| {
         (
-            row.get::<String, _>("site_id"),
+            row.get::<String, _>("unit_id"),
             row.get::<String, _>("account_code"),
             row.get::<i64, _>("debit_minor"),
             row.get::<i64, _>("credit_minor"),
@@ -128,8 +128,10 @@ fn is_affiliate(account: &str) -> bool {
 
 async fn mapped(pool: &PgPool, key: &str, qualifier: &str) -> String {
     sqlx::query_scalar(
+        // No source_type filter: a decision may come from a master record (a
+        // claim type, an expense category), not only the company default.
         "SELECT account_code FROM account_resolution
-          WHERE role = $1 AND site_id = $2 AND source_type = 'COMPANY' AND source_id = $3",
+          WHERE role = $1 AND unit_id = $2 AND source_id = $3",
     )
     .bind(key)
     .bind(STORE)
@@ -178,7 +180,7 @@ async fn a_store_remittance_is_two_affiliate_halves(pool: PgPool) {
         vec![
             PostingLine::debit("affiliate_receivable", STORE, 100_000)
                 .with_qualifier("PEMBIAYAAN")
-                .with_counter_site(HO),
+                .with_counter_unit(HO),
             PostingLine::credit("cash", STORE, 100_000),
         ],
     )
@@ -199,7 +201,7 @@ async fn a_store_remittance_is_two_affiliate_halves(pool: PgPool) {
             PostingLine::debit("bank_giro", HO, 100_000).with_qualifier("BCA"),
             PostingLine::credit("affiliate_payable", HO, 100_000)
                 .with_qualifier("PEMBIAYAAN")
-                .with_counter_site(STORE),
+                .with_counter_unit(STORE),
         ],
     )
     .await
@@ -259,7 +261,7 @@ async fn head_office_pays_a_shops_electricity(pool: PgPool) {
         &pool,
         "SUPPLIER_INVOICE",
         vec![
-            PostingLine::debit("expense_electricity", STORE, 200_000),
+            PostingLine::debit("electricity_expense", STORE, 200_000),
             PostingLine::credit("bank_giro", HO, 200_000).with_qualifier("BCA"),
         ],
     )
@@ -335,7 +337,7 @@ async fn modal_kasir_cannot_pay_an_expense(pool: PgPool) {
         &pool,
         "STORE_EXPENSE",
         vec![
-            PostingLine::debit("expense_electricity", STORE, 5_000),
+            PostingLine::debit("electricity_expense", STORE, 5_000),
             PostingLine::credit("cashier_float", STORE, 5_000),
         ],
     )
@@ -359,7 +361,7 @@ async fn a_supplier_payable_cannot_sit_at_a_shop(pool: PgPool) {
             &pool,
             "SUPPLIER_INVOICE",
             vec![
-                PostingLine::debit("expense_electricity", STORE, 5_000),
+                PostingLine::debit("electricity_expense", STORE, 5_000),
                 PostingLine::credit(key, STORE, 5_000).for_supplier("sup-1"),
             ],
         )
@@ -459,7 +461,7 @@ async fn a_unit_may_hold_outstanding_giro_for_its_own_bank_account(pool: PgPool)
         &pool,
         "STORE_EXPENSE",
         vec![
-            PostingLine::debit("expense_electricity", STORE, 75_000),
+            PostingLine::debit("electricity_expense", STORE, 75_000),
             PostingLine::credit("giro_outstanding", STORE, 75_000).with_qualifier("BCA"),
         ],
     )
@@ -545,7 +547,7 @@ async fn a_unit_giro_paying_a_head_office_supplier_crosses_on_pembiayaan(pool: P
     let recorded = cloud::record_payment(
         &pool,
         &cloud::RecordPaymentRequest {
-            site_id: STORE.into(),
+            unit_id: STORE.into(),
             payment_date: day(),
             method: "GIRO".into(),
             account_key: "bank_giro".into(),
@@ -608,7 +610,7 @@ async fn a_unit_giro_paying_a_head_office_supplier_crosses_on_pembiayaan(pool: P
     assert_eq!(lines.len(), 4, "four lines, nothing else: {lines:?}");
 
     let counters: Vec<(String, String, Option<String>)> = sqlx::query(
-        "SELECT site_id, account_code, counter_site_id FROM journal_line
+        "SELECT unit_id, account_code, counter_unit_id FROM journal_line
           WHERE entry_id = $1 AND account_code IN ('1057','2028') ORDER BY line_number",
     )
     .bind(entry)
@@ -618,9 +620,9 @@ async fn a_unit_giro_paying_a_head_office_supplier_crosses_on_pembiayaan(pool: P
     .into_iter()
     .map(|row| {
         (
-            row.get("site_id"),
+            row.get("unit_id"),
             row.get("account_code"),
-            row.get("counter_site_id"),
+            row.get("counter_unit_id"),
         )
     })
     .collect();
@@ -687,12 +689,12 @@ async fn lain_lain_is_2030_at_the_unit_and_1059_at_head_office(pool: PgPool) {
     );
 
     let misplaced: Vec<(String, String, Option<String>)> = sqlx::query(
-        "SELECT site_id, account_code, counter_site_id FROM journal_line
+        "SELECT unit_id, account_code, counter_unit_id FROM journal_line
           WHERE account_code IN ('1059', '2030')
-            AND (   (account_code = '1059' AND site_id <> 'dc')
-                 OR (account_code = '2030' AND site_id = 'dc')
-                 OR counter_site_id IS NULL
-                 OR (site_id <> 'dc' AND counter_site_id <> 'dc'))",
+            AND (   (account_code = '1059' AND unit_id <> 'ho')
+                 OR (account_code = '2030' AND unit_id = 'ho')
+                 OR counter_unit_id IS NULL
+                 OR (unit_id <> 'ho' AND counter_unit_id <> 'ho'))",
     )
     .fetch_all(&pool)
     .await
@@ -700,9 +702,9 @@ async fn lain_lain_is_2030_at_the_unit_and_1059_at_head_office(pool: PgPool) {
     .into_iter()
     .map(|row| {
         (
-            row.get("site_id"),
+            row.get("unit_id"),
             row.get("account_code"),
-            row.get("counter_site_id"),
+            row.get("counter_unit_id"),
         )
     })
     .collect();
@@ -868,8 +870,8 @@ async fn a_unit_is_always_on_hutang_and_head_office_on_piutang(pool: PgPool) {
 
     // A store return goes Dr 2029 at the store, Cr 1058 at HO.
     let returned: (i64, i64) = sqlx::query_as(
-        "SELECT COALESCE(SUM(debit_minor) FILTER (WHERE site_id = $1 AND account_code = '2029'), 0)::bigint,
-                COALESCE(SUM(credit_minor) FILTER (WHERE site_id = 'dc' AND account_code = '1058'), 0)::bigint
+        "SELECT COALESCE(SUM(debit_minor) FILTER (WHERE unit_id = $1 AND account_code = '2029'), 0)::bigint,
+                COALESCE(SUM(credit_minor) FILTER (WHERE unit_id = 'ho' AND account_code = '1058'), 0)::bigint
            FROM journal_line",
     )
     .bind(STORE)
@@ -883,15 +885,15 @@ async fn a_unit_is_always_on_hutang_and_head_office_on_piutang(pool: PgPool) {
     );
 
     let wrong_side: Vec<(String, String)> = sqlx::query(
-        "SELECT site_id, account_code FROM journal_line
-          WHERE (site_id <> 'dc' AND account_code IN ('1057', '1058', '1059'))
-             OR (site_id =  'dc' AND account_code IN ('2028', '2029', '2030'))",
+        "SELECT unit_id, account_code FROM journal_line
+          WHERE (unit_id <> 'ho' AND account_code IN ('1057', '1058', '1059'))
+             OR (unit_id =  'ho' AND account_code IN ('2028', '2029', '2030'))",
     )
     .fetch_all(&pool)
     .await
     .unwrap_or_else(|error| panic!("wrong side: {error}"))
     .into_iter()
-    .map(|row| (row.get("site_id"), row.get("account_code")))
+    .map(|row| (row.get("unit_id"), row.get("account_code")))
     .collect();
     assert!(
         wrong_side.is_empty(),
@@ -901,9 +903,9 @@ async fn a_unit_is_always_on_hutang_and_head_office_on_piutang(pool: PgPool) {
     let unit_to_unit: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM journal_line
           WHERE account_code IN ('1057','1058','1059','2028','2029','2030')
-            AND (counter_site_id IS NULL
-                 OR (site_id <> 'dc' AND counter_site_id <> 'dc')
-                 OR (site_id = 'dc' AND counter_site_id = 'dc'))",
+            AND (counter_unit_id IS NULL
+                 OR (unit_id <> 'ho' AND counter_unit_id <> 'ho')
+                 OR (unit_id = 'ho' AND counter_unit_id = 'ho'))",
     )
     .fetch_one(&pool)
     .await
