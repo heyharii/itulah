@@ -2122,11 +2122,14 @@ fn resident_node(tx: &Transaction<'_>) -> Result<NodeContext, SyncError> {
 /// Head office has settled what a delivery actually is.
 ///
 /// Two things happen here, and they are one transaction because either alone
-/// is worse than neither: the job is stored so the warehouse can print and
-/// tag, and the goods stop being unidentified. The second is not a journey —
-/// the pile does not move an inch — it is the system learning what it has
-/// been holding. One anonymous quantity of an article becomes several
-/// identified quantities of SKUs.
+/// is worse than neither: the job is stored so the warehouse can print the
+/// labels, and the goods stop being unidentified. The second is not a
+/// journey — the pile does not move an inch — it is the system learning what
+/// it has been holding. One anonymous quantity of an article becomes that
+/// many units, each under the EPC head office minted for it, in the
+/// warehouse: once a new item is set up its goods are stock (owner, 28 Sep
+/// 2026). Printing the labels is only printing — the job waits on the print
+/// list, and nothing waits on it. There is no Untagged pool.
 fn apply_tagging_job(
     tx: &Transaction<'_>,
     job: &crate::cloud::domain::TaggingJobPayload,
@@ -2259,23 +2262,18 @@ fn apply_tagging_job(
     }];
 
     for line in &job.lines {
-        let variant_subject = Uuid::new_v4();
-        tx.execute(
-            "INSERT INTO inventory_subject
-                 (id, subject_type, article_code, epc, sku_code, quantity, unit_price_minor,
-                  created_at)
-             VALUES (?1, 'QUANTITY', ?2, NULL, ?3, ?4, ?5, ?6)",
-            params![
-                variant_subject.to_string(),
-                article_code,
+        if line.epcs.len() as i64 != line.quantity {
+            return Err(err(format!(
+                "tagging job {} line {} is for {} units but carries {} EPCs",
+                job.job_id,
                 line.sku_code,
                 line.quantity,
-                line.base_price_minor,
-                received_at
-            ],
-        )
-        .map_err(err)?;
-
+                line.epcs.len()
+            )));
+        }
+        // No lot behind the line: its units are the goods (below). A job
+        // stored by an older build names the lot it parked in Untagged here,
+        // and confirming it still moves that lot (`confirm_tagging`).
         tx.execute(
             "INSERT INTO tagging_job_line
                  (job_id, sku_code, colour_digit, colour_label, size_code, size_label,
@@ -2292,7 +2290,7 @@ fn apply_tagging_job(
                 line.qr_payload,
                 line.barcode_payload,
                 line.base_price_minor,
-                variant_subject.to_string()
+                Option::<String>::None
             ],
         )
         .map_err(err)?;
@@ -2301,31 +2299,59 @@ fn apply_tagging_job(
         // an EPC, and nothing here may: the encoding rule lives in one place
         // in this system, and a second copy that drifted would write tags
         // that read back as missing stock.
+        //
+        // Each label is a unit from the start: it is what the Gudang picks,
+        // packs and a store counts in.
         for epc in &line.epcs {
+            let unit_subject = Uuid::new_v4();
             tx.execute(
-                "INSERT INTO tagging_job_epc (epc, job_id, sku_code) VALUES (?1, ?2, ?3)",
-                params![epc, job.job_id.to_string(), line.sku_code],
+                "INSERT INTO inventory_subject
+                     (id, subject_type, article_code, epc, sku_code, quantity, unit_price_minor,
+                      created_at)
+                 VALUES (?1, 'UNIT', ?2, ?3, ?4, 1, ?5, ?6)",
+                params![
+                    unit_subject.to_string(),
+                    article_code,
+                    epc,
+                    line.sku_code,
+                    line.base_price_minor,
+                    received_at
+                ],
+            )
+            .map_err(|error| {
+                err(format!(
+                    "EPC {epc} is already held by this DC as another unit: {error}"
+                ))
+            })?;
+            tx.execute(
+                "INSERT INTO tagging_job_epc (epc, job_id, sku_code, subject_id)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    epc,
+                    job.job_id.to_string(),
+                    line.sku_code,
+                    unit_subject.to_string()
+                ],
             )
             .map_err(|error| {
                 err(format!(
                     "EPC {epc} is already held by this DC under another job: {error}"
                 ))
             })?;
-        }
-
-        lines.push(crate::edge::MovementLine {
-            subject_id: crate::edge::SubjectId(variant_subject),
-            quantity: line.quantity,
-            from: crate::edge::Place::System {
-                place: crate::edge::SystemPlace::Identification,
-            },
-            to: crate::edge::Place::Operational {
-                pool: OperationalPool::DcPendingUntagged {
-                    dc_id: node.site_id.clone(),
+            lines.push(crate::edge::MovementLine {
+                subject_id: crate::edge::SubjectId(unit_subject),
+                quantity: 1,
+                from: crate::edge::Place::System {
+                    place: crate::edge::SystemPlace::Identification,
                 },
-                state: crate::edge::InventoryState::Normal,
-            },
-        });
+                to: crate::edge::Place::Operational {
+                    pool: OperationalPool::Stockroom {
+                        site_id: node.site_id.clone(),
+                    },
+                    state: crate::edge::InventoryState::Normal,
+                },
+            });
+        }
     }
 
     let command = crate::edge::MovementCommand {
@@ -2335,18 +2361,26 @@ fn apply_tagging_job(
         reference_type: Some("TAGGING_JOB".into()),
         reference_id: Some(job.job_id.to_string()),
         reason: format!(
-            "Identifikasi {} menjadi {} varian",
+            "Identifikasi {} menjadi {} varian, masuk gudang",
             job.article_code,
             job.lines.len()
         ),
         actor_id: "system:tagging".into(),
         occurred_at: Utc::now(),
     };
+    let movement_group_id = command.movement_group_id;
     crate::edge::SqliteEdge::append_movement(
         &node,
         tx,
         &format!("tagging-job-{}", job.job_id),
         &command,
+    )
+    .map_err(err)?;
+    // The movement that made the goods stock, kept on the job: marking the
+    // labels printed answers with it, and moves nothing again.
+    tx.execute(
+        "UPDATE tagging_job SET movement_group_id = ?2 WHERE job_id = ?1",
+        params![job.job_id.to_string(), movement_group_id.to_string()],
     )
     .map_err(err)?;
 

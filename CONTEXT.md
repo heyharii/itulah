@@ -346,11 +346,19 @@ A step type whose meaning — its movements, its journal meaning, the proof it
 requires, its fixed rules — lives in code: pick, pack, close koli (KOLI),
 ship (into a **Surat Jalan**), load (onto a **Dispatch**), depart, receive,
 inspect, ready for pickup, handover, approval; and the receiving stages
-arrival, blind count, verification, tagging. (Putaway stays in the catalogue
-for old template versions, but is not part of our process and nothing runs
-it: tagging already lands the goods on the racks.) Pack, close koli, ship
-and load can be taken back one step (unpack, unship, unload) while nothing has
+arrival, blind count, verification, tagging. Pack, close koli, ship and load
+can be taken back one step (unpack, unship, unload) while nothing has
 departed.
+
+Our own templates use fewer stages than the catalogue offers (owner, 28 Sep
+2026). Goods to a store go allotment → pick → pack → surat jalan → depart →
+blind receive: closing a koli belongs to packing it, and loading belongs to
+the lorry departing. Receiving from a supplier is arrival → blind count → the
+PO's creator approves. Tagging and putaway stay in the catalogue for old
+template versions, but nothing in our process waits on them: once a new
+item's master data is set up, its goods go from Unidentified straight into
+the warehouse, one unit per EPC, and printing the labels is only printing.
+There is no Untagged pool.
 _Avoid_: status
 
 **Surat Jalan** (SJ):

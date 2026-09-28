@@ -1526,7 +1526,7 @@ pub async fn list_fleet_pools(
              FROM sync_origin_credential credential
              JOIN (VALUES
                  ('DC'::text,'.pending.unidentified'::text),
-                 ('DC','.pending.untagged'),('DC','.warehouse'),('DC','.reject.dc'),
+                 ('DC','.warehouse'),('DC','.reject.dc'),
                  ('STORE','.warehouse'),('STORE','.floor'),('STORE','.reject')
              ) AS base(node_role,suffix)
                ON base.node_role=credential.node_role

@@ -3265,10 +3265,9 @@ impl SqliteEdge {
     fn base_pools(node: &NodeContext) -> Vec<OperationalPool> {
         match node.role {
             EdgeRole::Dc => vec![
+                // No Untagged pool: identified goods go straight to the
+                // warehouse, each under its own EPC (owner, 28 Sep 2026).
                 OperationalPool::DcPendingUnidentified {
-                    dc_id: node.site_id.clone(),
-                },
-                OperationalPool::DcPendingUntagged {
                     dc_id: node.site_id.clone(),
                 },
                 OperationalPool::Stockroom {
@@ -10462,8 +10461,22 @@ impl SqliteEdge {
         let mut movement_lines = Vec::new();
         let mut completed_lines = Vec::new();
         let mut tagged_units = 0i64;
+        // A job the goods came in on (`edge::sync::apply_tagging_job`, owner
+        // 28 Sep 2026): its units went into the warehouse when it arrived, so
+        // confirming it only says the labels are printed and takes it off the
+        // print list. Nothing moves. A job an older build stored still has
+        // its lot parked in Untagged behind each line, and moves it as before.
+        let printed_only = lines.iter().all(|(_, _, _, subject)| subject.is_none());
 
         for (sku_code, quantity, base_price_minor, subject_id) in &lines {
+            if printed_only {
+                tagged_units += quantity;
+                completed_lines.push(serde_json::json!({
+                    "sku_code": sku_code,
+                    "quantity": quantity,
+                }));
+                continue;
+            }
             let subject_id = subject_id.as_deref().ok_or_else(|| {
                 EdgeError::Persistence(format!("tagging line {sku_code} has no goods behind it"))
             })?;
@@ -10563,7 +10576,27 @@ impl SqliteEdge {
             actor_id: request.actor_id.clone(),
             occurred_at,
         };
-        let movement = self.append_command(&tx, &request.idempotency_key, &command)?;
+        let movement_group_id: Uuid = if printed_only {
+            let stored: Option<String> = tx
+                .query_row(
+                    "SELECT movement_group_id FROM tagging_job WHERE job_id = ?1",
+                    params![request.job_id.to_string()],
+                    |row| row.get(0),
+                )
+                .map_err(db)?;
+            let stored = stored.ok_or_else(|| {
+                EdgeError::Persistence(format!(
+                    "tagging job {} has neither goods waiting nor the movement that stocked them",
+                    request.job_id
+                ))
+            })?;
+            Uuid::parse_str(&stored).map_err(|error| {
+                EdgeError::Persistence(format!("stored movement group: {error}"))
+            })?
+        } else {
+            self.append_command(&tx, &request.idempotency_key, &command)?
+                .movement_group_id
+        };
 
         tx.execute(
             "UPDATE tagging_job
@@ -10573,7 +10606,7 @@ impl SqliteEdge {
                 request.job_id.to_string(),
                 request.actor_id,
                 created_at,
-                movement.movement_group_id.to_string()
+                movement_group_id.to_string()
             ],
         )
         .map_err(db)?;
@@ -10590,7 +10623,7 @@ impl SqliteEdge {
                 "session_id": Uuid::parse_str(&session_id).map_err(|error| {
                     EdgeError::Persistence(format!("stored session id: {error}"))
                 })?,
-                "movement_group_id": movement.movement_group_id,
+                "movement_group_id": movement_group_id,
                 "confirmed_by": request.actor_id,
                 "confirmed_at": occurred_at,
                 "lines": completed_lines,
@@ -10600,7 +10633,7 @@ impl SqliteEdge {
 
         let result = TaggingConfirmResult {
             job_id: request.job_id,
-            movement_group_id: movement.movement_group_id,
+            movement_group_id,
             tagged_units,
             confirmed_by: request.actor_id.clone(),
             confirmed_at: occurred_at,

@@ -331,6 +331,10 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
         // changes is what the system believes they are. Each half names a
         // different subject, so the two are joined through the identification
         // place rather than to each other.
+        //
+        // Identified goods are stock at once, a unit per EPC in the warehouse
+        // (owner, 28 Sep 2026). Into Untagged is how an older build
+        // identified them, still read when its movements are replayed.
         MovementCause::Identification => matches!(
             (&line.from, &line.to),
             (
@@ -346,7 +350,8 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                     place: SystemPlace::Identification
                 },
                 Place::Operational {
-                    pool: OperationalPool::DcPendingUntagged { .. },
+                    pool: OperationalPool::Stockroom { .. }
+                        | OperationalPool::DcPendingUntagged { .. },
                     state: InventoryState::Normal
                 }
             )

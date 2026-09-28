@@ -4578,24 +4578,33 @@ async fn apply_fulfillment_progress(
     Ok(true)
 }
 
-/// The environment switch that lets the centre announce inbound deliveries
-/// to shops. Default OFF — see `docs/store-inbound-receiving.md`.
+/// An operator's override of inbound announcements. Unset is the ordinary
+/// case: a shop is told what is on its way whenever its server can take it.
 ///
-/// Why a switch and not a per-origin capability check: the centre has no
-/// record of what an edge build understands (`sync_origin_credential` has no
-/// capability column and the ingest carries none), and an edge that receives a
-/// command type it does not know BLOCKS its whole command stream. So the
-/// command must not be issued until every store edge runs a build that
-/// advertises `store.inbound`, and that is an operator's decision.
+/// A shop is always told a delivery is coming (owner, 28 Sep 2026): without
+/// the announcement its Receive screen stays empty, the blind count never
+/// happens and the delivery's flow waits at RECEIVE forever. What still has
+/// to be guarded is an older build, because an edge that receives a command
+/// type it does not know BLOCKS its whole command stream. The heartbeat now
+/// says what a build takes (`inventory.goods_routes.v1`, which covers the
+/// announcement), so that is checked per server rather than switched for the
+/// whole estate:
+///
+/// * unset — announce to a server whose heartbeat says it takes the goods
+///   routes;
+/// * `off` / `0` / `false` / `no` — never announce (a kill switch);
+/// * `on` / `1` / `true` / `yes` — announce to every shop's server, heartbeat
+///   or not, as before the heartbeat carried capabilities.
 pub const STORE_INBOUND_COMMANDS_ENV: &str = "INVENTORY_STORE_INBOUND_COMMANDS";
 
-pub fn store_inbound_commands_enabled() -> bool {
-    std::env::var(STORE_INBOUND_COMMANDS_ENV).is_ok_and(|value| {
-        matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
+/// The override, when an operator set one.
+pub fn store_inbound_commands_override() -> Option<bool> {
+    let value = std::env::var(STORE_INBOUND_COMMANDS_ENV).ok()?;
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
 
 /// Tell the destination that a koli is on its way to it.
@@ -4608,27 +4617,32 @@ pub fn store_inbound_commands_enabled() -> bool {
 /// A return lands in that store's own return pool at the Gudang, to be
 /// inspected; the announcement names it, in the node's own spelling, so the
 /// node never has to work it out. A shop's delivery names none and lands in
-/// its stockroom, as it always did. A warehouse is announced to only once
-/// its heartbeat says it takes the goods routes: an older build would ignore
-/// it at best.
+/// its stockroom, as it always did. A server is announced to once its
+/// heartbeat says it takes the goods routes: an older build would block on
+/// the command. An operator's override ([`STORE_INBOUND_COMMANDS_ENV`]) can
+/// switch that off, or force it for every shop.
 async fn announce_store_inbound_tx(
     tx: &mut Transaction<'_, Postgres>,
     progress: &FulfillmentProgressPayload,
 ) -> Result<(), AppError> {
-    if !store_inbound_commands_enabled() {
-        return Ok(());
-    }
+    let forced = match store_inbound_commands_override() {
+        Some(false) => return Ok(()),
+        Some(true) => true,
+        None => false,
+    };
     let destination = canonical_site_id_tx(tx, &progress.destination_store_id).await?;
     let Some(origin_id) = inventory_owner_tx(tx, &destination).await? else {
         return Ok(());
     };
     let mut payload = StoreInboundAnnouncePayload::from_progress(progress);
     let source = canonical_site_id_tx(tx, &progress.source_site_id).await?;
-    if let Some(return_pool) = super::sites::return_pool_for(&mut **tx, &destination, &source).await?
-    {
-        if !origin_takes_goods_routes_tx(tx, &origin_id).await? {
-            return Ok(());
-        }
+    let return_pool = super::sites::return_pool_for(&mut **tx, &destination, &source).await?;
+    // A return to the Gudang always asks the heartbeat, forced or not: it
+    // was never announced before the goods routes.
+    if (!forced || return_pool.is_some()) && !origin_takes_goods_routes_tx(tx, &origin_id).await? {
+        return Ok(());
+    }
+    if let Some(return_pool) = return_pool {
         let node_site = origin_site_id_tx(tx, &origin_id).await?;
         payload.destination_store_id = node_site.clone();
         payload.destination_pool_id = Some(pool_id_for_site(&return_pool, &node_site));
