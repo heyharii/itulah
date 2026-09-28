@@ -24,7 +24,8 @@ export interface Waiting {
   /// deliberately its own number — nothing becomes stock until somebody who did
   /// not count it says so.
   readonly toVerify: number
-  /// Jobs whose labels are not yet confirmed as attached.
+  /// Label-print jobs still open — their goods are already stock; only the
+  /// printing is left.
   readonly tagging: number
   /// SKUs still owed to shops, and the pieces behind them.
   readonly pickLines: number

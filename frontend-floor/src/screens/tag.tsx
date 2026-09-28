@@ -12,18 +12,21 @@ import { pendingOf, useOutbox } from "@/lib/outbox"
 import { queryState } from "@/lib/query-state"
 import { reads } from "@/lib/queries"
 
-/// The tagging bench, on a phone.
+/// The label-printing bench, on a phone.
 ///
 /// A job is an article's worth of labels the centre has already minted — the
-/// EPCs arrive as finished strings and this building never computes one. What is
-/// left to do is physical: print them at the bench, attach them, and then say so.
+/// EPCs arrive as finished strings and this building never computes one. The
+/// goods themselves are already stock in this warehouse the moment the job
+/// lands (owner, 28 Sep 2026): there is no Untagged pool and nothing here is
+/// waiting on a person before it counts as being here. What is left to do is
+/// physical: print the labels at the bench, and then say so.
 ///
 /// **Only the saying-so is here.** Printing needs a printer on this node's
 /// network, a session, a chunk runner and a preview, and that is a bench screen
 /// on a machine beside the printer — it is in the hub's Operations module and it
-/// stays there. Confirming is the step that actually puts the units into the
-/// warehouse, and it is the step somebody does standing over a table with tags in
-/// their hand, which is what this app is for.
+/// stays there. Marking a job printed only takes it off the print list; it
+/// moves no stock. That is the step somebody does standing over the printer,
+/// which is what this app is for.
 export function Tag() {
   const go = useGo()
   const jobs = useQuery(reads.taggingJobs())
@@ -43,11 +46,12 @@ export function Tag() {
         render: (rows) =>
           rows.length === 0 ? (
             <EmptyState>
-              Tidak ada kerjaan tag. Kerjaan muncul di sini setelah sebuah
-              kiriman diterima dan pusat mengirim label untuknya.
+              Tidak ada kerjaan cetak label. Kerjaan muncul di sini setelah
+              sebuah kiriman diterima dan pusat mengirim label untuknya —
+              barangnya sudah masuk gudang, ini cuma soal cetak.
             </EmptyState>
           ) : (
-            <Section title="Belum dikonfirmasi" className="pt-1">
+            <Section title="Label siap dicetak" className="pt-1">
               <CardList>
                 {rows.map((job) => (
                   <RecordCard

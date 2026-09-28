@@ -45,9 +45,9 @@ import type { PurchaseVerifyDecision } from "@itulah/contract"
 /// ## What is in here, and what is not
 ///
 /// Only writes that **record work against goods**: a count, a verification, a
-/// tagging confirmation, a pick round, a pack, stock-take entries. Those are
-/// irreplaceable — the carton is already on the trolley, the tags are already on
-/// the garments.
+/// tagging job marked printed, a pick round, a pack, stock-take entries. Those
+/// are irreplaceable — the carton is already on the trolley, the labels are
+/// already out of the printer.
 ///
 /// Document actions are not: opening a shipment, building a dispatch, sealing a
 /// carton, sending a truck off the yard. Every one of those is a decision made
@@ -453,6 +453,10 @@ async function perform(job: Job): Promise<Outcome> {
       }
     }
     case "tag": {
+      // The response's `tagged_units` counts labels printed, not stock moved —
+      // these units were already stock in this warehouse from the moment the
+      // job arrived (owner, 28 Sep 2026). This call only takes the job off the
+      // print list.
       await dc.confirmTagging(
         {
           job_id: work.job_id,
@@ -462,7 +466,7 @@ async function perform(job: Job): Promise<Outcome> {
         deadline(),
       )
       return {
-        said: `${work.quantity} potong ${work.article_code} masuk gudang.`,
+        said: `Label ${work.quantity} potong ${work.article_code} ditandai sudah dicetak.`,
         partial: false,
       }
     }

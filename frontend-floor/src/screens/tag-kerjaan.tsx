@@ -12,13 +12,14 @@ import { queryState } from "@/lib/query-state"
 import { reads } from "@/lib/queries"
 import { useActor } from "@/lib/session"
 
-/// One tagging job: the variants it covers, and the one thing left to say about
-/// it.
+/// One label-print job: the variants it covers, and the one thing left to say
+/// about it.
 ///
-/// Confirming is not paperwork. It is what tells the node that this many pieces
-/// of this article now exist as tracked units in the warehouse — so it is a
-/// single deliberate press, after a person has looked at what is on the table
-/// against what is on the screen, and it carries their name.
+/// The pieces are already tracked units in this warehouse — that happened when
+/// the job arrived from the centre (owner, 28 Sep 2026), not here. Marking a job
+/// printed only takes it off the print list; it moves no stock. It is still a
+/// single deliberate press, after a person has looked at what came out of the
+/// printer against what is on the screen, and it carries their name.
 export function TagKerjaan() {
   const go = useGo()
   const actor = useActor()
@@ -28,9 +29,9 @@ export function TagKerjaan() {
   const job = (jobs.data ?? []).find((row) => row.job_id === id) ?? null
   // Whether the labels have actually come out of the printer. Printing
   // happens at the bench (the hub), so this phone would otherwise let somebody
-  // confirm a job whose tags were never printed — and confirming is what makes
-  // the pieces exist. Said, not enforced: labels printed some other way are
-  // still labels.
+  // mark a job printed whose labels were never printed — and the print list is
+  // only honest if that button means what it says. Said, not enforced: labels
+  // printed some other way are still labels.
   const run = useQuery({ ...reads.jobRun(id ?? ""), enabled: id !== null })
   const unprinted =
     job === null || run.data === undefined
@@ -47,8 +48,8 @@ export function TagKerjaan() {
           render: () =>
             job === null ? (
               <EmptyState>
-                Kerjaan itu sudah tidak menunggu — mungkin sudah dikonfirmasi
-                orang lain.
+                Kerjaan itu sudah tidak ada di daftar cetak — mungkin sudah
+                ditandai sudah dicetak oleh orang lain.
               </EmptyState>
             ) : (
               <>
@@ -66,14 +67,15 @@ export function TagKerjaan() {
                     {run.data === null
                       ? "Label kerjaan ini belum dicetak sama sekali."
                       : `${count(unprinted)} dari ${count(job.total_quantity)} label belum tercetak.`}{" "}
-                    Cetak dulu di meja cetak, baru konfirmasi.
+                    Cetak dulu di meja cetak, baru tandai sudah dicetak.
                   </Banner>
                 )}
 
                 <Banner tone="info" className="mb-4">
-                  Konfirmasi berarti label sudah menempel di barangnya. Setelah
-                  itu {count(job.total_quantity)} potong tercatat ada di gudang
-                  ini.
+                  {count(job.total_quantity)} potong barang ini sudah ada di
+                  gudang sejak kiriman diterima. Menandai di sini hanya
+                  bilang labelnya sudah dicetak, dan mengeluarkan kerjaan ini
+                  dari daftar cetak.
                 </Banner>
 
                 <div className="overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft">
@@ -115,7 +117,7 @@ export function TagKerjaan() {
               go("/tag", undefined, { replace: true })
             }}
           >
-            Tag sudah terpasang — konfirmasi
+            Tandai sudah dicetak
           </Button>
         </ActionBar>
       )}
