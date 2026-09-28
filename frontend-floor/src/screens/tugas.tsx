@@ -23,10 +23,14 @@ import { useWaiting } from "@/lib/waiting"
 
 /// The work list — the only screen that answers "what should I be doing".
 ///
-/// Six stations, in the order goods move through the building: received, tagged,
-/// picked, packed, sent, plus the stock take that runs across all of them.
-/// Somebody who has never used the app can read this list top to bottom and have
-/// described the warehouse.
+/// Six stations, in the order goods move through the building: received,
+/// labelled, picked, packed, sent, plus the stock take that runs across all of
+/// them. Somebody who has never used the app can read this list top to bottom
+/// and have described the warehouse.
+///
+/// "Labelled" is printing only (owner, 28 Sep 2026): a new item's goods are
+/// stock the moment its tagging job lands, one unit per EPC, and this station
+/// is only where the labels for it get printed.
 ///
 /// **The numbers are counts, not tones.** On a floor the question is always "how
 /// many are waiting for me", and a station with nothing waiting should look
@@ -120,7 +124,7 @@ export function Tugas() {
               value={waiting.tagging}
               parts={[
                 waiting.tagging > 0
-                  ? `${count(waiting.tagging)} kerjaan belum dikonfirmasi`
+                  ? `${count(waiting.tagging)} kerjaan label siap dicetak`
                   : null,
               ]}
               onPress={() => go("/tag")}
