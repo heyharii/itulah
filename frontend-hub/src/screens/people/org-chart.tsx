@@ -3,15 +3,20 @@ import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Field } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne } from "@/components/ui/pick"
 import { Pill } from "@/components/ui/pill"
+import { Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import { departments, orgChart, orgKeys } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
+import { useCanWrite } from "@/lib/session"
 import { cn } from "@/lib/utils"
+import { EmployeePick } from "@/screens/people/employee-pick"
+import { PlacementPanel } from "@/screens/people/placement"
 import type { OrgChartNode } from "@itulah/contract"
 
 /// The organisation chart, as Talenta draws it: who reports to whom, from
@@ -31,25 +36,34 @@ export function OrgChart() {
     queryFn: ({ signal }) => departments(signal),
   })
   const [department, setDepartment] = useState<string | null>(null)
+  const [placing, setPlacing] = useState(false)
+  const canWrite = useCanWrite()
 
   return (
     <PageContent>
       <PageHeader
         crumb="People"
         title="Org chart"
-        sub="Who reports to whom, by department and level. Place somebody from their sheet's Position tab."
+        sub="Who reports to whom, by department and level."
         actions={
-          <Field label="Department">
-            <PickOne
-              label="Department"
-              placeholder="Every department"
-              choices={(depts.data ?? [])
-                .filter((one) => !one.retired)
-                .map((one) => ({ value: one.code, label: one.name }))}
-              value={department}
-              onChange={setDepartment}
-            />
-          </Field>
+          <>
+            <Field label="Department">
+              <PickOne
+                label="Department"
+                placeholder="Every department"
+                choices={(depts.data ?? [])
+                  .filter((one) => !one.retired)
+                  .map((one) => ({ value: one.code, label: one.name }))}
+                value={department}
+                onChange={setDepartment}
+              />
+            </Field>
+            {canWrite && (
+              <Button variant="primary" onClick={() => setPlacing(true)}>
+                Place someone
+              </Button>
+            )}
+          </>
         }
       />
       <Card className="overflow-hidden p-4">
@@ -72,7 +86,36 @@ export function OrgChart() {
           },
         })}
       </Card>
+      <PlaceSheet open={placing} onClose={() => setPlacing(false)} />
     </PageContent>
+  )
+}
+
+/// Place somebody in the organisation from here: pick them, then the same
+/// placement form their own sheet's Position tab carries.
+function PlaceSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [who, setWho] = useState<string | null>(null)
+  const close = () => {
+    setWho(null)
+    onClose()
+  }
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && close()}
+      title="Place someone"
+    >
+      <div className="flex flex-col gap-4">
+        <Field label="Employee" required>
+          <EmployeePick
+            value={who}
+            onChange={setWho}
+            statuses={["ACTIVE", "CANDIDATE"]}
+          />
+        </Field>
+        {who !== null && <PlacementPanel key={who} employeeId={who} />}
+      </div>
+    </Sheet>
   )
 }
 

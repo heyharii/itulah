@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { CalendarClock, UserPlus } from "lucide-react"
 
@@ -719,7 +719,20 @@ function EmployeeSheetBody({
   listed: EmployeeSummary | null
   employer: boolean
 }) {
-  const [tab, setTab] = useState<string>("record")
+  // A link from another screen can land on a tab (`/people?employee=…#change`).
+  // The hash is read once, on open, and dropped so the next person opened from
+  // the list starts on their record as usual.
+  const [tab, setTab] = useState<string>(
+    () => window.location.hash.slice(1) || "record"
+  )
+  useEffect(() => {
+    if (window.location.hash !== "")
+      window.history.replaceState(
+        window.history.state,
+        "",
+        window.location.pathname + window.location.search
+      )
+  }, [])
   const tabs = tabsFor(employer, person.status)
   const shown = tabs.some((one) => one.value === tab) ? tab : "record"
 

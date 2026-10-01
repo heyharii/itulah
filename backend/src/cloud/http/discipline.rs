@@ -78,12 +78,25 @@ pub async fn issue(
     Ok(Json(infrastructure::warning_letters_of(&state.db, &access.employee_id).await?))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LettersQuery {
+    /// Lapsed and revoked letters too, not only those in force.
+    #[serde(default)]
+    pub all: bool,
+}
+
 pub async fn active(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    axum::extract::Query(query): axum::extract::Query<LettersQuery>,
 ) -> Result<Json<Vec<WarningLetterView>>, AppError> {
     require(&principal, actions::EMPLOYMENT_CHANGE)?;
-    Ok(Json(infrastructure::active_warning_letters(&state.db).await?))
+    Ok(Json(if query.all {
+        infrastructure::all_warning_letters(&state.db).await?
+    } else {
+        infrastructure::active_warning_letters(&state.db).await?
+    }))
 }
 
 /// The employee says they were given it — only their own, through `me`.

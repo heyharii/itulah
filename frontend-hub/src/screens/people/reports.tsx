@@ -29,7 +29,6 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { UnitChoice, useUnit } from "@/screens/people/parts"
-import { TaxReports } from "@/screens/people/tax-reports"
 import { ActiveLettersCard } from "@/screens/people/discipline"
 
 /// Comparing units, without making a second source of the numbers.
@@ -66,7 +65,6 @@ const TABS = [
   { value: "workforce", label: "Workforce" },
   { value: "time", label: "Time & absence" },
   { value: "cost", label: "Payroll cost" },
-  { value: "tax", label: "Tax & BPJS" },
 ] as const
 
 const SUB: Record<string, string> = {
@@ -74,7 +72,6 @@ const SUB: Record<string, string> = {
     "How many people each unit employs, and whose contract is running out.",
   time: "Whether a unit's time data can be trusted yet, and what is still open.",
   cost: "What each unit's payroll came to, and how far it has got towards being paid.",
-  tax: "PPh 21 and BPJS for the month, and each person's 1721-A1 for the year.",
 }
 
 export function PeopleReports() {
@@ -105,7 +102,6 @@ export function PeopleReports() {
         <TimeAndAbsence unitId={unit.unitId} name={unit.name} />
       )}
       {tab === "cost" && <Cost />}
-      {tab === "tax" && <TaxReports />}
     </PageContent>
   )
 }

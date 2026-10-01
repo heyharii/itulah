@@ -2,141 +2,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { Day } from "@/components/ui/day"
 import { Field, Input } from "@/components/ui/field"
 import { PickOne } from "@/components/ui/pick"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
-import { Banner, EmptyState } from "@/components/ui/states"
-import { day, money } from "@/lib/format"
+import { Banner } from "@/components/ui/states"
+import { money } from "@/lib/format"
 import {
   claimBalances,
   claimBenefitKeys,
-  claimBenefits,
-  claimsKeys,
-  listClaimTypes,
   overrideClaimBenefit,
-  stateClaimBenefit,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
-
-/// Saldo / benefit: how much one person may be reimbursed for a kind of
-/// claim in a calendar year. An approval that would pass it is refused.
-export function ClaimAllowances() {
-  const client = useQueryClient()
-  const rules = useQuery({
-    queryKey: claimBenefitKeys.rules(),
-    queryFn: ({ signal }) => claimBenefits(signal),
-  })
-  const types = useQuery({
-    queryKey: claimsKeys.types(),
-    queryFn: ({ signal }) => listClaimTypes(signal),
-  })
-  const [type, setType] = useState<string | null>(null)
-  const [from, setFrom] = useState("")
-  const [limit, setLimit] = useState("")
-  const [reason, setReason] = useState("")
-  const save = useMutation({
-    mutationFn: () =>
-      stateClaimBenefit({
-        type_code: type ?? "",
-        effective_from: from,
-        yearly_limit_minor:
-          limit.replace(/\D/g, "") === ""
-            ? null
-            : Number(limit.replace(/\D/g, "")),
-        reason: reason.trim(),
-      }),
-    onSuccess: () => {
-      setLimit("")
-      setReason("")
-      void client.invalidateQueries({ queryKey: claimBenefitKeys.rules() })
-    },
-  })
-
-  return (
-    <Card className="mb-4">
-      <CardHeader>
-        <CardTitle>Yearly allowances</CardTitle>
-      </CardHeader>
-      <div className="flex flex-col gap-4 px-4 pb-4">
-        {queryState(rules, {
-          loading: "Reading the allowances…",
-          render: (rows) =>
-            rows.length === 0 ? (
-              <EmptyState>
-                No kind of claim has a yearly limit. Give one — medical up to
-                Rp3.000.000 a year — and approvals past it are refused.
-              </EmptyState>
-            ) : (
-              <MiniTable
-                head={[
-                  "Kind",
-                  "From",
-                  { label: "A year", align: "right" },
-                  "By",
-                ]}
-              >
-                {rows.map((row) => (
-                  <MiniRow key={`${row.type_code}-${row.effective_from}`}>
-                    <MiniCell>{row.type_name}</MiniCell>
-                    <MiniCell>{day(row.effective_from)}</MiniCell>
-                    <MiniCell align="right">
-                      {row.yearly_limit_minor === null
-                        ? "no limit"
-                        : money(row.yearly_limit_minor)}
-                    </MiniCell>
-                    <MiniCell>{row.ratified_by}</MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
-            ),
-        })}
-        <SubHead>State an allowance from a date</SubHead>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Field label="Kind" required>
-            <PickOne
-              label="Kind"
-              placeholder="Choose…"
-              choices={(types.data ?? [])
-                .filter((one) => one.retired_at === null)
-                .map((one) => ({ value: one.code, label: one.name }))}
-              value={type}
-              onChange={setType}
-            />
-          </Field>
-          <Field label="From" required>
-            <Day value={from} onChange={setFrom} />
-          </Field>
-          <Field label="A year, per person" aside="empty: no limit">
-            <Input
-              inputMode="numeric"
-              value={limit}
-              onChange={(e) => setLimit(e.target.value)}
-              placeholder="3000000"
-            />
-          </Field>
-          <Field label="Why" required>
-            <Input value={reason} onChange={(e) => setReason(e.target.value)} />
-          </Field>
-        </div>
-        {save.error !== null && (
-          <Banner tone="bad">{save.error.message}</Banner>
-        )}
-        <div>
-          <Button
-            variant="primary"
-            pending={save.isPending}
-            disabled={type === null || from === "" || reason.trim() === ""}
-            onClick={() => save.mutate()}
-          >
-            Save allowance
-          </Button>
-        </div>
-      </div>
-    </Card>
-  )
-}
 
 /// One person's allowances this year: the limit, what is used, what waits,
 /// what is left — and head office may give them their own figure.

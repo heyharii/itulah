@@ -12,6 +12,7 @@ import {
   openChecklist,
   orgKeys,
 } from "@/lib/queries/people"
+import { hrEmployeeKeys } from "@/lib/queries/hr-employees"
 import { queryState } from "@/lib/query-state"
 import { OWNER_LABEL } from "@/screens/people/checklist-owners"
 import type { LifecycleTaskView } from "@itulah/contract"
@@ -28,10 +29,12 @@ export function ChecklistPanel({ employeeId }: { employeeId: string }) {
   const open = useMutation({
     mutationFn: (kind: "ONBOARDING" | "SEPARATION") =>
       openChecklist(employeeId, kind),
-    onSuccess: () =>
+    onSuccess: () => {
       void client.invalidateQueries({
         queryKey: orgKeys.checklist(employeeId),
-      }),
+      })
+      void client.invalidateQueries({ queryKey: hrEmployeeKeys.all() })
+    },
   })
   const rows = tasks.data ?? []
   const has = (kind: string) => rows.some((row) => row.kind === kind)
@@ -101,10 +104,12 @@ function Checklist({
   const tick = useMutation({
     mutationFn: (taskId: string) =>
       completeLifecycleTask(taskId, why.trim() === "" ? "selesai" : why.trim()),
-    onSuccess: () =>
+    onSuccess: () => {
       void client.invalidateQueries({
         queryKey: orgKeys.checklist(employeeId),
-      }),
+      })
+      void client.invalidateQueries({ queryKey: hrEmployeeKeys.all() })
+    },
   })
   return (
     <div>

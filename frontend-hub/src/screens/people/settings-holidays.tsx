@@ -1,14 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { Day } from "@/components/ui/day"
+import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Day } from "@/components/ui/day"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { Banner, EmptyState } from "@/components/ui/states"
-import { Timeline } from "@/components/ui/timeline"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Banner, EmptyState, Problem } from "@/components/ui/states"
 import { day, moment } from "@/lib/format"
 import {
   amendCalendar,
@@ -19,32 +21,18 @@ import {
   type NewHoliday,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
+import { useCanWrite } from "@/lib/session"
+import { ListCard, RowOpen, SheetFooter } from "@/screens/people/settings-kit"
+import { useOpener } from "@/screens/people/settings-lib"
+import type { HolidayView } from "@itulah/contract"
 
-/// Which days are red, for a year.
+/// Settings › Holidays — which days are red, for a year.
 ///
-/// # Why this is typed in rather than compiled in
-///
-/// Indonesian public holidays are fixed each year by a *Surat Keputusan
-/// Bersama* of three ministries. They move: several follow the Hijri calendar
-/// and are confirmed only weeks ahead, and *cuti bersama* is routinely added,
-/// removed or shifted after the year has started. A table in the code would
-/// need a release every time the government changed its mind, and by then
-/// somebody has already been marked absent.
-///
-/// # Cuti bersama is not an ordinary holiday
-///
-/// By the same decree that announces it, it is **charged against the
-/// employee's annual leave**: the company closes and the days come out of the
-/// twelve. Filing it and a national holiday both as "a red day" is how a leave
-/// balance ends up wrong by exactly the number of long weekends in the year.
-/// So the kind is a choice on the form and a pill in the list, and the server
-/// sends `consumes_annual_leave` rather than letting this screen re-derive it.
-///
-/// # Published once, amended for ever after
-///
-/// There is no republish. What is stored is the set as first published plus an
-/// append-only list of amendments, each with its own authority — which is what
-/// makes "the calendar March payroll was settled under" answerable in June.
+/// Indonesian public holidays are fixed each year by a decree of three
+/// ministries and move after the year has started, so they are typed in, not
+/// compiled in. *Cuti bersama* is charged against annual leave, which is why
+/// the kind is on every row. A year is published once and amended for ever
+/// after, so "the calendar March payroll was settled under" stays answerable.
 
 const KINDS = [
   { value: "NATIONAL", label: "National holiday" },
@@ -55,18 +43,22 @@ const KINDS = [
   { value: "REGIONAL", label: "Regional — observed only in named places" },
 ] as const
 
-function thisYear(): number {
-  return new Date().getFullYear()
+const KIND_SHORT: Record<string, string> = {
+  NATIONAL: "National",
+  CUTI_BERSAMA: "Cuti bersama",
+  REGIONAL: "Regional",
 }
 
-export function Holidays() {
+export function HolidaySettings() {
+  const canWrite = useCanWrite()
   const years = useQuery({
     queryKey: leaveKeys.calendarYears(),
     queryFn: ({ signal }) => publishedYears(signal),
   })
   const published = years.data?.years ?? []
   const [year, setYear] = useState<number | null>(null)
-  const chosen = year ?? published.at(-1) ?? thisYear()
+  const chosen = year ?? published.at(-1) ?? new Date().getFullYear()
+  const isPublished = published.includes(chosen)
 
   const calendar = useQuery({
     queryKey: leaveKeys.calendar(chosen),
@@ -74,109 +66,144 @@ export function Holidays() {
     // A year nobody has published is a 404, and that is a real answer rather
     // than a failure: it is why a leave request spanning it is refused.
     retry: false,
-    enabled: published.includes(chosen),
+    enabled: isPublished,
   })
 
+  const publish = useOpener()
+  const add = useOpener()
+  const one = useOpener<HolidayView>()
+
   return (
-    <>
-      {/* The year this panel is about. It was the page header's action until
-          the four setup screens became one tabbed screen; a tab cannot own the
-          page title, so the control that belongs to this tab sits in the tab. */}
-      {published.length > 0 && (
-        <Toolbar>
-          <Segmented
-            value={String(chosen)}
-            onChange={(value) => setYear(Number(value))}
-            options={published.map((value) => ({
-              value: String(value),
-              label: String(value),
-            }))}
-          />
-        </Toolbar>
+    <PageContent>
+      <PageHeader
+        crumb="People"
+        title="Holidays"
+        sub="Which days are red, and which of them come out of somebody's annual leave."
+        actions={
+          canWrite &&
+          years.isSuccess &&
+          (isPublished ? (
+            <Button variant="primary" onClick={() => add.show()}>
+              Add holiday
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={() => publish.show()}>
+              Publish {chosen}
+            </Button>
+          ))
+        }
+      />
+
+      <Toolbar>
+        <Segmented
+          value={String(chosen)}
+          onChange={(value) => setYear(Number(value))}
+          options={[...new Set([...published, chosen])]
+            .sort((a, b) => a - b)
+            .map((value) => ({ value: String(value), label: String(value) }))}
+        />
+      </Toolbar>
+
+      {years.isSuccess && !isPublished && (
+        <Banner tone="warn" className="mb-4">
+          No calendar has been published for {chosen}. Leave spanning it cannot
+          be filed, because which days it charges cannot be settled.
+        </Banner>
       )}
 
-      {!published.includes(chosen) ? (
-        <>
-          <Banner tone="warn" className="mb-4">
-            No calendar has been published for {chosen}. Leave spanning it
-            cannot be filed, because which days it charges cannot be settled.
-          </Banner>
-          <PublishYear year={chosen} />
-        </>
-      ) : (
-        <>
-          <Card className="mb-4 overflow-hidden">
-            <CardHeader>
-              <CardTitle>{chosen}</CardTitle>
-            </CardHeader>
-            {queryState(calendar, {
-              loading: "Reading the calendar…",
-              render: (data) =>
-                data.holidays.length === 0 ? (
-                  <EmptyState>
-                    No red days. The year is published and holds nothing — which
-                    is a decision, not a gap.
-                  </EmptyState>
-                ) : (
-                  <div className="px-4 pb-4">
-                    {data.holidays.map((holiday) => (
-                      <div
-                        key={holiday.date}
-                        className="flex items-baseline gap-3 border-b border-hairline py-2.5 last:border-0"
-                      >
-                        <span className="w-28 shrink-0 text-body">
+      <ListCard title={String(chosen)}>
+        {!isPublished ? (
+          <EmptyState>
+            Nothing to list yet. Publish {chosen} sets the year&rsquo;s red days
+            in one go.
+          </EmptyState>
+        ) : (
+          queryState(calendar, {
+            loading: "Reading the calendar…",
+            render: (data) =>
+              data.holidays.length === 0 ? (
+                <EmptyState>
+                  No red days. The year is published and holds nothing — which
+                  is a decision, not a gap. Add holiday adds one.
+                </EmptyState>
+              ) : (
+                <MiniTable head={["Date", "Name", "Kind", "Observed at"]}>
+                  {data.holidays.map((holiday) => (
+                    <MiniRow key={holiday.date}>
+                      <MiniCell>
+                        <RowOpen onClick={() => one.show(holiday)}>
                           {day(holiday.date)}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-ink">
-                          {holiday.name}
-                        </span>
+                        </RowOpen>
+                      </MiniCell>
+                      <MiniCell>{holiday.name}</MiniCell>
+                      <MiniCell>
+                        {KIND_SHORT[holiday.kind] ?? holiday.kind}
                         {holiday.consumes_annual_leave && (
-                          <Pill tone="warn">Comes out of annual leave</Pill>
-                        )}
-                        {holiday.units !== null && (
-                          <Pill tone="neutral">
-                            {holiday.units.join(", ")}
+                          <Pill tone="warn" className="ml-2">
+                            Comes out of annual leave
                           </Pill>
                         )}
-                      </div>
-                    ))}
-                  </div>
-                ),
-            })}
-          </Card>
+                      </MiniCell>
+                      <MiniCell>
+                        {holiday.units === null
+                          ? "Everywhere"
+                          : holiday.units.join(", ")}
+                      </MiniCell>
+                    </MiniRow>
+                  ))}
+                </MiniTable>
+              ),
+          })
+        )}
+      </ListCard>
 
-          {(calendar.data?.amendments.length ?? 0) > 0 && (
-            <Card className="mb-4 overflow-hidden">
-              <CardHeader>
-                <CardTitle>Amended since publication</CardTitle>
-              </CardHeader>
-              <div className="px-4 pb-4">
-                <Timeline
-                  events={(calendar.data?.amendments ?? []).map(
-                    (amendment) => ({
-                      id: `${amendment.change}-${amendment.holiday.date}`,
-                      title: `${amendment.change === "ADDED" ? "Added" : "Withdrew"} ${amendment.holiday.name}`,
-                      detail: `${day(amendment.holiday.date)} · ${amendment.actor} · ${amendment.reason}`,
-                      at: moment(amendment.at),
-                      // Every amendment has happened; none of them is a step
-                      // somebody is waiting on.
-                      state: "done" as const,
-                    })
-                  )}
-                />
-              </div>
-            </Card>
-          )}
-
-          <AmendYear year={chosen} />
-        </>
+      {(calendar.data?.amendments.length ?? 0) > 0 && (
+        <ListCard title="Amended since publication">
+          <MiniTable head={["Change", "Day", "By", "Why", "When"]}>
+            {(calendar.data?.amendments ?? []).map((amendment) => (
+              <MiniRow
+                key={`${amendment.change}-${amendment.holiday.date}-${amendment.at}`}
+              >
+                <MiniCell>
+                  {amendment.change === "ADDED" ? "Added" : "Withdrew"}{" "}
+                  {amendment.holiday.name}
+                </MiniCell>
+                <MiniCell>{day(amendment.holiday.date)}</MiniCell>
+                <MiniCell>{amendment.actor}</MiniCell>
+                <MiniCell>{amendment.reason}</MiniCell>
+                <MiniCell>{moment(amendment.at)}</MiniCell>
+              </MiniRow>
+            ))}
+          </MiniTable>
+        </ListCard>
       )}
-    </>
+
+      <PublishSheet
+        key={`pub-${publish.n}-${chosen}`}
+        open={publish.isOpen}
+        onClose={publish.hide}
+        year={chosen}
+      />
+      <AddSheet
+        key={`add-${add.n}`}
+        open={add.isOpen}
+        onClose={add.hide}
+        year={chosen}
+      />
+      <HolidaySheet
+        key={`one-${one.n}`}
+        open={one.isOpen}
+        onClose={one.hide}
+        year={chosen}
+        holiday={one.item}
+        canWrite={canWrite}
+      />
+    </PageContent>
   )
 }
 
-/// The form both halves share. A day is a day whether it is being published
-/// with the year or added to it in March.
+/// The form both the publication and an amendment share. A day is a day
+/// whether it is published with the year or added to it in March.
 function HolidayFields({
   draft,
   onChange,
@@ -184,7 +211,6 @@ function HolidayFields({
   draft: NewHoliday
   onChange: (next: NewHoliday) => void
 }) {
-  const regional = draft.kind === "REGIONAL"
   return (
     <>
       <Field label="Date" required>
@@ -208,8 +234,8 @@ function HolidayFields({
               ...draft,
               kind: next as NewHoliday["kind"],
               // A national day narrowed to some shops is a day the law gives
-              // everybody, withheld from most of them by a data-entry slip.
-              // The server refuses the pair; the form does not offer it.
+              // everybody, withheld from most of them by a slip. The server
+              // refuses the pair; the form does not offer it.
               units: next === "REGIONAL" ? draft.units : [],
             })
           }
@@ -221,11 +247,11 @@ function HolidayFields({
           ))}
         </Select>
       </Field>
-      {regional && (
+      {draft.kind === "REGIONAL" && (
         <Field
           label="Observed at"
           required
-          hint="Comma-separated place ids. A regional day that names nowhere is not a holiday, and is refused."
+          hint="Comma-separated place ids. A regional day that names nowhere is refused."
         >
           <Input
             value={draft.units.join(", ")}
@@ -250,7 +276,8 @@ function emptyDay(): NewHoliday {
   return { date: "", name: "", kind: "NATIONAL", units: [] }
 }
 
-/// One line of a pasted or uploaded calendar that could not be read.
+// ── reading a pasted calendar ───────────────────────────────────────────────
+
 interface Rejected {
   readonly line: number
   readonly text: string
@@ -268,10 +295,8 @@ const KIND_WORDS: Record<string, NewHoliday["kind"]> = {
   daerah: "REGIONAL",
 }
 
-/// `YYYY-MM-DD`, `D/M/YYYY` and `D-M-YYYY`, because the three ministries'
-/// decree is copied out of a PDF, a spreadsheet or a WhatsApp message and each
-/// of them punctuates a date differently. Rejecting two of the three would send
-/// somebody back to retype sixteen rows they already have.
+/// `YYYY-MM-DD`, `D/M/YYYY` and `D-M-YYYY`, because the decree is copied out
+/// of a PDF, a spreadsheet or a message and each punctuates a date differently.
 function readDate(raw: string): string | null {
   const text = raw.trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return real(text)
@@ -284,11 +309,9 @@ function readDate(raw: string): string | null {
   return real(`${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`)
 }
 
-/// A date that is *shaped* right is not a date that *exists*: `2026-09-99` and
-/// `2026-02-30` both pass a regular expression, and a calendar that accepted
-/// them would publish a holiday on a day that never comes and refuse the leave
-/// somebody files around it. Built in UTC and read back in UTC so a browser
-/// west of Greenwich does not roll the day backwards.
+/// A date that is shaped right is not a date that exists: `2026-02-30` passes a
+/// regular expression. Built and read back in UTC so a browser west of
+/// Greenwich does not roll the day backwards.
 function real(iso: string): string | null {
   const [y, m, d] = iso.split("-").map(Number)
   const at = new Date(Date.UTC(y, m - 1, d))
@@ -299,9 +322,7 @@ function real(iso: string): string | null {
   return same ? iso : null
 }
 
-/// Split one CSV line, honouring double quotes so a name containing a comma
-/// survives. Deliberately hand-written: a parser dependency for four columns is
-/// a dependency to audit for four columns.
+/// Split one CSV line, honouring double quotes so a name with a comma survives.
 function cells(line: string): string[] {
   const out: string[] = []
   let cell = ""
@@ -323,22 +344,16 @@ function cells(line: string): string[] {
     }
   }
   out.push(cell)
-  return out.map((one) => one.trim())
+  return out.map((value) => value.trim())
 }
 
-/// Turn a pasted calendar into days, and say what could not be read.
-///
-/// **Nothing is skipped quietly.** A row this cannot parse comes back in
-/// `rejected` with its line number and the reason, because a calendar that
-/// silently loaded fifteen of sixteen days is a calendar somebody publishes and
-/// then discovers in March, when one shop charged a working day as leave.
+/// Turn a pasted calendar into days, and say what could not be read. Nothing
+/// is skipped quietly: a calendar that silently loaded fifteen of sixteen days
+/// is discovered in March, when one shop charged a working day as leave.
 function parseCalendar(
   text: string,
   year: number
-): {
-  days: NewHoliday[]
-  rejected: Rejected[]
-} {
+): { days: NewHoliday[]; rejected: Rejected[] } {
   const days: NewHoliday[] = []
   const rejected: Rejected[] = []
   const seen = new Set<string>()
@@ -347,8 +362,6 @@ function parseCalendar(
     const at = index + 1
     if (line.trim() === "") return
     const parts = cells(line)
-    // A header row, recognised rather than required: exports carry one and
-    // hand-typed lists do not.
     if (at === 1 && /tanggal|date/i.test(parts[0] ?? "")) return
 
     const date = readDate(parts[0] ?? "")
@@ -412,18 +425,10 @@ function parseCalendar(
   return { days, rejected }
 }
 
-/// Sixteen days, typed one at a time, is how a calendar gets published in
-/// February.
-///
-/// The decree arrives as a table — a PDF, a spreadsheet, a message somebody
-/// forwards — and every one of those pastes as lines. So this takes the lines,
-/// and takes a file for the same reason: whoever has the calendar has it as a
-/// file more often than as sixteen separate facts.
-///
-/// It parses in the browser and posts the year the way the form already does.
-/// There is no upload endpoint, and there should not be: the server already
-/// accepts a whole year in one request, and a second door into the same table
-/// is a second place for the rules to be enforced differently.
+/// Sixteen days typed one at a time is how a calendar gets published in
+/// February. The decree arrives as lines or a file, so this takes either and
+/// parses in the browser; the server already accepts a whole year in one
+/// request.
 function LoadCalendar({
   year,
   onLoaded,
@@ -470,7 +475,7 @@ function LoadCalendar({
               event.target.value = ""
             }}
           />
-          <span className="inline-flex h-8 cursor-pointer items-center rounded-full border border-hairline-strong px-3 text-[0.875rem] font-medium text-text hover:bg-soft-2">
+          <span className="inline-flex h-8 cursor-pointer items-center rounded-inner border border-hairline-strong px-3 text-[0.875rem] font-medium text-text hover:bg-soft-2">
             Choose a file
           </span>
         </label>
@@ -501,17 +506,15 @@ function LoadCalendar({
         )}
       </div>
 
-      {/* Every refused line, named. The alternative — a count, or nothing — is
-          how fifteen of sixteen days get published. */}
       {rejected !== null && rejected.length > 0 && (
         <Banner tone="warn">
           <div className="flex flex-col gap-1">
             <span>These lines were not added:</span>
-            {rejected.slice(0, 6).map((one) => (
-              <span key={one.line} className="text-[0.875rem]">
-                <b>Line {one.line}</b> — {one.why}:{" "}
+            {rejected.slice(0, 6).map((bad) => (
+              <span key={bad.line} className="text-[0.875rem]">
+                <b>Line {bad.line}</b> — {bad.why}:{" "}
                 <span className="font-mono text-id">
-                  {one.text.slice(0, 60)}
+                  {bad.text.slice(0, 60)}
                 </span>
               </span>
             ))}
@@ -527,32 +530,52 @@ function LoadCalendar({
   )
 }
 
-function PublishYear({ year }: { year: number }) {
+// ── the sheets ──────────────────────────────────────────────────────────────
+
+function PublishSheet({
+  open,
+  onClose,
+  year,
+}: {
+  open: boolean
+  onClose: () => void
+  year: number
+}) {
   const client = useQueryClient()
   const [holidays, setHolidays] = useState<NewHoliday[]>([])
   const [draft, setDraft] = useState<NewHoliday>(emptyDay())
   const [reason, setReason] = useState("")
-  const [failed, setFailed] = useState<string | null>(null)
 
   const publish = useMutation({
     mutationFn: () => publishCalendar(year, holidays, reason.trim()),
     onSuccess: () => {
-      setFailed(null)
       void client.invalidateQueries({ queryKey: leaveKeys.calendarYears() })
       void client.invalidateQueries({ queryKey: leaveKeys.calendar(year) })
+      onClose()
     },
-    onError: (error: Error) => setFailed(error.message),
   })
 
   const complete = draft.date !== "" && draft.name.trim() !== ""
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader>
-        <CardTitle>Publish {year}</CardTitle>
-      </CardHeader>
-      <div className="flex flex-col gap-3 px-4 pb-4">
-        {failed !== null && <Banner tone="bad">{failed}</Banner>}
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      width="wide"
+      title={`Publish ${year}`}
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          onSave={() => publish.mutate()}
+          saveLabel={`Publish ${year}`}
+          pendingLabel="Publishing…"
+          pending={publish.isPending}
+          disabled={holidays.length === 0 || reason.trim() === ""}
+        />
+      }
+    >
+      <div className="flex flex-col gap-3.5">
+        <Problem error={publish.error} />
         <Banner tone="info">
           A year is published once. After that it is changed by amendment, so
           that what a settled month was charged stays answerable.
@@ -562,10 +585,12 @@ function PublishYear({ year }: { year: number }) {
           year={year}
           onLoaded={(days) =>
             // Merged rather than replaced, and the file wins on a clash: a
-            // second paste is somebody correcting the first, not starting over.
+            // second paste is somebody correcting the first.
             setHolidays((current) => {
-              const byDate = new Map(current.map((one) => [one.date, one]))
-              days.forEach((one) => byDate.set(one.date, one))
+              const byDate = new Map(
+                current.map((entry) => [entry.date, entry])
+              )
+              days.forEach((entry) => byDate.set(entry.date, entry))
               return [...byDate.values()].sort((a, b) =>
                 a.date.localeCompare(b.date)
               )
@@ -620,61 +645,49 @@ function PublishYear({ year }: { year: number }) {
             placeholder="SKB tiga menteri 2026"
           />
         </Field>
-        <div>
-          <Button
-            variant="primary"
-            pending={publish.isPending}
-            disabled={holidays.length === 0 || reason.trim() === ""}
-            onClick={() => publish.mutate()}
-          >
-            Publish {year}
-          </Button>
-        </div>
       </div>
-    </Card>
+    </Sheet>
   )
 }
 
-function AmendYear({ year }: { year: number }) {
+function AddSheet({
+  open,
+  onClose,
+  year,
+}: {
+  open: boolean
+  onClose: () => void
+  year: number
+}) {
   const client = useQueryClient()
-  const [change, setChange] = useState<"ADDED" | "REMOVED">("ADDED")
   const [draft, setDraft] = useState<NewHoliday>(emptyDay())
   const [reason, setReason] = useState("")
-  const [failed, setFailed] = useState<string | null>(null)
-
   const amend = useMutation({
-    mutationFn: () => amendCalendar(year, change, draft, reason.trim()),
+    mutationFn: () => amendCalendar(year, "ADDED", draft, reason.trim()),
     onSuccess: () => {
-      setFailed(null)
-      setDraft(emptyDay())
-      setReason("")
       void client.invalidateQueries({ queryKey: leaveKeys.calendar(year) })
+      onClose()
     },
-    onError: (error: Error) => setFailed(error.message),
   })
-
   const ready =
     draft.date !== "" && draft.name.trim() !== "" && reason.trim() !== ""
-
   return (
-    <Card className="overflow-hidden">
-      <CardHeader>
-        <CardTitle>Amend {year}</CardTitle>
-      </CardHeader>
-      <div className="flex flex-col gap-3 px-4 pb-4">
-        {failed !== null && <Banner tone="bad">{failed}</Banner>}
-        <Segmented
-          value={change}
-          onChange={(value) => setChange(value as "ADDED" | "REMOVED")}
-          options={[
-            { value: "ADDED", label: "Add a day" },
-            { value: "REMOVED", label: "Withdraw a day" },
-          ]}
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      title={`Add a holiday to ${year}`}
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          onSave={() => amend.mutate()}
+          saveLabel="Add it"
+          pending={amend.isPending}
+          disabled={!ready}
         />
-        {/* A withdrawal has to name the day it is withdrawing, not just its
-            date: matching on the date alone would let an operator delete a
-            national holiday while believing they had removed a regional one.
-            So the same fields, both ways. */}
+      }
+    >
+      <div className="flex flex-col gap-3.5">
+        <Problem error={amend.error} />
         <HolidayFields draft={draft} onChange={setDraft} />
         <Field label="Why" hint="Recorded against the amendment." required>
           <Input
@@ -683,17 +696,100 @@ function AmendYear({ year }: { year: number }) {
             placeholder="SKB revisi"
           />
         </Field>
-        <div>
-          <Button
-            variant="primary"
-            pending={amend.isPending}
-            disabled={!ready}
-            onClick={() => amend.mutate()}
-          >
-            {change === "ADDED" ? "Add it" : "Withdraw it"}
-          </Button>
-        </div>
       </div>
-    </Card>
+    </Sheet>
+  )
+}
+
+/// One red day: its facts, and withdrawing it — which asks why, and names the
+/// whole day so a national holiday is never withdrawn by mistaking it for a
+/// regional one.
+function HolidaySheet({
+  open,
+  onClose,
+  year,
+  holiday,
+  canWrite,
+}: {
+  open: boolean
+  onClose: () => void
+  year: number
+  holiday: HolidayView | null
+  canWrite: boolean
+}) {
+  const client = useQueryClient()
+  const [reason, setReason] = useState("")
+  const withdraw = useMutation({
+    mutationFn: () =>
+      amendCalendar(
+        year,
+        "REMOVED",
+        {
+          date: holiday?.date ?? "",
+          name: holiday?.name ?? "",
+          kind: (holiday?.kind ?? "NATIONAL") as NewHoliday["kind"],
+          units: holiday?.units ?? [],
+        },
+        reason.trim()
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: leaveKeys.calendar(year) })
+      onClose()
+    },
+  })
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      title={holiday?.name ?? "Holiday"}
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          danger={
+            canWrite &&
+            holiday && (
+              <Button
+                variant="danger"
+                pending={withdraw.isPending}
+                disabled={reason.trim() === ""}
+                onClick={() => withdraw.mutate()}
+              >
+                {withdraw.isPending ? "Withdrawing…" : "Withdraw this day"}
+              </Button>
+            )
+          }
+        />
+      }
+    >
+      {holiday && (
+        <div className="flex flex-col gap-4">
+          <Facts>
+            <Fact term="Date">{day(holiday.date)}</Fact>
+            <Fact term="Kind">{KIND_SHORT[holiday.kind] ?? holiday.kind}</Fact>
+            <Fact term="Annual leave">
+              {holiday.consumes_annual_leave
+                ? "Charged against it"
+                : "Not charged"}
+            </Fact>
+            <Fact term="Observed at">
+              {holiday.units === null ? "Everywhere" : holiday.units.join(", ")}
+            </Fact>
+          </Facts>
+          {canWrite && (
+            <Field
+              label="Why withdraw it"
+              hint="Needed before the day can be withdrawn."
+            >
+              <Input
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="SKB revisi"
+              />
+            </Field>
+          )}
+          <Problem error={withdraw.error} />
+        </div>
+      )}
+    </Sheet>
   )
 }

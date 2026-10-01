@@ -3,9 +3,9 @@ import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
-import { Field, Input } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import {
@@ -16,23 +16,17 @@ import {
   SubHead,
 } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Timeline } from "@/components/ui/timeline"
 import { day, money, moment } from "@/lib/format"
 import { PickOne } from "@/components/ui/pick"
 import {
-  claimsKeys,
-  fileAdjustment,
   handOverRun,
   handoverLabel,
-  listAdjustments,
-  listEmployees,
   listRuns,
-  openAdvances,
   openRun,
-  payComponents,
   payKeys,
-  peopleKeys,
   readHandover,
   rebuildRun,
   setRunThr,
@@ -44,13 +38,12 @@ import {
   runStateLabel,
   stepRun,
   useReachableUnits,
-  withdrawAdjustment,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
+import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import type { PayrollRunView, RunReconciliation } from "@itulah/contract"
 
-import { OneOffImport } from "@/screens/people/one-off-import-card"
 import { SlipBreakdown } from "@/screens/people/slip-view"
 
 /// Payroll runs. The place asks for its own; head office answers.
@@ -114,6 +107,10 @@ function unitName(
 
 export function PayrollRuns() {
   const run = useSheet("payrollRun")
+  const canWrite = useCanWrite()
+  const [opening, setOpening] = useState(false)
+  const [unitFilter, setUnitFilter] = useState("")
+  const [stateFilter, setStateFilter] = useState("")
   const reachable = useReachableUnits()
   const units = reachable.data ?? []
   const runs = useQuery({
@@ -122,53 +119,103 @@ export function PayrollRuns() {
   })
   const rows = runs.data ?? []
   const open = rows.find((row) => row.id === run.value) ?? null
+  const shown = rows.filter(
+    (row) =>
+      (unitFilter === "" || row.unit_id === unitFilter) &&
+      (stateFilter === "" || row.state === stateFilter)
+  )
 
   return (
     <PageContent>
       <PageHeader
         crumb="People"
         title="Payroll"
-        sub="One place, one month, and two different people: the place that sends it and the head office that approves it."
+        sub="One unit, one month: the place sends the run and head office approves it."
+        actions={
+          canWrite && (
+            <Button variant="primary" onClick={() => setOpening(true)}>
+              Open run
+            </Button>
+          )
+        }
       />
 
-      <Card className="mb-4 overflow-hidden">
-        <CardHeader>
-          <CardTitle>Runs</CardTitle>
-        </CardHeader>
+      <Toolbar>
+        <Select
+          value={unitFilter}
+          onChange={setUnitFilter}
+          placeholder="Every unit"
+          className="h-8 w-52"
+        >
+          <option value="">Every unit</option>
+          {units.map((one) => (
+            <option key={one.id} value={one.id}>
+              {one.name}
+            </option>
+          ))}
+        </Select>
+        <Select
+          value={stateFilter}
+          onChange={setStateFilter}
+          placeholder="Every state"
+          className="h-8 w-44"
+        >
+          <option value="">Every state</option>
+          {["DRAFT", "SUBMITTED", "APPROVED"].map((state) => (
+            <option key={state} value={state}>
+              {runStateLabel(state)}
+            </option>
+          ))}
+        </Select>
+      </Toolbar>
+
+      <Card className="overflow-hidden px-4 py-2">
         {queryState(runs, {
           loading: "Reading the runs…",
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                No run has been opened. A month has to be signed off before its
-                payroll can be built.
+                No run has been opened. Use Open run to build a unit&rsquo;s
+                payroll for a month.
               </EmptyState>
+            ) : shown.length === 0 ? (
+              <EmptyState>No run matches these filters.</EmptyState>
             ) : (
-              <div className="px-4 pb-4">
-                {rows.map((row) => (
-                  <button
-                    key={row.id}
-                    type="button"
-                    onClick={() => run.open(row.id)}
-                    className="flex w-full items-baseline gap-3 border-b border-hairline py-2.5 text-left last:border-0 hover:bg-soft-2"
-                  >
-                    <span className="w-24 shrink-0 text-ink">{row.period}</span>
-                    <span className="min-w-0 flex-1 truncate text-body">
-                      {unitName(units, row.unit_id)}
-                    </span>
-                    <Pill tone={stateTone(row.state)}>
-                      {runStateLabel(row.state)}
-                    </Pill>
-                    {!row.complete && <Pill tone="warn">Incomplete</Pill>}
-                  </button>
+              <MiniTable
+                head={[
+                  "Month",
+                  "Unit",
+                  "Pay day",
+                  { label: "State", align: "left" },
+                ]}
+              >
+                {shown.map((row) => (
+                  <MiniRow key={row.id}>
+                    <MiniCell>
+                      <button
+                        type="button"
+                        onClick={() => run.open(row.id)}
+                        className="text-left text-ink hover:underline"
+                      >
+                        {row.period}
+                      </button>
+                    </MiniCell>
+                    <MiniCell>{unitName(units, row.unit_id)}</MiniCell>
+                    <MiniCell>{day(row.pay_on)}</MiniCell>
+                    <MiniCell>
+                      <Pill tone={stateTone(row.state)}>
+                        {runStateLabel(row.state)}
+                      </Pill>{" "}
+                      {!row.complete && <Pill tone="warn">Incomplete</Pill>}
+                    </MiniCell>
+                  </MiniRow>
                 ))}
-              </div>
+              </MiniTable>
             ),
         })}
       </Card>
 
-      <OpenRun />
-      <Adjustments />
+      <OpenRunSheet open={opening} onClose={() => setOpening(false)} />
       <RunSheet run={open} onClose={run.close} />
     </PageContent>
   )
@@ -717,7 +764,15 @@ function Handover({ run }: { run: PayrollRunView }) {
   )
 }
 
-function OpenRun() {
+/// Opening a run: one unit, one month. A Sheet rather than a card under the
+/// list — the list is the page, and opening one is an act with a button.
+function OpenRunSheet({
+  open,
+  onClose,
+}: {
+  open: boolean
+  onClose: () => void
+}) {
   const client = useQueryClient()
   const reachable = useReachableUnits()
   const units = reachable.data ?? []
@@ -728,22 +783,47 @@ function OpenRun() {
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
 
-  const open = useMutation({
+  const close = () => {
+    setFailed(null)
+    onClose()
+  }
+
+  const opening = useMutation({
     mutationFn: () => openRun(unitId.trim(), period, reason.trim()),
     onSuccess: () => {
-      setFailed(null)
       setReason("")
       void client.invalidateQueries({ queryKey: payKeys.runs() })
+      close()
     },
     onError: (error: Error) => setFailed(error.message),
   })
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader>
-        <CardTitle>Open a run</CardTitle>
-      </CardHeader>
-      <div className="flex flex-col gap-3 px-4 pb-4">
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) close()
+      }}
+      title="Open a run"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="quiet" onClick={close}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            pending={opening.isPending}
+            disabled={
+              unitId.trim() === "" || period === "" || reason.trim() === ""
+            }
+            onClick={() => opening.mutate()}
+          >
+            Open run
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-3.5">
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
         <Banner tone="info">
           A run is a draft until the place submits it: recalculate it whenever
@@ -780,385 +860,7 @@ function OpenRun() {
             placeholder="penggajian April"
           />
         </Field>
-        <div>
-          <Button
-            variant="primary"
-            pending={open.isPending}
-            disabled={
-              unitId.trim() === "" || period === "" || reason.trim() === ""
-            }
-            onClick={() => open.mutate()}
-          >
-            Open it
-          </Button>
-        </div>
       </div>
-    </Card>
-  )
-}
-
-/// The one-offs a place files into a month's batch, and the advance a filing
-/// can repay.
-///
-/// # Filed by the place, decided by head office
-///
-/// The figure is frozen the moment the place files it. Withdrawal exists only
-/// while the batch is the place's — `withdrawable` says which side of that
-/// line a row is on, and once it is false the way back is head office's
-/// reopen, which clears both signatures where an audit can see it.
-///
-/// # Potong advance
-///
-/// A recovery rides a deduction: money coming back out of a wage can never be
-/// an earning, so picking the advance narrows the component list to
-/// DEDUCTION and caps the figure at what is still out. The cap is the
-/// server's rule restated so the form refuses before a round trip rather than
-/// after one — and the server states it again at filing and again at
-/// approval, because filings sit while months move.
-function Adjustments() {
-  const client = useQueryClient()
-  const reachable = useReachableUnits()
-  const units = reachable.data ?? []
-  const [unitId, setUnitId] = useState("")
-  const [period, setPeriod] = useState(() =>
-    new Date().toISOString().slice(0, 7)
-  )
-  const [employeeId, setEmployeeId] = useState("")
-  const [componentCode, setComponentCode] = useState("")
-  const [advanceId, setAdvanceId] = useState<string | null>(null)
-  const [amount, setAmount] = useState("")
-  const [reason, setReason] = useState("")
-  const [withdrawReason, setWithdrawReason] = useState("")
-  const [failed, setFailed] = useState<string | null>(null)
-
-  const rows = useQuery({
-    queryKey: payKeys.adjustments(unitId, period),
-    queryFn: ({ signal }) =>
-      listAdjustments(
-        { unit: unitId === "" ? undefined : unitId, period },
-        signal
-      ),
-    // Hidden until a unit is chosen, so it fetches nothing before that.
-    enabled: unitId !== "",
-  })
-  const team = useQuery({
-    queryKey: peopleKeys.employees({
-      status: "ACTIVE",
-      unitId: unitId === "" ? undefined : unitId,
-      limit: 1000,
-    }),
-    queryFn: ({ signal }) =>
-      listEmployees(
-        {
-          status: "ACTIVE",
-          unitId: unitId === "" ? undefined : unitId,
-          limit: 1000,
-        },
-        signal
-      ),
-  })
-  const catalogue = useQuery({
-    queryKey: payKeys.components(),
-    queryFn: ({ signal }) => payComponents(signal),
-  })
-  const advances = useQuery({
-    queryKey: claimsKeys.advances(employeeId),
-    queryFn: ({ signal }) => openAdvances(employeeId, signal),
-    enabled: employeeId !== "",
-  })
-
-  // Only an advance that was actually paid out can be repaid from a wage:
-  // one still requested has gone nowhere, and there is nothing in a wage to
-  // recover it from. The server enforces this at filing; the picker restates
-  // it so it never offers a link that would be refused.
-  const recoverable = (advances.data ?? []).filter(
-    (row) => row.status === "PAID" || row.status === "PARTIALLY_SETTLED"
-  )
-  const picked = recoverable.find((row) => row.advance_id === advanceId) ?? null
-  const cap = picked === null ? null : picked.outstanding_minor
-
-  // With no advance picked the form offers every one-off component; the
-  // moment one is picked the list narrows to the deductions, and a component
-  // chosen before that no longer qualifies stops being a choice.
-  const oneOffs = (catalogue.data ?? []).filter(
-    (component) =>
-      component.basis === "PER_OCCASION" &&
-      !component.retired &&
-      (picked === null || component.kind === "DEDUCTION")
-  )
-  const componentChosen = oneOffs.some((one) => one.code === componentCode)
-    ? componentCode
-    : ""
-
-  // The server's "minor" unit is already whole rupiah for IDR: a fraction of
-  // a rupiah is not a thing a payroll figure carries. Multiplying by 100 here
-  // was an old convention from a currency with cents and paid a Rp300.000
-  // incentive as Rp30.000.000.
-  const amountMinor = Number(amount.replace(/\D/g, "") || "0")
-  const over = cap !== null && amountMinor > cap
-
-  const file = useMutation({
-    mutationFn: () =>
-      fileAdjustment({
-        unitId,
-        period,
-        employeeId,
-        componentCode: componentChosen,
-        amountMinor,
-        reason: reason.trim(),
-        ...(advanceId !== null ? { advanceId } : {}),
-      }),
-    onSuccess: () => {
-      setFailed(null)
-      setAmount("")
-      setReason("")
-      setAdvanceId(null)
-      setComponentCode("")
-      void client.invalidateQueries({
-        queryKey: payKeys.adjustments(unitId, period),
-      })
-    },
-    onError: (error: Error) => setFailed(error.message),
-  })
-
-  const withdraw = useMutation({
-    mutationFn: (id: string) => withdrawAdjustment(id, withdrawReason.trim()),
-    onSuccess: () => {
-      setFailed(null)
-      setWithdrawReason("")
-      void client.invalidateQueries({
-        queryKey: payKeys.adjustments(unitId, period),
-      })
-    },
-    onError: (error: Error) => setFailed(error.message),
-  })
-
-  return (
-    <Card className="overflow-hidden">
-      <CardHeader>
-        <CardTitle>One-offs</CardTitle>
-      </CardHeader>
-      <div className="flex flex-col gap-3 px-4 pb-4">
-        {failed !== null && <Banner tone="bad">{failed}</Banner>}
-        <Field label="Unit" required>
-          <PickOne
-            label="Unit"
-            placeholder="Choose a unit…"
-            choices={units.map((one) => ({
-              value: one.id,
-              label: `${one.name} · ${one.employees}`,
-            }))}
-            value={unitId === "" ? null : unitId}
-            onChange={(next) => {
-              setUnitId(next ?? "")
-              setEmployeeId("")
-            }}
-          />
-        </Field>
-        <Field label="Month" required>
-          <Input
-            type="month"
-            value={period}
-            onChange={(event) => setPeriod(event.target.value)}
-          />
-        </Field>
-
-        {unitId !== "" && (
-          <div>
-            <SubHead>Filed</SubHead>
-            <Field
-              label="Why (taking one back)"
-              hint="Recorded against the withdrawal, and required."
-              required
-            >
-              <Input
-                value={withdrawReason}
-                onChange={(event) => setWithdrawReason(event.target.value)}
-                placeholder="double filing"
-              />
-            </Field>
-            <div className="mt-2">
-              {queryState(rows, {
-                loading: "Reading the one-offs…",
-                render: (filed) =>
-                  filed.length === 0 ? (
-                    <EmptyState>
-                      Nothing filed for this month. A one-off — an incentive, a
-                      kasbon instalment — is filed here and decided by head
-                      office with the batch.
-                    </EmptyState>
-                  ) : (
-                    <MiniTable
-                      head={[
-                        "Who",
-                        "Component",
-                        { label: "Amount", align: "right" },
-                        "",
-                      ]}
-                    >
-                      {filed.map((row) => (
-                        <MiniRow key={row.id}>
-                          <MiniCell>
-                            <span className="block text-[0.875rem] text-ink">
-                              {row.full_name ?? row.employee_code}
-                            </span>
-                            <span className="font-mono text-[0.875rem] text-mute">
-                              {row.employee_code}
-                            </span>
-                          </MiniCell>
-                          <MiniCell>
-                            <span className="block text-[0.875rem] text-ink">
-                              {row.label}
-                            </span>
-                            <span className="font-mono text-[0.875rem] text-mute">
-                              {row.component_code.toLowerCase()}
-                              {row.advance_id !== null && " · potong advance"}
-                            </span>
-                          </MiniCell>
-                          <MiniCell align="right">
-                            {money(row.amount_minor)}
-                          </MiniCell>
-                          <MiniCell align="right">
-                            {row.withdrawable ? (
-                              <Button
-                                variant="danger"
-                                pending={withdraw.isPending}
-                                disabled={withdrawReason.trim() === ""}
-                                onClick={() => withdraw.mutate(row.id)}
-                              >
-                                Take back
-                              </Button>
-                            ) : (
-                              <span className="text-mute">in the batch</span>
-                            )}
-                          </MiniCell>
-                        </MiniRow>
-                      ))}
-                    </MiniTable>
-                  ),
-              })}
-            </div>
-          </div>
-        )}
-
-        {unitId !== "" && (
-          <OneOffImport
-            unitId={unitId}
-            period={period}
-            people={team.data ?? []}
-            components={(catalogue.data ?? []).filter(
-              (component) =>
-                component.basis === "PER_OCCASION" && !component.retired
-            )}
-            onFiled={() =>
-              void client.invalidateQueries({
-                queryKey: payKeys.adjustments(unitId, period),
-              })
-            }
-          />
-        )}
-
-        <SubHead>File one</SubHead>
-        <Field label="Who" required>
-          <PickOne
-            label="Who"
-            placeholder="Choose a person…"
-            choices={(team.data ?? []).map((one) => ({
-              value: one.employee_id,
-              label:
-                one.full_name === null
-                  ? one.employee_code
-                  : `${one.full_name} · ${one.employee_code}`,
-            }))}
-            value={employeeId === "" ? null : employeeId}
-            onChange={(next) => {
-              setEmployeeId(next ?? "")
-              setAdvanceId(null)
-              setComponentCode("")
-            }}
-          />
-        </Field>
-        <Field
-          label="Component"
-          hint="A one-off files against a PER_OCCASION component."
-          required
-        >
-          <PickOne
-            label="Component"
-            placeholder="Choose a component…"
-            choices={oneOffs.map((one) => ({
-              value: one.code,
-              label: `${one.label} · ${one.code}`,
-            }))}
-            value={componentChosen === "" ? null : componentChosen}
-            onChange={(next) => setComponentCode(next ?? "")}
-          />
-        </Field>
-        {employeeId !== "" && (
-          <Field
-            label="Potong advance"
-            hint="Optional. Links this deduction to the advance it repays."
-          >
-            <PickOne
-              label="Potong advance"
-              placeholder="Not linked to an advance"
-              choices={recoverable.map((one) => ({
-                value: one.advance_id,
-                label: `${one.advance_number} · ${money(one.outstanding_minor)} outstanding`,
-              }))}
-              value={advanceId}
-              onChange={(next) => setAdvanceId(next)}
-            />
-          </Field>
-        )}
-        <Field label="Amount" hint="Positive, in rupiah." required>
-          <Input
-            inputMode="numeric"
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            placeholder="300000"
-          />
-        </Field>
-        {/* The cap and the freeze, where the figure is typed. The cap is the
-            outstanding the advance carries now; the freeze is the batch's. The
-            server states both again — a recovery approved months later lands
-            on what the advance still carries, never on what the form hoped. */}
-        {cap !== null && (
-          <Banner tone="info">
-            Capped at {money(cap)} — what is still out on{" "}
-            {picked?.advance_number}. The figure is frozen when this is filed,
-            and head office decides it with the batch.
-          </Banner>
-        )}
-        <Field
-          label="Why"
-          hint="Recorded against the figure, and required."
-          required
-        >
-          <Input
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            placeholder="kasbon — cicilan 1 dari 3"
-          />
-        </Field>
-        <div>
-          <Button
-            variant="primary"
-            pending={file.isPending}
-            disabled={
-              unitId === "" ||
-              employeeId === "" ||
-              componentChosen === "" ||
-              amountMinor <= 0 ||
-              over ||
-              reason.trim() === ""
-            }
-            onClick={() => file.mutate()}
-          >
-            File it
-          </Button>
-        </div>
-      </div>
-    </Card>
+    </Sheet>
   )
 }

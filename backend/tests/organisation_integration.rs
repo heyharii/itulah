@@ -559,6 +559,9 @@ async fn a_warning_letter_is_issued_acknowledged_and_revoked(pool: PgPool) {
     assert_eq!(revoked[0]["active"], false);
     let active = hub.get("/api/v1/warning-letters").await;
     assert_eq!(active.body.as_array().map(Vec::len), Some(0));
+    let every = hub.get("/api/v1/warning-letters?all=true").await;
+    assert_eq!(every.body.as_array().map(Vec::len), Some(1));
+    assert_eq!(every.body[0]["revoked"], true);
 }
 
 /// Head office chooses the employee app's modules; an unknown one is refused,

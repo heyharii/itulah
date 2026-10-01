@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
+import { ApiError } from "@itulah/contract/client"
 import type { Tone } from "@/lib/format"
 import type {
   CalendarView,
@@ -1723,10 +1724,18 @@ export function readHandover(
   runId: string,
   signal?: AbortSignal
 ): Promise<PayrollHandoverView | null> {
-  return node.get<PayrollHandoverView | null>(
-    `/api/v1/payroll/runs/${encodeURIComponent(runId)}/finance-handover`,
-    { signal }
-  )
+  return node
+    .get<PayrollHandoverView>(
+      `/api/v1/payroll/runs/${encodeURIComponent(runId)}/finance-handover`,
+      { signal }
+    )
+    .catch((error: unknown) => {
+      // The route answers 404 until this run has crossed to Finance. That is
+      // the ordinary empty state, which the payroll sheet renders as the
+      // handover form; authorization and other failures must still surface.
+      if (error instanceof ApiError && error.status === 404) return null
+      throw error
+    })
 }
 
 /// Hand an approved run over. Idempotent per (unit, period) on the server, so

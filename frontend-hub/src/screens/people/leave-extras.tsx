@@ -4,12 +4,13 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
-import { Field, Input } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { PickOne } from "@/components/ui/pick"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
+import { BALANCE_EVENTS, moveLeaveBalance } from "@/lib/queries/hr-time"
 import {
   blockLeave,
   encashLeave,
@@ -23,6 +24,7 @@ import {
   useReachableUnits,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
+import { Quiet } from "@/screens/people/parts"
 import { usePeopleAudience } from "@/screens/people/scope"
 
 /// Blok tanggal cuti: dates head office closes to leave — for every unit or
@@ -165,40 +167,38 @@ function thisMonth(): string {
   return new Date().toISOString().slice(0, 7)
 }
 
-/// Uangkan cuti and Kerja di hari libur, on one person's Leave tab: days
-/// paid out into a month's payroll, and a day earned back for a holiday or a
-/// rest day worked.
-export function LeaveMoves({ employeeId }: { employeeId: string }) {
-  // Head office's: paying days out is a wage and a holiday worked is a grant,
-  // and a manager would only be shown forms the server refuses.
-  const employer = usePeopleAudience() === "employer"
-  const client = useQueryClient()
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+/// The kinds of leave this person has a balance in — the only ones a payout, a
+/// holiday worked or an adjustment can be about.
+function useBalanceKinds(employeeId: string) {
   const balances = useQuery({
     queryKey: leaveKeys.balances(employeeId),
     queryFn: ({ signal }) => leaveBalances(employeeId, signal),
-  })
-  const encashments = useQuery({
-    queryKey: leaveExtraKeys.encashments(employeeId),
-    queryFn: ({ signal }) => leaveEncashments(employeeId, signal),
   })
   const kinds = (balances.data ?? []).map((row) => ({
     value: row.leave_type,
     label: row.name,
   }))
+  return { balances, kinds }
+}
+
+/// Uangkan cuti: days paid out into a month's payroll, with the payouts so far.
+export function PayOutForm({ employeeId }: { employeeId: string }) {
+  const client = useQueryClient()
+  const { kinds } = useBalanceKinds(employeeId)
+  const encashments = useQuery({
+    queryKey: leaveExtraKeys.encashments(employeeId),
+    queryFn: ({ signal }) => leaveEncashments(employeeId, signal),
+  })
   const [kind, setKind] = useState<string | null>(null)
   const [days, setDays] = useState("")
   const [period, setPeriod] = useState(thisMonth)
   const [divisor, setDivisor] = useState("25")
   const [why, setWhy] = useState("")
-  const [workedOn, setWorkedOn] = useState("")
-  const [workedWhy, setWorkedWhy] = useState("")
   const chosen = kind ?? kinds[0]?.value ?? null
-  const refresh = () => {
-    void client.invalidateQueries({ queryKey: leaveKeys.balances(employeeId) })
-    void client.invalidateQueries({
-      queryKey: leaveExtraKeys.encashments(employeeId),
-    })
-  }
   const encash = useMutation({
     mutationFn: () =>
       encashLeave(employeeId, {
@@ -211,9 +211,109 @@ export function LeaveMoves({ employeeId }: { employeeId: string }) {
     onSuccess: () => {
       setDays("")
       setWhy("")
-      refresh()
+      void client.invalidateQueries({
+        queryKey: leaveKeys.balances(employeeId),
+      })
+      void client.invalidateQueries({
+        queryKey: leaveExtraKeys.encashments(employeeId),
+      })
     },
   })
+
+  return (
+    <div className="flex flex-col gap-4">
+      {queryState(encashments, {
+        loading: "Reading the payouts…",
+        render: (rows) =>
+          rows.length === 0 ? (
+            <Quiet>No days have been paid out for this person.</Quiet>
+          ) : (
+            <MiniTable
+              head={["Month", "Days", { label: "Paid", align: "right" }, "By"]}
+            >
+              {rows.map((row) => (
+                <MiniRow key={row.id}>
+                  <MiniCell>{row.period}</MiniCell>
+                  <MiniCell>{row.centidays / 100}</MiniCell>
+                  <MiniCell align="right">
+                    {money(row.amount_minor)}
+                    <span className="block text-[0.875rem] text-mute">
+                      {money(row.wage_minor)} ÷ {row.divisor_days} a day
+                    </span>
+                  </MiniCell>
+                  <MiniCell>{row.encashed_by}</MiniCell>
+                </MiniRow>
+              ))}
+            </MiniTable>
+          ),
+      })}
+      <SubHead>Pay days out</SubHead>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <Field label="Kind" required>
+          <PickOne
+            label="Kind"
+            placeholder="Choose…"
+            choices={kinds}
+            value={chosen}
+            onChange={setKind}
+          />
+        </Field>
+        <Field label="Days" required>
+          <Input
+            inputMode="decimal"
+            value={days}
+            onChange={(e) => setDays(e.target.value)}
+            placeholder="2"
+          />
+        </Field>
+        <Field label="Paid with the payroll of" required>
+          <Input
+            type="month"
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+          />
+        </Field>
+        <Field label="A day is the month's wage over" aside="days">
+          <Input
+            inputMode="numeric"
+            value={divisor}
+            onChange={(e) => setDivisor(e.target.value.replace(/\D/g, ""))}
+          />
+        </Field>
+        <Field label="Why" required>
+          <Input value={why} onChange={(e) => setWhy(e.target.value)} />
+        </Field>
+      </div>
+      {encash.error !== null && (
+        <Banner tone="bad">{encash.error.message}</Banner>
+      )}
+      <div>
+        <Button
+          variant="primary"
+          pending={encash.isPending}
+          disabled={
+            chosen === null ||
+            !(Number(days.replace(",", ".")) > 0) ||
+            why.trim() === ""
+          }
+          onClick={() => encash.mutate()}
+        >
+          Pay out
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/// Kerja di hari libur: one day earned back for a public holiday or a rest day
+/// worked. The day must be one of those, and the server checks.
+export function HolidayWorkedForm({ employeeId }: { employeeId: string }) {
+  const client = useQueryClient()
+  const { kinds } = useBalanceKinds(employeeId)
+  const [kind, setKind] = useState<string | null>(null)
+  const [workedOn, setWorkedOn] = useState("")
+  const [workedWhy, setWorkedWhy] = useState("")
+  const chosen = kind ?? kinds[0]?.value ?? null
   const worked = useMutation({
     mutationFn: () =>
       recordHolidayWork(employeeId, {
@@ -225,136 +325,159 @@ export function LeaveMoves({ employeeId }: { employeeId: string }) {
     onSuccess: () => {
       setWorkedOn("")
       setWorkedWhy("")
-      refresh()
+      void client.invalidateQueries({ queryKey: ["people", "leave"] })
     },
   })
 
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-[0.875rem] text-mute">
+        Earns one day back into the kind chosen. The day must be a public
+        holiday or a rest day on their roster.
+      </p>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <Field label="Day back goes into" required>
+          <PickOne
+            label="Kind"
+            placeholder="Choose…"
+            choices={kinds}
+            value={chosen}
+            onChange={setKind}
+          />
+        </Field>
+        <Field label="Day worked" required>
+          <Day value={workedOn} onChange={setWorkedOn} />
+        </Field>
+        <Field label="Why" required>
+          <Input
+            value={workedWhy}
+            onChange={(e) => setWorkedWhy(e.target.value)}
+            placeholder="jaga toko saat libur"
+          />
+        </Field>
+      </div>
+      {worked.error !== null && (
+        <Banner tone="bad">{worked.error.message}</Banner>
+      )}
+      <div>
+        <Button
+          variant="primary"
+          pending={worked.isPending}
+          disabled={
+            chosen === null || workedOn === "" || workedWhy.trim() === ""
+          }
+          onClick={() => worked.mutate()}
+        >
+          Give the day back
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/// Move a balance by hand: grant the yearly entitlement, carry days forward,
+/// or correct a figure. Days are whole; only a correction may go negative.
+export function AdjustBalanceForm({ employeeId }: { employeeId: string }) {
+  const client = useQueryClient()
+  const { kinds } = useBalanceKinds(employeeId)
+  const [kind, setKind] = useState<string | null>(null)
+  const [event, setEvent] = useState("ADJUSTMENT")
+  const [days, setDays] = useState("")
+  const [on, setOn] = useState(todayIso)
+  const [expires, setExpires] = useState("")
+  const chosen = kind ?? kinds[0]?.value ?? null
+  const amount = Number(days)
+  const wholeOk =
+    Number.isInteger(amount) &&
+    amount !== 0 &&
+    (event === "ADJUSTMENT" || amount > 0)
+  const move = useMutation({
+    mutationFn: () =>
+      moveLeaveBalance(employeeId, {
+        leaveType: chosen ?? "",
+        on,
+        event,
+        days: amount,
+        expiresOn: expires,
+      }),
+    onSuccess: () => {
+      setDays("")
+      setExpires("")
+      void client.invalidateQueries({ queryKey: ["people", "leave"] })
+    },
+  })
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <Field label="Kind" required>
+          <PickOne
+            label="Kind"
+            placeholder="Choose…"
+            choices={kinds}
+            value={chosen}
+            onChange={setKind}
+          />
+        </Field>
+        <Field label="What happened" required>
+          <Select value={event} onChange={setEvent}>
+            {BALANCE_EVENTS.map((one) => (
+              <option key={one.value} value={one.value}>
+                {one.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label="Days"
+          required
+          aside={
+            event === "ADJUSTMENT" ? "negative takes days away" : "whole days"
+          }
+        >
+          <Input
+            inputMode="numeric"
+            value={days}
+            onChange={(e) => setDays(e.target.value.replace(/[^\d-]/g, ""))}
+            placeholder="12"
+          />
+        </Field>
+        <Field label="Effective on" required>
+          <Day value={on} onChange={setOn} clearable={false} />
+        </Field>
+        <Field label="Expires on" aside="optional">
+          <Day value={expires} onChange={setExpires} />
+        </Field>
+      </div>
+      {move.error !== null && <Banner tone="bad">{move.error.message}</Banner>}
+      <div>
+        <Button
+          variant="primary"
+          pending={move.isPending}
+          disabled={chosen === null || !wholeOk || on === ""}
+          onClick={() => move.mutate()}
+        >
+          Record the movement
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/// Uangkan cuti and Kerja di hari libur, stacked — kept for the employee
+/// sheet's Leave tab. The Time off › Balances sheet shows them as tabs.
+export function LeaveMoves({ employeeId }: { employeeId: string }) {
+  // Head office's: paying days out is a wage and a holiday worked is a grant,
+  // and a manager would only be shown forms the server refuses.
+  const employer = usePeopleAudience() === "employer"
   if (!employer) return null
 
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <SubHead>Pay days out</SubHead>
-        {queryState(encashments, {
-          loading: "Reading the payouts…",
-          render: (rows) =>
-            rows.length === 0 ? null : (
-              <MiniTable
-                head={[
-                  "Month",
-                  "Days",
-                  { label: "Paid", align: "right" },
-                  "By",
-                ]}
-              >
-                {rows.map((row) => (
-                  <MiniRow key={row.id}>
-                    <MiniCell>{row.period}</MiniCell>
-                    <MiniCell>{row.centidays / 100}</MiniCell>
-                    <MiniCell align="right">
-                      {money(row.amount_minor)}
-                      <span className="block text-[0.875rem] text-mute">
-                        {money(row.wage_minor)} ÷ {row.divisor_days} a day
-                      </span>
-                    </MiniCell>
-                    <MiniCell>{row.encashed_by}</MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
-            ),
-        })}
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Field label="Kind" required>
-            <PickOne
-              label="Kind"
-              placeholder="Choose…"
-              choices={kinds}
-              value={chosen}
-              onChange={setKind}
-            />
-          </Field>
-          <Field label="Days" required>
-            <Input
-              inputMode="decimal"
-              value={days}
-              onChange={(e) => setDays(e.target.value)}
-              placeholder="2"
-            />
-          </Field>
-          <Field label="Paid with the payroll of" required>
-            <Input
-              type="month"
-              value={period}
-              onChange={(e) => setPeriod(e.target.value)}
-            />
-          </Field>
-          <Field label="A day is the month's wage over" aside="days">
-            <Input
-              inputMode="numeric"
-              value={divisor}
-              onChange={(e) => setDivisor(e.target.value.replace(/\D/g, ""))}
-            />
-          </Field>
-          <Field label="Why" required>
-            <Input value={why} onChange={(e) => setWhy(e.target.value)} />
-          </Field>
-        </div>
-        {encash.error !== null && (
-          <Banner tone="bad" className="mt-2">
-            {encash.error.message}
-          </Banner>
-        )}
-        <div className="mt-3">
-          <Button
-            variant="ghost"
-            pending={encash.isPending}
-            disabled={
-              chosen === null ||
-              !(Number(days.replace(",", ".")) > 0) ||
-              why.trim() === ""
-            }
-            onClick={() => encash.mutate()}
-          >
-            Pay out
-          </Button>
-        </div>
-      </div>
-
+      <PayOutForm employeeId={employeeId} />
       <div>
         <SubHead>A holiday or rest day worked</SubHead>
-        <p className="mb-2 text-[0.875rem] text-mute">
-          Earns one day back into the kind chosen above. The day must be a
-          public holiday or a rest day on their roster.
-        </p>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Field label="Day worked" required>
-            <Day value={workedOn} onChange={setWorkedOn} />
-          </Field>
-          <Field label="Why" required>
-            <Input
-              value={workedWhy}
-              onChange={(e) => setWorkedWhy(e.target.value)}
-              placeholder="jaga toko saat libur"
-            />
-          </Field>
-        </div>
-        {worked.error !== null && (
-          <Banner tone="bad" className="mt-2">
-            {worked.error.message}
-          </Banner>
-        )}
-        <div className="mt-3">
-          <Button
-            variant="ghost"
-            pending={worked.isPending}
-            disabled={
-              chosen === null || workedOn === "" || workedWhy.trim() === ""
-            }
-            onClick={() => worked.mutate()}
-          >
-            Give the day back
-          </Button>
-        </div>
+        <HolidayWorkedForm employeeId={employeeId} />
       </div>
     </div>
   )

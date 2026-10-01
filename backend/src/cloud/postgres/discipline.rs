@@ -74,6 +74,16 @@ pub async fn active_warning_letters(pool: &PgPool) -> Result<Vec<WarningLetterVi
     rows.iter().map(letter).collect()
 }
 
+/// Every letter, in force or not, newest first — the reprimand list.
+pub async fn all_warning_letters(pool: &PgPool) -> Result<Vec<WarningLetterView>, AppError> {
+    let rows = sqlx::query(&format!(
+        "{LETTER_SELECT} ORDER BY w.issued_on DESC, w.created_at DESC"
+    ))
+    .fetch_all(pool)
+    .await?;
+    rows.iter().map(letter).collect()
+}
+
 /// Issue a letter. Six months in force unless a shorter or longer span is
 /// stated (the company's rules may say either).
 pub async fn issue_warning_letter(

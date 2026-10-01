@@ -41,7 +41,7 @@ export function LoansPanel({ employeeId }: { employeeId: string }) {
           ) : (
             <div className="flex flex-col gap-4">
               {rows.map((loan) => (
-                <Loan
+                <LoanCard
                   key={loan.advance_id}
                   loan={loan}
                   employeeId={employeeId}
@@ -66,7 +66,15 @@ function loanState(loan: LoanView): {
   return { tone: "info", label: "Repaying" }
 }
 
-function Loan({ loan, employeeId }: { loan: LoanView; employeeId: string }) {
+/// One loan, in full: the plan, what has come back, and — while it is still
+/// running — the way to stop the instalments.
+export function LoanCard({
+  loan,
+  employeeId,
+}: {
+  loan: LoanView
+  employeeId: string
+}) {
   const client = useQueryClient()
   const [why, setWhy] = useState("")
   const stop = useMutation({
@@ -74,6 +82,7 @@ function Loan({ loan, employeeId }: { loan: LoanView; employeeId: string }) {
     onSuccess: () => {
       setWhy("")
       void client.invalidateQueries({ queryKey: payKeys.loans(employeeId) })
+      void client.invalidateQueries({ queryKey: payKeys.allLoans() })
     },
   })
   const state = loanState(loan)
@@ -163,7 +172,17 @@ function nextMonth(): string {
   return now.toISOString().slice(0, 7)
 }
 
-function GrantLoan({ employeeId }: { employeeId: string }) {
+/// The grant form for one person. `onGranted` lets a sheet close itself once
+/// the loan exists; `heading` is off where the sheet's own title says it.
+export function GrantLoan({
+  employeeId,
+  onGranted,
+  heading = true,
+}: {
+  employeeId: string
+  onGranted?: () => void
+  heading?: boolean
+}) {
   const client = useQueryClient()
   const [amount, setAmount] = useState("")
   const [months, setMonths] = useState("")
@@ -195,12 +214,14 @@ function GrantLoan({ employeeId }: { employeeId: string }) {
       setPurpose("")
       setReason("")
       void client.invalidateQueries({ queryKey: payKeys.loans(employeeId) })
+      void client.invalidateQueries({ queryKey: payKeys.allLoans() })
+      onGranted?.()
     },
   })
 
   return (
     <div>
-      <SubHead>Grant a loan</SubHead>
+      {heading && <SubHead>Grant a loan</SubHead>}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <Field label="Amount" required>
           <Input

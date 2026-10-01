@@ -39,6 +39,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { FileCorrectionSheet } from "@/screens/people/attendance-correction-sheet"
 import { Quiet, UnitChoice, useUnit } from "@/screens/people/parts"
 import type {
   AttendanceDayView,
@@ -404,6 +405,7 @@ export function AttendanceDays() {
   const unit = useUnit()
   const unitId = unit.unitId
   const person = useSheet("attendanceOf")
+  const [correcting, setCorrecting] = useState(false)
   const [date, setDate] = useState(todayIso)
   const [sorting, setSorting] = useState<SortingState>([
     // Alphabetical, and deliberately not worst-first. A day is read to find one
@@ -656,6 +658,9 @@ export function AttendanceDays() {
               clearable={false}
               className="h-8 w-36"
             />
+            <Button variant="primary" onClick={() => setCorrecting(true)}>
+              File correction
+            </Button>
           </>
         }
       />
@@ -807,6 +812,16 @@ export function AttendanceDays() {
           </div>
         </Card>
       </div>
+
+      <FileCorrectionSheet
+        open={correcting}
+        onClose={() => setCorrecting(false)}
+        defaultDate={date}
+        people={(team.data ?? []).map((one) => ({
+          value: one.employee_id,
+          label: one.full_name ?? one.employee_code,
+        }))}
+      />
 
       <PersonSheet
         employeeId={person.value ?? null}

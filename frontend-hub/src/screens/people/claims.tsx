@@ -7,7 +7,7 @@ import { useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
@@ -18,8 +18,6 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { AllLoans } from "@/screens/people/loans-list"
-import { ClaimAllowances } from "@/screens/people/claim-benefits"
 import { Timeline } from "@/components/ui/timeline"
 import { useFilters } from "@/lib/filters"
 import { count, day, money, moment } from "@/lib/format"
@@ -30,15 +28,12 @@ import {
   claimStateTone,
   claimsKeys,
   decideClaim,
-  defineClaimType,
-  employerScope,
   fileClaim,
   listClaimTypes,
   listClaims,
   listEmployees,
   payClaim,
   peopleKeys,
-  retireClaimType,
   returnClaim,
   submitClaim,
   useReach,
@@ -46,11 +41,10 @@ import {
   type ClaimRow,
   type NewClaimLine,
 } from "@/lib/queries/people"
-import { financeKeys, listExpenseCategories } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
+import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { Quiet } from "@/screens/people/parts"
 
 /// Expense claims: petty cash, asked for on paper and sanctioned by two
 /// people.
@@ -64,16 +58,11 @@ import { Quiet } from "@/screens/people/parts"
 /// between the two are exactly why the ledger carries an approved-unpaid
 /// claim as a debt rather than as a footnote.
 ///
-/// # Three tabs, one screen
+/// # One list, two filters
 ///
-/// The queue is what is waiting on the manager; the list is everything the
-/// caller may see; the kinds of expense a claim may be filed against are the
-/// employer's vocabulary, and sit beside its readers on a tab the way the
-/// time policy groups its setup — one screen, because a manager who files a
-/// claim and the office that names "TRAVEL" are two halves of the same work.
-/// The tab is `useState`, the way `policy.tsx` holds its own: People stays
-/// flat, one address, and the thing worth sending is a claim, which the
-/// sheet in the address bar already carries.
+/// Waiting is what the manager came for; All is everything the caller may
+/// see. Loans, yearly allowances and the kinds of expense are pages of their
+/// own. Filing a claim is the header button and opens a sheet.
 
 const queueColumns: ColumnDef<TableSetup, ClaimRow>[] = [
   {
@@ -221,35 +210,20 @@ const listColumns: ColumnDef<TableSetup, ClaimRow>[] = [
 
 export function Claims() {
   const claim = useSheet("claim")
+  const canWrite = useCanWrite()
   const reach = useReach()
   const bounded = boundedTo(reach.data)
-  const employer = employerScope(reach.data) === true
+  const [filing, setFiling] = useState(false)
 
-  const [tab, setTab] = useState<string>("queue")
-  const tabs = useMemo(
-    () =>
-      employer
-        ? [
-            { value: "queue", label: "Queue" },
-            { value: "all", label: "All" },
-            { value: "loans", label: "Loans" },
-            { value: "allowances", label: "Allowances" },
-            { value: "types", label: "Types" },
-          ]
-        : [
-            { value: "queue", label: "Queue" },
-            { value: "all", label: "All" },
-          ],
-    [employer]
-  )
-  // A tab the caller may no longer be offered falls back rather than rendering
-  // nothing — the Types tab arrives only once the reach is known.
-  const shown = tabs.some((one) => one.value === tab) ? tab : "queue"
+  // Waiting is what a manager comes for; All is the record. A filter on one
+  // list rather than two destinations — the other tabs this screen once held
+  // (loans, allowances, kinds) are pages of their own under Claims & loans.
+  const [show, setShow] = useState<string>("queue")
 
-  // Both reads live here rather than in the tabs, because the sheet has to
-  // find its row whichever list it was opened from. Claims move at petty-cash
-  // volumes; asking for both is cheaper than the gymnastics of a sheet that
-  // guesses which tab is mounted.
+  // Both reads live here rather than in the table, because the sheet has to
+  // find its row whichever filter it was opened from. Claims move at
+  // petty-cash volumes; asking for both is cheaper than the gymnastics of a
+  // sheet that guesses which one is mounted.
   const queue = useQuery({
     queryKey: claimsKeys.queue(),
     queryFn: ({ signal }) => listClaims({ state: "SUBMITTED" }, signal),
@@ -266,27 +240,37 @@ export function Claims() {
     allRows.find((row) => row.claim_id === claim.value) ??
     null
 
-  const SUB: Record<string, string> = {
-    queue:
-      bounded === null
-        ? "Claims waiting on a decision, across every place."
-        : `Claims waiting on a decision at ${bounded}.`,
-    all: "Every claim the caller may see, decided or not.",
-    allowances:
-      "How much one person may be reimbursed for each kind of claim in a year.",
-    loans:
-      "Every loan: what was lent, what has come back from pay, and what is still owed.",
-    types:
-      "The kinds of expense a claim may be filed against. Head office names them; a place picks from them.",
-  }
-
   return (
     <PageContent>
-      <PageHeader crumb="People" title="Claims" sub={SUB[shown]} />
+      <PageHeader
+        crumb="People"
+        title="Claims"
+        sub={
+          show === "queue"
+            ? bounded === null
+              ? "Claims waiting on a decision, across every place."
+              : `Claims waiting on a decision at ${bounded}.`
+            : "Every claim the caller may see, decided or not."
+        }
+        actions={
+          canWrite && (
+            <Button variant="primary" onClick={() => setFiling(true)}>
+              File claim
+            </Button>
+          )
+        }
+      />
 
-      <SubTabs tabs={tabs} value={shown} onChange={setTab} />
+      <SubTabs
+        tabs={[
+          { value: "queue", label: "Waiting" },
+          { value: "all", label: "All" },
+        ]}
+        value={show}
+        onChange={setShow}
+      />
 
-      {shown === "queue" && (
+      {show === "queue" ? (
         <>
           <Banner tone="info" className="mb-4">
             A claim is sanctioned by two people: whoever filed it never decides
@@ -308,9 +292,7 @@ export function Claims() {
             }
           />
         </>
-      )}
-
-      {shown === "all" && (
+      ) : (
         <ClaimTable
           rows={allRows}
           columns={listColumns}
@@ -321,19 +303,13 @@ export function Claims() {
           isSelected={(row) => row.claim_id === claim.value}
           emptyNone={
             bounded === null
-              ? "No claim has been filed yet."
-              : `No claim has been filed at ${bounded} yet.`
+              ? "No claim has been filed yet. Use File claim to add the first."
+              : `No claim has been filed at ${bounded} yet. Use File claim to add the first.`
           }
         />
       )}
 
-      {shown === "loans" && <AllLoans />}
-
-      {shown === "allowances" && <ClaimAllowances />}
-
-      {shown === "types" && <ClaimTypes />}
-
-      <FileClaim />
+      {filing && <FileClaimSheet onClose={() => setFiling(false)} />}
 
       <ClaimSheet row={open} onClose={claim.close} />
     </PageContent>
@@ -428,7 +404,7 @@ function ClaimTable({
 /// for, so the picker never offers a name the route would refuse. With one
 /// person in it there is nothing to pick — it is preselected and the control
 /// only says whose claim this is.
-function FileClaim() {
+function FileClaimSheet({ onClose }: { onClose: () => void }) {
   const client = useQueryClient()
   const [employeeId, setEmployeeId] = useState("")
   const [typeCode, setTypeCode] = useState("")
@@ -474,15 +450,10 @@ function FileClaim() {
       )
     },
     onSuccess: () => {
-      setFailed(null)
-      setTypeCode("")
-      setSpentOn("")
-      setAmount("")
-      setDescription("")
-      setReason("")
       // A claim now waits on a decision somewhere, and the person's own list
       // on their Directory sheet has a new row — the module's whole prefix.
       void client.invalidateQueries({ queryKey: ["people", "claims"] })
+      onClose()
     },
     onError: (error: Error) => setFailed(error.message),
   })
@@ -496,16 +467,34 @@ function FileClaim() {
     Number(amount) > 0
 
   return (
-    <Card className="mt-4 overflow-hidden">
-      <CardHeader>
-        <CardTitle>File a claim</CardTitle>
-      </CardHeader>
-      <div className="flex flex-col gap-3 px-4 pb-4">
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      title="File claim"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="quiet" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            pending={file.isPending}
+            disabled={!ready}
+            onClick={() => file.mutate()}
+          >
+            File and send it
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-3.5">
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
         {types.isSuccess && kinds.length === 0 && (
           <Banner tone="bad">
             No kinds of expense are defined, so nothing can be filed. Head
-            office names them on the Types tab.
+            office names them under Claim types.
           </Banner>
         )}
 
@@ -570,18 +559,8 @@ function FileClaim() {
             placeholder="laporan kerja lapangan"
           />
         </Field>
-        <div>
-          <Button
-            variant="primary"
-            pending={file.isPending}
-            disabled={!ready}
-            onClick={() => file.mutate()}
-          >
-            File and send it
-          </Button>
-        </div>
       </div>
-    </Card>
+    </Sheet>
   )
 }
 
@@ -947,220 +926,5 @@ function DecidePanel({ row }: { row: ClaimRow }) {
         </Button>
       </ButtonGroup>
     </div>
-  )
-}
-
-/// The vocabulary, beside the readers that use it.
-///
-/// Head office's alone, on the same screen as the queue for the reason the
-/// time policy groups its setup beside its readers: naming "TRAVEL" and
-/// deciding a taxi are two halves of one piece of work, and a menu row of
-/// their own would be a screen somebody opens twice a year.
-///
-/// # No edit and no delete
-///
-/// The leave-types rule again: redefining a kind would change what every
-/// claim already filed against it meant, and deleting one would leave those
-/// claims pointing at nothing. A kind that should no longer be used is one
-/// nobody picks, which is what retiring it says.
-function ClaimTypes() {
-  const client = useQueryClient()
-  const [code, setCode] = useState("")
-  const [name, setName] = useState("")
-  const [category, setCategory] = useState("")
-  const [retireCode, setRetireCode] = useState("")
-  const [retireWhy, setRetireWhy] = useState("")
-  const [failed, setFailed] = useState<string | null>(null)
-
-  const types = useQuery({
-    queryKey: claimsKeys.types(),
-    queryFn: ({ signal }) => listClaimTypes(signal),
-  })
-
-  // Finance's expense categories open to claims. A kind is filed under one,
-  // and its account links decide where the cost lands and what is owed.
-  const categories = useQuery({
-    queryKey: financeKeys.expenseCategories(),
-    queryFn: ({ signal }) => listExpenseCategories(signal),
-    staleTime: 5 * 60 * 1000,
-  })
-  const claimCategories = (categories.data ?? []).filter(
-    (one) => one.for_claims && one.is_active
-  )
-
-  const define = useMutation({
-    mutationFn: () => defineClaimType(code.trim(), name.trim(), category),
-    onSuccess: () => {
-      setFailed(null)
-      setCode("")
-      setName("")
-      setCategory("")
-      void client.invalidateQueries({ queryKey: claimsKeys.types() })
-    },
-    onError: (error: Error) => setFailed(error.message),
-  })
-
-  const retire = useMutation({
-    mutationFn: () => retireClaimType(retireCode, retireWhy.trim()),
-    onSuccess: () => {
-      setFailed(null)
-      setRetireCode("")
-      setRetireWhy("")
-      void client.invalidateQueries({ queryKey: claimsKeys.types() })
-    },
-    onError: (error: Error) => setFailed(error.message),
-  })
-
-  const kinds = types.data ?? []
-  const live = kinds.filter((one) => one.retired_at === null)
-
-  return (
-    <>
-      <Card className="mb-4 overflow-hidden">
-        <CardHeader>
-          <CardTitle>Kinds</CardTitle>
-        </CardHeader>
-        {queryState(types, {
-          loading: "Reading the vocabulary…",
-          render: (rows) =>
-            rows.length === 0 ? (
-              <EmptyState>
-                No kinds of expense are defined, so nothing can be filed.
-              </EmptyState>
-            ) : (
-              <div className="px-4 pb-4">
-                {rows.map((kind) => (
-                  <div
-                    key={kind.code}
-                    className="flex items-baseline gap-3 border-b border-hairline py-2.5 last:border-0"
-                  >
-                    <span className="font-mono text-id text-body">
-                      {kind.code}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-ink">
-                      {kind.name}
-                    </span>
-                    {kind.retired_at !== null ? (
-                      <Pill tone="neutral">
-                        Cancelled {day(kind.retired_at)}
-                      </Pill>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ),
-        })}
-      </Card>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="overflow-hidden">
-          <CardHeader>
-            <CardTitle>Define a kind</CardTitle>
-          </CardHeader>
-          <div className="flex flex-col gap-3 px-4 pb-4">
-            <Field label="Code" hint="Upper-cased, and never changes." required>
-              <Input
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                placeholder="SUPPLIES"
-              />
-            </Field>
-            <Field label="Name" required>
-              <Input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Alat tulis kantor"
-              />
-            </Field>
-            <Field
-              label="Expense category"
-              required
-              hint={
-                categories.isSuccess && claimCategories.length === 0
-                  ? "Finance has no expense category open to claims yet — one is needed before a kind can be defined."
-                  : "Finance's category: it decides which account the cost lands on."
-              }
-            >
-              <Select value={category} onChange={setCategory}>
-                <option value="">
-                  {categories.isPending ? "Loading…" : "Choose…"}
-                </option>
-                {claimCategories.map((one) => (
-                  <option key={one.code} value={one.code}>
-                    {one.name} ({one.code})
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <div>
-              <Button
-                variant="primary"
-                pending={define.isPending}
-                disabled={
-                  code.trim() === "" || name.trim() === "" || category === ""
-                }
-                onClick={() => define.mutate()}
-              >
-                Define it
-              </Button>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="overflow-hidden">
-          <CardHeader>
-            <CardTitle>Cancel a kind</CardTitle>
-          </CardHeader>
-          <div className="flex flex-col gap-3 px-4 pb-4">
-            {live.length === 0 ? (
-              <Quiet>Nothing left to retire.</Quiet>
-            ) : (
-              <>
-                <Field label="Kind" required>
-                  <Select
-                    value={retireCode}
-                    onChange={(next) => setRetireCode(next)}
-                  >
-                    <option value="">Choose…</option>
-                    {live.map((kind) => (
-                      <option key={kind.code} value={kind.code}>
-                        {kind.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field
-                  label="Why"
-                  hint="Recorded against the cancellation, and required."
-                  required
-                >
-                  <Input
-                    value={retireWhy}
-                    onChange={(event) => setRetireWhy(event.target.value)}
-                    placeholder="digabung ke SUPPLIES"
-                  />
-                </Field>
-                <div>
-                  <Button
-                    variant="danger"
-                    pending={retire.isPending}
-                    disabled={retireCode === "" || retireWhy.trim() === ""}
-                    onClick={() => retire.mutate()}
-                  >
-                    Cancel it
-                  </Button>
-                </div>
-              </>
-            )}
-          </div>
-        </Card>
-      </div>
-
-      {failed !== null && (
-        <Banner tone="bad" className="mt-4">
-          {failed}
-        </Banner>
-      )}
-    </>
   )
 }

@@ -6,7 +6,7 @@ import { useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
@@ -16,16 +16,15 @@ import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
+import { useActiveEmployees } from "@/lib/queries/hr-time"
 import { day } from "@/lib/format"
 import type { Tone } from "@/lib/format"
 import {
   awaitingOvertime,
   boundedTo,
-  listEmployees,
   orderOvertime,
   overtimeKeys,
   overtimeStateLabel,
-  peopleKeys,
   readMinutesSpan,
   readOvertimePolicy,
   useReach,
@@ -71,91 +70,101 @@ function stateTone(state: string): Tone {
   }
 }
 
-const columns: ColumnDef<TableSetup, OvertimeOrderView>[] = [
-  {
-    id: "who",
-    accessorFn: (row) => row.employee_id,
-    header: "Employee",
-    size: 190,
-    // No filter: a uuid is not something a manager narrows by. Who is chased
-    // is decided by reading the list, not by knowing the id first.
-    cell: ({ row }) => (
-      <span className="font-mono text-id text-body">
-        {row.original.employee_id}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "on_date",
-    header: "Date",
-    size: 130,
-    /// "This week" is the whole reason somebody opens this list — an order for
-    /// tomorrow night that nobody has answered is the one worth chasing today.
-    meta: { filter: { kind: "date" } },
-    cell: ({ row }) => day(row.original.on_date),
-  },
-  {
-    accessorKey: "day_kind",
-    header: "Day",
-    size: 110,
-    /// Which statutory pay table applies — Kepmenaker 102/2004 has one schedule
-    /// for ordinary days and another for rest days and holidays. Never a rate.
-    /// Filterable because those are different schedules: "the rest-day and
-    /// holiday orders" is one clause and a different conversation.
-    meta: {
-      filter: { kind: "option", format: (value) => value.toLowerCase() },
+function columnsFor(
+  nameOf: (id: string) => string
+): ColumnDef<TableSetup, OvertimeOrderView>[] {
+  return [
+    {
+      id: "who",
+      accessorFn: (row) => nameOf(row.employee_id),
+      header: "Employee",
+      size: 190,
+      // No filter: narrowing by one person would mean already knowing whose
+      // order you were looking for. Who is chased is decided by reading the list.
+      cell: ({ row }) => {
+        const name = nameOf(row.original.employee_id)
+        return name === row.original.employee_id ? (
+          <span className="font-mono text-id text-body">{name}</span>
+        ) : (
+          <span className="text-body">{name}</span>
+        )
+      },
     },
-    cell: ({ row }) => row.original.day_kind.toLowerCase(),
-  },
-  {
-    accessorKey: "planned_minutes",
-    header: "Ordered",
-    size: 110,
-    /// Minutes, never hours — the same rule the order form states, and for the
-    /// same reason: a fractional hour cannot round-trip.
-    meta: { align: "right", filter: { kind: "number", unit: "min" } },
-    cell: ({ row }) => readMinutesSpan(row.original.planned_minutes),
-  },
-  {
-    id: "authorized",
-    accessorFn: (row) => row.authorized_minutes ?? 0,
-    header: "Authorized",
-    size: 120,
-    /// **Not filterable, and the `?? 0` above is exactly why.** An order
-    /// nobody has answered authorizes nothing, which is not the same fact as
-    /// an order authorizing zero minutes — the cell draws a dash for precisely
-    /// that reason. A number clause would see the stand-in: "authorized is 0"
-    /// would gather up every unanswered order and report them as answered for
-    /// nothing. State says it truthfully, so State is what this offers.
-    meta: { align: "right" },
-    /// Blank until the worker agrees. An order nobody answered authorizes
-    /// nothing, and a dash says that better than a zero would.
-    cell: ({ row }) =>
-      row.original.authorized_minutes === null ? (
-        <span className="text-mute">—</span>
-      ) : (
-        readMinutesSpan(row.original.authorized_minutes)
+    {
+      accessorKey: "on_date",
+      header: "Date",
+      size: 130,
+      /// "This week" is the whole reason somebody opens this list — an order for
+      /// tomorrow night that nobody has answered is the one worth chasing today.
+      meta: { filter: { kind: "date" } },
+      cell: ({ row }) => day(row.original.on_date),
+    },
+    {
+      accessorKey: "day_kind",
+      header: "Day",
+      size: 110,
+      /// Which statutory pay table applies — Kepmenaker 102/2004 has one schedule
+      /// for ordinary days and another for rest days and holidays. Never a rate.
+      /// Filterable because those are different schedules: "the rest-day and
+      /// holiday orders" is one clause and a different conversation.
+      meta: {
+        filter: { kind: "option", format: (value) => value.toLowerCase() },
+      },
+      cell: ({ row }) => row.original.day_kind.toLowerCase(),
+    },
+    {
+      accessorKey: "planned_minutes",
+      header: "Ordered",
+      size: 110,
+      /// Minutes, never hours — the same rule the order form states, and for the
+      /// same reason: a fractional hour cannot round-trip.
+      meta: { align: "right", filter: { kind: "number", unit: "min" } },
+      cell: ({ row }) => readMinutesSpan(row.original.planned_minutes),
+    },
+    {
+      id: "authorized",
+      accessorFn: (row) => row.authorized_minutes ?? 0,
+      header: "Authorized",
+      size: 120,
+      /// **Not filterable, and the `?? 0` above is exactly why.** An order
+      /// nobody has answered authorizes nothing, which is not the same fact as
+      /// an order authorizing zero minutes — the cell draws a dash for precisely
+      /// that reason. A number clause would see the stand-in: "authorized is 0"
+      /// would gather up every unanswered order and report them as answered for
+      /// nothing. State says it truthfully, so State is what this offers.
+      meta: { align: "right" },
+      /// Blank until the worker agrees. An order nobody answered authorizes
+      /// nothing, and a dash says that better than a zero would.
+      cell: ({ row }) =>
+        row.original.authorized_minutes === null ? (
+          <span className="text-mute">—</span>
+        ) : (
+          readMinutesSpan(row.original.authorized_minutes)
+        ),
+    },
+    {
+      accessorKey: "state",
+      header: "State",
+      size: 190,
+      /// The honest form of the question the Authorized column cannot be asked:
+      /// waiting, agreed, declined. A fact to read and to narrow by — never a
+      /// control. Nothing in this panel can change a state, which is the whole
+      /// discipline of this screen.
+      meta: { filter: { kind: "option", format: overtimeStateLabel } },
+      cell: ({ row }) => (
+        <Pill tone={stateTone(row.original.state)}>
+          {overtimeStateLabel(row.original.state)}
+        </Pill>
       ),
-  },
-  {
-    accessorKey: "state",
-    header: "State",
-    size: 190,
-    /// The honest form of the question the Authorized column cannot be asked:
-    /// waiting, agreed, declined. A fact to read and to narrow by — never a
-    /// control. Nothing in this panel can change a state, which is the whole
-    /// discipline of this screen.
-    meta: { filter: { kind: "option", format: overtimeStateLabel } },
-    cell: ({ row }) => (
-      <Pill tone={stateTone(row.original.state)}>
-        {overtimeStateLabel(row.original.state)}
-      </Pill>
-    ),
-  },
-]
+    },
+  ]
+}
 
 export function Overtime() {
   const order = useSheet("overtimeOrder")
+  const [ordering, setOrdering] = useState(false)
+  const { nameOf } = useActiveEmployees()
+  const columns = useMemo(() => columnsFor(nameOf), [nameOf])
   const [sorting, setSorting] = useState<SortingState>([
     { id: "on_date", desc: false },
   ])
@@ -202,6 +211,15 @@ export function Overtime() {
             ? "Ordered by a manager, agreed by the person who will work it."
             : `Ordered at ${bounded}, agreed by the person who will work it.`
         }
+        actions={
+          <Button
+            variant="primary"
+            disabled={caps === null}
+            onClick={() => setOrdering(true)}
+          >
+            Order overtime
+          </Button>
+        }
       />
 
       {/* No caps, no orders. Said plainly rather than shown as an empty list:
@@ -227,9 +245,6 @@ export function Overtime() {
       </Toolbar>
 
       <Card className="mb-4 overflow-hidden">
-        <CardHeader>
-          <CardTitle>Waiting on an answer</CardTitle>
-        </CardHeader>
         {queryState(queue, {
           loading: "Reading the orders…",
           render: () =>
@@ -237,6 +252,7 @@ export function Overtime() {
               <EmptyState>
                 Nothing is waiting on an answer. An order nobody answers
                 authorizes nothing, so this list emptying is the good outcome.
+                Use Order overtime to ask somebody to work extra hours.
               </EmptyState>
             ) : (
               <DataTable<OvertimeOrderView>
@@ -257,9 +273,8 @@ export function Overtime() {
         })}
       </Card>
 
-      {caps !== null && <OrderOvertime />}
-
       <OrderSheet order={open} onClose={order.close} />
+      <OrderOvertimeSheet open={ordering} onClose={() => setOrdering(false)} />
     </PageContent>
   )
 }
@@ -272,6 +287,7 @@ function OrderSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const { nameOf } = useActiveEmployees()
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
 
@@ -310,9 +326,7 @@ function OrderSheet({
       </Pill>
 
       <Facts>
-        <Fact term="Employee">
-          <span className="font-mono text-id">{order.employee_id}</span>
-        </Fact>
+        <Fact term="Employee">{nameOf(order.employee_id)}</Fact>
         <Fact term="Unit">{order.unit_id}</Fact>
         <Fact term="Day">{order.day_kind.toLowerCase()}</Fact>
         <Fact term="Ordered">{readMinutesSpan(order.planned_minutes)}</Fact>
@@ -343,8 +357,8 @@ function OrderSheet({
           {/* Withdrawing is the only act available here. The answer is theirs,
               and this screen has no way to give it. */}
           <Banner tone="info">
-            Only {order.employee_id} can answer this — it arrives from their own
-            app, under their own name.
+            Only {nameOf(order.employee_id)} can answer this — it arrives from
+            their own app, under their own name.
           </Banner>
           <Field
             label="Why"
@@ -383,31 +397,35 @@ function OrderSheet({
   )
 }
 
-function OrderOvertime() {
+function OrderOvertimeSheet({
+  open,
+  onClose,
+}: {
+  open: boolean
+  onClose: () => void
+}) {
   const client = useQueryClient()
-  const [draft, setDraft] = useState<NewOvertimeOrder>({
+  const blank: NewOvertimeOrder = {
     employeeId: "",
     onDate: "",
     dayKind: "WORKING",
     plannedMinutes: 120,
     reason: "",
-  })
+  }
+  const [draft, setDraft] = useState<NewOvertimeOrder>(blank)
   const [failed, setFailed] = useState<string | null>(null)
 
   // The people this caller may order for. The server bounds the list by their
   // posting already, so the picker offers exactly what the order route accepts.
-  const team = useQuery({
-    queryKey: peopleKeys.employees({ status: "ACTIVE", limit: 1000 }),
-    queryFn: ({ signal }) =>
-      listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
-  })
+  const { people } = useActiveEmployees()
 
   const issue = useMutation({
     mutationFn: () => orderOvertime(draft),
     onSuccess: () => {
       setFailed(null)
-      setDraft({ ...draft, onDate: "", reason: "" })
+      setDraft(blank)
       void client.invalidateQueries({ queryKey: overtimeKeys.awaiting() })
+      onClose()
     },
     onError: (error: Error) => setFailed(error.message),
   })
@@ -419,11 +437,33 @@ function OrderOvertime() {
     draft.reason.trim() !== ""
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader>
-        <CardTitle>Order overtime</CardTitle>
-      </CardHeader>
-      <div className="flex flex-col gap-3 px-4 pb-4">
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          setFailed(null)
+          onClose()
+        }
+      }}
+      title="Order overtime"
+      caption="It authorizes nothing until the person agrees on their own app."
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="quiet" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            pending={issue.isPending}
+            disabled={!ready}
+            onClick={() => issue.mutate()}
+          >
+            {issue.isPending ? "Ordering…" : "Order it"}
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-3.5">
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
 
         <Field label="Who" required>
@@ -432,7 +472,7 @@ function OrderOvertime() {
             onChange={(next) => setDraft({ ...draft, employeeId: next })}
           >
             <option value="">Choose…</option>
-            {(team.data ?? []).map((person) => (
+            {people.map((person) => (
               <option key={person.employee_id} value={person.employee_id}>
                 {person.full_name ?? person.employee_code}
               </option>
@@ -493,17 +533,7 @@ function OrderOvertime() {
             placeholder="stok opname akhir bulan"
           />
         </Field>
-        <div>
-          <Button
-            variant="primary"
-            pending={issue.isPending}
-            disabled={!ready}
-            onClick={() => issue.mutate()}
-          >
-            Order it
-          </Button>
-        </div>
       </div>
-    </Card>
+    </Sheet>
   )
 }
