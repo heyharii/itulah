@@ -1,4 +1,4 @@
-import { money } from "@/lib/format"
+import { count, money } from "@/lib/format"
 import { useStackLabels } from "@/lib/stack-table"
 import { cn } from "@/lib/utils"
 
@@ -35,14 +35,14 @@ export function NumberCard({
   value,
   note,
   tone,
-  count = false,
+  unit = "money",
 }: {
   label: string
   value: number | null
   note?: React.ReactNode
   tone?: "bad" | "ok" | "warn"
-  /// A number of things rather than rupiah.
-  count?: boolean
+  /// "count" for a number of things — periods, bills — not rupiah.
+  unit?: "money" | "count"
 }) {
   return (
     <div
@@ -83,11 +83,7 @@ export function NumberCard({
                 : "text-ink"
         )}
       >
-        {value === null
-          ? "—"
-          : count
-            ? value.toLocaleString("id-ID")
-            : money(value)}
+        {value === null ? "—" : unit === "count" ? count(value) : money(value)}
       </div>
       {note !== undefined && (
         <div
@@ -222,7 +218,9 @@ export function TotalRow({ children }: { children: React.ReactNode }) {
 /// An account code, printed the way a code should be: monospaced, quiet, and
 /// never the widest thing in its cell.
 export function Code({ children }: { children: React.ReactNode }) {
-  return <span className="font-mono text-[0.875rem] text-mute">{children}</span>
+  return (
+    <span className="font-mono text-[0.875rem] text-mute">{children}</span>
+  )
 }
 
 /// Says plainly what a screen is standing on when it is not standing on an

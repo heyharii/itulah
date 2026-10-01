@@ -151,7 +151,7 @@ function PayrollList({
             value={shown}
             tone={slice === "RECEIVED" && shown > 0 ? "warn" : undefined}
           />
-          <NumberCard label="Runs" value={rows.length} count />
+          <NumberCard label="Runs" value={rows.length} unit="count" />
         </CardRow>
       )}
 
@@ -470,7 +470,7 @@ export function PayrollPosting() {
         sub="The accrual entries posted when HR handed a run over, and the payments that settled them."
       />
       <CardRow columns={2}>
-        <NumberCard label="Entries" value={head?.total ?? null} count />
+        <NumberCard label="Entries" value={head?.total ?? null} unit="count" />
         <NumberCard label="Total posted" value={head?.total_minor ?? null} />
       </CardRow>
       {journal.isPending ? (
