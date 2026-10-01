@@ -134,7 +134,7 @@ pub async fn save_payment_method(
         Some(mode) => mode,
         None => match tender.as_str() {
             "CASH" => "IN_DRAWER".into(),
-            "VOUCHER" | "POINTS" => "NONE".into(),
+            "VOUCHER" | "POINTS" | "BENEFIT" => "NONE".into(),
             _ => "VIA_RECEIVABLE".into(),
         },
     };

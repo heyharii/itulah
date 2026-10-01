@@ -354,6 +354,7 @@ pub fn render(document: &ReceiptDocument, paper: PaperWidth, drawer: DrawerMode)
             "QRIS" => "QRIS",
             "EWALLET" => "E-Wallet",
             "VOUCHER" => "Voucher",
+            "BENEFIT" => "Saldo Karyawan",
             _ => "Lainnya",
         };
         line(

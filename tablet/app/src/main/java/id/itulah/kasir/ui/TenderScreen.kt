@@ -37,10 +37,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import id.itulah.kasir.data.BenefitHolder
 import id.itulah.kasir.data.Money
 import id.itulah.kasir.data.PaymentMethod
 import id.itulah.kasir.data.Tender
 import id.itulah.kasir.pos.BasketLine
+import id.itulah.kasir.pos.BenefitHold
 
 /**
  * How it was paid for.
@@ -89,6 +91,14 @@ fun TenderScreen(
     /// hardware, where a sale was declined for insufficient stock and the till
     /// simply sat there with the cash drawer shut and the customer waiting.
     failure: String?,
+    /// Employee balance already spent on this basket (survives leaving the screen).
+    benefitHeld: BenefitHold?,
+    /// "Saldo karyawan" cannot be combined with a promotion.
+    basketHasPromotion: Boolean,
+    onBenefitLookup: (String, (Result<BenefitHolder>) -> Unit) -> Unit,
+    onBenefitSpend: (String, Long, (Result<BenefitHolder>, String) -> Unit) -> Unit,
+    /// Give a spent balance back; answers whether head office took it.
+    onBenefitRelease: ((Boolean) -> Unit) -> Unit,
     onCancel: () -> Unit,
     onConfirm: (List<Tender>) -> Unit,
 ) {
@@ -103,7 +113,21 @@ fun TenderScreen(
     // What the node calls it (`CASH`, `CARD`, `QRIS`, `EWALLET`, `VOUCHER`).
     val method = (chosen ?: group.first()).wireMethod
     var typed by remember { mutableStateOf("") }
-    var taken by remember { mutableStateOf(listOf<Tender>()) }
+    var taken by remember {
+        mutableStateOf(
+            listOfNotNull(
+                benefitHeld?.let { hold ->
+                    methods.firstOrNull { it.tenderType == "BENEFIT" }?.tender(hold.amountMinor, hold.saleRef)
+                        ?: Tender("BENEFIT", hold.amountMinor, hold.saleRef)
+                },
+            ),
+        )
+    }
+    // Saldo karyawan: the 6-digit code off the employee's phone, then who it is.
+    var benefitCode by remember { mutableStateOf("") }
+    var holder by remember { mutableStateOf<BenefitHolder?>(null) }
+    var benefitBusy by remember { mutableStateOf(false) }
+    var benefitError by remember { mutableStateOf<String?>(null) }
     // The approval code off the EDC slip or the wallet's screen, pos-desktop's
     // rule: every card, QRIS and e-wallet tender carries one, so the bank
     // reconciliation can find the sale. The keypad types into whichever of
@@ -120,9 +144,16 @@ fun TenderScreen(
     val change = (cashTaken - (totalMinor - nonCash).coerceAtLeast(0)).coerceAtLeast(0)
     val entered = Money.parse(typed)
 
+    val benefitMode = method == "BENEFIT"
+    val benefitUsed = taken.any { it.method == "BENEFIT" }
+    // Never more than is owed or than the balance holds.
+    val spendCap = holder?.let { minOf(outstanding, it.balanceMinor) } ?: 0L
+    // Until the code has been looked up, the keypad types the code.
+    val typingCode = benefitMode && holder == null
+
     // What the amount on screen would settle to if it were taken now. This is
     // the number the cashier needs *before* the tap, not after it.
-    val offered = if (entered > 0) entered else outstanding
+    val offered = if (entered > 0) entered else if (benefitMode && holder != null) spendCap else outstanding
     val previewCash = cashTaken + if (method == "CASH") offered else 0
     val previewNonCash = nonCash + if (method == "CASH") 0 else offered
     val previewChange =
@@ -179,14 +210,30 @@ fun TenderScreen(
                                 // Blue, not ink. The accent means *selected* and
                                 // nothing else.
                                 groups.forEach { (tenderType, members) ->
+                                    val blocked = tenderType == "BENEFIT" && (basketHasPromotion || benefitUsed)
                                     ChoiceTile(
                                         if (members.size == 1) members[0].name else typeLabel(tenderType),
                                         selected = members === group,
-                                        onClick = { type = tenderType; pick = null; approval = ""; target = Field.AMOUNT },
+                                        onClick = {
+                                            if (!blocked) {
+                                                type = tenderType; pick = null; approval = ""; target = Field.AMOUNT
+                                                benefitCode = ""; holder = null; benefitError = null
+                                                if (tenderType == "BENEFIT" || benefitMode) typed = ""
+                                            }
+                                        },
                                         modifier = Modifier.weight(1f),
                                         height = 58.dp,
+                                        tone = if (blocked) Faint else Text,
                                     )
                                 }
+                            }
+                            if (groups.containsKey("BENEFIT") && (basketHasPromotion || benefitUsed)) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    if (basketHasPromotion) "Saldo karyawan: Tidak bisa dengan promo"
+                                    else "Saldo karyawan: sudah dipakai di transaksi ini",
+                                    style = Type.pill.copy(color = Mute),
+                                )
                             }
                         }
 
@@ -212,7 +259,44 @@ fun TenderScreen(
                             }
                         }
 
-                        Column {
+                        if (benefitMode) {
+                            Column {
+                                SectionLabel("Kode saldo karyawan")
+                                Spacer(Modifier.height(8.dp))
+                                // Drawn, like the amount: the code is typed on the
+                                // keypad below, six digits off the employee's phone.
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp)
+                                        .background(Canvas, RoundedCornerShape(RInner))
+                                        .border(1.dp, if (typingCode) Accent else Hairline2, RoundedCornerShape(RInner))
+                                        .padding(horizontal = 18.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    val who = holder
+                                    if (who == null) {
+                                        Text(
+                                            benefitCode.ifBlank { "Ketik 6 digit dari HP karyawan" },
+                                            style = if (benefitCode.isBlank()) Type.meta.copy(color = Faint)
+                                            else Type.metric.copy(fontSize = 21.sp, color = Ink, fontFamily = FontFamily.Monospace),
+                                        )
+                                    } else {
+                                        Text(
+                                            who.fullName ?: who.employeeCode,
+                                            style = Type.cell.copy(color = Ink, fontWeight = FontWeight.SemiBold),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f).padding(end = 10.dp),
+                                        )
+                                        Text("Saldo ${Money.format(who.balanceMinor)}", style = Type.meta.copy(color = Body))
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!benefitMode || holder != null) Column {
                             SectionLabel("Nominal")
                             Spacer(Modifier.height(8.dp))
                             // `.amount-field`. Drawn, not an input: the keypad is
@@ -271,7 +355,9 @@ fun TenderScreen(
 
                         Keypad(
                             onDigit = {
-                                if (typingApproval) {
+                                if (typingCode) {
+                                    benefitCode = (benefitCode + it).take(BENEFIT_CODE_LENGTH)
+                                } else if (typingApproval) {
                                     // Under twelve digits: the node refuses anything
                                     // that could be a card number.
                                     approval = (approval + it).take(MAX_APPROVAL)
@@ -280,7 +366,8 @@ fun TenderScreen(
                                 }
                             },
                             onBackspace = {
-                                if (typingApproval) approval = approval.dropLast(1) else typed = typed.dropLast(1)
+                                if (typingCode) benefitCode = benefitCode.dropLast(1)
+                                else if (typingApproval) approval = approval.dropLast(1) else typed = typed.dropLast(1)
                             },
                         )
 
@@ -311,6 +398,10 @@ fun TenderScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Column(Modifier.widthIn(max = 560.dp).fillMaxWidth()) {
+                if (benefitError != null) {
+                    Notice(benefitError!!, bad = true, title = "Saldo karyawan")
+                    Spacer(Modifier.height(10.dp))
+                }
                 if (failure != null) {
                     Notice(failure, bad = true, title = "Pembayaran ditolak")
                     Spacer(Modifier.height(10.dp))
@@ -318,6 +409,9 @@ fun TenderScreen(
                 PrimaryButton(
                     text = when {
                         covered -> "Selesaikan transaksi"
+                        benefitMode && holder == null ->
+                            if (benefitCode.length < BENEFIT_CODE_LENGTH) "Isi 6 digit kode dulu" else "Cek kode"
+                        benefitMode -> "Pakai saldo ${Money.format(offered)}"
                         chosen == null -> "Pilih bank dulu"
                         approvalMissing -> "Isi kode approval dulu"
                         partial -> "Bayar sebagian ${Money.format(entered)}"
@@ -327,6 +421,32 @@ fun TenderScreen(
                         when {
                             // Everything is already covered by what was recorded.
                             covered -> onConfirm(taken)
+                            // Saldo karyawan: look the code up, then spend; the
+                            // tender joins the others and the rest is paid as usual.
+                            benefitMode && holder == null -> {
+                                benefitBusy = true; benefitError = null
+                                onBenefitLookup(benefitCode) { result ->
+                                    benefitBusy = false
+                                    result.fold(
+                                        onSuccess = { holder = it; typed = "" },
+                                        onFailure = { benefitError = it.message },
+                                    )
+                                }
+                            }
+                            benefitMode -> {
+                                val amount = offered
+                                benefitBusy = true; benefitError = null
+                                onBenefitSpend(benefitCode, amount) { result, ref ->
+                                    benefitBusy = false
+                                    result.fold(
+                                        onSuccess = {
+                                            taken = taken + (chosen?.tender(amount, ref) ?: Tender("BENEFIT", amount, ref))
+                                            holder = null; benefitCode = ""; typed = ""; type = "CASH"; pick = null
+                                        },
+                                        onFailure = { benefitError = it.message },
+                                    )
+                                }
+                            }
                             // Part of it, in this method: record and stay, because
                             // the rest still has to be taken somehow.
                             partial -> chosen?.let {
@@ -341,8 +461,12 @@ fun TenderScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = covered || (offered > 0 && chosen != null && !approvalMissing),
-                    busy = busy,
+                    enabled = !benefitBusy && (covered || when {
+                        benefitMode && holder == null -> benefitCode.length == BENEFIT_CODE_LENGTH
+                        benefitMode -> offered in 1..spendCap
+                        else -> offered > 0 && chosen != null && !approvalMissing
+                    }),
+                    busy = busy || benefitBusy,
                     height = 66.dp,
                     fontSize = 17.sp,
                 )
@@ -416,10 +540,27 @@ fun TenderScreen(
                                     ?: methodLabel(tender.method),
                                 style = Type.meta.copy(color = Text),
                             )
-                            Text(
-                                Money.format(tender.amountMinor),
-                                style = Type.meta.copy(color = Ink, fontWeight = FontWeight.SemiBold),
-                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                if (tender.method == "BENEFIT") {
+                                    // Removing it gives the balance back to the employee.
+                                    Text(
+                                        "Batalkan",
+                                        style = Type.meta.copy(color = BadFg),
+                                        modifier = Modifier.clickable(enabled = !benefitBusy) {
+                                            benefitBusy = true; benefitError = null
+                                            onBenefitRelease { ok ->
+                                                benefitBusy = false
+                                                if (ok) taken = taken.filter { it.method != "BENEFIT" }
+                                                else benefitError = "Saldo belum bisa dikembalikan — coba lagi."
+                                            }
+                                        },
+                                    )
+                                }
+                                Text(
+                                    Money.format(tender.amountMinor),
+                                    style = Type.meta.copy(color = Ink, fontWeight = FontWeight.SemiBold),
+                                )
+                            }
                         }
                     }
                     if (!covered) {
@@ -462,6 +603,9 @@ private val APPROVED = setOf("CARD", "QRIS", "EWALLET")
 /** Eleven characters at most: twelve digits reads as a card number to the node. */
 private const val MAX_APPROVAL = 11
 
+/** The code on the employee's phone. */
+private const val BENEFIT_CODE_LENGTH = 6
+
 /** The words pos-desktop puts on each method. The wire keeps the codes. */
 private fun methodLabel(method: String): String = when (method) {
     "CASH" -> "Tunai"
@@ -469,6 +613,7 @@ private fun methodLabel(method: String): String = when (method) {
     "QRIS" -> "QRIS"
     "EWALLET" -> "E-Wallet"
     "VOUCHER" -> "Voucher"
+    "BENEFIT" -> "Saldo karyawan"
     "OTHER" -> "Lainnya"
     else -> method
 }

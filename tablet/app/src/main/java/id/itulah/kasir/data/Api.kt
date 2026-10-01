@@ -247,6 +247,32 @@ class Api(@Volatile var config: Config) {
         return ShiftReport.from(request("/api/v1/store/shifts/${enc(shiftId)}/close", "POST", body))
     }
 
+    // ── Employee benefit balance ────────────────────────────────────────
+
+    /** Whose code this is and what they have left. Does not use the code up. */
+    fun benefitLookup(code: String): BenefitHolder =
+        BenefitHolder.from(request("/api/v1/store/benefit/lookup", "POST", JSONObject().put("code", code)))
+
+    /** Spend from the balance and use the code up; one spend per `saleRef`. */
+    fun benefitSpend(code: String, saleRef: String, amountMinor: Long, basketHasPromotion: Boolean): BenefitHolder {
+        val body = JSONObject()
+            .put("code", code)
+            .put("sale_ref", saleRef)
+            .put("amount_minor", amountMinor)
+            .put("basket_has_promotion", basketHasPromotion)
+        return BenefitHolder.from(request("/api/v1/store/benefit/spend", "POST", body))
+    }
+
+    /** Put it back (cancelled payment, or a return). Answers the new balance. */
+    fun benefitReturn(saleRef: String, amountMinor: Long, reason: String): Long {
+        val body = JSONObject()
+            .put("sale_ref", saleRef)
+            .put("amount_minor", amountMinor)
+            .put("reason", reason)
+        // The node answers a bare number, which [request] hands back as `value`.
+        return request("/api/v1/store/benefit/return", "POST", body).optString("value").toLongOrNull() ?: 0L
+    }
+
     // ── Taking it back ──────────────────────────────────────────────────
 
     fun voidSale(saleId: String, reason: String, supervisor: Supervisor): JSONObject {
@@ -351,7 +377,11 @@ class Api(@Volatile var config: Config) {
         }
         if (text.isBlank()) return JSONObject()
         return runCatching { JSONObject(text) }
-            .getOrElse { JSONObject().put("items", JSONArray(text)) }
+            .getOrElse {
+                // A bare array is `items`; a bare number is `value`.
+                if (text.trimStart().startsWith("[")) JSONObject().put("items", JSONArray(text))
+                else JSONObject().put("value", text.trim())
+            }
     }
 
     private fun enc(value: String) = URLEncoder.encode(value, "UTF-8")

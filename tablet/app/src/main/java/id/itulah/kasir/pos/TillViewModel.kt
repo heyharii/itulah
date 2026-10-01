@@ -6,6 +6,7 @@ import id.itulah.kasir.core.Epc
 import id.itulah.kasir.core.Perf
 import id.itulah.kasir.data.Api
 import id.itulah.kasir.data.ApiError
+import id.itulah.kasir.data.BenefitHolder
 import id.itulah.kasir.data.CatalogRow
 import id.itulah.kasir.data.Config
 import id.itulah.kasir.data.ConfigStore
@@ -101,6 +102,10 @@ data class TillState(
     /// sign-in and whenever a shift opens. Starts as — and falls back to — the
     /// till's own four tiles, so a master that cannot be read never stops a sale.
     val paymentMethods: List<PaymentMethod> = PaymentMethod.FALLBACK,
+    /// Benefit balance already spent against this basket, not yet sold. Held
+    /// here so leaving the payment screen cannot lose track of money that has
+    /// left the employee's balance.
+    val benefit: BenefitHold? = null,
 ) {
     /**
      * What the screen shows while the node has not answered yet.
@@ -133,6 +138,9 @@ data class TillState(
  * trips and ten chances to leave a half-open transaction on a server. Here it
  * is one quote and one sale.
  */
+/** Rupiah spent from an employee's benefit balance for the basket whose sale_ref this is. */
+data class BenefitHold(val saleRef: String, val amountMinor: Long)
+
 class TillViewModel(private val api: Api, private val store: ConfigStore) : ViewModel() {
 
     private val _state = MutableStateFlow(TillState())
@@ -338,8 +346,86 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
 
     fun clear() {
         quoteJob?.cancel()
+        releaseBenefit()
         _state.update { it.copy(lines = emptyList(), quote = null, note = null) }
     }
+
+    // ── Employee benefit balance ────────────────────────────────────────
+
+    /// The sale_ref for this basket: minted once, kept until the basket is sold
+    /// or its benefit spend is given back. The node allows one spend per ref,
+    /// so a retry of the same spend is safe and a new basket gets a new one.
+    private var basketRef: String? = null
+    private fun saleRef(): String = basketRef ?: Api.key().also { basketRef = it }
+
+    /// "Pusat tidak terjangkau" for anything that is not the node answering no.
+    private fun benefitReason(error: Throwable): String {
+        val status = (error as? ApiError)?.status
+        return if (error !is ApiError || status == 0 || (status != null && status >= 500))
+            "Pusat tidak terjangkau — pakai cara bayar lain."
+        else reason(error)
+    }
+
+    fun benefitLookup(code: String, onDone: (Result<BenefitHolder>) -> Unit) {
+        viewModelScope.launch {
+            val outcome = runCatching { withContext(Dispatchers.IO) { api.benefitLookup(code) } }
+            outcome.exceptionOrNull()?.let(::noticeAuth)
+            onDone(outcome.mapFailure { ApiError(benefitReason(it)) })
+        }
+    }
+
+    fun benefitSpend(code: String, amountMinor: Long, onDone: (Result<BenefitHolder>, String) -> Unit) {
+        val promo = _state.value.quote?.promotions?.any { it.applied } == true
+        val ref = saleRef()
+        viewModelScope.launch {
+            val outcome = runCatching {
+                withContext(Dispatchers.IO) { api.benefitSpend(code, ref, amountMinor, promo) }
+            }
+            outcome.exceptionOrNull()?.let(::noticeAuth)
+            outcome.onSuccess { _state.update { it.copy(benefit = BenefitHold(ref, amountMinor)) } }
+            onDone(outcome.mapFailure { ApiError(benefitReason(it)) }, ref)
+        }
+    }
+
+    /// Give the spent balance back (tender removed, or the payment abandoned).
+    /// If head office cannot be reached the hold stays, so it is not forgotten.
+    fun releaseBenefit(onDone: (Boolean) -> Unit = {}) {
+        val hold = _state.value.benefit ?: return onDone(true)
+        viewModelScope.launch {
+            val outcome = runCatching {
+                withContext(Dispatchers.IO) { api.benefitReturn(hold.saleRef, hold.amountMinor, "dibatalkan di kasir") }
+            }
+            outcome.fold(
+                onSuccess = {
+                    // The ref is spent; a later spend on this basket needs a new one.
+                    basketRef = null
+                    _state.update { it.copy(benefit = null) }
+                    onDone(true)
+                },
+                onFailure = { error ->
+                    noticeAuth(error)
+                    _state.update {
+                        it.copy(note = Note(true, "Saldo karyawan belum kembali: ${benefitReason(error)}"))
+                    }
+                    onDone(false)
+                },
+            )
+        }
+    }
+
+    /// Return money to the balance for a sold basket; the ref comes off the receipt.
+    fun benefitRefund(saleRef: String, amountMinor: Long, onDone: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val outcome = runCatching {
+                withContext(Dispatchers.IO) { api.benefitReturn(saleRef, amountMinor, "retur"); Unit }
+            }
+            outcome.exceptionOrNull()?.let(::noticeAuth)
+            onDone(outcome.mapFailure { ApiError(benefitReason(it)) })
+        }
+    }
+
+    private inline fun <T> Result<T>.mapFailure(map: (Throwable) -> Throwable): Result<T> =
+        exceptionOrNull()?.let { Result.failure(map(it)) } ?: this
 
     /**
      * Ask the node what this basket costs, once the scanning has paused.
@@ -459,8 +545,12 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
             result.fold(
                 onSuccess = { sale ->
                     _state.update {
-                        it.copy(busy = false, lines = emptyList(), quote = null, lastSale = sale, note = null)
+                        it.copy(
+                            busy = false, lines = emptyList(), quote = null, lastSale = sale, note = null,
+                            benefit = null,
+                        )
                     }
+                    basketRef = null
                     refreshShift()
                     onDone(sale)
                 },

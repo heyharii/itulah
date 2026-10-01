@@ -2125,7 +2125,7 @@ pub async fn retender_tender(
     let to_method = request.to_method.trim().to_ascii_uppercase();
     if !matches!(
         to_method.as_str(),
-        "CASH" | "CARD" | "QRIS" | "EWALLET" | "VOUCHER" | "OTHER"
+        "CASH" | "CARD" | "QRIS" | "EWALLET" | "VOUCHER" | "BENEFIT" | "OTHER"
     ) {
         return Err(AppError::Validation(format!(
             "{to_method:?} is not a tender method; use CASH, CARD, QRIS, VOUCHER or OTHER"
@@ -2369,6 +2369,8 @@ fn receivable_of(
         ("QRIS" | "EWALLET", _) => Ok(("card_receivable_debit", acquirer.to_string())),
         // Free vouchers are a sales discount on the day (owner decision 13).
         ("VOUCHER", _) => Ok(("sales_discount", String::new())),
+        // So is the employee benefit balance (owner, 1 Oct 2026).
+        ("BENEFIT", _) => Ok(("sales_discount", String::new())),
         (other, _) => Err(AppError::Validation(format!(
             "tender method {other:?} has no account behind it, so a posted day cannot be \
              reclassified into or out of it"

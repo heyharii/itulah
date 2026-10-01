@@ -29,7 +29,7 @@ export type MethodTile = {
   readonly label: string
   readonly icon: IconName
   /// What the node accepts as `method`.
-  readonly wire: "CASH" | "CARD" | "QRIS" | "EWALLET" | "VOUCHER"
+  readonly wire: "CASH" | "CARD" | "QRIS" | "EWALLET" | "VOUCHER" | "BENEFIT"
   readonly cardKind: "DEBIT" | "CREDIT" | null
   /// Whether a bank / acquirer has to be named for this tile at all.
   readonly needsBank: boolean
@@ -46,6 +46,7 @@ const SHAPE: Record<
   QRIS: { label: "QRIS", icon: "qr", wire: "QRIS", cardKind: null, order: 3 },
   EWALLET: { label: "E-Wallet", icon: "wallet", wire: "EWALLET", cardKind: null, order: 4 },
   VOUCHER: { label: "Voucher", icon: "voucher", wire: "VOUCHER", cardKind: null, order: 5 },
+  BENEFIT: { label: "Saldo karyawan", icon: "wallet", wire: "BENEFIT", cardKind: null, order: 6 },
   // POINTS is deliberately absent: not offered on the till yet.
 }
 
@@ -60,13 +61,14 @@ const bankChoices = (): MethodChoice[] =>
     acquirer: bank.toUpperCase(),
   }))
 
-/// Exactly what the till showed before: cash, debit, credit, QRIS, voucher.
+/// Exactly what the till showed before: cash, debit, credit, QRIS, voucher, employee balance.
 export const FALLBACK_TILES: readonly MethodTile[] = [
   { key: "CASH", ...SHAPE.CASH, needsBank: false, choices: [{ code: null, label: "Tunai", acquirer: null }] },
   { key: "DEBIT", ...SHAPE.DEBIT_CARD, needsBank: true, choices: bankChoices() },
   { key: "CREDIT", ...SHAPE.CREDIT_CARD, needsBank: true, choices: bankChoices() },
   { key: "QRIS", ...SHAPE.QRIS, needsBank: true, choices: bankChoices() },
   { key: "VOUCHER", ...SHAPE.VOUCHER, needsBank: false, choices: [{ code: null, label: "Voucher", acquirer: null }] },
+  { key: "BENEFIT", ...SHAPE.BENEFIT, needsBank: false, choices: [{ code: null, label: "Saldo karyawan", acquirer: null }] },
 ].map(({ order: _order, ...tile }) => tile)
 
 /// Group the master's methods into tiles. Null when nothing usable came back,

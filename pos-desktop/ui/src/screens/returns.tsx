@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import * as api from "@/api"
+import { returnBenefit } from "@/benefit"
 import { Icon } from "@/icons"
 import { PinPad } from "@/pinpad"
 import { supervisorByFinger, supervisorByPin } from "@/session"
@@ -146,6 +147,9 @@ type SaleLine = {
 type SaleTender = {
   readonly method: string
   readonly amountMinor: number | null
+  /// The `sale_ref` an employee-balance spend was made under; null when the
+  /// receipt document does not carry it.
+  readonly reference: string | null
 }
 
 /// One sale, as the node describes it. Money is in minor units and the document
@@ -192,7 +196,11 @@ function readSale(body: unknown): Sale | null {
     if (tender === null) continue
     const method = asText(tender.method)
     if (method === null) continue
-    tenders.push({ method, amountMinor: asCount(tender.amount_minor) })
+    tenders.push({
+      method,
+      amountMinor: asCount(tender.amount_minor),
+      reference: asText(tender.reference),
+    })
   }
 
   return {
@@ -218,7 +226,12 @@ function refusal(reply: api.EdgeReply<unknown>): string {
   )
 }
 
+/// Offered only on a sale that was paid, at least in part, from an employee's
+/// balance: the money goes back to that balance, at head office.
+const BENEFIT_REFUND = { value: "BENEFIT", label: "Kembali ke saldo karyawan" } as const
+
 function methodLabel(value: string | null): string {
+  if (value === "BENEFIT") return "Saldo karyawan"
   return REFUNDS.find((one) => one.value === value)?.label ?? (value ?? "—")
 }
 
@@ -875,6 +888,11 @@ export function ReturnScreen({
   const [reason, setReason] = useState("")
   const [method, setMethod] = useState<string | null>(null)
   const [reference, setReference] = useState("")
+  // The balance spend's `sale_ref`, typed only when the receipt did not say.
+  const [benefitRef, setBenefitRef] = useState("")
+  // The attempt whose balance has already been handed back, so a retry after a
+  // refused return does not ask head office to give it back twice.
+  const benefitGiven = useRef<string | null>(null)
   const [busy, setBusy] = useState(false)
   // Two places to be wrong, kept apart. A tag that would not read is answered
   // beside the tag field; a node that refused the whole return is answered
@@ -887,6 +905,7 @@ export function ReturnScreen({
 
   const sale = lookup.sale
   const openSale = sale?.saleId ?? null
+  const benefitTender = sale?.tenders.find((one) => one.method === "BENEFIT") ?? null
 
   // Tags scanned against the previous sale are not evidence about this one, so
   // opening a different sale empties the list instead of carrying it over into
@@ -1016,6 +1035,16 @@ export function ReturnScreen({
     // Read last, and only once everything this screen could refuse on its own
     // has already passed: a password is not touched, and a finger's three
     // minutes are not spent, to be told the form is incomplete.
+    const benefitSaleRef =
+      method === "BENEFIT"
+        ? (benefitTender?.reference ?? benefitRef.trim())
+        : ""
+    if (method === "BENEFIT" && benefitSaleRef === "") {
+      setProblem(
+        "Struk ini tidak menyebut referensi saldo karyawan. Isi referensinya dulu.",
+      )
+      return
+    }
     const authorisation = supervisor.read()
     if (authorisation === null) {
       setProblem(
@@ -1027,11 +1056,33 @@ export function ReturnScreen({
 
     setBusy(true)
     setProblem(null)
+    if (method === "BENEFIT" && benefitGiven.current !== attempt.current) {
+      // Back to the holder's balance first, at head office. Capped at what the
+      // balance tender paid; the goods' price is the best figure known here.
+      const cap = benefitTender?.amountMinor ?? null
+      const goods = coming.every((one) => one.chargedMinor !== null)
+        ? coming.reduce((sum, one) => sum + (one.chargedMinor ?? 0), 0)
+        : null
+      const amount = Math.min(goods ?? cap ?? 0, cap ?? goods ?? 0)
+      if (amount <= 0) {
+        setBusy(false)
+        setProblem("Jumlah yang kembali ke saldo tidak diketahui.")
+        return
+      }
+      const given = await returnBenefit(benefitSaleRef, amount, "retur")
+      if (!given.ok) {
+        setBusy(false)
+        setProblem(refusal(given))
+        return
+      }
+      benefitGiven.current = attempt.current
+    }
     const reply = await api.returnSale({
       sale_id: sale.saleId,
       lines,
       refund_method: method,
-      refund_reference: trimmed === "" ? null : trimmed,
+      refund_reference:
+        method === "BENEFIT" ? benefitSaleRef : trimmed === "" ? null : trimmed,
       reason: reason.trim(),
       supervisor: authorisation,
       actor_id: actorId,
@@ -1265,7 +1316,7 @@ export function ReturnScreen({
 
               <span className="label">Uang kembali lewat</span>
               <div className="chips">
-                {REFUNDS.map((one) => (
+                {(benefitTender === null ? REFUNDS : [...REFUNDS, BENEFIT_REFUND]).map((one) => (
                   <button
                     key={one.value}
                     className={method === one.value ? "chip on" : "chip"}
@@ -1276,7 +1327,18 @@ export function ReturnScreen({
                 ))}
               </div>
 
-              {method !== null && method !== "CASH" && (
+              {method === "BENEFIT" && benefitTender?.reference == null && (
+                <label className="field">
+                  Referensi saldo karyawan
+                  <input
+                    value={benefitRef}
+                    onChange={(event) => setBenefitRef(event.target.value)}
+                    autoComplete="off"
+                  />
+                </label>
+              )}
+
+              {method !== null && method !== "CASH" && method !== "BENEFIT" && (
                 <label className="field">
                   Referensi pengembalian (boleh kosong)
                   <input

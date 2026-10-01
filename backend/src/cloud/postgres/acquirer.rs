@@ -287,7 +287,7 @@ pub struct CloseTenderReconRequest {
     pub counted_cash_minor: Option<i64>,
 }
 
-const TENDER_KINDS: [&str; 5] = ["CASH", "CARD", "QRIS", "EWALLET", "VOUCHER"];
+const TENDER_KINDS: [&str; 6] = ["CASH", "CARD", "QRIS", "EWALLET", "VOUCHER", "BENEFIT"];
 const TENDER_DECISIONS: [&str; 5] = [
     "MATCHED",
     "NO_SETTLEMENT",

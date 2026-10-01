@@ -92,6 +92,11 @@ class MainActivity : ComponentActivity() {
         var refundMethod by remember { mutableStateOf("CASH") }
         var approving by remember { mutableStateOf<String?>(null) }
         var approvalFailure by remember { mutableStateOf<String?>(null) }
+        // The BENEFIT tender of the sale being returned, when the receipt
+        // carries its sale_ref: that is what "Kembali ke saldo karyawan" needs.
+        val benefitTender = state.receipt
+            ?.takeIf { it.saleId == state.lastSale?.saleId }
+            ?.tenders?.firstOrNull { it.method == "BENEFIT" && !it.reference.isNullOrBlank() }
         val scanFocus = remember { FocusRequester() }
 
         // The caret belongs in the scan field whenever the desk is showing.
@@ -139,7 +144,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        BackHandler(enabled = where != Where.DESK) { where = Where.DESK }
+        BackHandler(enabled = where != Where.DESK) {
+            // Leaving the payment screen abandons the payment: give back any
+            // employee balance already spent on this basket.
+            if (where == Where.TENDER) till.releaseBenefit()
+            where = Where.DESK
+        }
 
         // A session the node no longer honours takes the cashier back to the
         // sign-in screen, once, with the reason on it. Everything downstream —
@@ -234,6 +244,7 @@ class MainActivity : ComponentActivity() {
                 onShift = { till.refreshShift(); where = Where.SHIFT },
                 onReturns = {
                     returning = emptyList()
+                    refundMethod = "CASH"
                     state.lastSale?.let { till.loadReceipt(it.saleId) }
                     where = Where.RETURN
                 },
@@ -255,7 +266,12 @@ class MainActivity : ComponentActivity() {
                 methods = state.paymentMethods,
                 busy = state.busy,
                 failure = state.note?.takeIf { it.bad }?.text,
-                onCancel = { where = Where.DESK },
+                benefitHeld = state.benefit,
+                basketHasPromotion = state.quote?.promotions?.any { it.applied } == true,
+                onBenefitLookup = till::benefitLookup,
+                onBenefitSpend = till::benefitSpend,
+                onBenefitRelease = till::releaseBenefit,
+                onCancel = { till.releaseBenefit(); where = Where.DESK },
                 onConfirm = { tenders ->
                     till.sell(tenders) { sale ->
                         till.loadReceipt(sale.saleId)
@@ -293,6 +309,7 @@ class MainActivity : ComponentActivity() {
                 config = config,
                 lines = returning,
                 refundMethod = refundMethod,
+                benefitTender = benefitTender,
                 busy = state.busy,
                 onScan = { raw ->
                     val value = raw.trim().uppercase()
@@ -355,18 +372,36 @@ class MainActivity : ComponentActivity() {
                             where = Where.DESK
                         }
                     } else {
-                        till.returnSale(
-                            sale.saleId,
-                            returning.map {
-                                id.itulah.kasir.data.ReturnLine(it.epc, it.disposition)
-                            },
-                            refundMethod,
-                            "Retur pelanggan",
-                            supervisor,
-                        ) {
-                            approving = null
-                            returning = emptyList()
-                            where = Where.DESK
+                        val post = {
+                            till.returnSale(
+                                sale.saleId,
+                                returning.map {
+                                    id.itulah.kasir.data.ReturnLine(it.epc, it.disposition)
+                                },
+                                refundMethod,
+                                "Retur pelanggan",
+                                supervisor,
+                            ) {
+                                approving = null
+                                returning = emptyList()
+                                where = Where.DESK
+                            }
+                        }
+                        val benefit = benefitTender
+                        if (refundMethod == "BENEFIT" && benefit?.reference != null) {
+                            // Put the money back on the balance first, capped at
+                            // what that tender paid; only then post the return.
+                            val refund = returning.sumOf { line ->
+                                state.receipt?.lines?.firstOrNull { it.skuCode == line.skuCode }?.lineTotalMinor ?: 0L
+                            }
+                            till.benefitRefund(benefit.reference, minOf(refund, benefit.amountMinor)) { outcome ->
+                                outcome.fold(
+                                    onSuccess = { post() },
+                                    onFailure = { approvalFailure = it.message },
+                                )
+                            }
+                        } else {
+                            post()
                         }
                     }
                 },

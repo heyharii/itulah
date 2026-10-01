@@ -312,6 +312,7 @@ export type PaymentMethod = {
     | "QRIS"
     | "EWALLET"
     | "VOUCHER"
+    | "BENEFIT"
     | "POINTS"
   readonly bank_code?: string | null
   readonly settlement_mode?: string | null

@@ -40,8 +40,12 @@ pub(crate) fn apply_schema(connection: &Connection) -> Result<(), EdgeError> {
              );",
         )
         .map_err(db)?;
-    widen_check(connection, "sale_tender", "'VOUCHER')", "'VOUCHER','EWALLET')")?;
-    widen_check(connection, "sale_return", "'QRIS','OTHER')", "'QRIS','OTHER','EWALLET')")?;
+    widen_check(connection, "sale_tender", "'VOUCHER')", "'VOUCHER','EWALLET')", "EWALLET")?;
+    widen_check(connection, "sale_return", "'QRIS','OTHER')", "'QRIS','OTHER','EWALLET')", "EWALLET")?;
+    // The employee benefit balance (cloud 0818): taken at the till, and given
+    // back on a return.
+    widen_check(connection, "sale_tender", "'EWALLET')", "'EWALLET','BENEFIT')", "BENEFIT")?;
+    widen_check(connection, "sale_return", "'EWALLET')", "'EWALLET','BENEFIT')", "BENEFIT")?;
     Ok(())
 }
 
@@ -49,7 +53,13 @@ pub(crate) fn apply_schema(connection: &Connection) -> Result<(), EdgeError> {
 /// same shape as the subject rebuild in `sqlite.rs`: foreign keys off around
 /// the swap, because `sale_return` has children and the drop would otherwise
 /// refuse.
-fn widen_check(connection: &Connection, table: &str, from: &str, to: &str) -> Result<(), EdgeError> {
+fn widen_check(
+    connection: &Connection,
+    table: &str,
+    from: &str,
+    to: &str,
+    marker: &str,
+) -> Result<(), EdgeError> {
     let definition: Option<String> = connection
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name=?1",
@@ -60,7 +70,7 @@ fn widen_check(connection: &Connection, table: &str, from: &str, to: &str) -> Re
     let Some(definition) = definition else {
         return Ok(());
     };
-    if definition.contains("EWALLET") || !definition.contains(from) {
+    if definition.contains(marker) || !definition.contains(from) {
         return Ok(());
     }
     let rebuilt = format!("{table}_widened");

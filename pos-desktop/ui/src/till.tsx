@@ -17,6 +17,7 @@ import { useShortcuts } from "@/shortcuts"
 import { enqueue, flush, forget, useOutbox } from "@/outbox"
 import { drawerOnSale, printReceiptHere, receiptTarget } from "@/peripherals"
 import { authorizeVoucher, releaseVoucher } from "@/vouchers"
+import { lookupBenefit, returnBenefit, spendBenefit, type BenefitHolder } from "@/benefit"
 import { useNodeConfig, useSession } from "@/session"
 import { refreshPaymentMethods, usePaymentMethods } from "@/payment-methods"
 import { readScan } from "@epc"
@@ -118,6 +119,17 @@ function newCheckoutId(): string {
     return crypto.randomUUID()
   }
   return `checkout-${Date.now()}-${Math.round(Math.random() * 1e9)}`
+}
+
+/// What to tell the cashier when head office would not answer for an employee
+/// balance: the node's own sentence when it gave one, and a plain "head office
+/// cannot be reached" when nothing got through (status 0, or the node's 502-504
+/// for a relay that failed).
+function benefitRefusal(reply: api.EdgeReply<unknown>, fallback: string): string {
+  if (reply.status === 0 || reply.status === 502 || reply.status === 503 || reply.status === 504) {
+    return "Kantor pusat tidak terjangkau — pakai metode pembayaran lain."
+  }
+  return reply.problem ?? fallback
 }
 
 /// Where parked baskets outlive this window.
@@ -608,6 +620,7 @@ export function Till({
         currency={currency}
         totalMinor={total}
         provisional={quote.totalMinor === null}
+        basketHasPromotion={quote.promotions.some((one) => one.applied)}
         coupons={coupons}
         customerId={customerId}
         charges={charges}
@@ -1565,6 +1578,7 @@ function Payment({
   currency,
   totalMinor,
   provisional,
+  basketHasPromotion,
   coupons,
   customerId,
   charges,
@@ -1576,6 +1590,9 @@ function Payment({
   currency: string
   totalMinor: number
   provisional: boolean
+  /// Whether the quote applied any promotion. An employee balance cannot be
+  /// spent on such a basket, and the node refuses it too.
+  basketHasPromotion: boolean
   coupons: readonly string[]
   customerId: string | null
   charges: readonly api.Charge[]
@@ -1618,6 +1635,13 @@ function Payment({
   >([])
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  // The employee balance: the code the holder showed, and who it turned out to
+  // be once looked up. The `sale_ref` is minted once per basket and kept — the
+  // node allows one spend per ref — and a fresh one is minted whenever the
+  // spend has been given back, so a cashier can try again after taking it off.
+  const [benefitCode, setBenefitCode] = useState("")
+  const [holder, setHolder] = useState<BenefitHolder | null>(null)
+  const saleRef = useRef<string>(newCheckoutId())
 
   const paid = taken.reduce((sum, one) => sum + one.amountMinor, 0)
   const outstanding = Math.max(0, totalMinor - paid)
@@ -1639,7 +1663,9 @@ function Payment({
   const choice =
     chosen.choices.find((one) => one.label === bank) ??
     (chosen.choices.length === 1 ? chosen.choices[0] : null)
-  const needsReference = method !== "CASH"
+  const isBenefit = method === "BENEFIT"
+  const benefitTaken = taken.some((one) => one.method === "BENEFIT")
+  const needsReference = method !== "CASH" && !isBenefit
   // The node refuses a reference with twelve or more digits in it: a card
   // number that reaches a database is a card number that has to be erased from
   // backups. Said here so a cashier is told before the sale is rung.
@@ -1702,6 +1728,19 @@ function Payment({
   /// is going to pay for, and leaving it held would keep it out of the next
   /// shopper's hands until the hold expires on its own.
   async function leavePayment() {
+    // The employee balance spent for this basket goes back the same way.
+    await Promise.all(
+      taken
+        .filter((one) => one.method === "BENEFIT" && one.reference !== null)
+        .map((one) =>
+          returnBenefit(one.reference as string, one.amountMinor, "dibatalkan di kasir").catch(
+            () => {
+              // Head office can be asked again from the returns screen; the
+              // cashier is not held at the counter for it.
+            },
+          ),
+        ),
+    )
     const unspent = taken.filter(
       (one) => one.voucherCheckoutId !== null && one.reference !== null,
     )
@@ -1737,7 +1776,94 @@ function Payment({
   // Escape also works with the caret nowhere in particular.
   useShortcuts({ Escape: () => !busy && void leavePayment() })
 
+  /// Look the code up: who it is and what is left, without using it up.
+  async function findHolder() {
+    const code = benefitCode.replace(/\D/g, "")
+    if (code.length !== 6) {
+      setProblem("Kode saldo karyawan terdiri dari 6 angka.")
+      return
+    }
+    setBusy(true)
+    setProblem(null)
+    const reply = await lookupBenefit(code)
+    setBusy(false)
+    if (!reply.ok || reply.body === undefined || reply.body === null) {
+      setProblem(benefitRefusal(reply, "Kode tidak dikenali."))
+      return
+    }
+    setHolder(reply.body)
+    setTyped("")
+  }
+
+  /// Spend part of the holder's balance on this basket, then record it as a
+  /// tender carrying the `sale_ref`, which is what the node checks it against.
+  async function takeBenefit() {
+    if (holder === null) {
+      await findHolder()
+      return
+    }
+    if (basketHasPromotion) {
+      setProblem("Saldo karyawan tidak berlaku bersama promo.")
+      return
+    }
+    const amount = Math.min(entered > 0 ? entered : outstanding, outstanding, holder.balance_minor)
+    if (amount <= 0) {
+      setProblem("Tidak ada saldo yang bisa dipakai.")
+      return
+    }
+    setBusy(true)
+    setProblem(null)
+    const ref = saleRef.current
+    const reply = await spendBenefit(benefitCode.replace(/\D/g, ""), ref, amount, basketHasPromotion)
+    setBusy(false)
+    if (!reply.ok) {
+      setProblem(benefitRefusal(reply, "Saldo tidak bisa dipakai."))
+      return
+    }
+    setTaken((was) => [
+      ...was,
+      {
+        method: "BENEFIT",
+        label: chosen.label,
+        shown: holder.full_name ?? holder.employee_code,
+        amountMinor: amount,
+        tenderedMinor: amount,
+        reference: ref,
+        acquirer: null,
+        cardKind: null,
+        code: choice?.code ?? null,
+        voucherAuthorizationId: null,
+        voucherCheckoutId: null,
+      },
+    ])
+    setBenefitCode("")
+    setHolder(null)
+    setTyped("")
+    setProblem(null)
+  }
+
+  /// Take a balance tender off and give its money back to the holder. The ref
+  /// is renewed because the spent one is used up at head office.
+  async function removeBenefit(at: number) {
+    const one = taken[at]
+    if (one === undefined || one.method !== "BENEFIT" || one.reference === null) return
+    setBusy(true)
+    setProblem(null)
+    const reply = await returnBenefit(one.reference, one.amountMinor, "dibatalkan di kasir")
+    setBusy(false)
+    if (!reply.ok) {
+      setProblem(benefitRefusal(reply, "Saldo belum bisa dikembalikan."))
+      return
+    }
+    saleRef.current = newCheckoutId()
+    setTaken((was) => was.filter((_, index) => index !== at))
+  }
+
   async function takeIt() {
+    if (isBenefit) {
+      await takeBenefit()
+      return
+    }
     if (needsBank && choice === null) {
       setProblem("Pilih banknya.")
       return
@@ -1846,6 +1972,10 @@ function Payment({
                         key={one.key}
                         className="method"
                         aria-pressed={chosen.key === one.key}
+                        disabled={
+                          one.wire === "BENEFIT" &&
+                          (basketHasPromotion || benefitTaken)
+                        }
                         onClick={() => {
                           setPicked(one.key)
                           setBank(null)
@@ -1854,6 +1984,9 @@ function Payment({
                       >
                         <Icon name={one.icon} />
                         {one.label}
+                        {one.wire === "BENEFIT" && basketHasPromotion && (
+                          <small className="muted"> Tidak berlaku dengan promo</small>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -1879,6 +2012,39 @@ function Payment({
                       ))}
                     </div>
                   </div>
+                )}
+
+                {isBenefit && (
+                  <>
+                    <label className="field">
+                      Kode saldo karyawan
+                      <input
+                        value={benefitCode}
+                        onChange={(event) => {
+                          setBenefitCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                          setHolder(null)
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" || busy) return
+                          event.preventDefault()
+                          if (holder === null) void findHolder()
+                          else void takeBenefit()
+                        }}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        placeholder="6 angka dari ponsel karyawan"
+                        autoFocus
+                      />
+                    </label>
+                    {holder !== null && (
+                      <div className="kv">
+                        <span>{holder.full_name ?? holder.employee_code}</span>
+                        <strong className="num">
+                          {money(holder.balance_minor, currency)}
+                        </strong>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {needsReference && (
@@ -1910,9 +2076,12 @@ function Payment({
                       }
                       onKeyDown={onFieldKey}
                       inputMode="numeric"
-                      placeholder={outstanding.toLocaleString("id-ID")}
+                      placeholder={(isBenefit && holder !== null
+                        ? Math.min(outstanding, holder.balance_minor)
+                        : outstanding
+                      ).toLocaleString("id-ID")}
                       aria-label="Nominal pembayaran"
-                      autoFocus
+                      autoFocus={!isBenefit}
                     />
                   </div>
                 </div>
@@ -1969,6 +2138,17 @@ function Payment({
                   ? busy
                     ? "Membukukan…"
                     : "Selesaikan transaksi"
+                  : isBenefit
+                    ? holder === null
+                      ? "Cek saldo"
+                      : `Pakai saldo ${money(
+                          Math.min(
+                            entered > 0 ? entered : outstanding,
+                            outstanding,
+                            holder.balance_minor,
+                          ),
+                          currency,
+                        )}`
                   : `${partial ? "Bayar sebagian" : "Bayar"} ${money(
                       partial ? entered : offered,
                       currency,
@@ -2053,6 +2233,15 @@ function Payment({
                     <strong className="num">
                       {money(one.amountMinor, currency)}
                     </strong>
+                    {one.method === "BENEFIT" && (
+                      <button
+                        className="btn"
+                        disabled={busy}
+                        onClick={() => void removeBenefit(at)}
+                      >
+                        Batalkan
+                      </button>
+                    )}
                   </div>
                 ))}
               </>

@@ -62,6 +62,8 @@ fun ReturnScreen(
     config: Config,
     lines: List<ReturningLine>,
     refundMethod: String,
+    /// The original sale's BENEFIT tender (with its sale_ref), when it had one.
+    benefitTender: Tender? = null,
     busy: Boolean,
     onScan: (String) -> Unit,
     onDisposition: (String, String) -> Unit,
@@ -129,6 +131,23 @@ fun ReturnScreen(
                         modifier = Modifier.weight(1f),
                     )
                 }
+                if (benefitTender != null) {
+                    // Only a sale that was part-paid from the balance can pay back into it.
+                    ChoiceTile(
+                        "Saldo karyawan",
+                        selected = refundMethod == "BENEFIT",
+                        onClick = { onRefundMethod("BENEFIT") },
+                        modifier = Modifier.weight(1.4f),
+                    )
+                }
+            }
+            if (refundMethod == "BENEFIT" && benefitTender != null) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Kembali ke saldo karyawan: maksimal ${Money.format(benefitTender.amountMinor)}, " +
+                        "sebesar yang dibayar dengan saldo.",
+                    style = Type.pill,
+                )
             }
 
             Spacer(Modifier.weight(1f))

@@ -184,6 +184,7 @@ data class PaymentMethod(
     /** What the node calls it on the tender's `method`. */
     val wireMethod: String get() = when (tenderType) {
         "DEBIT_CARD", "CREDIT_CARD" -> "CARD"
+        // BENEFIT passes through: the node wants `method: "BENEFIT"` plus the sale_ref as reference.
         else -> tenderType
     }
 
@@ -209,7 +210,7 @@ data class PaymentMethod(
         private val BANKED = setOf("DEBIT_CARD", "CREDIT_CARD", "QRIS", "EWALLET")
 
         /** What the till offers, in tile order. POINTS is not on the till yet. */
-        val TILL_TYPES = listOf("CASH", "DEBIT_CARD", "CREDIT_CARD", "QRIS", "EWALLET", "VOUCHER")
+        val TILL_TYPES = listOf("CASH", "DEBIT_CARD", "CREDIT_CARD", "QRIS", "EWALLET", "VOUCHER", "BENEFIT")
 
         /** The till's own list from before the master: four tiles, no bank. */
         val FALLBACK = listOf(
@@ -251,6 +252,26 @@ data class SaleResult(
             changeMinor = json.optLong("change_minor"),
             pointsEarned = json.optLong("points_earned"),
             promotions = json.optJSONArray("promotions").list { Promotion.from(it) },
+        )
+    }
+}
+
+/**
+ * An employee's benefit balance, as head office answers a lookup or a spend.
+ * `balanceMinor` is what is left: before the spend on a lookup, after it on a spend.
+ */
+data class BenefitHolder(
+    val employeeId: String,
+    val employeeCode: String,
+    val fullName: String?,
+    val balanceMinor: Long,
+) {
+    companion object {
+        fun from(json: JSONObject) = BenefitHolder(
+            employeeId = json.optString("employee_id"),
+            employeeCode = json.optString("employee_code"),
+            fullName = json.optString("full_name").takeIf { it.isNotBlank() && it != "null" },
+            balanceMinor = json.optLong("balance_minor"),
         )
     }
 }

@@ -38,6 +38,7 @@ const TENDERS = [
   "EWALLET",
   "VOUCHER",
   "POINTS",
+  "BENEFIT",
 ] as const
 
 const SETTLEMENTS = [

@@ -229,6 +229,9 @@ fn tender_of(method: &str, card_kind: Option<&str>) -> Tender {
         ("QRIS", _) => Tender::Qris,
         ("EWALLET", _) => Tender::Ewallet,
         ("VOUCHER", _) => Tender::Voucher,
+        // The employee benefit balance is booked the way a free voucher is:
+        // a sales discount, no money arrived (owner, 1 Oct 2026).
+        ("BENEFIT", _) => Tender::Voucher,
         // OTHER, and anything a future till invents. A tender nobody has named
         // is money that arrived: it goes to a clearing account, where it is
         // visible and unreconciled, rather than into cash, where it would be

@@ -47,6 +47,11 @@ pub enum PaymentMethod {
     /// `acquirer`, until it pays — the payment method Finance set up for the
     /// shop says which (0474).
     Ewallet,
+    /// An employee's benefit balance (cloud 0818), spent at head office
+    /// before the sale is rung up. Like a voucher, no money arrives: what it
+    /// paid is a sales discount in the books. The tender's reference is the
+    /// basket id the balance was spent against, so a return can give it back.
+    Benefit,
     Other,
 }
 
@@ -58,6 +63,7 @@ impl PaymentMethod {
             Self::Qris => "QRIS",
             Self::Voucher => "VOUCHER",
             Self::Ewallet => "EWALLET",
+            Self::Benefit => "BENEFIT",
             Self::Other => "OTHER",
         }
     }
@@ -79,6 +85,7 @@ impl FromStr for PaymentMethod {
             "QRIS" => Ok(Self::Qris),
             "VOUCHER" => Ok(Self::Voucher),
             "EWALLET" => Ok(Self::Ewallet),
+            "BENEFIT" => Ok(Self::Benefit),
             "OTHER" => Ok(Self::Other),
             _ => Err(SalesError::InvalidPaymentMethod(value.into())),
         }
@@ -225,6 +232,21 @@ pub fn validate_tenders(
                     return Err(SalesError::VoucherNotAuthorised);
                 }
             }
+            // A benefit was spent at the centre against a basket id; the
+            // tender names it, or a return could not give it back.
+            PaymentMethod::Benefit => {
+                if tender.voucher_authorization_id.is_some() {
+                    return Err(SalesError::AuthorisationOnWrongTender);
+                }
+                let spent = tender
+                    .reference
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|one| !one.is_empty());
+                if spent.is_none() {
+                    return Err(SalesError::BenefitNotSpent);
+                }
+            }
             // Carrying a hold on a cash tender is not a harmless extra field:
             // it is a basket whose author believed a voucher was being taken.
             _ if tender.voucher_authorization_id.is_some() => {
@@ -358,6 +380,8 @@ pub enum SalesError {
          the tender is unavailable while this shop is offline"
     )]
     VoucherNotAuthorised,
+    #[error("an employee benefit tender names the basket its balance was spent against")]
+    BenefitNotSpent,
     #[error("only a voucher tender carries an authorisation")]
     AuthorisationOnWrongTender,
     #[error("only a card or QRIS tender names an acquirer")]

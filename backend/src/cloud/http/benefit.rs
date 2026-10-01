@@ -233,3 +233,156 @@ pub async fn give_back(
         infrastructure::return_benefit(&state.db, &body.sale_ref, body.amount_minor, &by).await?,
     ))
 }
+
+// ── the till, through its own node ──────────────────────────────────────
+//
+// A counter has no session to hold an employee's balance against, only a
+// node proving which shop it is — the same shape and the same reason as the
+// voucher and points relays (`/api/v1/sync/vouchers/…`): guarded per origin
+// by `x-sync-key`, the shop taken from the register, the cashier's name from
+// the node that signed them in. The balance lives centrally, so a shop that
+// cannot reach head office cannot spend it — the owner's rule.
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelayBenefitRequest {
+    /// The origin that is asking. Proved against its own key, never trusted.
+    pub origin_id: String,
+    /// The shop the relay believes it is; checked against the register.
+    #[serde(default)]
+    pub site_id: Option<String>,
+    /// The cashier, as the shop's own node signed them in.
+    pub actor_id: String,
+    #[serde(default)]
+    pub code: Option<String>,
+    /// The till's own id for the basket — the checkout the spend pays.
+    #[serde(default)]
+    pub sale_ref: Option<String>,
+    #[serde(default)]
+    pub amount_minor: Option<i64>,
+    #[serde(default)]
+    pub basket_has_promotion: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+async fn relay_origin_site(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    request: &RelayBenefitRequest,
+) -> Result<String, AppError> {
+    let origin = super::authenticate_origin(state, headers, &request.origin_id).await?;
+    let stamped = request
+        .site_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    match (origin.site_id, stamped) {
+        (Some(registered), Some(claimed)) if registered != claimed => Err(AppError::Forbidden(
+            format!("origin {} speaks for {registered}, not {claimed}", origin.origin_id),
+        )),
+        (Some(registered), _) => Ok(registered),
+        (None, Some(claimed)) => Ok(claimed.to_owned()),
+        (None, None) => Err(AppError::Validation(
+            "a benefit call has to say which shop it is for".into(),
+        )),
+    }
+}
+
+fn relay_by(request: &RelayBenefitRequest, reason: &str) -> Result<Authorization, AppError> {
+    let actor = request.actor_id.trim();
+    if actor.is_empty() {
+        return Err(AppError::Validation(
+            "a benefit call has to be attributable to a cashier".into(),
+        ));
+    }
+    Authorization::try_new(actor, actions::BENEFIT_REDEEM, Utc::now(), reason)
+        .map_err(|error| AppError::Validation(error.to_string()))
+}
+
+fn relay_code(request: &RelayBenefitRequest) -> Result<&str, AppError> {
+    request
+        .code
+        .as_deref()
+        .map(str::trim)
+        .filter(|code| !code.is_empty())
+        .ok_or_else(|| AppError::Validation("the employee's code is missing".into()))
+}
+
+pub async fn sync_lookup(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(request): Json<RelayBenefitRequest>,
+) -> Result<Json<BenefitHolderView>, AppError> {
+    relay_origin_site(&state, &headers, &request).await?;
+    Ok(Json(
+        infrastructure::benefit_holder(&state.db, relay_code(&request)?).await?,
+    ))
+}
+
+pub async fn sync_spend(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(request): Json<RelayBenefitRequest>,
+) -> Result<Json<BenefitHolderView>, AppError> {
+    let site = relay_origin_site(&state, &headers, &request).await?;
+    let unit = infrastructure::sites::unit_of_site(&state.db, &site).await?;
+    let sale_ref = request
+        .sale_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::Validation("a spend names the basket it pays".into()))?;
+    // The cashier's own record, when their login is bound to one: nobody
+    // rings up their own balance.
+    let cashier: Option<String> = sqlx::query_scalar(
+        "SELECT employee_id FROM app_user WHERE username = $1",
+    )
+    .bind(request.actor_id.trim())
+    .fetch_optional(&state.db)
+    .await?
+    .flatten();
+    let by = relay_by(&request, &format!("benefit spent on {sale_ref}"))?;
+    Ok(Json(
+        infrastructure::spend_benefit(
+            &state.db,
+            relay_code(&request)?,
+            sale_ref,
+            &unit,
+            request.amount_minor.unwrap_or(0),
+            request.basket_has_promotion,
+            cashier.as_deref(),
+            &by,
+        )
+        .await?,
+    ))
+}
+
+pub async fn sync_return(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(request): Json<RelayBenefitRequest>,
+) -> Result<Json<i64>, AppError> {
+    relay_origin_site(&state, &headers, &request).await?;
+    let sale_ref = request
+        .sale_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::Validation("a return names the basket it gives back".into()))?;
+    let reason = request
+        .reason
+        .clone()
+        .filter(|reason| !reason.trim().is_empty())
+        .unwrap_or_else(|| format!("benefit given back on {sale_ref}"));
+    let by = relay_by(&request, &reason)?;
+    Ok(Json(
+        infrastructure::return_benefit(
+            &state.db,
+            sale_ref,
+            request.amount_minor.unwrap_or(0),
+            &by,
+        )
+        .await?,
+    ))
+}

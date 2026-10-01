@@ -741,6 +741,7 @@ const TENDERS: readonly {
   { method: "QRIS", label: "QRIS" },
   { method: "EWALLET", label: "E-wallet" },
   { method: "VOUCHER", label: "Voucher" },
+  { method: "BENEFIT", label: "Employee benefit" },
   { method: "OTHER", label: "Other" },
 ]
 

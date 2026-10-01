@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 
 import { ChevronRight } from "lucide-react"
+import QRCode from "qrcode"
 
 import { Async, Empty, List, Panel, Row } from "@/screens/me/ui/bits"
 import { Button } from "@/screens/me/ui/button"
@@ -174,8 +175,8 @@ const KIND: Readonly<Record<string, string>> = {
   RETURN: "Returned",
 }
 
-/// The six digits, large and spaced, with the time left. A QR rendering can
-/// replace the digits once a QR library is approved; none is installed.
+/// The code as a QR for the till's scanner, the six digits beneath it for a
+/// cashier who keys it in, and the time left.
 function Code({
   code,
   renewing,
@@ -196,6 +197,7 @@ function Code({
     <div className="flex flex-col items-center gap-2 rounded-inner bg-soft-2 px-4 py-4">
       {left > 0 ? (
         <>
+          <CodeQr value={code.code} />
           <p className="num text-[2.25rem] font-semibold tracking-[0.12em] text-ink">
             {codeGroups(code.code)}
           </p>
@@ -307,5 +309,31 @@ function LoanRows({ loan }: { loan: LoanView }) {
         </p>
       )}
     </div>
+  )
+}
+
+/// The code drawn as a QR. The digits are all it carries: a till scanner reads
+/// it as if the cashier had typed them.
+function CodeQr({ value }: { value: string }) {
+  const [svg, setSvg] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    void QRCode.toString(value, { type: "svg", margin: 1, width: 192 }).then(
+      (drawn) => {
+        if (alive) setSvg(drawn)
+      }
+    )
+    return () => {
+      alive = false
+    }
+  }, [value])
+  if (svg === null) return null
+  return (
+    <div
+      role="img"
+      aria-label={`QR code ${value}`}
+      className="size-48 rounded-inner bg-white p-2"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
   )
 }

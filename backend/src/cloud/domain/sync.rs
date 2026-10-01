@@ -3575,6 +3575,7 @@ impl TillPaymentMethod {
             "QRIS" => Some(("QRIS", None)),
             "EWALLET" => Some(("EWALLET", None)),
             "VOUCHER" => Some(("VOUCHER", None)),
+            "BENEFIT" => Some(("BENEFIT", None)),
             _ => None,
         }
     }
@@ -3598,6 +3599,7 @@ pub fn parse_payment_method_book(payload: &Value) -> Result<PaymentMethodBook, S
         if !matches!(
             method.tender_type.as_str(),
             "CASH" | "DEBIT_CARD" | "CREDIT_CARD" | "QRIS" | "EWALLET" | "VOUCHER" | "POINTS"
+                | "BENEFIT"
         ) {
             return Err(format!(
                 "payment method {} has tender type {}, which no till knows",

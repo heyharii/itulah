@@ -454,6 +454,13 @@ pub fn store_router_with_sync(
             "/api/v1/store/vouchers/{code}/release",
             post(relay_voucher_release),
         )
+        // An employee's benefit balance (cloud 0818) lives at the centre too:
+        // she can show her code at any shop, so the balance it spends is held
+        // where every shop can see it. Online only — when the line is down
+        // these say so and the cashier takes another tender.
+        .route("/api/v1/store/benefit/lookup", post(relay_benefit_lookup))
+        .route("/api/v1/store/benefit/spend", post(relay_benefit_spend))
+        .route("/api/v1/store/benefit/return", post(relay_benefit_return))
         // A member's points balance, like a voucher's, lives at the centre —
         // one shopper can be handed a code in store-01 and stand at store-07's
         // counter with it. These two relay to head office and say so when the
@@ -1989,6 +1996,113 @@ async fn relay_voucher(
         status,
         &parsed,
         "head office refused the voucher call",
+    ))
+}
+
+/// What a till sends for an employee benefit call. The shop and the cashier
+/// are stamped by this node, never taken from here.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RelayBenefitCall {
+    #[serde(default)]
+    code: Option<String>,
+    /// The till's own id for the basket (its checkout id).
+    #[serde(default)]
+    sale_ref: Option<String>,
+    #[serde(default)]
+    amount_minor: Option<i64>,
+    #[serde(default)]
+    basket_has_promotion: bool,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+async fn relay_benefit(
+    state: &EdgeState,
+    verb: &str,
+    actor: &str,
+    call: RelayBenefitCall,
+) -> Result<Value, EdgeError> {
+    let Some(sync) = state.sync.as_ref() else {
+        return Err(EdgeError::Upstream(
+            "this node has no upload URL configured, so it cannot reach head office".into(),
+        ));
+    };
+    let Some((base, key)) = sync.cloud() else {
+        return Err(EdgeError::Configuration(
+            "SYNC_UPLOAD_URL is empty, so the relay cannot work out where head office is".into(),
+        ));
+    };
+    let url = format!("{base}/api/v1/sync/benefit/{verb}");
+    let node = state.inventory.node();
+    let body = json!({
+        "origin_id": &node.node_id,
+        "site_id": node.site_id.as_str(),
+        "actor_id": actor,
+        "code": call.code,
+        "sale_ref": call.sale_ref,
+        "amount_minor": call.amount_minor,
+        "basket_has_promotion": call.basket_has_promotion,
+        "reason": call.reason,
+    });
+    let (status, parsed) = relay_exchange(
+        relay_client()?
+            .post(&url)
+            .header(relay::SYNC_KEY_HEADER, key)
+            .json(&body),
+    )
+    .await?;
+    if status.is_success() {
+        return Ok(parsed);
+    }
+    Err(relay_refusal(
+        status,
+        &parsed,
+        "head office refused the benefit call",
+    ))
+}
+
+async fn relay_benefit_lookup(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(call): Json<RelayBenefitCall>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "finding a benefit")?;
+    Ok(Json(
+        relay_benefit(&state, "lookup", &actor, call)
+            .await
+            .map_err(ApiError)?,
+    ))
+}
+
+async fn relay_benefit_spend(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(call): Json<RelayBenefitCall>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "spending a benefit")?;
+    if call.amount_minor.unwrap_or(0) <= 0 {
+        return Err(ApiError(EdgeError::Validation(
+            "a benefit spend says how much of the basket it pays".into(),
+        )));
+    }
+    Ok(Json(
+        relay_benefit(&state, "spend", &actor, call)
+            .await
+            .map_err(ApiError)?,
+    ))
+}
+
+async fn relay_benefit_return(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(call): Json<RelayBenefitCall>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "giving a benefit back")?;
+    Ok(Json(
+        relay_benefit(&state, "return", &actor, call)
+            .await
+            .map_err(ApiError)?,
     ))
 }
 

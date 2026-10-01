@@ -191,6 +191,12 @@ fn is_public(path: &str) -> bool {
     if path.starts_with("/api/v1/sync/vouchers/") {
         return true;
     }
+    // The benefit-balance relay (0818), same shape and same reason as the
+    // voucher trio: a node proving which shop it is, guarded per origin by
+    // `x-sync-key` inside the handler.
+    if path.starts_with("/api/v1/sync/benefit/") {
+        return true;
+    }
     // The points-redemption relay a till reaches through its own node, same
     // shape and same reason as the voucher trio just above: a cashier's
     // counter has no session to hold a member's points against, only a node

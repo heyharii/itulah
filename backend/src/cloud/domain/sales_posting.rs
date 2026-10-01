@@ -323,6 +323,10 @@ fn meanings_for(
         // was issued, so the value spent is a sales discount (4012), not a
         // tender and not a liability being settled.
         "VOUCHER" => Ok(("sales_discount", "revenue_cash")),
+        // The employee benefit balance (owner, 1 Oct 2026): the part of the
+        // basket the balance paid is a sales discount, like a free voucher —
+        // not a welfare expense and not PPh 21 natura.
+        "BENEFIT" => Ok(("sales_discount", "revenue_cash")),
         // Goods taken back on a RETURN and given out again as the replacement
         // (owner decision 11: money never leaves the till). The replacement is
         // a sale; what paid for it is the returned goods, so there is no asset

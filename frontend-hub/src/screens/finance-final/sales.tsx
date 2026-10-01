@@ -407,6 +407,11 @@ const TENDERS: readonly {
     settles: "No money arrives — a liability settled",
   },
   {
+    method: "BENEFIT",
+    label: "Employee benefit",
+    settles: "No money arrives — a sales discount from the employee's balance",
+  },
+  {
     method: "OTHER",
     label: "Other",
     settles: "Unsaid. Anything the till could not name one of the four",
