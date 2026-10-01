@@ -58,6 +58,7 @@ fn facts() -> SlipFacts {
         overtime_holiday: 0,
         rostered_days: 26,
         leave_days_taken: 2,
+        ..SlipFacts::default()
     }
 }
 

@@ -18,6 +18,8 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
+import { AllLoans } from "@/screens/people/loans-list"
+import { ClaimAllowances } from "@/screens/people/claim-benefits"
 import { Timeline } from "@/components/ui/timeline"
 import { useFilters } from "@/lib/filters"
 import { count, day, money, moment } from "@/lib/format"
@@ -230,6 +232,8 @@ export function Claims() {
         ? [
             { value: "queue", label: "Queue" },
             { value: "all", label: "All" },
+            { value: "loans", label: "Loans" },
+            { value: "allowances", label: "Allowances" },
             { value: "types", label: "Types" },
           ]
         : [
@@ -268,6 +272,10 @@ export function Claims() {
         ? "Claims waiting on a decision, across every place."
         : `Claims waiting on a decision at ${bounded}.`,
     all: "Every claim the caller may see, decided or not.",
+    allowances:
+      "How much one person may be reimbursed for each kind of claim in a year.",
+    loans:
+      "Every loan: what was lent, what has come back from pay, and what is still owed.",
     types:
       "The kinds of expense a claim may be filed against. Head office names them; a place picks from them.",
   }
@@ -318,6 +326,10 @@ export function Claims() {
           }
         />
       )}
+
+      {shown === "loans" && <AllLoans />}
+
+      {shown === "allowances" && <ClaimAllowances />}
 
       {shown === "types" && <ClaimTypes />}
 

@@ -65,7 +65,7 @@ fn period_of(day: NaiveDate) -> String {
 // ── the catalogue ────────────────────────────────────────────────────────
 
 const COMPONENT_COLUMNS: &str = "c.code, c.label, c.kind, c.basis, c.base_ref, c.unit, \
-     c.defined, c.retired";
+     c.defined, c.retired, c.employer_borne";
 
 const RATE_COLUMNS: &str = "r.effective_from, r.amount_minor, r.rate_minor, r.rate_bp, \
      r.cap_minor, r.hours_divisor, r.multiplier_bp, r.ratified";
@@ -102,6 +102,7 @@ fn decode_component(row: &sqlx::postgres::PgRow) -> Result<PayComponent, AppErro
             .map(serde_json::from_value)
             .transpose()
             .map_err(|error| corrupt("retirement authority", error.to_string()))?,
+        employer_borne: row.try_get("employer_borne")?,
     })
     .map_err(|error| corrupt("pay component", error.to_string()))
 }
@@ -156,10 +157,10 @@ fn decode_basis(
         },
         // The schema resolves a `PER_OCCASION` rate's CHECK to `false`, so no
         // such row exists to decode.
-        ComponentShape::PerOccasion => {
+        ComponentShape::PerOccasion | ComponentShape::Statutory => {
             return Err(corrupt(
                 "component rate",
-                "a PER_OCCASION component has no standing rate".to_owned(),
+                format!("a {} component has no standing rate", shape.code()),
             ))
         }
     };
@@ -697,4 +698,206 @@ pub async fn adjustments_for_run(
             .map_err(|error| corrupt("payroll adjustment", error.to_string()))
         })
         .collect()
+}
+
+// ── BPJS rates (0800) ───────────────────────────────────────────────────────
+
+/// One stated set of BPJS rates, from a date.
+pub struct StatutoryRateRecord {
+    pub effective_from: NaiveDate,
+    pub rates: crate::cloud::domain::BpjsRates,
+    pub ratified: Authorization,
+}
+
+/// Every set of BPJS rates ever stated, newest first.
+pub async fn statutory_rates(pool: &PgPool) -> Result<Vec<StatutoryRateRecord>, AppError> {
+    let rows = sqlx::query(
+        "SELECT effective_from, kesehatan_company_bp, kesehatan_employee_bp, kesehatan_cap_minor,
+                jht_company_bp, jht_employee_bp, jp_company_bp, jp_employee_bp, jp_cap_minor,
+                jkk_bp, jkm_bp, ratified
+           FROM statutory_rate ORDER BY effective_from DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let bp = |column: &str| -> Result<i64, AppError> {
+                Ok(i64::from(row.try_get::<i32, _>(column)?))
+            };
+            Ok(StatutoryRateRecord {
+                effective_from: row.try_get("effective_from")?,
+                rates: crate::cloud::domain::BpjsRates {
+                    kesehatan_company_bp: bp("kesehatan_company_bp")?,
+                    kesehatan_employee_bp: bp("kesehatan_employee_bp")?,
+                    kesehatan_cap_minor: row.try_get("kesehatan_cap_minor")?,
+                    jht_company_bp: bp("jht_company_bp")?,
+                    jht_employee_bp: bp("jht_employee_bp")?,
+                    jp_company_bp: bp("jp_company_bp")?,
+                    jp_employee_bp: bp("jp_employee_bp")?,
+                    jp_cap_minor: row.try_get("jp_cap_minor")?,
+                    jkk_bp: bp("jkk_bp")?,
+                    jkm_bp: bp("jkm_bp")?,
+                },
+                ratified: serde_json::from_value(row.try_get("ratified")?)
+                    .map_err(|error| corrupt("statutory rate authority", error.to_string()))?,
+            })
+        })
+        .collect()
+}
+
+/// State a new set of BPJS rates from a date. Forward-only, as a component's
+/// rate is: a date on or before the latest already stated is refused, because
+/// a month already paid was paid at the rates then in force.
+pub async fn ratify_statutory_rate(
+    pool: &PgPool,
+    effective_from: NaiveDate,
+    rates: &crate::cloud::domain::BpjsRates,
+    authorization: &Authorization,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("LOCK TABLE statutory_rate IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *tx)
+        .await?;
+    let latest: Option<NaiveDate> =
+        sqlx::query_scalar("SELECT max(effective_from) FROM statutory_rate")
+            .fetch_one(&mut *tx)
+            .await?;
+    if let Some(latest) = latest {
+        if effective_from <= latest {
+            return Err(AppError::Conflict(format!(
+                "BPJS rates are already stated from {latest}; new rates take effect after it"
+            )));
+        }
+    }
+    let bp = |value: i64| i32::try_from(value).unwrap_or(i32::MAX);
+    sqlx::query(
+        "INSERT INTO statutory_rate
+             (effective_from, kesehatan_company_bp, kesehatan_employee_bp, kesehatan_cap_minor,
+              jht_company_bp, jht_employee_bp, jp_company_bp, jp_employee_bp, jp_cap_minor,
+              jkk_bp, jkm_bp, ratified)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+    )
+    .bind(effective_from)
+    .bind(bp(rates.kesehatan_company_bp))
+    .bind(bp(rates.kesehatan_employee_bp))
+    .bind(rates.kesehatan_cap_minor)
+    .bind(bp(rates.jht_company_bp))
+    .bind(bp(rates.jht_employee_bp))
+    .bind(bp(rates.jp_company_bp))
+    .bind(bp(rates.jp_employee_bp))
+    .bind(rates.jp_cap_minor)
+    .bind(bp(rates.jkk_bp))
+    .bind(bp(rates.jkm_bp))
+    .bind(serde_json::to_value(authorization)?)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+// ── salary structures (0802) ────────────────────────────────────────────────
+
+/// One salary structure as stored.
+pub struct SalaryStructureRecord {
+    pub code: String,
+    pub name: String,
+    pub base_minor: Option<i64>,
+    /// `(code, minor)`, in the order they were stated.
+    pub allowances: Vec<(String, i64)>,
+    pub defined: Authorization,
+    pub retired: bool,
+}
+
+pub async fn salary_structures(pool: &PgPool) -> Result<Vec<SalaryStructureRecord>, AppError> {
+    let rows = sqlx::query(
+        "SELECT code, name, base_minor, allowances, defined, retired_at
+           FROM salary_structure ORDER BY (retired_at IS NOT NULL), code",
+    )
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let raw: serde_json::Value = row.try_get("allowances")?;
+            let allowances = raw
+                .as_array()
+                .map(|lines| {
+                    lines
+                        .iter()
+                        .filter_map(|line| {
+                            Some((
+                                line.get("code")?.as_str()?.to_owned(),
+                                line.get("minor")?.as_i64()?,
+                            ))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Ok(SalaryStructureRecord {
+                code: row.try_get("code")?,
+                name: row.try_get("name")?,
+                base_minor: row.try_get("base_minor")?,
+                allowances,
+                defined: serde_json::from_value(row.try_get("defined")?)
+                    .map_err(|error| corrupt("structure authority", error.to_string()))?,
+                retired: row.try_get::<Option<DateTime<Utc>>, _>("retired_at")?.is_some(),
+            })
+        })
+        .collect()
+}
+
+/// Define a structure, or restate a live one. A retired structure is not
+/// brought back: its code stays retired, and a new code is a new structure.
+pub async fn save_salary_structure(
+    pool: &PgPool,
+    record: &SalaryStructureRecord,
+) -> Result<(), AppError> {
+    let allowances: Vec<serde_json::Value> = record
+        .allowances
+        .iter()
+        .map(|(code, minor)| serde_json::json!({ "code": code, "minor": minor }))
+        .collect();
+    let written = sqlx::query(
+        "INSERT INTO salary_structure (code, name, base_minor, allowances, defined)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (code) DO UPDATE SET
+            name = EXCLUDED.name,
+            base_minor = EXCLUDED.base_minor,
+            allowances = EXCLUDED.allowances,
+            defined = EXCLUDED.defined,
+            updated_at = now()
+          WHERE salary_structure.retired_at IS NULL",
+    )
+    .bind(&record.code)
+    .bind(&record.name)
+    .bind(record.base_minor)
+    .bind(serde_json::Value::Array(allowances))
+    .bind(serde_json::to_value(&record.defined)?)
+    .execute(pool)
+    .await?;
+    if written.rows_affected() == 0 {
+        return Err(AppError::Conflict(format!(
+            "{} is a retired structure; define a new code",
+            record.code
+        )));
+    }
+    Ok(())
+}
+
+pub async fn retire_salary_structure(
+    pool: &PgPool,
+    code: &str,
+    authorization: &Authorization,
+) -> Result<(), AppError> {
+    let updated = sqlx::query(
+        "UPDATE salary_structure SET retired_at = now(), retired = $2, updated_at = now()
+          WHERE code = $1 AND retired_at IS NULL",
+    )
+    .bind(code)
+    .bind(serde_json::to_value(authorization)?)
+    .execute(pool)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::NotFound(format!("live salary structure {code}")));
+    }
+    Ok(())
 }

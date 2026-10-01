@@ -153,7 +153,19 @@ period. They never see a run and never approve one.
 Inputs are the pay agreement plus recorded leave, overtime and holiday facts.
 Nothing statutory is computed — no PPh21, no BPJS arithmetic — because the
 donor computes none and inventing it here would produce numbers somebody files
-with the tax office. A run over a period whose attendance is not closed, or
+with the tax office.
+
+> **Reversed 2026-09-30 (owner: "harusnya sesuai Talenta, PPh 21 otomatis").**
+> Migration 0800 and `domain::pay::statutory` now work out, on every slip:
+> PPh 21 by TER (PP 58/2023) each month and by Pasal 17 on the year's actual
+> income in its last month (PMK 168/2023); BPJS Kesehatan, JHT, JP, JKK
+> (0,24 %) and JKM on rates head office states from a date (Settings ›
+> Payroll); and prorata by calendar days. Who bears the tax is per employee —
+> Gross, Gross Up or Netto — on the payroll identity. The company's BPJS share
+> and a tax it bears are on the slip and not taken from net pay. A slip with no
+> PTKP recorded shows no net and says why. Proven end to end, including DJP's
+> own "Tuan R" example, in `backend/tests/payroll_statutory_integration.rs`.
+> THR entitlement and the 1721-A1 form are the next phase. A run over a period whose attendance is not closed, or
 whose place has no punch source, is refused or marked incomplete. Never silently
 computed.
 

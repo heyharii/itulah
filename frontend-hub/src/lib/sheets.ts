@@ -433,6 +433,11 @@ export const SHEET_PARAMS = {
   enrol: flag,
   // people
   employee: id,
+  /// The Add employee form — a flag: there is nothing to identify until the
+  /// record exists, and then it is the `employee` sheet that opens.
+  addEmployee: flag,
+  /// The Import & export sheet on Employees — a flag.
+  importExport: flag,
   /// The invite-people composer — a flag, like `company` above: there is
   /// nothing to identify until the links come back, and those are shown once
   /// and never reopened by a URL.
@@ -451,6 +456,9 @@ export const SHEET_PARAMS = {
   /// claims — one key cannot mean two records, and the screen that lost the
   /// argument would open somebody else's sheet.
   payrollRun: id,
+  /// Whose bukti potong 1721-A1 is open on Reports › Tax, by employee id.
+  /// The year is the tab's own choice beside it.
+  taxSlip: id,
   /// Which expense claim is open, by claim id. A claim is decided, paid and
   /// read from three places — the queue, the list, the Directory's Claims
   /// tab — and the record does not change when the way in does, so one key

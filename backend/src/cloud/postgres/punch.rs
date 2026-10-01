@@ -924,9 +924,12 @@ pub async fn unrostered_punch_days_in(
 /// recorded evidence says the checks were **not assessed** rather than that
 /// they were clean.
 pub async fn unit_has_terminal(pool: &PgPool, unit: &UnitId) -> Result<bool, AppError> {
+    // A terminal is recorded at the site it hangs in (0601); its unit is the
+    // site's.
     let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM attendance_terminal
-          WHERE unit_id = $1 AND status <> 'REVOKED'",
+        "SELECT count(*) FROM attendance_terminal t
+           JOIN site s ON s.id = t.site_id
+          WHERE s.unit_id = $1 AND t.status <> 'REVOKED'",
     )
     .bind(unit.as_str())
     .fetch_one(pool)

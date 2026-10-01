@@ -2292,6 +2292,22 @@ pub async fn payroll_payout_build(
         )));
     }
 
+    // Pay head office is holding (0803) is owed and not to be paid: no
+    // envelope for it until the hold is released.
+    let held: Vec<String> = sqlx::query_scalar(
+        "SELECT employee_id FROM payroll_withholding
+          WHERE run_id = $1 AND released_at IS NULL",
+    )
+    .bind(&run_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    if let Some(line) = request.lines.iter().find(|line| held.contains(&line.employee_id)) {
+        return Err(AppError::Conflict(format!(
+            "{}'s pay on {run_id} is held by head office; release it before listing an envelope",
+            line.employee_id
+        )));
+    }
+
     let mut created = 0;
     for line in &request.lines {
         if line.net_minor <= 0 {

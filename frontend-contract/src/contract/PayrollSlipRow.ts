@@ -28,6 +28,61 @@ overtime_minutes: number, rostered_days: number,
  */
 earnings: Array<SlipLineRow>, deductions: Array<SlipLineRow>, 
 /**
+ * What the company pays on the employee's behalf and does not take from
+ * net pay: its share of BPJS, and PPh 21 when the company bears it
+ * (`NETTO`). A third column, because it is on the slip and in no total the
+ * employee is paid from (0800).
+ */
+company_contributions: Array<SlipLineRow>, 
+/**
+ * The sum of `company_contributions`. `null` on a slip built before 0800.
+ */
+company_borne_minor: number | null, 
+/**
+ * Calendar days of the month this person was posted here on an agreement;
+ * base and fixed allowances are prorated by `days_paid / days_in_month`.
+ * `null` on a slip built before 0800.
+ */
+days_paid: number | null, days_in_month: number | null, 
+/**
+ * Who bore PPh 21 on this slip: `GROSS`, `GROSS_UP` or `NETTO`.
+ */
+tax_method: string | null, 
+/**
+ * The PTKP status applied, and the TER table it selected (`A`/`B`/`C`).
+ */
+ptkp: string | null, ter_category: string | null, 
+/**
+ * The gross PPh 21 was levied on: cash earnings plus the company's BPJS
+ * Kesehatan, JKK and JKM (they are the employee's income for tax).
+ */
+taxable_gross_minor: number | null, 
+/**
+ * PPh 21 of the month, withheld or borne. Negative in a last month that
+ * gave back what the year over-withheld. `null` when it could not be
+ * worked out — the reason is in `components_incomplete_because`.
+ */
+pph21_minor: number | null, 
+/**
+ * The employee's own JHT + JP, deductible in the year's tax.
+ */
+pension_contribution_minor: number | null, 
+/**
+ * Head office is holding this person's pay on this run (0803): still
+ * owed, not to be paid until released.
+ */
+withheld: boolean, 
+/**
+ * True in the month the year was settled (December, or the last month of
+ * employment): PPh 21 is the year's Pasal 17 tax less what was withheld.
+ */
+final_tax_month: boolean | null, 
+/**
+ * Rostered working days absent in the attendance month (0807); `null` on
+ * a slip built before it.
+ */
+absent_days: number | null, 
+/**
  * The statutory base plus every earning line. Never a guess: every figure
  * in it is on this slip.
  */

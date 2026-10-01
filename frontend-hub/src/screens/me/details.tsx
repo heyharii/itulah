@@ -1,17 +1,16 @@
-import { Link } from "@tanstack/react-router"
-import { ChevronRight } from "lucide-react"
 import { Async, Empty, Panel, Row } from "@/screens/me/ui/bits"
 import { StatusPill } from "@/screens/me/ui/status-pill"
 import { Button } from "@/screens/me/ui/button"
 import { Pill } from "@/screens/me/ui/pill"
 import { longDate, relativeDay, shortDate } from "@/screens/me/data/format"
 import {
+  useAcknowledgeLetter,
+  useWarningLetters,
   useContracts,
   useHolidays,
   usePayrollIdentity,
   useProfile,
 } from "@/screens/me/data/queries"
-import { button } from "@/screens/me/ui/button-style"
 import { useSession, useSignOut } from "@/screens/me/data/session"
 
 /// Everything about the person that is not a task.
@@ -34,6 +33,7 @@ export function Me() {
 
   return (
     <div className="flex flex-col gap-4">
+      <Letters />
       <Panel title="You">
         <Async query={profile}>
           {(person) => (
@@ -153,17 +153,6 @@ export function Me() {
         </Async>
       </Panel>
 
-      <Link
-        to={"/me/voice" as string}
-        className={button({
-          size: "tap",
-          className: "w-full justify-between md:h-control",
-        })}
-      >
-        Raise a concern with HR
-        <ChevronRight className="size-4" />
-      </Link>
-
       <Panel title="This app">
         <Row label="Signed in as">{session.identity.username}</Row>
         <Row label="Role">{session.identity.role}</Row>
@@ -183,5 +172,52 @@ export function Me() {
         </Button>
       </Panel>
     </div>
+  )
+}
+
+/// Warning letters given to you. Shown only when there is one; acknowledging
+/// says you received it, not that you agree with it.
+function Letters() {
+  const letters = useWarningLetters()
+  const acknowledge = useAcknowledgeLetter()
+  const rows = (letters.data ?? []).filter((letter) => !letter.revoked)
+  if (rows.length === 0) return null
+  return (
+    <Panel title="Warning letters">
+      {rows.map((letter) => (
+        <div key={letter.id} className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-ink">
+              {letter.level === "TEGURAN"
+                ? "Teguran"
+                : letter.level.replace("SP", "SP ")}
+            </span>
+            <span className="text-[0.875rem] text-mute">
+              {shortDate(letter.issued_on)}
+            </span>
+            {letter.active ? (
+              <Pill tone="warn">
+                In force to {shortDate(letter.valid_until)}
+              </Pill>
+            ) : (
+              <Pill tone="neutral">Lapsed</Pill>
+            )}
+          </div>
+          <p className="text-[0.875rem] text-body">{letter.violation}</p>
+          {letter.acknowledged_at === null ? (
+            <Button
+              variant="primary"
+              size="tap"
+              disabled={acknowledge.isPending}
+              onClick={() => acknowledge.mutate(letter.id)}
+            >
+              I have received this letter
+            </Button>
+          ) : (
+            <p className="text-[0.875rem] text-mute">You acknowledged it.</p>
+          )}
+        </div>
+      ))}
+    </Panel>
   )
 }

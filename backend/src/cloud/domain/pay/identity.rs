@@ -11,12 +11,13 @@
 //!
 //! # Recorded, never applied
 //!
-//! [`PtkpStatus`] is the marital-and-dependants code PPh 21 brackets turn on.
-//! It is recorded because a payslip has to say which one applied; the bracket
-//! it selects is statutory arithmetic and is not computed anywhere in this
-//! backend.
+//! [`PtkpStatus`] is the marital-and-dependants code PPh 21 turns on: it
+//! picks the TER table and the PTKP amount (`super::statutory`). A slip for
+//! somebody with none recorded says so instead of a net. [`TaxMethod`] says
+//! who bears the tax, per employee.
 
 use super::error::PayError;
+use super::statutory::TaxMethod;
 use crate::cloud::domain::employment::Authorization;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -191,6 +192,7 @@ pub enum IdentityChange {
     Ptkp { ptkp: PtkpStatus },
     BpjsKesehatan { number: String },
     BpjsKetenagakerjaan { number: String },
+    TaxMethod { method: TaxMethod },
 }
 
 impl IdentityChange {
@@ -201,6 +203,7 @@ impl IdentityChange {
             Self::Ptkp { .. } => "ptkp",
             Self::BpjsKesehatan { .. } => "bpjs_kesehatan",
             Self::BpjsKetenagakerjaan { .. } => "bpjs_ketenagakerjaan",
+            Self::TaxMethod { .. } => "tax_method",
         }
     }
 }
@@ -238,6 +241,7 @@ pub struct PayrollIdentity {
     ptkp: Option<PtkpStatus>,
     bpjs_kesehatan: Option<String>,
     bpjs_ketenagakerjaan: Option<String>,
+    tax_method: TaxMethod,
     amendments: Vec<IdentityAmendment>,
 }
 
@@ -295,6 +299,7 @@ impl PayrollIdentity {
             IdentityChange::BpjsKetenagakerjaan { number } => {
                 self.bpjs_ketenagakerjaan = Some(number.clone());
             }
+            IdentityChange::TaxMethod { method } => self.tax_method = *method,
         }
         self.amendments.push(amendment);
         Ok(())
@@ -314,6 +319,9 @@ impl PayrollIdentity {
     }
     pub fn bpjs_ketenagakerjaan(&self) -> Option<&str> {
         self.bpjs_ketenagakerjaan.as_deref()
+    }
+    pub const fn tax_method(&self) -> TaxMethod {
+        self.tax_method
     }
     pub fn amendments(&self) -> &[IdentityAmendment] {
         &self.amendments

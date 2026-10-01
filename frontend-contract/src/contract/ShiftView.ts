@@ -8,4 +8,9 @@ starts_at: string, ends_at: string, crosses_midnight: boolean, unpaid_break_minu
 /**
  * The span less the break — what the day is worth in paid time.
  */
-planned_work_minutes: number, };
+planned_work_minutes: number, 
+/**
+ * `HH:MM` the break starts, when the shift says (0807). It runs for
+ * `unpaid_break_minutes`.
+ */
+break_starts_at: string | null, };

@@ -6,6 +6,13 @@ import {
   useNotificationStream,
 } from "@/lib/notification-stream"
 import { isoDate } from "@/screens/me/data/format"
+import {
+  lockState,
+  payslipPassword,
+  unlockPayslips,
+  usePayslipGeneration,
+} from "./payslip-lock"
+import { whereAmI } from "./location"
 import type { NewAttendanceCorrection } from "./types"
 
 /// The cache keys, written out in one place.
@@ -19,6 +26,13 @@ export const key = {
   contracts: ["me", "contracts"] as const,
   payrollIdentity: ["me", "payroll-identity"] as const,
   pay: ["me", "pay"] as const,
+  payslipTemplate: ["me", "payslip-template"] as const,
+  annualTax: (year: number) => ["me", "annual-tax", year] as const,
+  loans: ["me", "loans"] as const,
+  letters: ["me", "warning-letters"] as const,
+  essModules: ["me", "ess-modules"] as const,
+  claimBalances: (year: number) => ["me", "claim-balances", year] as const,
+  attendanceSetting: ["me", "attendance-setting"] as const,
   leaveTypes: ["me", "leave-types"] as const,
   leaveRequests: ["me", "leave-requests"] as const,
   leaveBalances: ["me", "leave-balances"] as const,
@@ -59,10 +73,81 @@ export function usePayrollIdentity() {
   })
 }
 
+/// One's own payslips. When the company locks them, the password this tab
+/// was given goes with the request; the refusal is not retried — asking the
+/// same wrong question three times only delays the form that answers it.
 export function usePaySlips() {
+  const generation = usePayslipGeneration()
   return useQuery({
-    queryKey: key.pay,
-    queryFn: ({ signal }) => hr.paySlips(signal),
+    queryKey: [...key.pay, generation],
+    queryFn: ({ signal }) => hr.paySlips(payslipPassword(), signal),
+    retry: (failures, error) => lockState(error) === null && failures < 3,
+  })
+}
+
+export function useClaimBalances() {
+  const year = new Date().getFullYear()
+  return useQuery({
+    queryKey: key.claimBalances(year),
+    queryFn: ({ signal }) => hr.claimBalances(year, signal),
+  })
+}
+
+/// The modules the company has turned on. While unknown, everything is on:
+/// a menu that blinks out after loading is worse than one that appears.
+export function useEssModules() {
+  return useQuery({
+    queryKey: key.essModules,
+    queryFn: ({ signal }) => hr.essModules(signal),
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function useWarningLetters() {
+  return useQuery({
+    queryKey: key.letters,
+    queryFn: ({ signal }) => hr.warningLetters(signal),
+  })
+}
+
+export function useAcknowledgeLetter() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => hr.acknowledgeLetter(id),
+    onSuccess: () => void client.invalidateQueries({ queryKey: key.letters }),
+  })
+}
+
+export function useLoans() {
+  return useQuery({
+    queryKey: key.loans,
+    queryFn: ({ signal }) => hr.loans(signal),
+  })
+}
+
+export function usePayslipTemplate() {
+  return useQuery({
+    queryKey: key.payslipTemplate,
+    queryFn: ({ signal }) => hr.payslipTemplate(signal),
+  })
+}
+
+export function useAnnualTax(year: number) {
+  const generation = usePayslipGeneration()
+  return useQuery({
+    queryKey: [...key.annualTax(year), generation],
+    queryFn: ({ signal }) => hr.annualTax(year, payslipPassword(), signal),
+    retry: (failures, error) => lockState(error) === null && failures < 3,
+  })
+}
+
+/// Setting the password opens the payslips with it at once: somebody who has
+/// just chosen one should not be asked for it on the next line.
+export function useSetPayslipPassword() {
+  return useMutation({
+    mutationFn: (body: { password: string; current?: string }) =>
+      hr.setPayslipPassword(body),
+    onSuccess: (_, body) => unlockPayslips(body.password),
   })
 }
 
@@ -224,10 +309,25 @@ export function useAttendance() {
 /// punches, the policy in force, the approvals and the effective correction —
 /// so this browser cannot work out what the day now amounts to, and a guess
 /// stitched in optimistically would be a lateness figure nobody computed.
+export function useAttendanceSetting() {
+  return useQuery({
+    queryKey: key.attendanceSetting,
+    queryFn: ({ signal }) => hr.attendanceSetting(signal),
+  })
+}
+
+/// The location goes with the punch only when the company asks for one or
+/// the unit has a fence — and is asked for at the tap, not before.
 export function usePunch() {
   const client = useQueryClient()
+  const setting = useAttendanceSetting()
   return useMutation({
-    mutationFn: (direction: "IN" | "OUT") => hr.punch(direction),
+    mutationFn: async (direction: "IN" | "OUT") => {
+      const needs =
+        setting.data?.setting.require_location === true ||
+        (setting.data?.fence ?? null) !== null
+      return hr.punch(direction, needs ? await whereAmI() : undefined)
+    },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["me", "attendance"] })
     },

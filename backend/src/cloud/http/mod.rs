@@ -78,6 +78,11 @@ pub mod notifications;
 pub mod opening;
 pub mod overtime;
 pub mod party;
+pub mod attendance_settings;
+pub mod leave_extras;
+pub mod discipline;
+pub mod delegation;
+pub mod organisation;
 pub mod pay;
 pub mod payables_flow;
 /// People's next generation, on the wire. See `domain::people`.
@@ -1574,6 +1579,39 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/employees/{id}/payroll-identity",
         get(pay::read_identity).post(pay::amend_identity),
     )
+    .route(
+        "/api/v1/employees/{id}/payslip-password",
+        post(pay::set_payslip_password).delete(pay::reset_payslip_password),
+    )
+    .route("/api/v1/employees/{id}/annual-tax", get(pay::annual_tax))
+    .route("/api/v1/employees/{id}/loans", get(pay::loans).post(pay::grant_loan))
+    .route("/api/v1/employees/{id}/ess-modules", get(delegation::ess_modules))
+    .route(
+        "/api/v1/employees/{id}/warning-letters",
+        get(discipline::letters).post(discipline::issue),
+    )
+    .route(
+        "/api/v1/employees/{id}/warning-letters/{letter}/acknowledgement",
+        post(discipline::acknowledge),
+    )
+    .route(
+        "/api/v1/employees/{id}/leave-encashments",
+        get(leave_extras::encashments).post(leave_extras::encash),
+    )
+    .route(
+        "/api/v1/employees/{id}/holiday-work",
+        post(leave_extras::record_holiday_work),
+    )
+    .route(
+        "/api/v1/employees/{id}/attendance-setting",
+        get(attendance_settings::own_attendance_setting),
+    )
+    .route(
+        "/api/v1/employees/{id}/placements",
+        get(organisation::placements).post(organisation::place),
+    )
+    // What a payslip says around its figures, for the employee's own app.
+    .route("/api/v1/employees/{id}/payslip-template", get(pay::payslip_template))
     .route("/api/v1/employees/{id}/payslips", get(pay::payslips))
     .route("/api/v1/notifications", get(notifications::list))
     // The list as it changes, for the hub's bell and the desktop shell; and
@@ -2192,6 +2230,103 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/payroll/runs",
         get(pay::list_runs).post(pay::open_run),
     )
+    .route("/api/v1/payroll/runs/{id}/rebuild", post(pay::rebuild_run))
+    .route("/api/v1/payroll/runs/{id}/thr", post(pay::set_thr))
+    .route(
+        "/api/v1/payroll/runs/{id}/withholdings",
+        get(pay::run_withholdings).post(pay::hold_pay),
+    )
+    .route(
+        "/api/v1/payroll/runs/{id}/withholdings/{employee}/release",
+        post(pay::release_pay),
+    )
+    .route(
+        "/api/v1/payroll/payslip-template",
+        get(pay::payslip_template).post(pay::save_payslip_template),
+    )
+    .route("/api/v1/payroll/tax-report", get(pay::tax_report))
+    // The organisation (0805).
+    .route("/api/v1/org/company", get(organisation::company))
+    .route("/api/v1/org/bpjs-registration", post(organisation::register_bpjs))
+    .route(
+        "/api/v1/org/departments",
+        get(organisation::departments).post(organisation::save_department),
+    )
+    .route(
+        "/api/v1/org/departments/{code}/retirement",
+        post(organisation::retire_department),
+    )
+    .route(
+        "/api/v1/org/levels",
+        get(organisation::job_levels).post(organisation::save_job_level),
+    )
+    .route("/api/v1/org/levels/{code}/retirement", post(organisation::retire_job_level))
+    .route(
+        "/api/v1/org/job-grades",
+        get(organisation::job_grades).post(organisation::save_job_grade),
+    )
+    .route("/api/v1/org/job-grades/{code}/retirement", post(organisation::retire_job_grade))
+    .route("/api/v1/org/chart", get(organisation::chart))
+    // Approval delegation (0812).
+    .route("/api/v1/approval-delegations", get(delegation::list).post(delegation::create))
+    .route("/api/v1/approval-delegations/{id}/revocation", post(delegation::revoke))
+    .route("/api/v1/ess-modules", get(delegation::ess_modules).post(delegation::set_ess_modules))
+    // Warning letters (0811).
+    .route("/api/v1/warning-letters", get(discipline::active))
+    .route("/api/v1/warning-letters/{id}/revocation", post(discipline::revoke))
+    // Leave beyond requests (0809).
+    .route(
+        "/api/v1/leave-blackouts",
+        get(leave_extras::blackouts).post(leave_extras::block_leave),
+    )
+    .route("/api/v1/leave-blackouts/{id}/lift", post(leave_extras::lift_block))
+    .route("/api/v1/holiday-work", get(leave_extras::holiday_work))
+    .route("/api/v1/team-calendar", get(leave_extras::team_calendar))
+    // Attendance settings (0807).
+    .route(
+        "/api/v1/attendance/mobile-setting",
+        get(attendance_settings::mobile_setting).post(attendance_settings::save_mobile_setting),
+    )
+    .route("/api/v1/attendance/geofences", get(attendance_settings::geofences))
+    .route(
+        "/api/v1/attendance/geofences/{unit}",
+        post(attendance_settings::set_geofence).delete(attendance_settings::remove_geofence),
+    )
+    .route(
+        "/api/v1/payroll/overtime-tier",
+        get(attendance_settings::overtime_tier).post(attendance_settings::set_overtime_tier),
+    )
+    .route(
+        "/api/v1/payroll/absence-rules",
+        get(attendance_settings::absence_rules).post(attendance_settings::state_absence_rule),
+    )
+    .route(
+        "/api/v1/lifecycle/templates",
+        get(organisation::checklist_templates).post(organisation::save_checklist_template),
+    )
+    .route(
+        "/api/v1/lifecycle/templates/{id}/retirement",
+        post(organisation::retire_checklist_template),
+    )
+    .route(
+        "/api/v1/org/business-units",
+        get(organisation::business_units).post(organisation::save_business_unit),
+    )
+    .route(
+        "/api/v1/org/group",
+        get(organisation::group).post(organisation::save_group_entity),
+    )
+    .route(
+        "/api/v1/org/group/{code}",
+        axum::routing::delete(organisation::remove_group_entity),
+    )
+    .route("/api/v1/payroll/loans", get(pay::all_loans))
+    .route("/api/v1/payroll/loans/{id}/stop", post(pay::stop_loan))
+    .route("/api/v1/payroll/annual-tax", get(pay::annual_tax_all))
+    .route(
+        "/api/v1/payroll/schedule",
+        get(pay::schedules).post(pay::state_schedule),
+    )
     .route(
         "/api/v1/payroll/runs/{id}/submission",
         post(pay::submit_run),
@@ -2248,6 +2383,25 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/payroll/components/{code}/rates",
         get(components::rates).post(components::ratify),
+    )
+    // PPh 21 and BPJS (0800). The BPJS rates and wage caps are data, stated
+    // from a date by head office under the ratify key; the tax tables are
+    // law, served read-only so a screen can show what a slip was worked out
+    // from.
+    .route(
+        "/api/v1/payroll/statutory-rates",
+        get(components::statutory_rates).post(components::ratify_statutory_rate),
+    )
+    .route("/api/v1/payroll/tax-tables", get(components::tax_tables))
+    // Salary structures (0802): a named base and fixed allowances, copied into
+    // a pay agreement when applied.
+    .route(
+        "/api/v1/payroll/structures",
+        get(components::salary_structures).post(components::save_salary_structure),
+    )
+    .route(
+        "/api/v1/payroll/structures/{code}/retirement",
+        post(components::retire_salary_structure),
     )
     // The one-offs: an incentive, a *kasbon* instalment, a bonus. **The
     // place's**, bounded by its own posting, and the other half of the
@@ -2352,6 +2506,11 @@ pub fn router(state: AppState) -> Router {
         post(claims::returnal),
     )
     .route("/api/v1/expense-claims/{id}/payout", post(claims::payout))
+    .route("/api/v1/claim-benefits", get(claims::benefits).post(claims::state_benefit))
+    .route(
+        "/api/v1/employees/{id}/claim-balances",
+        get(claims::balances).post(claims::override_benefit),
+    )
     .route(
         "/api/v1/employees/{id}/expense-claims",
         get(claims::list_of_employee),

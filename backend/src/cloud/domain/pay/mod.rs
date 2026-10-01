@@ -16,28 +16,25 @@
 //!    checks an account is right needs four digits; a payment file needs the
 //!    number. See [`identity`].
 //!
-//! # What is deliberately absent
+//! # Statutory arithmetic (2026-09-30)
 //!
-//! **Every statutory calculation.** PPh 21 brackets, BPJS rates, the THR
-//! formula: none of it is here. The retail backend this borrows the lifecycle
-//! from carries a component engine that applies all three; it was not brought
-//! across, because a figure computed here is a figure somebody files with the
-//! tax office, and the brackets change by regulation.
+//! This module used to hold none: PPh 21 and BPJS were computed outside and
+//! entered by Finance. The owner reversed that on 2026-09-30 — "harusnya sesuai
+//! Talenta, PPh 21 otomatis" — so [`statutory`] now carries the TER tables of
+//! PP 58/2023, Pasal 17, PTKP, *biaya jabatan* and the BPJS contributions, each
+//! pinned by a test against the regulation's own figures. Who bears the tax is
+//! chosen per employee ([`statutory::TaxMethod`]): withheld, grossed up, or
+//! borne by the company.
 //!
-//! What a slip carries instead is the agreement in force and the facts this
-//! system recorded — and it says, on the run itself, that it is incomplete and
-//! why. There is no punch source, so nothing knows what was *worked*.
-//!
-//! The handoff to Finance inherits that absence rather than papering over it:
-//! it crosses **gross only**, one liability plus a per-employee breakdown, and
-//! there is no column anywhere for a deduction it would have had to invent.
-//! See [`handover`].
+//! What still is not here: THR entitlement and the 1721-A1 form (the second
+//! phase), and anything about what was *worked* — there is no punch source.
 
 mod agreement;
 mod error;
 mod handover;
 mod identity;
 mod run;
+pub mod statutory;
 
 pub use agreement::{
     AllowanceCode, FixedAllowance, PayRecord, PayRecordWire, PayTimeline, MAX_ALLOWANCE_CODE_LEN,
@@ -48,6 +45,7 @@ pub use identity::{
     BankAccount, BankAccountWire, IdentityAmendment, IdentityChange, PayrollIdentity, PtkpStatus,
 };
 pub use run::{PayrollRun, PayrollRunWire, RunEvent, RunState, RunStep};
+pub use statutory::{BpjsRates, TaxMethod, TerCategory};
 
 #[cfg(test)]
 mod tests;

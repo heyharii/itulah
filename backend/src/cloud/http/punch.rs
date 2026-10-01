@@ -422,6 +422,13 @@ pub async fn read_today(
 pub struct OwnPunchBody {
     /// `IN` or `OUT`.
     pub direction: String,
+    /// Where the phone was, when it could say (0807). Required when the
+    /// company requires a location; checked against the unit's fence when it
+    /// requires one.
+    #[serde(default)]
+    pub latitude: Option<f64>,
+    #[serde(default)]
+    pub longitude: Option<f64>,
 }
 
 /// What was recorded, in the words the person who tapped needs.
@@ -535,6 +542,45 @@ pub async fn record_own_punch(
     })?;
     let unit = UnitId::try_new(unit).map_err(invalid)?;
 
+    // The company's rules for a phone punch (0807): allowed at all, with a
+    // location, inside the unit's fence. Checked before anything is written.
+    let setting = infrastructure::mobile_setting(&state.db).await?;
+    if !setting.mobile_enabled {
+        return Err(AppError::Forbidden(
+            "punching from the employee app is turned off; punch at the station".to_owned(),
+        ));
+    }
+    let location = match (body.latitude, body.longitude) {
+        (Some(latitude), Some(longitude)) => Some((latitude, longitude)),
+        (None, None) => None,
+        _ => return Err(invalid("a location is a latitude and a longitude together")),
+    };
+    if setting.require_location && location.is_none() {
+        return Err(AppError::Validation(
+            "your location is needed to punch from the app; allow it and try again".to_owned(),
+        ));
+    }
+    let fence = infrastructure::geofence_of(&state.db, unit.as_str()).await?;
+    let distance = match (location, &fence) {
+        (Some(at), Some(fence)) => Some(infrastructure::distance_m(
+            at,
+            (fence.latitude, fence.longitude),
+        )),
+        _ => None,
+    };
+    if setting.require_geofence {
+        if let (Some(distance), Some(fence)) = (distance, &fence) {
+            if distance > f64::from(fence.radius_m) {
+                return Err(AppError::Forbidden(format!(
+                    "you are {} m from {}, outside its {} m radius; punch from inside it",
+                    distance.round(),
+                    unit,
+                    fence.radius_m
+                )));
+            }
+        }
+    }
+
     // The server's clock, converted to the unit's own day: the zone of the
     // site the unit keeps its day at (`unit_business_timezone`), read through
     // the same SQL function the sales reports cut their days with, because a
@@ -586,6 +632,16 @@ pub async fn record_own_punch(
     .map_err(infrastructure::attendance_error)?;
 
     let newly_recorded = infrastructure::insert_punch(&state.db, &punch).await?;
+    if let (true, Some((latitude, longitude))) = (newly_recorded, location) {
+        infrastructure::locate_punch(
+            &state.db,
+            &punch.id().to_string(),
+            latitude,
+            longitude,
+            distance.map(|d| d.round() as i32),
+        )
+        .await?;
+    }
     Ok(Json(PunchRecorded {
         punch_id: punch.id().to_string(),
         employee_id: punch.employee().to_string(),

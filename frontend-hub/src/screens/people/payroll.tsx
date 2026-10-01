@@ -4,6 +4,7 @@ import { useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Day } from "@/components/ui/day"
 import { Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
@@ -17,7 +18,7 @@ import {
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Timeline } from "@/components/ui/timeline"
-import { money, moment } from "@/lib/format"
+import { day, money, moment } from "@/lib/format"
 import { PickOne } from "@/components/ui/pick"
 import {
   claimsKeys,
@@ -33,6 +34,11 @@ import {
   payKeys,
   peopleKeys,
   readHandover,
+  rebuildRun,
+  setRunThr,
+  holdPay,
+  releasePay,
+  runWithholdings,
   runReconciliation,
   runSlips,
   runStateLabel,
@@ -42,7 +48,10 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
-import type { PayrollRunView } from "@itulah/contract"
+import type { PayrollRunView, RunReconciliation } from "@itulah/contract"
+
+import { OneOffImport } from "@/screens/people/one-off-import-card"
+import { SlipBreakdown } from "@/screens/people/slip-view"
 
 /// Payroll runs. The place asks for its own; head office answers.
 ///
@@ -72,11 +81,15 @@ import type { PayrollRunView } from "@itulah/contract"
 /// never what was worked — and it says so in a sentence rather than leaving the
 /// reader to infer it from a tidy total.
 ///
-/// # No net, anywhere
+/// # Take-home pay, and what it was worked out from
 ///
-/// Nothing computes tax or BPJS. A slip is the agreement in force plus the
-/// facts recorded, and the column that would hold a deduction does not exist.
-/// The crossing to Finance is gross for that reason, and says so.
+/// Since 0800 every slip carries PPh 21 and BPJS, worked out by the server
+/// from the employee's PTKP, tax method and BPJS numbers and the rates head
+/// office states. The run reads like Talenta's payroll processing: a summary
+/// across the run, one row per person with take-home pay, and the payslip
+/// itself one click away — earnings, deductions, what the company paid on
+/// top, and the tax behind the PPh 21 line. A slip that could not be worked
+/// out says why instead of showing a number.
 
 function stateTone(state: string) {
   switch (state) {
@@ -117,15 +130,6 @@ export function PayrollRuns() {
         title="Payroll"
         sub="One place, one month, and two different people: the place that sends it and the head office that approves it."
       />
-
-      {/* Not a blanket claim about punches any more: a unit with a station
-          reporting produces a run that does know what was worked, and each run
-          states its own case in `incomplete_because`. What is still true of
-          every run is the arithmetic this system declines to do. */}
-      <Banner tone="warn" className="mb-4">
-        Nothing here computes tax or BPJS. A run is the agreement in force plus
-        the facts recorded, and it crosses to Finance gross.
-      </Banner>
 
       <Card className="mb-4 overflow-hidden">
         <CardHeader>
@@ -180,6 +184,7 @@ function RunSheet({
   const client = useQueryClient()
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
+  const [shown, setShown] = useState<string | null>(null)
 
   const slips = useQuery({
     queryKey: payKeys.slips(run?.id ?? ""),
@@ -190,6 +195,22 @@ function RunSheet({
     queryKey: payKeys.reconciliation(run?.id ?? ""),
     queryFn: ({ signal }) => runReconciliation(run?.id ?? "", signal),
     enabled: run !== null,
+  })
+
+  const recalculate = useMutation({
+    mutationFn: () => {
+      if (run === null) throw new Error("no run is open")
+      return rebuildRun(run.id)
+    },
+    onSuccess: () => {
+      setFailed(null)
+      if (run === null) return
+      void client.invalidateQueries({ queryKey: payKeys.slips(run.id) })
+      void client.invalidateQueries({
+        queryKey: payKeys.reconciliation(run.id),
+      })
+    },
+    onError: (error: Error) => setFailed(error.message),
   })
 
   const step = useMutation({
@@ -207,6 +228,8 @@ function RunSheet({
 
   if (run === null) return null
   const ready = reason.trim() !== "" && !step.isPending
+  const selected =
+    (slips.data ?? []).find((slip) => slip.employee_id === shown) ?? null
 
   return (
     <Sheet
@@ -230,57 +253,95 @@ function RunSheet({
       <Facts>
         <Fact term="Unit">{run.unit_id}</Fact>
         <Fact term="Month">{run.period}</Fact>
+        <Fact term="Attendance">
+          {day(run.attendance_from)} – {day(run.attendance_to)}
+        </Fact>
+        <Fact term="Pay day">{day(run.pay_on)}</Fact>
         <Fact term="Sent by">{run.submitted_by ?? "nobody yet"}</Fact>
         <Fact term="Approved by">{run.approved_by ?? "nobody yet"}</Fact>
+        {run.thr_on !== null && (
+          <Fact term="THR">for the holiday on {day(run.thr_on)}</Fact>
+        )}
       </Facts>
 
+      {run.state === "DRAFT" && <ThrControl run={run} />}
+
       {reconciliation.data !== undefined && (
-        <div className="mt-4">
-          <SubHead>What it adds up to</SubHead>
-          <KeyValue term="Slips">{reconciliation.data.slips}</KeyValue>
-          <KeyValue term="Base">
-            {money(reconciliation.data.base_total_minor)}
-          </KeyValue>
-          <KeyValue term="Base plus fixed allowances">
-            {money(reconciliation.data.statutory_base_total_minor)}
-          </KeyValue>
-          <KeyValue term="Leave taken">
-            {reconciliation.data.leave_days_total} days
-          </KeyValue>
-          {/* Both of these are blockers a person can act on, so they are
-              stated rather than left to be inferred from a slip list. */}
-          <KeyValue term="Cannot be paid">
-            {reconciliation.data.unpayable} · no account on record
-          </KeyValue>
-          <KeyValue term="No pay agreement">
-            {reconciliation.data.without_agreement} · not on this run
-          </KeyValue>
-        </div>
+        <RunSummary totals={reconciliation.data} />
       )}
 
       {(slips.data ?? []).length > 0 && (
         <div className="mt-4">
-          <SubHead>Slips</SubHead>
+          <SubHead aside="Click a row for the payslip">Slips</SubHead>
           <MiniTable
-            head={["Who", { label: "Base", align: "right" }, "With allowances"]}
+            head={[
+              "Employee",
+              { label: "Days", align: "right" },
+              { label: "Gross", align: "right" },
+              { label: "Deductions", align: "right" },
+              { label: "Take-home", align: "right" },
+            ]}
           >
-            {(slips.data ?? []).map((slip) => (
-              <MiniRow key={slip.employee_id}>
-                <MiniCell>
-                  <span className="block text-[0.875rem] text-ink">
-                    {slip.full_name ?? slip.employee_code}
-                  </span>
-                  <span className="font-mono text-[0.875rem] text-mute">
-                    {slip.bank_account_masked ?? "no account"}
-                  </span>
-                </MiniCell>
-                <MiniCell align="right">{money(slip.base_minor)}</MiniCell>
-                <MiniCell align="right">
-                  {money(slip.statutory_base_minor)}
-                </MiniCell>
-              </MiniRow>
-            ))}
+            {(slips.data ?? []).map((slip) => {
+              const open = shown === slip.employee_id
+              return (
+                <MiniRow key={slip.employee_id}>
+                  <MiniCell>
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      onClick={() => setShown(open ? null : slip.employee_id)}
+                      className="text-left hover:underline"
+                    >
+                      <span className="block text-[0.875rem] text-ink">
+                        {slip.full_name ?? slip.employee_code}{" "}
+                        {slip.withheld && <Pill tone="warn">Held</Pill>}
+                      </span>
+                      <span className="font-mono text-[0.875rem] text-mute">
+                        {slip.bank_account_masked ?? "no account"}
+                      </span>
+                    </button>
+                  </MiniCell>
+                  <MiniCell align="right">
+                    {slip.days_paid === null
+                      ? "—"
+                      : `${slip.days_paid}/${slip.days_in_month ?? "—"}`}
+                  </MiniCell>
+                  <MiniCell align="right">{money(slip.gross_minor)}</MiniCell>
+                  <MiniCell align="right">
+                    {slip.deduction_total_minor === null
+                      ? "—"
+                      : money(slip.deduction_total_minor)}
+                  </MiniCell>
+                  <MiniCell align="right">
+                    {slip.net_minor === null ? (
+                      <Pill tone="warn">Incomplete</Pill>
+                    ) : (
+                      money(slip.net_minor)
+                    )}
+                  </MiniCell>
+                </MiniRow>
+              )
+            })}
           </MiniTable>
+          {selected !== null && (
+            <div className="mt-4 rounded-card border border-hairline p-4">
+              <div className="mb-3 flex items-baseline justify-between gap-3">
+                <span className="text-card-title font-semibold text-ink">
+                  {selected.full_name ?? selected.employee_code}
+                </span>
+                <span className="text-[0.875rem] text-mute">
+                  Payslip · {run.period}
+                </span>
+              </div>
+              <SlipBreakdown slip={selected} />
+              <HoldControl
+                runId={run.id}
+                employeeId={selected.employee_id}
+                withheld={selected.withheld}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -325,6 +386,15 @@ function RunSheet({
               server answers honestly. */}
           {run.state === "DRAFT" && (
             <Button
+              variant="ghost"
+              pending={recalculate.isPending}
+              onClick={() => recalculate.mutate()}
+            >
+              Recalculate
+            </Button>
+          )}
+          {run.state === "DRAFT" && (
+            <Button
               variant="primary"
               disabled={!ready}
               onClick={() => step.mutate("submission")}
@@ -363,6 +433,181 @@ function RunSheet({
   )
 }
 
+/// Tahan gaji: hold one person's pay on this run, or let it go. The slip is
+/// still worked out and still owed — the accrual does not change — but no
+/// envelope or transfer can be listed for them on this run until the hold is
+/// released. Any state: a hold is about paying, which comes after approval.
+function HoldControl({
+  runId,
+  employeeId,
+  withheld,
+}: {
+  runId: string
+  employeeId: string
+  withheld: boolean
+}) {
+  const client = useQueryClient()
+  const [why, setWhy] = useState("")
+  const [failed, setFailed] = useState<string | null>(null)
+  const holds = useQuery({
+    queryKey: payKeys.withholdings(runId),
+    queryFn: ({ signal }) => runWithholdings(runId, signal),
+  })
+  const current = (holds.data ?? []).find(
+    (hold) => hold.employee_id === employeeId && hold.released_at === null
+  )
+  const change = useMutation({
+    mutationFn: () =>
+      withheld
+        ? releasePay(runId, employeeId, why.trim())
+        : holdPay(runId, employeeId, why.trim()),
+    onSuccess: () => {
+      setWhy("")
+      setFailed(null)
+      void client.invalidateQueries({ queryKey: payKeys.withholdings(runId) })
+      void client.invalidateQueries({ queryKey: payKeys.slips(runId) })
+      void client.invalidateQueries({ queryKey: payKeys.reconciliation(runId) })
+    },
+    onError: (error: Error) => setFailed(error.message),
+  })
+  return (
+    <div className="mt-4 border-t border-hairline pt-4">
+      <SubHead>Hold pay</SubHead>
+      {withheld && current !== undefined && (
+        <Banner tone="warn" className="mb-3">
+          Held by {current.held_by} on {day(current.held_at)}: {current.reason}.
+          Still owed; nothing is paid out to them on this run until released.
+        </Banner>
+      )}
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Why" required>
+          <Input
+            value={why}
+            onChange={(event) => setWhy(event.target.value)}
+            placeholder={
+              withheld ? "dokumen sudah lengkap" : "dokumen belum lengkap"
+            }
+          />
+        </Field>
+        <Button
+          variant={withheld ? "ghost" : "danger"}
+          pending={change.isPending}
+          disabled={why.trim() === ""}
+          onClick={() => change.mutate()}
+        >
+          {withheld ? "Release pay" : "Hold pay"}
+        </Button>
+      </div>
+      {failed !== null && (
+        <Banner tone="bad" className="mt-2">
+          {failed}
+        </Banner>
+      )}
+    </div>
+  )
+}
+
+/// THR on this run, as Talenta's Run THR: the holiday's date, and every slip
+/// gains a THR line — a month's wage after twelve months' service, `months /
+/// 12` of it after at least one (Permenaker 6/2016) — taxed with the month.
+function ThrControl({ run }: { run: PayrollRunView }) {
+  const client = useQueryClient()
+  const [holiday, setHoliday] = useState(run.thr_on ?? "")
+  const [failed, setFailed] = useState<string | null>(null)
+  const set = useMutation({
+    mutationFn: (on: string | null) =>
+      setRunThr(run.id, on, on === null ? "THR dibatalkan" : "THR hari raya"),
+    onSuccess: () => {
+      setFailed(null)
+      void client.invalidateQueries({ queryKey: payKeys.runs() })
+      void client.invalidateQueries({ queryKey: payKeys.slips(run.id) })
+      void client.invalidateQueries({
+        queryKey: payKeys.reconciliation(run.id),
+      })
+    },
+    onError: (error: Error) => setFailed(error.message),
+  })
+  return (
+    <div className="mt-4">
+      <SubHead>THR</SubHead>
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Holiday">
+          <Day value={holiday} onChange={setHoliday} />
+        </Field>
+        <Button
+          variant="ghost"
+          pending={set.isPending}
+          disabled={holiday === ""}
+          onClick={() => set.mutate(holiday)}
+        >
+          {run.thr_on === null ? "Add THR to this run" : "Change the date"}
+        </Button>
+        {run.thr_on !== null && (
+          <Button variant="quiet" onClick={() => set.mutate(null)}>
+            Take THR off
+          </Button>
+        )}
+      </div>
+      {failed !== null && (
+        <Banner tone="bad" className="mt-2">
+          {failed}
+        </Banner>
+      )}
+    </div>
+  )
+}
+
+/// The run at a glance, as Talenta's payroll processing opens: how many
+/// people, what they earn, what comes off, what they take home, and what the
+/// company pays on top. A total over slips that could not all be worked out
+/// is not stated — it would be a total somebody pays from.
+function RunSummary({ totals }: { totals: RunReconciliation }) {
+  const unknown = "not worked out"
+  return (
+    <div className="mt-4">
+      <SubHead>Summary</SubHead>
+      <KeyValue term="Employees">{totals.slips}</KeyValue>
+      <KeyValue term="Gross">{money(totals.gross_total_minor)}</KeyValue>
+      <KeyValue term="Deductions">
+        {totals.deduction_total_minor === null
+          ? unknown
+          : money(totals.deduction_total_minor)}
+      </KeyValue>
+      <KeyValue term="Take-home pay">
+        {totals.net_total_minor === null
+          ? unknown
+          : money(totals.net_total_minor)}
+      </KeyValue>
+      <KeyValue term="PPh 21">
+        {totals.pph21_total_minor === null
+          ? unknown
+          : money(totals.pph21_total_minor)}
+      </KeyValue>
+      <KeyValue term="Paid by the company">
+        {money(totals.company_borne_total_minor)} · BPJS share and borne tax
+      </KeyValue>
+      {/* Blockers a person can act on, stated rather than left to be
+          inferred from a slip list. */}
+      {totals.slips_with_unworkable_components > 0 && (
+        <KeyValue term="Incomplete slips">
+          {totals.slips_with_unworkable_components} · open the row to see why
+        </KeyValue>
+      )}
+      <KeyValue term="Cannot be paid">
+        {totals.unpayable} · no account on record
+      </KeyValue>
+      {totals.withheld > 0 && (
+        <KeyValue term="Pay held">
+          {totals.withheld} · owed, not paid out until released
+        </KeyValue>
+      )}
+      <KeyValue term="No pay agreement">
+        {totals.without_agreement} · not on this run
+      </KeyValue>
+    </div>
+  )
+}
+
 /// The crossing to Finance, and what came back.
 ///
 /// # Why this is the point of no return and approval is not
@@ -372,12 +617,12 @@ function RunSheet({
 /// the run means Finance has to reverse its own entry first. The screen says
 /// that where the button is rather than in a doc nobody opens.
 ///
-/// # Gross, and it says so
+/// # Gross is the liability; the accrual splits it
 ///
-/// Nothing statutory is netted off and no overtime is valued, because there is
-/// no rate for it anywhere in this system. PPh21 and BPJS are computed outside
-/// and entered by Finance as deductions. A figure labelled only "total" would
-/// be read as take-home pay by the first person who saw it.
+/// What crosses is the run's gross. The accrual Finance receives splits it:
+/// PPh 21 owed to the tax office (2011), BPJS owed to BPJS (2021, both shares),
+/// and only net pay owed to the employees (2017) — the company's own BPJS share
+/// and any tax it bears are its cost on top.
 ///
 /// # Received is not paid
 ///
@@ -448,9 +693,7 @@ function Handover({ run }: { run: PayrollRunView }) {
       ) : (
         <>
           <KeyValue term="State">{handoverLabel(crossed.state)}</KeyValue>
-          <KeyValue term="Gross, before deductions">
-            {money(crossed.gross_minor)}
-          </KeyValue>
+          <KeyValue term="Gross">{money(crossed.gross_minor)}</KeyValue>
           <KeyValue term="Handed over">
             {crossed.handed_over_by} · {moment(crossed.handed_over_at)}
           </KeyValue>
@@ -465,9 +708,8 @@ function Handover({ run }: { run: PayrollRunView }) {
             </KeyValue>
           )}
           <p className="mt-2 text-meta text-mute">
-            Gross. PPh21 and BPJS are computed outside this system and entered
-            by Finance as deductions, so this is what the company owes before
-            any of them.
+            Gross. The accrual splits it: PPh 21 to the tax office, BPJS to
+            BPJS, and net pay to the employees.
           </p>
         </>
       )}
@@ -504,9 +746,9 @@ function OpenRun() {
       <div className="flex flex-col gap-3 px-4 pb-4">
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
         <Banner tone="info">
-          The month's attendance has to be closed first. While it is open the
-          facts are still moving, and a run built over moving facts disagrees
-          with itself an hour later.
+          A run is a draft until the place submits it: recalculate it whenever
+          leave, overtime, pay or a PTKP status changes, and submitting it
+          freezes the figures.
         </Banner>
         {/* Chosen, never typed. It asked for an `org_place` id in a text box
             and named three of them in the hint, which is a screen asking
@@ -797,6 +1039,23 @@ function Adjustments() {
               })}
             </div>
           </div>
+        )}
+
+        {unitId !== "" && (
+          <OneOffImport
+            unitId={unitId}
+            period={period}
+            people={team.data ?? []}
+            components={(catalogue.data ?? []).filter(
+              (component) =>
+                component.basis === "PER_OCCASION" && !component.retired
+            )}
+            onFiled={() =>
+              void client.invalidateQueries({
+                queryKey: payKeys.adjustments(unitId, period),
+              })
+            }
+          />
         )}
 
         <SubHead>File one</SubHead>

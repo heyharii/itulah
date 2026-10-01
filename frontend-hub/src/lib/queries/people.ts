@@ -19,6 +19,53 @@ import type {
   PayComponentView,
   PayRecordView,
   PayrollIdentityView,
+  RatifyStatutoryRateBody,
+  StatutoryRateView,
+  WithholdingView,
+  DepartmentView,
+  JobLevelView,
+  JobGradeView,
+  PlacementView,
+  OrgChartNode,
+  CompanyView,
+  SaveDepartmentBody,
+  SaveJobLevelBody,
+  SaveJobGradeBody,
+  PlaceBody,
+  RegisterBpjsBody,
+  BusinessUnitView,
+  GroupEntityView,
+  SaveBusinessUnitBody,
+  SaveGroupEntityBody,
+  ChecklistTemplateView,
+  MobileAttendanceSetting,
+  GeofenceView,
+  SaveMobileSettingBody,
+  SetGeofenceBody,
+  AbsenceRuleView,
+  OvertimeTierView,
+  LeaveBlackoutView,
+  ClaimBenefitView,
+  WarningLetterView,
+  DelegationView,
+  EssModulesView,
+  ClaimBalanceRow,
+  LeaveEncashmentView,
+  HolidayWorkView,
+  TeamCalendarView,
+  StateAbsenceRuleBody,
+  SaveChecklistTemplateBody,
+  LoanView,
+  GrantLoanBody,
+  PayslipTemplate,
+  SaveTemplateBody,
+  TaxReportRow,
+  AnnualTaxSlip,
+  PayrollScheduleView,
+  StateScheduleBody,
+  SalaryStructureView,
+  SaveStructureBody,
+  TaxTablesView,
   PayrollHandoverView,
   PayrollRunView,
   PayrollSlipRow,
@@ -360,6 +407,31 @@ export function applyTransition(
   return node.post<EmployeeView>(
     `/api/v1/employees/${encodeURIComponent(employeeId)}/employment`,
     { transition, effective_on: effectiveOn, reason }
+  )
+}
+
+/// Open an employee record with its number. Everything else — name, hire,
+/// posting, contract, pay — is its own dated act on the record afterwards.
+export function registerEmployee(employeeCode: string): Promise<EmployeeView> {
+  return node.post<EmployeeView>("/api/v1/employees", {
+    employee_code: employeeCode,
+  })
+}
+
+/// The first statement of somebody's personal data. Later changes are
+/// amendments, one field at a time.
+export function enrolPersonalData(
+  employeeId: string,
+  data: { fullName: string; nik: string; birthDate: string; address: string }
+): Promise<unknown> {
+  return node.post(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/personal-data`,
+    {
+      full_name: data.fullName,
+      nik: data.nik,
+      birth_date: data.birthDate,
+      address: data.address,
+    }
   )
 }
 
@@ -1140,6 +1212,8 @@ export interface NewShift {
   readonly endsAt: string
   readonly crossesMidnight: boolean
   readonly unpaidBreakMinutes: number
+  /// `HH:MM` the break starts, or empty for unsaid (0807).
+  readonly breakStartsAt: string
 }
 
 export function defineShift(shift: NewShift): Promise<ShiftView[]> {
@@ -1153,6 +1227,9 @@ export function defineShift(shift: NewShift): Promise<ShiftView[]> {
     // is worse than asking.
     crosses_midnight: shift.crossesMidnight,
     unpaid_break_minutes: shift.unpaidBreakMinutes,
+    ...(shift.breakStartsAt.trim() === ""
+      ? {}
+      : { break_starts_at: shift.breakStartsAt.trim() }),
   })
 }
 
@@ -1235,11 +1312,14 @@ export function reopenPeriod(
 
 // ── pay and payroll ────────────────────────────────────────────────────────
 
-/// Head office only, all of it. A unit manager's whole contribution to payroll
-/// is closing their attendance period.
+/// A place opens and submits its own run; head office approves it and states
+/// the rules.
 ///
-/// Nothing here computes tax or BPJS, and no field carries one: a slip is the
-/// agreement in force plus the facts recorded, and the screens say so.
+/// Since 0800 the server works out PPh 21 (TER each month, the year settled in
+/// its last month) and BPJS on every slip, from the PTKP, tax method and BPJS
+/// numbers on the employee's payroll identity and the BPJS rates head office
+/// states from a date. A slip that could not be worked out carries `null` and
+/// a sentence, never a nought.
 
 export const payKeys = {
   runs: () => ["people", "payroll", "runs"] as const,
@@ -1254,6 +1334,274 @@ export const payKeys = {
   pay: (employeeId: string) => ["people", "pay", employeeId] as const,
   identity: (employeeId: string) =>
     ["people", "pay", employeeId, "identity"] as const,
+  statutoryRates: () => ["people", "payroll", "statutory-rates"] as const,
+  schedules: () => ["people", "payroll", "schedule"] as const,
+  structures: () => ["people", "payroll", "structures"] as const,
+  taxTables: () => ["people", "payroll", "tax-tables"] as const,
+  withholdings: (runId: string) =>
+    ["people", "payroll", runId, "withholdings"] as const,
+  payslipTemplate: () => ["people", "payroll", "payslip-template"] as const,
+  taxReport: (period: string) =>
+    ["people", "payroll", "tax-report", period] as const,
+  annualTax: (year: number) =>
+    ["people", "payroll", "annual-tax", year] as const,
+  loans: (employeeId: string) => ["people", "loans", employeeId] as const,
+  allLoans: () => ["people", "loans"] as const,
+}
+
+/// One person's loans, newest first.
+export function employeeLoans(
+  employeeId: string,
+  signal?: AbortSignal
+): Promise<LoanView[]> {
+  return node.get<LoanView[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/loans`,
+    { signal }
+  )
+}
+
+/// Every loan in the company.
+export function allLoans(signal?: AbortSignal): Promise<LoanView[]> {
+  return node.get<LoanView[]>("/api/v1/payroll/loans", { signal })
+}
+
+/// Lend: an advance Finance pays out, repaid from pay a fixed instalment a
+/// month from `first_period`.
+export function grantLoan(
+  employeeId: string,
+  body: GrantLoanBody
+): Promise<LoanView[]> {
+  return node.post<LoanView[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/loans`,
+    body
+  )
+}
+
+export function stopLoan(
+  advanceId: string,
+  reason: string
+): Promise<LoanView[]> {
+  return node.post<LoanView[]>(
+    `/api/v1/payroll/loans/${encodeURIComponent(advanceId)}/stop`,
+    { reason }
+  )
+}
+
+/// Every hold head office has put on somebody's pay on a run, released or not.
+export function runWithholdings(
+  runId: string,
+  signal?: AbortSignal
+): Promise<WithholdingView[]> {
+  return node.get<WithholdingView[]>(
+    `/api/v1/payroll/runs/${encodeURIComponent(runId)}/withholdings`,
+    { signal }
+  )
+}
+
+/// Hold one person's pay on a run. The slip is still worked out and still
+/// owed; nothing can be paid out to them on this run until it is released.
+export function holdPay(
+  runId: string,
+  employeeId: string,
+  reason: string
+): Promise<WithholdingView[]> {
+  return node.post<WithholdingView[]>(
+    `/api/v1/payroll/runs/${encodeURIComponent(runId)}/withholdings`,
+    { employee_id: employeeId, reason }
+  )
+}
+
+export function releasePay(
+  runId: string,
+  employeeId: string,
+  reason: string
+): Promise<WithholdingView[]> {
+  return node.post<WithholdingView[]>(
+    `/api/v1/payroll/runs/${encodeURIComponent(runId)}/withholdings/${encodeURIComponent(employeeId)}/release`,
+    { reason }
+  )
+}
+
+/// Forget somebody's payslip password so they choose a new one. HR never
+/// learns or sets it.
+export function resetPayslipPassword(
+  employeeId: string
+): Promise<{ reset: boolean }> {
+  return node.delete<{ reset: boolean }>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/payslip-password`
+  )
+}
+
+/// What a payslip says around its figures, and whether it is locked.
+export function payslipTemplate(
+  signal?: AbortSignal
+): Promise<PayslipTemplate> {
+  return node.get<PayslipTemplate>("/api/v1/payroll/payslip-template", {
+    signal,
+  })
+}
+
+export function savePayslipTemplate(
+  body: SaveTemplateBody
+): Promise<PayslipTemplate> {
+  return node.post<PayslipTemplate>("/api/v1/payroll/payslip-template", body)
+}
+
+/// Each person's PPh 21 and BPJS in a month, across every unit the caller
+/// reaches — the figures behind the monthly SPT and the BPJS invoice.
+export function taxReport(
+  period: string,
+  signal?: AbortSignal
+): Promise<TaxReportRow[]> {
+  return node.get<TaxReportRow[]>(
+    `/api/v1/payroll/tax-report?period=${encodeURIComponent(period)}`,
+    { signal }
+  )
+}
+
+/// Every employee's bukti potong 1721-A1 for a year.
+export function annualTaxSlips(
+  year: number,
+  signal?: AbortSignal
+): Promise<AnnualTaxSlip[]> {
+  return node.get<AnnualTaxSlip[]>(`/api/v1/payroll/annual-tax?year=${year}`, {
+    signal,
+  })
+}
+
+/// Every set of BPJS rates head office has stated, newest first.
+export function statutoryRates(
+  signal?: AbortSignal
+): Promise<StatutoryRateView[]> {
+  return node.get<StatutoryRateView[]>("/api/v1/payroll/statutory-rates", {
+    signal,
+  })
+}
+
+/// State new BPJS rates from a date — the JP cap every March, a new JKK
+/// class. Forward-only: a month already paid keeps the rates it was paid at.
+export function ratifyStatutoryRate(
+  body: RatifyStatutoryRateBody
+): Promise<StatutoryRateView[]> {
+  return node.post<StatutoryRateView[]>("/api/v1/payroll/statutory-rates", body)
+}
+
+/// Every payroll schedule stated (cut-off and pay day), newest first.
+export function payrollSchedules(
+  signal?: AbortSignal
+): Promise<PayrollScheduleView[]> {
+  return node.get<PayrollScheduleView[]>("/api/v1/payroll/schedule", {
+    signal,
+  })
+}
+
+export function statePayrollSchedule(
+  body: StateScheduleBody
+): Promise<PayrollScheduleView[]> {
+  return node.post<PayrollScheduleView[]>("/api/v1/payroll/schedule", body)
+}
+
+/// Put THR on a draft run for a holiday, or take it off (`null`).
+export function setRunThr(
+  runId: string,
+  holidayOn: string | null,
+  reason: string
+): Promise<PayrollRunView> {
+  return node.post<PayrollRunView>(
+    `/api/v1/payroll/runs/${encodeURIComponent(runId)}/thr`,
+    { holiday_on: holidayOn, reason }
+  )
+}
+
+/// Salary structures: a named base and fixed allowances.
+export function salaryStructures(
+  signal?: AbortSignal
+): Promise<SalaryStructureView[]> {
+  return node.get<SalaryStructureView[]>("/api/v1/payroll/structures", {
+    signal,
+  })
+}
+
+export function saveSalaryStructure(
+  body: SaveStructureBody
+): Promise<SalaryStructureView[]> {
+  return node.post<SalaryStructureView[]>("/api/v1/payroll/structures", body)
+}
+
+export function retireSalaryStructure(
+  code: string,
+  reason: string
+): Promise<SalaryStructureView[]> {
+  return node.post<SalaryStructureView[]>(
+    `/api/v1/payroll/structures/${encodeURIComponent(code)}/retirement`,
+    { reason }
+  )
+}
+
+/// Define a pay component — what a payslip may contain. Its figure is
+/// ratified separately, from a date.
+export function defineComponent(body: {
+  code: string
+  label: string
+  kind: "EARNING" | "DEDUCTION"
+  basis: string
+  base_ref?: string | null
+  unit?: string | null
+  reason: string
+}): Promise<PayComponentView> {
+  return node.post<PayComponentView>("/api/v1/payroll/components", {
+    ...body,
+    base_ref: body.base_ref ?? null,
+    unit: body.unit ?? null,
+  })
+}
+
+export function ratifyComponentRate(
+  code: string,
+  body: {
+    effective_from: string
+    amount_minor?: number | null
+    rate_minor?: number | null
+    rate_bp?: number | null
+    cap_minor?: number | null
+    hours_divisor?: number | null
+    multiplier_bp?: number | null
+    reason: string
+  }
+): Promise<unknown> {
+  return node.post(
+    `/api/v1/payroll/components/${encodeURIComponent(code)}/rates`,
+    body
+  )
+}
+
+export function retireComponent(
+  code: string,
+  reason: string
+): Promise<unknown> {
+  return node.post(
+    `/api/v1/payroll/components/${encodeURIComponent(code)}/retirement`,
+    { reason }
+  )
+}
+
+/// The law PPh 21 is worked out from: the TER tables, Pasal 17, PTKP.
+export function taxTables(signal?: AbortSignal): Promise<TaxTablesView> {
+  return node.get<TaxTablesView>("/api/v1/payroll/tax-tables", { signal })
+}
+
+/// Who bears PPh 21, in the words a payslip uses.
+export function taxMethodLabel(method: string | null | undefined): string {
+  switch (method) {
+    case "GROSS_UP":
+      return "Gross up — a tunjangan pays the tax"
+    case "NETTO":
+      return "Netto — the company bears the tax"
+    case "GROSS":
+      return "Gross — withheld from pay"
+    default:
+      return "—"
+  }
 }
 
 export function readPay(
@@ -1319,6 +1667,14 @@ export function amendPayrollIdentity(
       effective_from: amendment.effectiveFrom,
       reason: amendment.reason,
     }
+  )
+}
+
+/// Work a draft run's slips out again from what the month holds now.
+export function rebuildRun(runId: string): Promise<PayrollRunView> {
+  return node.post<PayrollRunView>(
+    `/api/v1/payroll/runs/${encodeURIComponent(runId)}/rebuild`,
+    {}
   )
 }
 
@@ -2950,14 +3306,6 @@ export type TrainingProgramView = {
   participants: number
 }
 
-export type UniformIssuanceView = {
-  id: string
-  employee_id: string
-  issued_on: string
-  sets: number
-  recorded_by: string
-}
-
 export type RuleView = {
   key: string
   group: string
@@ -3305,26 +3653,6 @@ export function nominateForTraining(
 
 // ── benefits ────────────────────────────────────────────────────────────────
 
-export function listUniformIssuances(
-  employeeId: string,
-  signal?: AbortSignal
-): Promise<UniformIssuanceView[]> {
-  return node.get<UniformIssuanceView[]>(
-    `/api/v1/employees/${enc(employeeId)}/uniform-issuances`,
-    { signal }
-  )
-}
-
-export function recordUniformIssuance(
-  employeeId: string,
-  body: { issued_on: string; sets: number; reason: string }
-): Promise<UniformIssuanceView[]> {
-  return node.post<UniformIssuanceView[]>(
-    `/api/v1/employees/${enc(employeeId)}/uniform-issuances`,
-    body
-  )
-}
-
 // ── the rule numbers and the org masters ────────────────────────────────────
 
 export function readRules(
@@ -3428,4 +3756,488 @@ export function bonusTierFor(
   if (kpi >= t2) return num("pay.bonus_tier2_rate")
   if (kpi >= t1) return num("pay.bonus_tier1_rate")
   return 0
+}
+
+// ── the organisation (0805) ─────────────────────────────────────────────────
+
+export const orgKeys = {
+  company: () => ["people", "org", "company"] as const,
+  departments: () => ["people", "org", "departments"] as const,
+  levels: () => ["people", "org", "levels"] as const,
+  grades: () => ["people", "org", "grades"] as const,
+  chart: () => ["people", "org", "chart"] as const,
+  businessUnits: () => ["people", "org", "business-units"] as const,
+  group: () => ["people", "org", "group"] as const,
+  checklistTemplates: () => ["people", "org", "checklist-templates"] as const,
+  checklist: (employeeId: string) =>
+    ["people", "org", "checklist", employeeId] as const,
+  placements: (employeeId: string) =>
+    ["people", "org", "placements", employeeId] as const,
+}
+
+export function orgCompany(signal?: AbortSignal): Promise<CompanyView> {
+  return node.get<CompanyView>("/api/v1/org/company", { signal })
+}
+
+export function registerBpjs(body: RegisterBpjsBody): Promise<CompanyView> {
+  return node.post<CompanyView>("/api/v1/org/bpjs-registration", body)
+}
+
+export function departments(signal?: AbortSignal): Promise<DepartmentView[]> {
+  return node.get<DepartmentView[]>("/api/v1/org/departments", { signal })
+}
+
+export function saveDepartment(
+  body: SaveDepartmentBody
+): Promise<DepartmentView[]> {
+  return node.post<DepartmentView[]>("/api/v1/org/departments", body)
+}
+
+export function retireDepartment(
+  code: string,
+  reason: string
+): Promise<DepartmentView[]> {
+  return node.post<DepartmentView[]>(
+    `/api/v1/org/departments/${encodeURIComponent(code)}/retirement`,
+    { reason }
+  )
+}
+
+export function jobLevels(signal?: AbortSignal): Promise<JobLevelView[]> {
+  return node.get<JobLevelView[]>("/api/v1/org/levels", { signal })
+}
+
+export function saveJobLevel(body: SaveJobLevelBody): Promise<JobLevelView[]> {
+  return node.post<JobLevelView[]>("/api/v1/org/levels", body)
+}
+
+export function retireJobLevel(
+  code: string,
+  reason: string
+): Promise<JobLevelView[]> {
+  return node.post<JobLevelView[]>(
+    `/api/v1/org/levels/${encodeURIComponent(code)}/retirement`,
+    { reason }
+  )
+}
+
+export function jobGrades(signal?: AbortSignal): Promise<JobGradeView[]> {
+  return node.get<JobGradeView[]>("/api/v1/org/job-grades", { signal })
+}
+
+export function saveJobGrade(body: SaveJobGradeBody): Promise<JobGradeView[]> {
+  return node.post<JobGradeView[]>("/api/v1/org/job-grades", body)
+}
+
+export function retireJobGrade(
+  code: string,
+  reason: string
+): Promise<JobGradeView[]> {
+  return node.post<JobGradeView[]>(
+    `/api/v1/org/job-grades/${encodeURIComponent(code)}/retirement`,
+    { reason }
+  )
+}
+
+export function orgChart(signal?: AbortSignal): Promise<OrgChartNode[]> {
+  return node.get<OrgChartNode[]>("/api/v1/org/chart", { signal })
+}
+
+export function placements(
+  employeeId: string,
+  signal?: AbortSignal
+): Promise<PlacementView[]> {
+  return node.get<PlacementView[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/placements`,
+    { signal }
+  )
+}
+
+export function placeEmployee(
+  employeeId: string,
+  body: PlaceBody
+): Promise<PlacementView[]> {
+  return node.post<PlacementView[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/placements`,
+    body
+  )
+}
+
+export function businessUnits(
+  signal?: AbortSignal
+): Promise<BusinessUnitView[]> {
+  return node.get<BusinessUnitView[]>("/api/v1/org/business-units", { signal })
+}
+
+export function saveBusinessUnit(
+  body: SaveBusinessUnitBody
+): Promise<BusinessUnitView[]> {
+  return node.post<BusinessUnitView[]>("/api/v1/org/business-units", body)
+}
+
+export function groupEntities(
+  signal?: AbortSignal
+): Promise<GroupEntityView[]> {
+  return node.get<GroupEntityView[]>("/api/v1/org/group", { signal })
+}
+
+export function saveGroupEntity(
+  body: SaveGroupEntityBody
+): Promise<GroupEntityView[]> {
+  return node.post<GroupEntityView[]>("/api/v1/org/group", body)
+}
+
+export function removeGroupEntity(code: string): Promise<GroupEntityView[]> {
+  return node.delete<GroupEntityView[]>(
+    `/api/v1/org/group/${encodeURIComponent(code)}`
+  )
+}
+
+// ── checklists (0806) ───────────────────────────────────────────────────────
+
+export function checklistTemplates(
+  signal?: AbortSignal
+): Promise<ChecklistTemplateView[]> {
+  return node.get<ChecklistTemplateView[]>("/api/v1/lifecycle/templates", {
+    signal,
+  })
+}
+
+export function saveChecklistTemplate(
+  body: SaveChecklistTemplateBody
+): Promise<ChecklistTemplateView[]> {
+  return node.post<ChecklistTemplateView[]>("/api/v1/lifecycle/templates", body)
+}
+
+export function retireChecklistTemplate(
+  id: string,
+  reason: string
+): Promise<ChecklistTemplateView[]> {
+  return node.post<ChecklistTemplateView[]>(
+    `/api/v1/lifecycle/templates/${encodeURIComponent(id)}/retirement`,
+    { reason }
+  )
+}
+
+/// One person's checklist tasks, both kinds.
+export function employeeChecklist(
+  employeeId: string,
+  signal?: AbortSignal
+): Promise<LifecycleTaskView[]> {
+  return node.get<LifecycleTaskView[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/lifecycle-tasks`,
+    { signal }
+  )
+}
+
+/// Open a checklist for somebody — onboarding on a hire made before the
+/// checklist existed, separation when they leave.
+export function openChecklist(
+  employeeId: string,
+  kind: "ONBOARDING" | "SEPARATION"
+): Promise<LifecycleTaskView[]> {
+  return node.post<LifecycleTaskView[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/lifecycle-tasks`,
+    { kind }
+  )
+}
+
+// ── attendance settings (0807) ──────────────────────────────────────────────
+
+export const attendanceSettingKeys = {
+  mobile: () => ["people", "attendance", "mobile-setting"] as const,
+  geofences: () => ["people", "attendance", "geofences"] as const,
+  absenceRules: () => ["people", "payroll", "absence-rules"] as const,
+  overtimeTier: () => ["people", "payroll", "overtime-tier"] as const,
+}
+
+export function mobileSetting(
+  signal?: AbortSignal
+): Promise<MobileAttendanceSetting> {
+  return node.get<MobileAttendanceSetting>(
+    "/api/v1/attendance/mobile-setting",
+    {
+      signal,
+    }
+  )
+}
+
+export function saveMobileSetting(
+  body: SaveMobileSettingBody
+): Promise<MobileAttendanceSetting> {
+  return node.post<MobileAttendanceSetting>(
+    "/api/v1/attendance/mobile-setting",
+    body
+  )
+}
+
+export function geofences(signal?: AbortSignal): Promise<GeofenceView[]> {
+  return node.get<GeofenceView[]>("/api/v1/attendance/geofences", { signal })
+}
+
+export function setGeofence(
+  unitId: string,
+  body: SetGeofenceBody
+): Promise<GeofenceView[]> {
+  return node.post<GeofenceView[]>(
+    `/api/v1/attendance/geofences/${encodeURIComponent(unitId)}`,
+    body
+  )
+}
+
+export function removeGeofence(unitId: string): Promise<GeofenceView[]> {
+  return node.delete<GeofenceView[]>(
+    `/api/v1/attendance/geofences/${encodeURIComponent(unitId)}`
+  )
+}
+
+export function absenceRules(signal?: AbortSignal): Promise<AbsenceRuleView[]> {
+  return node.get<AbsenceRuleView[]>("/api/v1/payroll/absence-rules", {
+    signal,
+  })
+}
+
+export function stateAbsenceRule(
+  body: StateAbsenceRuleBody
+): Promise<AbsenceRuleView[]> {
+  return node.post<AbsenceRuleView[]>("/api/v1/payroll/absence-rules", body)
+}
+
+export function overtimeTier(signal?: AbortSignal): Promise<OvertimeTierView> {
+  return node.get<OvertimeTierView>("/api/v1/payroll/overtime-tier", { signal })
+}
+
+export function setOvertimeTier(body: {
+  rest_day_first_tier_minutes: number
+  reason: string
+}): Promise<OvertimeTierView> {
+  return node.post<OvertimeTierView>("/api/v1/payroll/overtime-tier", body)
+}
+
+// ── leave beyond requests (0809) ────────────────────────────────────────────
+
+export const leaveExtraKeys = {
+  blackouts: () => ["people", "leave", "blackouts"] as const,
+  encashments: (employeeId: string) =>
+    ["people", "leave", "encashments", employeeId] as const,
+  holidayWork: (from: string, to: string) =>
+    ["people", "leave", "holiday-work", from, to] as const,
+  calendar: (from: string, to: string) =>
+    ["people", "leave", "calendar", from, to] as const,
+}
+
+export function leaveBlackouts(
+  signal?: AbortSignal
+): Promise<LeaveBlackoutView[]> {
+  return node.get<LeaveBlackoutView[]>("/api/v1/leave-blackouts", { signal })
+}
+
+export function blockLeave(body: {
+  from_date: string
+  to_date: string
+  unit_id: string | null
+  reason: string
+}): Promise<LeaveBlackoutView[]> {
+  return node.post<LeaveBlackoutView[]>("/api/v1/leave-blackouts", body)
+}
+
+export function liftLeaveBlock(
+  id: string,
+  reason: string
+): Promise<LeaveBlackoutView[]> {
+  return node.post<LeaveBlackoutView[]>(
+    `/api/v1/leave-blackouts/${encodeURIComponent(id)}/lift`,
+    { reason }
+  )
+}
+
+export function leaveEncashments(
+  employeeId: string,
+  signal?: AbortSignal
+): Promise<LeaveEncashmentView[]> {
+  return node.get<LeaveEncashmentView[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/leave-encashments`,
+    { signal }
+  )
+}
+
+export function encashLeave(
+  employeeId: string,
+  body: {
+    leave_type: string
+    days: number
+    period: string
+    divisor_days: number | null
+    reason: string
+  }
+): Promise<LeaveEncashmentView[]> {
+  return node.post<LeaveEncashmentView[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/leave-encashments`,
+    body
+  )
+}
+
+export function holidayWork(
+  from: string,
+  to: string,
+  signal?: AbortSignal
+): Promise<HolidayWorkView[]> {
+  return node.get<HolidayWorkView[]>(
+    `/api/v1/holiday-work?from=${from}&to=${to}`,
+    { signal }
+  )
+}
+
+export function recordHolidayWork(
+  employeeId: string,
+  body: { on_date: string; leave_type: string; days: number; reason: string }
+): Promise<HolidayWorkView[]> {
+  return node.post<HolidayWorkView[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/holiday-work`,
+    body
+  )
+}
+
+export function teamCalendar(
+  from: string,
+  to: string,
+  signal?: AbortSignal
+): Promise<TeamCalendarView> {
+  return node.get<TeamCalendarView>(
+    `/api/v1/team-calendar?from=${from}&to=${to}`,
+    { signal }
+  )
+}
+
+// ── claim allowances (0810) ─────────────────────────────────────────────────
+
+export const claimBenefitKeys = {
+  rules: () => ["people", "claims", "benefits"] as const,
+  balances: (employeeId: string, year: number) =>
+    ["people", "claims", "balances", employeeId, year] as const,
+}
+
+export function claimBenefits(
+  signal?: AbortSignal
+): Promise<ClaimBenefitView[]> {
+  return node.get<ClaimBenefitView[]>("/api/v1/claim-benefits", { signal })
+}
+
+export function stateClaimBenefit(body: {
+  type_code: string
+  effective_from: string
+  yearly_limit_minor: number | null
+  reason: string
+}): Promise<ClaimBenefitView[]> {
+  return node.post<ClaimBenefitView[]>("/api/v1/claim-benefits", body)
+}
+
+export function claimBalances(
+  employeeId: string,
+  year: number,
+  signal?: AbortSignal
+): Promise<ClaimBalanceRow[]> {
+  return node.get<ClaimBalanceRow[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/claim-balances?year=${year}`,
+    { signal }
+  )
+}
+
+export function overrideClaimBenefit(
+  employeeId: string,
+  body: { type_code: string; year: number; limit_minor: number; reason: string }
+): Promise<ClaimBalanceRow[]> {
+  return node.post<ClaimBalanceRow[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/claim-balances`,
+    body
+  )
+}
+
+// ── warning letters (0811) ──────────────────────────────────────────────────
+
+export const letterKeys = {
+  of: (employeeId: string) =>
+    ["people", "warning-letters", employeeId] as const,
+  active: () => ["people", "warning-letters", "active"] as const,
+}
+
+export function warningLetters(
+  employeeId: string,
+  signal?: AbortSignal
+): Promise<WarningLetterView[]> {
+  return node.get<WarningLetterView[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/warning-letters`,
+    { signal }
+  )
+}
+
+export function activeWarningLetters(
+  signal?: AbortSignal
+): Promise<WarningLetterView[]> {
+  return node.get<WarningLetterView[]>("/api/v1/warning-letters", { signal })
+}
+
+export function issueWarningLetter(
+  employeeId: string,
+  body: {
+    level: string
+    issued_on: string
+    valid_months: number | null
+    violation: string
+    reason: string
+  }
+): Promise<WarningLetterView[]> {
+  return node.post<WarningLetterView[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/warning-letters`,
+    body
+  )
+}
+
+export function revokeWarningLetter(
+  id: string,
+  reason: string
+): Promise<WarningLetterView[]> {
+  return node.post<WarningLetterView[]>(
+    `/api/v1/warning-letters/${encodeURIComponent(id)}/revocation`,
+    { reason }
+  )
+}
+
+// ── delegation and the employee app (0812, 0813) ────────────────────────────
+
+export const delegationKeys = {
+  all: () => ["people", "delegations"] as const,
+  ess: () => ["people", "ess-modules"] as const,
+}
+
+export function delegations(signal?: AbortSignal): Promise<DelegationView[]> {
+  return node.get<DelegationView[]>("/api/v1/approval-delegations", { signal })
+}
+
+export function delegate(body: {
+  delegator: string | null
+  delegate: string
+  from_date: string
+  to_date: string
+  reason: string
+}): Promise<DelegationView[]> {
+  return node.post<DelegationView[]>("/api/v1/approval-delegations", body)
+}
+
+export function revokeDelegation(id: string): Promise<DelegationView[]> {
+  return node.post<DelegationView[]>(
+    `/api/v1/approval-delegations/${encodeURIComponent(id)}/revocation`,
+    {}
+  )
+}
+
+export function essModules(signal?: AbortSignal): Promise<EssModulesView> {
+  return node.get<EssModulesView>("/api/v1/ess-modules", { signal })
+}
+
+export function setEssModules(body: {
+  modules: string[]
+  reason: string
+}): Promise<EssModulesView> {
+  return node.post<EssModulesView>("/api/v1/ess-modules", body)
 }

@@ -292,6 +292,15 @@ const RESERVED: &[(u32, u32, &str)] = &[
         "left unused on 28 Sep 2026: the remote-actions lane was given \
          0643-0645 and needed only 0643",
     ),
+    (
+        652,
+        799,
+        "held on 30 Sep 2026 for lanes in flight on the working tree when \
+         the Indonesian-payroll lane branched from b6f50c1: the units lane \
+         had 0652-0657 and the roles/series/master-history lanes 0700-0714 \
+         uncommitted. The payroll lane took a distant block at 0800 rather \
+         than crowd them; whichever of those files land, land inside this",
+    ),
 ];
 
 #[test]

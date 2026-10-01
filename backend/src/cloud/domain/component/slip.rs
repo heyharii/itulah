@@ -70,6 +70,11 @@ pub struct SlipLine {
     base_of: Option<Money>,
     units: Option<i64>,
     unit_rate: Option<Money>,
+    /// The rate a statutory line was levied at (a TER rate, a BPJS share), in
+    /// hundredths of a percent. A standing line's rate is in its basis.
+    statutory_rate_bp: Option<i64>,
+    /// Paid by the company on the employee's behalf: on the slip, not from net.
+    employer_borne: bool,
 }
 
 impl SlipLine {
@@ -95,7 +100,31 @@ impl SlipLine {
             base_of,
             units,
             unit_rate,
+            statutory_rate_bp: None,
+            employer_borne: component.employer_borne(),
         })
+    }
+
+    /// A line the statutory kernel worked out: PPh 21 or a BPJS contribution.
+    pub fn statutory(
+        component: &PayComponent,
+        amount: Money,
+        base_of: Option<Money>,
+        rate_bp: Option<i64>,
+    ) -> Self {
+        Self {
+            kind: component.kind(),
+            code: component.code().clone(),
+            label: component.label().to_owned(),
+            shape: ComponentShape::Statutory,
+            basis: None,
+            amount,
+            base_of,
+            units: None,
+            unit_rate: None,
+            statutory_rate_bp: rate_bp,
+            employer_borne: component.employer_borne(),
+        }
     }
 
     /// A one-off the place filed. The figure is the figure; there is nothing to
@@ -112,6 +141,8 @@ impl SlipLine {
             base_of: None,
             units: None,
             unit_rate: None,
+            statutory_rate_bp: None,
+            employer_borne: component.employer_borne(),
         }
     }
 
@@ -142,6 +173,12 @@ impl SlipLine {
     pub const fn unit_rate(&self) -> Option<Money> {
         self.unit_rate
     }
+    pub const fn statutory_rate_bp(&self) -> Option<i64> {
+        self.statutory_rate_bp
+    }
+    pub const fn employer_borne(&self) -> bool {
+        self.employer_borne
+    }
     pub fn unit(&self) -> Option<CountedUnit> {
         self.basis.and_then(|basis| basis.unit())
     }
@@ -164,6 +201,8 @@ pub struct SlipComputation {
     gross: Money,
     deduction_total: Option<Money>,
     net: Option<Money>,
+    /// What the company pays on top of gross: its BPJS share, a tax it bears.
+    company_borne: Money,
     incomplete_because: Option<String>,
 }
 
@@ -186,7 +225,26 @@ impl SlipComputation {
         catalogue: &[ComponentInForce],
         adjustments: &[PayrollAdjustment],
     ) -> Result<Self, ComponentError> {
-        let mut lines = Vec::new();
+        Self::compute_with(statutory_base, facts, catalogue, adjustments, Vec::new(), Vec::new())
+    }
+
+    /// As [`Self::compute`], plus the lines the statutory kernel worked out and
+    /// the reasons it could not work some out (no PTKP recorded, a system
+    /// component retired). A reason leaves the net unknown, exactly as an
+    /// unratified component does.
+    ///
+    /// A deduction the company bears is on the slip and in
+    /// [`Self::company_borne`], and not in the deduction total or the net: it
+    /// is the company's cost, which is how the accrual already posts it (0466).
+    pub fn compute_with(
+        statutory_base: Money,
+        facts: &SlipFacts,
+        catalogue: &[ComponentInForce],
+        adjustments: &[PayrollAdjustment],
+        statutory: Vec<SlipLine>,
+        statutory_blocked: Vec<String>,
+    ) -> Result<Self, ComponentError> {
+        let mut lines = statutory;
         let mut unratified: Vec<&str> = Vec::new();
         let mut unratified_deduction = false;
 
@@ -235,8 +293,16 @@ impl SlipComputation {
         };
         let mut gross = statutory_base;
         let mut deductions = Money::ZERO;
+        let mut company_borne = Money::ZERO;
         for line in &lines {
             match line.kind {
+                ComponentKind::Deduction if line.employer_borne => {
+                    company_borne = company_borne
+                        .minor
+                        .checked_add(line.amount.minor)
+                        .map(Money::new)
+                        .ok_or_else(overflow)?;
+                }
                 ComponentKind::Earning => {
                     gross = gross
                         .minor
@@ -259,6 +325,7 @@ impl SlipComputation {
         let deductions_were_configured = catalogue.iter().any(|in_force| {
             !in_force.component.is_retired()
                 && in_force.component.kind() == ComponentKind::Deduction
+                && !in_force.component.employer_borne()
         });
 
         let mut reasons: Vec<String> = Vec::new();
@@ -280,8 +347,11 @@ impl SlipComputation {
                 }
             ));
         }
+        let statutory_unknown = !statutory_blocked.is_empty();
+        reasons.extend(statutory_blocked);
 
-        let deduction_total = if deductions_were_configured && !unratified_deduction {
+        let deduction_total =
+            if deductions_were_configured && !unratified_deduction && !statutory_unknown {
             Some(deductions)
         } else {
             None
@@ -304,6 +374,7 @@ impl SlipComputation {
             gross,
             deduction_total,
             net,
+            company_borne,
             incomplete_because: if reasons.is_empty() {
                 None
             } else {
@@ -327,6 +398,9 @@ impl SlipComputation {
     /// `None` when anything at all could not be worked out.
     pub const fn net(&self) -> Option<Money> {
         self.net
+    }
+    pub const fn company_borne(&self) -> Money {
+        self.company_borne
     }
     pub fn incomplete_because(&self) -> Option<&str> {
         self.incomplete_because.as_deref()

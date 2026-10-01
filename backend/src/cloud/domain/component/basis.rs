@@ -146,6 +146,16 @@ pub enum CountedUnit {
     /// rest day because `overtime_order` already distinguishes them and
     /// merging them would throw a fact away.
     OvertimeHoliday,
+    /// The hour after the first tier on a rest day (the 8th hour on a six-day
+    /// week), counted **on top of** `OvertimeRestDay`, which counts every
+    /// minute: Kepmenaker 102/2004 pays it 3× where the first tier is 2×, so
+    /// its component carries the extra 1× (0808).
+    OvertimeRestDayNextHour,
+    /// Minutes beyond that hour on a rest day (4×; the extra 2×).
+    OvertimeRestDayBeyond,
+    /// The same two tiers on a public holiday.
+    OvertimeHolidayNextHour,
+    OvertimeHolidayBeyond,
     /// Days **planned** in the month. Whole days.
     ///
     /// Not days worked: there is no punch source in this estate, and a unit
@@ -164,6 +174,10 @@ impl CountedUnit {
             Self::OvertimeWorkdayLater => "OVERTIME_WORKDAY_LATER",
             Self::OvertimeRestDay => "OVERTIME_REST_DAY",
             Self::OvertimeHoliday => "OVERTIME_HOLIDAY",
+            Self::OvertimeRestDayNextHour => "OVERTIME_REST_DAY_NEXT_HOUR",
+            Self::OvertimeRestDayBeyond => "OVERTIME_REST_DAY_BEYOND",
+            Self::OvertimeHolidayNextHour => "OVERTIME_HOLIDAY_NEXT_HOUR",
+            Self::OvertimeHolidayBeyond => "OVERTIME_HOLIDAY_BEYOND",
             Self::RosteredDay => "ROSTERED_DAY",
             Self::LeaveDayTaken => "LEAVE_DAY_TAKEN",
         }
@@ -175,6 +189,10 @@ impl CountedUnit {
             "OVERTIME_WORKDAY_LATER" => Ok(Self::OvertimeWorkdayLater),
             "OVERTIME_REST_DAY" => Ok(Self::OvertimeRestDay),
             "OVERTIME_HOLIDAY" => Ok(Self::OvertimeHoliday),
+            "OVERTIME_REST_DAY_NEXT_HOUR" => Ok(Self::OvertimeRestDayNextHour),
+            "OVERTIME_REST_DAY_BEYOND" => Ok(Self::OvertimeRestDayBeyond),
+            "OVERTIME_HOLIDAY_NEXT_HOUR" => Ok(Self::OvertimeHolidayNextHour),
+            "OVERTIME_HOLIDAY_BEYOND" => Ok(Self::OvertimeHolidayBeyond),
             "ROSTERED_DAY" => Ok(Self::RosteredDay),
             "LEAVE_DAY_TAKEN" => Ok(Self::LeaveDayTaken),
             other => Err(ComponentError::UnknownUnit {
@@ -199,7 +217,11 @@ impl CountedUnit {
             Self::OvertimeWorkdayFirstHour
             | Self::OvertimeWorkdayLater
             | Self::OvertimeRestDay
-            | Self::OvertimeHoliday => 60,
+            | Self::OvertimeHoliday
+            | Self::OvertimeRestDayNextHour
+            | Self::OvertimeRestDayBeyond
+            | Self::OvertimeHolidayNextHour
+            | Self::OvertimeHolidayBeyond => 60,
             Self::RosteredDay | Self::LeaveDayTaken => 1,
         }
     }
@@ -213,6 +235,10 @@ impl CountedUnit {
                 | Self::OvertimeWorkdayLater
                 | Self::OvertimeRestDay
                 | Self::OvertimeHoliday
+                | Self::OvertimeRestDayNextHour
+                | Self::OvertimeRestDayBeyond
+                | Self::OvertimeHolidayNextHour
+                | Self::OvertimeHolidayBeyond
         )
     }
 
@@ -223,7 +249,11 @@ impl CountedUnit {
             Self::OvertimeWorkdayFirstHour
             | Self::OvertimeWorkdayLater
             | Self::OvertimeRestDay
-            | Self::OvertimeHoliday => "minutes",
+            | Self::OvertimeHoliday
+            | Self::OvertimeRestDayNextHour
+            | Self::OvertimeRestDayBeyond
+            | Self::OvertimeHolidayNextHour
+            | Self::OvertimeHolidayBeyond => "minutes",
             Self::RosteredDay | Self::LeaveDayTaken => "days",
         }
     }
@@ -235,7 +265,11 @@ impl CountedUnit {
             Self::OvertimeWorkdayFirstHour
             | Self::OvertimeWorkdayLater
             | Self::OvertimeRestDay
-            | Self::OvertimeHoliday => "hour",
+            | Self::OvertimeHoliday
+            | Self::OvertimeRestDayNextHour
+            | Self::OvertimeRestDayBeyond
+            | Self::OvertimeHolidayNextHour
+            | Self::OvertimeHolidayBeyond => "hour",
             Self::RosteredDay | Self::LeaveDayTaken => "day",
         }
     }
@@ -267,6 +301,11 @@ pub enum ComponentShape {
     /// one-off against it, one person and one month at a time. There is
     /// nothing to ratify and no rate row can be written.
     PerOccasion,
+    /// Worked out by the statutory kernel (`domain::pay::statutory`): PPh 21
+    /// and BPJS. Seeded by `0800` and never defined through the API; like a
+    /// one-off it has no rate row, because the law and `statutory_rate` are
+    /// its rate.
+    Statutory,
 }
 
 impl ComponentShape {
@@ -277,6 +316,7 @@ impl ComponentShape {
             Self::RatePerUnit => "RATE_PER_UNIT",
             Self::FractionOfBasePerUnit => "FRACTION_OF_BASE_PER_UNIT",
             Self::PerOccasion => "PER_OCCASION",
+            Self::Statutory => "STATUTORY",
         }
     }
 
@@ -287,6 +327,7 @@ impl ComponentShape {
             "RATE_PER_UNIT" => Ok(Self::RatePerUnit),
             "FRACTION_OF_BASE_PER_UNIT" => Ok(Self::FractionOfBasePerUnit),
             "PER_OCCASION" => Ok(Self::PerOccasion),
+            "STATUTORY" => Ok(Self::Statutory),
             other => Err(ComponentError::UnknownShape {
                 value: other.to_owned(),
             }),
@@ -299,7 +340,7 @@ impl ComponentShape {
     /// rather than a gap: a component with nothing standing has nothing to
     /// ratify, so it can never be the reason a slip is incomplete.
     pub const fn has_standing_rate(self) -> bool {
-        !matches!(self, Self::PerOccasion)
+        !matches!(self, Self::PerOccasion | Self::Statutory)
     }
 
     /// Whether it names a base, and whether it names a unit.
@@ -553,6 +594,12 @@ pub struct SlipFacts {
     pub overtime_workday_later: i64,
     pub overtime_rest_day: i64,
     pub overtime_holiday: i64,
+    /// The rest-day and holiday tiers past the first (0808), each counting
+    /// only the minutes in it.
+    pub overtime_rest_day_next_hour: i64,
+    pub overtime_rest_day_beyond: i64,
+    pub overtime_holiday_next_hour: i64,
+    pub overtime_holiday_beyond: i64,
     /// Whole days.
     pub rostered_days: i64,
     pub leave_days_taken: i64,
@@ -572,6 +619,10 @@ impl SlipFacts {
             CountedUnit::OvertimeWorkdayLater => self.overtime_workday_later,
             CountedUnit::OvertimeRestDay => self.overtime_rest_day,
             CountedUnit::OvertimeHoliday => self.overtime_holiday,
+            CountedUnit::OvertimeRestDayNextHour => self.overtime_rest_day_next_hour,
+            CountedUnit::OvertimeRestDayBeyond => self.overtime_rest_day_beyond,
+            CountedUnit::OvertimeHolidayNextHour => self.overtime_holiday_next_hour,
+            CountedUnit::OvertimeHolidayBeyond => self.overtime_holiday_beyond,
             CountedUnit::RosteredDay => self.rostered_days,
             CountedUnit::LeaveDayTaken => self.leave_days_taken,
         }

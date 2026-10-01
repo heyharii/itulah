@@ -15,7 +15,8 @@ import { changeOwnPassword } from "@/lib/queries/system"
 import { useIdentity, useSignOut } from "@/lib/session"
 import { Secret } from "@/screens/system/shared"
 import { saying } from "@/screens/system/units"
-import { useProfile } from "@/screens/me/data/queries"
+import { useEssModules, useProfile } from "@/screens/me/data/queries"
+import { moduleOf } from "@/screens/me/data/ess"
 import { Home } from "@/screens/me/home"
 import { meNav } from "@/screens/me/nav"
 
@@ -44,9 +45,12 @@ export function Profile() {
   const unbound =
     profile.error instanceof ApiError && profile.error.status === 404
   const me = identity.data
-  const records = meNav.sections[0].items.filter(
-    (item) => !item.hidden && item.path !== "/me"
-  )
+  const modules = useEssModules().data?.modules
+  const records = meNav.sections[0].items.filter((item) => {
+    if (item.hidden || item.path === "/me") return false
+    const module = moduleOf(item.path)
+    return module === null || modules === undefined || modules.includes(module)
+  })
 
   const GROUP =
     "overflow-hidden rounded-2xl border border-hairline bg-canvas shadow-soft"

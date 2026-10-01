@@ -30,6 +30,7 @@ use crate::cloud::domain::{
     CountedUnit, FixedAllowance, HandoverState, IdentityAmendment, PayError, PayRecord,
     PayTimeline, PayrollHandover, PayrollHandoverLine, PayrollHandoverWire, PayrollIdentity,
     PayrollRun, PayrollRunWire, UnitId, RunEvent, RunState, SlipComputation, SlipFacts, SlipLine,
+    statutory, BpjsRates, ComponentInForce, PtkpStatus, TaxMethod, TerCategory,
 };
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use pricing_engine::Money;
@@ -155,8 +156,8 @@ pub async fn save_payroll_identity(
     sqlx::query(
         "INSERT INTO payroll_identity
              (employee_id, bank_name, bank_account, bank_holder, npwp, ptkp,
-              bpjs_kesehatan, bpjs_ketenagakerjaan, amendments)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+              bpjs_kesehatan, bpjs_ketenagakerjaan, amendments, tax_method)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (employee_id) DO UPDATE SET
             bank_name = EXCLUDED.bank_name,
             bank_account = EXCLUDED.bank_account,
@@ -166,6 +167,7 @@ pub async fn save_payroll_identity(
             bpjs_kesehatan = EXCLUDED.bpjs_kesehatan,
             bpjs_ketenagakerjaan = EXCLUDED.bpjs_ketenagakerjaan,
             amendments = EXCLUDED.amendments,
+            tax_method = EXCLUDED.tax_method,
             updated_at = now()",
     )
     .bind(employee_id)
@@ -177,6 +179,7 @@ pub async fn save_payroll_identity(
     .bind(identity.bpjs_kesehatan())
     .bind(identity.bpjs_ketenagakerjaan())
     .bind(serde_json::to_value(identity.amendments())?)
+    .bind(identity.tax_method().as_str())
     .execute(pool)
     .await?;
     Ok(())
@@ -254,6 +257,41 @@ pub struct PayrollSlipRow {
     /// was computed from.
     pub earnings: Vec<SlipLineRow>,
     pub deductions: Vec<SlipLineRow>,
+    /// What the company pays on the employee's behalf and does not take from
+    /// net pay: its share of BPJS, and PPh 21 when the company bears it
+    /// (`NETTO`). A third column, because it is on the slip and in no total the
+    /// employee is paid from (0800).
+    pub company_contributions: Vec<SlipLineRow>,
+    /// The sum of `company_contributions`. `null` on a slip built before 0800.
+    pub company_borne_minor: Option<i64>,
+    /// Calendar days of the month this person was posted here on an agreement;
+    /// base and fixed allowances are prorated by `days_paid / days_in_month`.
+    /// `null` on a slip built before 0800.
+    pub days_paid: Option<i32>,
+    pub days_in_month: Option<i32>,
+    /// Who bore PPh 21 on this slip: `GROSS`, `GROSS_UP` or `NETTO`.
+    pub tax_method: Option<String>,
+    /// The PTKP status applied, and the TER table it selected (`A`/`B`/`C`).
+    pub ptkp: Option<String>,
+    pub ter_category: Option<String>,
+    /// The gross PPh 21 was levied on: cash earnings plus the company's BPJS
+    /// Kesehatan, JKK and JKM (they are the employee's income for tax).
+    pub taxable_gross_minor: Option<i64>,
+    /// PPh 21 of the month, withheld or borne. Negative in a last month that
+    /// gave back what the year over-withheld. `null` when it could not be
+    /// worked out — the reason is in `components_incomplete_because`.
+    pub pph21_minor: Option<i64>,
+    /// The employee's own JHT + JP, deductible in the year's tax.
+    pub pension_contribution_minor: Option<i64>,
+    /// Head office is holding this person's pay on this run (0803): still
+    /// owed, not to be paid until released.
+    pub withheld: bool,
+    /// True in the month the year was settled (December, or the last month of
+    /// employment): PPh 21 is the year's Pasal 17 tax less what was withheld.
+    pub final_tax_month: Option<bool>,
+    /// Rostered working days absent in the attendance month (0807); `null` on
+    /// a slip built before it.
+    pub absent_days: Option<i32>,
     /// The statutory base plus every earning line. Never a guess: every figure
     /// in it is on this slip.
     pub gross_minor: i64,
@@ -305,11 +343,13 @@ pub struct SlipLineRow {
     /// Money per hour for overtime, per day otherwise.
     pub rate_minor: Option<i64>,
     pub amount_minor: i64,
+    /// Paid by the company, not taken from net pay.
+    pub employer_borne: bool,
 }
 
 const SLIP_LINE_COLUMNS: &str = "l.run_id, l.employee_id, l.line_no, l.kind, l.component_code, \
      l.label, l.basis, l.base_ref, l.base_of_minor, l.rate_bp, l.cap_minor, l.hours_divisor, \
-     l.multiplier_bp, l.unit, l.units, l.rate_minor, l.amount_minor";
+     l.multiplier_bp, l.unit, l.units, l.rate_minor, l.amount_minor, l.employer_borne";
 
 /// `(run_id, employee_id, line)`, so one query's rows can be attached to the
 /// slips they belong to without a query per slip.
@@ -332,6 +372,7 @@ fn slip_line_row(row: &sqlx::postgres::PgRow) -> Result<(String, String, SlipLin
             units: row.try_get("units")?,
             rate_minor: row.try_get("rate_minor")?,
             amount_minor: row.try_get("amount_minor")?,
+            employer_borne: row.try_get("employer_borne")?,
         },
     ))
 }
@@ -354,10 +395,13 @@ fn slip_row(
 
     let mut earnings = Vec::new();
     let mut deductions = Vec::new();
+    let mut company_contributions = Vec::new();
     let mut remaining = Vec::with_capacity(lines.len());
     for (line_run, line_employee, line) in lines.drain(..) {
         if line_run == run_id && line_employee == employee_id {
-            if line.kind == "DEDUCTION" {
+            if line.employer_borne {
+                company_contributions.push(line);
+            } else if line.kind == "DEDUCTION" {
                 deductions.push(line);
             } else {
                 earnings.push(line);
@@ -387,6 +431,19 @@ fn slip_row(
         rostered_days: row.try_get("rostered_days")?,
         earnings,
         deductions,
+        company_contributions,
+        company_borne_minor: row.try_get("company_borne_minor")?,
+        days_paid: row.try_get("days_paid")?,
+        days_in_month: row.try_get("days_in_month")?,
+        tax_method: row.try_get("tax_method")?,
+        ptkp: row.try_get("ptkp")?,
+        ter_category: row.try_get("ter_category")?,
+        taxable_gross_minor: row.try_get("taxable_gross_minor")?,
+        pph21_minor: row.try_get("pph21_minor")?,
+        pension_contribution_minor: row.try_get("pension_contribution_minor")?,
+        final_tax_month: row.try_get("final_tax_month")?,
+        absent_days: row.try_get("absent_days")?,
+        withheld: row.try_get("withheld")?,
         gross_minor: row.try_get("gross_minor")?,
         deduction_total_minor: row.try_get("deduction_total_minor")?,
         net_minor: row.try_get("net_minor")?,
@@ -401,7 +458,12 @@ fn slip_row(
 const SLIP_COLUMNS: &str = "s.run_id, s.employee_id, e.code AS employee_code, p.full_name, \
      s.base_minor, s.fixed_allowances, s.statutory_base_minor, s.leave_days_taken, \
      s.overtime_minutes, s.rostered_days, s.gross_minor, s.deduction_total_minor, \
-     s.net_minor, s.components_incomplete_because, i.bank_account";
+     s.net_minor, s.components_incomplete_because, i.bank_account, \
+     s.days_paid, s.days_in_month, s.tax_method, s.ptkp, s.ter_category, \
+     s.taxable_gross_minor, s.pph21_minor, s.pension_contribution_minor, \
+     s.final_tax_month, s.company_borne_minor, s.absent_days, \
+     EXISTS (SELECT 1 FROM payroll_withholding w WHERE w.run_id = s.run_id \
+             AND w.employee_id = s.employee_id AND w.released_at IS NULL) AS withheld";
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -428,44 +490,83 @@ pub struct AllowanceLine {
 /// rest-day minute lands in one band, so an operator with a single rest-day
 /// multiplier understates a very long holiday shift. `0250` names the limit
 /// where somebody will read it.
+/// Agreed overtime minutes in the attendance month, per band and tier.
+struct OvertimeBands {
+    first_hour: i64,
+    later: i64,
+    rest_day: i64,
+    holiday: i64,
+    rest_day_next_hour: i64,
+    rest_day_beyond: i64,
+    holiday_next_hour: i64,
+    holiday_beyond: i64,
+}
+
+impl OvertimeBands {
+    const fn total(&self) -> i64 {
+        self.first_hour + self.later + self.rest_day + self.holiday
+    }
+}
+
 async fn overtime_bands(
     tx: &mut Transaction<'_, Postgres>,
     employee_id: &str,
     unit: &UnitId,
-    first_day: NaiveDate,
-) -> Result<(i64, i64, i64, i64), AppError> {
+    window: (NaiveDate, NaiveDate),
+) -> Result<OvertimeBands, AppError> {
+    // Per day, because a rest day's tiers are counted within the day (0808):
+    // the first `tier` minutes, the next sixty, and the rest.
     let row = sqlx::query(
         "WITH agreed AS (
              SELECT on_date, day_kind, sum(planned_minutes)::bigint AS minutes
                FROM overtime_order
               WHERE employee_id = $1 AND state = 'AGREED'
                 AND unit_id = $3
-                AND on_date >= $2::date AND on_date < ($2::date + interval '1 month')
+                AND on_date >= $2::date AND on_date < $4::date
               GROUP BY on_date, day_kind
+         ), tier AS (
+             SELECT COALESCE((SELECT rest_day_first_tier_minutes FROM overtime_tier_rule), 420)::bigint AS minutes
          )
          SELECT
              COALESCE(sum(CASE WHEN day_kind = 'WORKING'
-                               THEN least(minutes, 60) ELSE 0 END), 0)::bigint AS first_hour,
+                               THEN least(a.minutes, 60) ELSE 0 END), 0)::bigint AS first_hour,
              COALESCE(sum(CASE WHEN day_kind = 'WORKING'
-                               THEN greatest(minutes - 60, 0) ELSE 0 END), 0)::bigint AS later,
+                               THEN greatest(a.minutes - 60, 0) ELSE 0 END), 0)::bigint AS later,
              COALESCE(sum(CASE WHEN day_kind = 'REST'
-                               THEN minutes ELSE 0 END), 0)::bigint AS rest_day,
+                               THEN a.minutes ELSE 0 END), 0)::bigint AS rest_day,
              COALESCE(sum(CASE WHEN day_kind = 'HOLIDAY'
-                               THEN minutes ELSE 0 END), 0)::bigint AS holiday
-           FROM agreed",
+                               THEN a.minutes ELSE 0 END), 0)::bigint AS holiday,
+             COALESCE(sum(CASE WHEN day_kind = 'REST'
+                               THEN least(greatest(a.minutes - t.minutes, 0), 60) ELSE 0 END), 0)::bigint
+                 AS rest_day_next_hour,
+             COALESCE(sum(CASE WHEN day_kind = 'REST'
+                               THEN greatest(a.minutes - t.minutes - 60, 0) ELSE 0 END), 0)::bigint
+                 AS rest_day_beyond,
+             COALESCE(sum(CASE WHEN day_kind = 'HOLIDAY'
+                               THEN least(greatest(a.minutes - t.minutes, 0), 60) ELSE 0 END), 0)::bigint
+                 AS holiday_next_hour,
+             COALESCE(sum(CASE WHEN day_kind = 'HOLIDAY'
+                               THEN greatest(a.minutes - t.minutes - 60, 0) ELSE 0 END), 0)::bigint
+                 AS holiday_beyond
+           FROM agreed a CROSS JOIN tier t",
     )
     .bind(employee_id)
-    .bind(first_day)
+    .bind(window.0)
     .bind(unit.as_str())
+    .bind(window.1)
     .fetch_one(&mut **tx)
     .await?;
 
-    Ok((
-        row.try_get("first_hour")?,
-        row.try_get("later")?,
-        row.try_get("rest_day")?,
-        row.try_get("holiday")?,
-    ))
+    Ok(OvertimeBands {
+        first_hour: row.try_get("first_hour")?,
+        later: row.try_get("later")?,
+        rest_day: row.try_get("rest_day")?,
+        holiday: row.try_get("holiday")?,
+        rest_day_next_hour: row.try_get("rest_day_next_hour")?,
+        rest_day_beyond: row.try_get("rest_day_beyond")?,
+        holiday_next_hour: row.try_get("holiday_next_hour")?,
+        holiday_beyond: row.try_get("holiday_beyond")?,
+    })
 }
 
 /// Write one slip's component lines, replacing whatever was there.
@@ -504,14 +605,23 @@ async fn write_slip_lines(
                 i32::try_from(hours_divisor).ok(),
                 i32::try_from(multiplier_bp).ok(),
             ),
-            _ => (None, None, None, None),
+            // A statutory line carries the rate it was levied at (a TER rate,
+            // a BPJS share) and nothing else; every other shape without a
+            // basis carries none.
+            _ => (
+                line.statutory_rate_bp().and_then(|bp| i32::try_from(bp).ok()),
+                None,
+                None,
+                None,
+            ),
         };
         sqlx::query(
             "INSERT INTO payroll_slip_line
                  (run_id, employee_id, line_no, kind, component_code, label, basis,
                   base_ref, base_of_minor, rate_bp, cap_minor, hours_divisor,
-                  multiplier_bp, unit, units, rate_minor, amount_minor)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+                  multiplier_bp, unit, units, rate_minor, amount_minor, employer_borne)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                     $18)",
         )
         .bind(run_id)
         .bind(employee_id)
@@ -537,10 +647,479 @@ async fn write_slip_lines(
         )
         .bind(line.unit_rate().map(|rate| rate.minor))
         .bind(line.amount().minor)
+        .bind(line.employer_borne())
         .execute(&mut **tx)
         .await?;
     }
     Ok(())
+}
+
+// ── prorata and the statutory inputs ────────────────────────────────────────
+
+/// A month's pay for one person at one unit, prorated by calendar days.
+struct PaidMonth {
+    /// Calendar days posted here with an agreement in force.
+    days_paid: i64,
+    days_in_month: i64,
+    /// Base and fixed allowances, prorated: each agreement in force during
+    /// the month contributes `amount × its days / days_in_month`.
+    base: i64,
+    allowances: Vec<FixedAllowance>,
+    /// The full monthly wage (base plus fixed allowances) of the agreement in
+    /// force on the last day paid: what BPJS is levied on. BPJS is a monthly
+    /// contribution on the reported wage, not on the days worked.
+    wage: i64,
+    /// The full monthly base of that same agreement — what a day's absence is
+    /// a share of (0807).
+    monthly_base: i64,
+}
+
+/// Prorate a month by calendar days (Talenta's default).
+///
+/// A posting's `valid_to` is **exclusive** (`AssignmentSpan`), so somebody
+/// transferred on the 15th is paid the 1st–14th by the old unit and the
+/// 15th onward by the new one, and no day is paid twice. A raise that takes
+/// effect on the 10th pays the old agreement for nine days and the new one for
+/// the rest. A month with every day posted on one agreement is exactly that
+/// agreement — the arithmetic reduces to it, no rounding.
+async fn paid_month(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: &str,
+    unit: &UnitId,
+    first_day: NaiveDate,
+    next_month: NaiveDate,
+    prorate_basis: &str,
+) -> Result<Option<PaidMonth>, AppError> {
+    // Which days of the month a share is counted in (0814): every calendar
+    // day, or the working days of a six- or five-day week less the public
+    // holidays on the published calendar.
+    let holidays: Vec<NaiveDate> = if prorate_basis == "CALENDAR" {
+        Vec::new()
+    } else {
+        sqlx::query_scalar(
+            "SELECT DISTINCT (x->>'date')::date
+               FROM holiday_calendar h, jsonb_array_elements(h.holidays) x
+              WHERE (x->>'date')::date >= $1 AND (x->>'date')::date < $2",
+        )
+        .bind(first_day)
+        .bind(next_month)
+        .fetch_all(&mut **tx)
+        .await?
+    };
+    let counts = |day: &NaiveDate| -> bool {
+        let weekday = day.weekday().num_days_from_monday();
+        match prorate_basis {
+            "WORKDAYS_6" => weekday < 6 && !holidays.contains(day),
+            "WORKDAYS_5" => weekday < 5 && !holidays.contains(day),
+            _ => true,
+        }
+    };
+    let days: Vec<NaiveDate> = sqlx::query_scalar(
+        "SELECT DISTINCT d::date AS day
+           FROM employee_assignment a,
+                generate_series(greatest(a.valid_from, $2::date),
+                                least(COALESCE(a.valid_to, $3::date), $3::date) - 1,
+                                interval '1 day') d
+          WHERE a.employee_id = $1 AND a.unit_id = $4
+            AND a.valid_from < $3::date
+            AND (a.valid_to IS NULL OR a.valid_to > $2::date)
+          ORDER BY day",
+    )
+    .bind(employee_id)
+    .bind(first_day)
+    .bind(next_month)
+    .bind(unit.as_str())
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let agreements = sqlx::query(
+        "SELECT effective_from, base_minor, fixed_allowances FROM employee_pay
+          WHERE employee_id = $1 AND effective_from < $2
+          ORDER BY effective_from",
+    )
+    .bind(employee_id)
+    .bind(next_month)
+    .fetch_all(&mut **tx)
+    .await?;
+    let mut in_force: Vec<(NaiveDate, i64, Vec<FixedAllowance>)> = Vec::new();
+    for agreement in &agreements {
+        in_force.push((
+            agreement.try_get("effective_from")?,
+            agreement.try_get("base_minor")?,
+            decode_allowances(agreement.try_get("fixed_allowances")?)?,
+        ));
+    }
+
+    let days_in_month = first_day
+        .iter_days()
+        .take_while(|day| *day < next_month)
+        .filter(|day| counts(day))
+        .count() as i64;
+    let days: Vec<NaiveDate> = days.into_iter().filter(|day| counts(day)).collect();
+    if days_in_month == 0 {
+        return Ok(None);
+    }
+    // Days per agreement (by index), in order.
+    let mut per_agreement: Vec<i64> = vec![0; in_force.len()];
+    let mut last_paid: Option<usize> = None;
+    for day in &days {
+        if let Some(index) = in_force.iter().rposition(|(from, _, _)| from <= day) {
+            per_agreement[index] += 1;
+            last_paid = Some(index);
+        }
+    }
+    let Some(last) = last_paid else {
+        return Ok(None);
+    };
+    let days_paid: i64 = per_agreement.iter().sum();
+
+    let prorate = |amount: i64, days: i64| -> i128 { i128::from(amount) * i128::from(days) };
+    let mut base_sum: i128 = 0;
+    let mut allowance_sums: Vec<(AllowanceCode, i128)> = Vec::new();
+    for ((_, base, allowances), days) in in_force.iter().zip(&per_agreement) {
+        if *days == 0 {
+            continue;
+        }
+        base_sum += prorate(*base, *days);
+        for allowance in allowances {
+            let weighted = prorate(allowance.amount().minor, *days);
+            match allowance_sums.iter_mut().find(|(code, _)| code == allowance.code()) {
+                Some((_, sum)) => *sum += weighted,
+                None => allowance_sums.push((allowance.code().clone(), weighted)),
+            }
+        }
+    }
+    let whole = i128::from(days_in_month);
+    let base = (base_sum / whole) as i64;
+    let mut allowances = Vec::with_capacity(allowance_sums.len());
+    for (code, sum) in allowance_sums {
+        let minor = (sum / whole) as i64;
+        if minor > 0 {
+            allowances.push(
+                FixedAllowance::try_new(code, Money::new(minor))
+                    .map_err(|error| corrupt("prorated allowance", error.to_string()))?,
+            );
+        }
+    }
+    let (_, last_base, last_allowances) = &in_force[last];
+    let wage = last_allowances
+        .iter()
+        .fold(*last_base, |sum, allowance| sum.saturating_add(allowance.amount().minor));
+
+    Ok(Some(PaidMonth {
+        days_paid,
+        days_in_month,
+        base,
+        allowances,
+        wage,
+        monthly_base: *last_base,
+    }))
+}
+
+/// When the attendance month closes and when pay goes out (0801).
+pub struct PayrollSchedule {
+    pub effective_from: NaiveDate,
+    pub cutoff_day: Option<u32>,
+    pub pay_day: Option<u32>,
+    /// `CALENDAR`, `WORKDAYS_6` or `WORKDAYS_5` (0814).
+    pub prorate_basis: String,
+}
+
+impl PayrollSchedule {
+    /// The days a month's leave, overtime and roster are counted over:
+    /// `[start, end)`. With a cut-off of 20, September is 21 August to 20
+    /// September inclusive.
+    pub fn attendance_window(
+        &self,
+        first_day: NaiveDate,
+        next_month: NaiveDate,
+    ) -> (NaiveDate, NaiveDate) {
+        match self.cutoff_day {
+            None => (first_day, next_month),
+            Some(day) => {
+                let end = first_day.with_day(day).unwrap_or(first_day) + chrono::Days::new(1);
+                let start = first_day
+                    .checked_sub_months(chrono::Months::new(1))
+                    .and_then(|previous| previous.with_day(day))
+                    .map_or(first_day, |cut| cut + chrono::Days::new(1));
+                (start, end)
+            }
+        }
+    }
+
+    /// The day pay goes out for the month starting `first_day`.
+    pub fn pay_on(&self, first_day: NaiveDate, next_month: NaiveDate) -> NaiveDate {
+        let last = next_month - chrono::Days::new(1);
+        match self.pay_day {
+            None => last,
+            Some(day) => first_day.with_day(day).unwrap_or(last),
+        }
+    }
+}
+
+pub async fn schedule_in_force(
+    tx: &mut Transaction<'_, Postgres>,
+    first_day: NaiveDate,
+) -> Result<PayrollSchedule, AppError> {
+    let row = sqlx::query(
+        "SELECT effective_from, cutoff_day, pay_day, prorate_basis FROM payroll_schedule
+          WHERE effective_from <= $1 ORDER BY effective_from DESC LIMIT 1",
+    )
+    .bind(first_day)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(match row {
+        Some(row) => PayrollSchedule {
+            effective_from: row.try_get("effective_from")?,
+            cutoff_day: row
+                .try_get::<Option<i32>, _>("cutoff_day")?
+                .and_then(|day| u32::try_from(day).ok()),
+            pay_day: row
+                .try_get::<Option<i32>, _>("pay_day")?
+                .and_then(|day| u32::try_from(day).ok()),
+            prorate_basis: row.try_get("prorate_basis")?,
+        },
+        None => PayrollSchedule {
+            effective_from: first_day,
+            cutoff_day: None,
+            pay_day: None,
+            prorate_basis: "CALENDAR".to_owned(),
+        },
+    })
+}
+
+/// The day somebody was (last) hired: the latest HIRE on their record.
+async fn hired_on(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: &str,
+) -> Result<Option<NaiveDate>, AppError> {
+    Ok(sqlx::query_scalar(
+        "SELECT max((event->>'effective_on')::date)
+           FROM employee e, jsonb_array_elements(e.history) event
+          WHERE e.id = $1 AND event->>'transition' = 'HIRE'",
+    )
+    .bind(employee_id)
+    .fetch_one(&mut **tx)
+    .await?)
+}
+
+/// The BPJS rates in force on the first of the month (0800).
+async fn bpjs_rates_in_force(
+    tx: &mut Transaction<'_, Postgres>,
+    first_day: NaiveDate,
+) -> Result<BpjsRates, AppError> {
+    let row = sqlx::query(
+        "SELECT kesehatan_company_bp, kesehatan_employee_bp, kesehatan_cap_minor,
+                jht_company_bp, jht_employee_bp, jp_company_bp, jp_employee_bp,
+                jp_cap_minor, jkk_bp, jkm_bp
+           FROM statutory_rate WHERE effective_from <= $1
+          ORDER BY effective_from DESC LIMIT 1",
+    )
+    .bind(first_day)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(row) = row else {
+        // Before the earliest seeded row: the rates 0800 seeded are the best
+        // statement this system has.
+        return Ok(BpjsRates::default());
+    };
+    let bp = |column: &str| -> Result<i64, AppError> { Ok(i64::from(row.try_get::<i32, _>(column)?)) };
+    Ok(BpjsRates {
+        kesehatan_company_bp: bp("kesehatan_company_bp")?,
+        kesehatan_employee_bp: bp("kesehatan_employee_bp")?,
+        kesehatan_cap_minor: row.try_get("kesehatan_cap_minor")?,
+        jht_company_bp: bp("jht_company_bp")?,
+        jht_employee_bp: bp("jht_employee_bp")?,
+        jp_company_bp: bp("jp_company_bp")?,
+        jp_employee_bp: bp("jp_employee_bp")?,
+        jp_cap_minor: row.try_get("jp_cap_minor")?,
+        jkk_bp: bp("jkk_bp")?,
+        jkm_bp: bp("jkm_bp")?,
+    })
+}
+
+/// What PPh 21 and BPJS need to know about a person.
+struct StatutoryIdentity {
+    ptkp: Option<PtkpStatus>,
+    method: TaxMethod,
+    enrolment: statutory::Enrolment,
+}
+
+async fn statutory_identity(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: &str,
+) -> Result<StatutoryIdentity, AppError> {
+    let row = sqlx::query(
+        "SELECT ptkp, tax_method, bpjs_kesehatan, bpjs_ketenagakerjaan
+           FROM payroll_identity WHERE employee_id = $1",
+    )
+    .bind(employee_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(row) = row else {
+        return Ok(StatutoryIdentity {
+            ptkp: None,
+            method: TaxMethod::Gross,
+            enrolment: statutory::Enrolment::default(),
+        });
+    };
+    let ptkp: Option<String> = row.try_get("ptkp")?;
+    let method: String = row.try_get("tax_method")?;
+    let enrolled = |column: &str| -> Result<bool, AppError> {
+        Ok(row
+            .try_get::<Option<String>, _>(column)?
+            .is_some_and(|number| !number.trim().is_empty()))
+    };
+    Ok(StatutoryIdentity {
+        ptkp: ptkp
+            .as_deref()
+            .map(PtkpStatus::parse)
+            .transpose()
+            .map_err(|error| corrupt("PTKP status", error.to_string()))?,
+        method: TaxMethod::parse(&method).ok_or_else(|| corrupt("tax method", method.clone()))?,
+        enrolment: statutory::Enrolment {
+            kesehatan: enrolled("bpjs_kesehatan")?,
+            ketenagakerjaan: enrolled("bpjs_ketenagakerjaan")?,
+        },
+    })
+}
+
+/// Whether this month settles the tax year for this person: December, or the
+/// month their employment ends (PMK 168/2023 — *masa pajak terakhir*).
+///
+/// Employment ends when the person is terminated and none of their postings
+/// reaches into next month. A transfer between units in the month is not an
+/// end: the new posting carries on.
+async fn is_final_tax_month(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: &str,
+    first_day: NaiveDate,
+    next_month: NaiveDate,
+) -> Result<bool, AppError> {
+    if first_day.month() == 12 {
+        return Ok(true);
+    }
+    let ends_here: bool = sqlx::query_scalar(
+        "SELECT e.status = 'TERMINATED'
+                AND NOT EXISTS (SELECT 1 FROM employee_assignment a
+                                 WHERE a.employee_id = e.id
+                                   AND (a.valid_to IS NULL OR a.valid_to > $3::date))
+                AND EXISTS (SELECT 1 FROM employee_assignment a
+                             WHERE a.employee_id = e.id
+                               AND a.valid_to > $2::date)
+           FROM employee e WHERE e.id = $1",
+    )
+    .bind(employee_id)
+    .bind(first_day)
+    .bind(next_month)
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or(false);
+    Ok(ends_here)
+}
+
+/// What the earlier months of this tax year came to for this person, across
+/// every unit they were paid at, from the slips built since 0800.
+async fn year_to_date(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: &str,
+    first_day: NaiveDate,
+    run_id: &str,
+) -> Result<statutory::YearToDate, AppError> {
+    let row = sqlx::query(
+        "SELECT COALESCE(sum(s.taxable_gross_minor), 0)::bigint AS taxable,
+                COALESCE(sum(s.pension_contribution_minor), 0)::bigint AS pension,
+                COALESCE(sum(s.pph21_minor), 0)::bigint AS tax,
+                count(DISTINCT r.period)::bigint AS months
+           FROM payroll_slip s
+           JOIN payroll_run r ON r.id = s.run_id
+          WHERE s.employee_id = $1
+            AND r.id <> $3
+            AND r.period >= date_trunc('year', $2::date)::date
+            AND r.period < $2::date
+            AND s.taxable_gross_minor IS NOT NULL",
+    )
+    .bind(employee_id)
+    .bind(first_day)
+    .bind(run_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(statutory::YearToDate {
+        taxable_gross: Money::new(row.try_get("taxable")?),
+        pension_contribution: Money::new(row.try_get("pension")?),
+        tax: Money::new(row.try_get("tax")?),
+        months: u8::try_from(row.try_get::<i64, _>("months")?).unwrap_or(u8::MAX),
+    })
+}
+
+/// The slip lines PPh 21 and BPJS produce, on the system components 0800
+/// seeded. A system component somebody retired cannot carry its figure, and
+/// says so rather than dropping it.
+fn statutory_lines(
+    catalogue: &[ComponentInForce],
+    rates: &BpjsRates,
+    contribution: &statutory::BpjsContribution,
+    tax: Option<&statutory::MonthTax>,
+    method: TaxMethod,
+    thr: Option<(Money, i64, Money)>,
+) -> (Vec<SlipLine>, Vec<String>) {
+    let mut lines = Vec::new();
+    let mut blocked = Vec::new();
+    let mut push = |code: &str, amount: Money, base_of: Option<Money>, rate: Option<i64>| {
+        let found = catalogue.iter().find(|in_force| {
+            in_force.component.code().as_str() == code && !in_force.component.is_retired()
+        });
+        match found {
+            Some(in_force) => lines.push(SlipLine::statutory(&in_force.component, amount, base_of, rate)),
+            None => blocked.push(format!(
+                "the statutory component {code} is missing or retired, so its figure was not \
+                 put on the slip"
+            )),
+        }
+    };
+    // BPJS, only for the programmes the person is enrolled in.
+    if contribution.kesehatan_base.minor > 0 {
+        let base = Some(contribution.kesehatan_base);
+        push("BPJS_KES", contribution.kesehatan_employee, base, Some(rates.kesehatan_employee_bp));
+        push("BPJS_KES_CO", contribution.kesehatan_company, base, Some(rates.kesehatan_company_bp));
+    }
+    if contribution.jp_base.minor > 0 {
+        let wage = Some(contribution.wage);
+        let jp = Some(contribution.jp_base);
+        push("BPJS_JHT", contribution.jht_employee, wage, Some(rates.jht_employee_bp));
+        push("BPJS_JHT_CO", contribution.jht_company, wage, Some(rates.jht_company_bp));
+        push("BPJS_JP", contribution.jp_employee, jp, Some(rates.jp_employee_bp));
+        push("BPJS_JP_CO", contribution.jp_company, jp, Some(rates.jp_company_bp));
+        push("BPJS_JKK_CO", contribution.jkk_company, wage, Some(rates.jkk_bp));
+        push("BPJS_JKM_CO", contribution.jkm_company, wage, Some(rates.jkm_bp));
+    }
+
+    // THR: base_of is the month's wage and the rate is the months counted out
+    // of twelve, so a slip can say "7/12 × Rp5.000.000".
+    if let Some((amount, months, wage)) = thr {
+        if amount.minor > 0 {
+            push("THR", amount, Some(wage), Some(months * 10_000 / 12));
+        }
+    }
+
+    let Some(tax) = tax else {
+        return (lines, blocked);
+    };
+    if tax.allowance.minor > 0 {
+        push("TUNJ_PPH21", tax.allowance, None, None);
+    }
+    if tax.tax.minor < 0 {
+        // The year withheld more than it owed: the excess goes back to the
+        // employee, on the slip as an earning.
+        push("PPH21_RETURN", Money::new(-tax.tax.minor), Some(tax.taxable_gross), None);
+    } else {
+        let code = match method {
+            TaxMethod::Netto => "PPH21_CO",
+            TaxMethod::Gross | TaxMethod::GrossUp => "PPH21",
+        };
+        push(code, tax.tax, Some(tax.taxable_gross), tax.ter_rate_bp);
+    }
+    (lines, blocked)
 }
 
 /// Build the slips for a run from what the month actually holds.
@@ -588,27 +1167,37 @@ pub async fn build_slips(
     .fetch_all(&mut **tx)
     .await?;
 
+    let rates = bpjs_rates_in_force(tx, first_day).await?;
+    let next_month = first_day
+        .checked_add_months(chrono::Months::new(1))
+        .ok_or_else(|| corrupt("run period", first_day.to_string()))?;
+    // The attendance month the facts are counted over (0801): the calendar
+    // month, or the days after last month's cut-off up to this one's.
+    let schedule = schedule_in_force(tx, first_day).await?;
+    let absence_rule = absence_rule_in_force(tx, first_day).await?;
+    let window = schedule.attendance_window(first_day, next_month);
+    let thr_on: Option<NaiveDate> =
+        sqlx::query_scalar("SELECT thr_on FROM payroll_run WHERE id = $1")
+            .bind(run.id())
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+
     let mut written = 0;
     for row in &people {
         let employee_id: String = row.try_get("employee_id")?;
 
-        // The agreement in force on the first of the month. Somebody with no
-        // agreement gets no slip: a zero-pay line reads as "owed nothing",
-        // which is a claim, and the honest answer is that there is nothing to
-        // pay them from yet.
-        let agreement = sqlx::query(
-            "SELECT base_minor, fixed_allowances FROM employee_pay
-              WHERE employee_id = $1 AND effective_from <= $2
-              ORDER BY effective_from DESC LIMIT 1",
-        )
-        .bind(&employee_id)
-        .bind(first_day)
-        .fetch_optional(&mut **tx)
-        .await?;
-        let Some(agreement) = agreement else { continue };
-
-        let base: i64 = agreement.try_get("base_minor")?;
-        let allowances = decode_allowances(agreement.try_get("fixed_allowances")?)?;
+        // The days this person was posted here on an agreement, and what those
+        // days were worth. Somebody with no agreement on any of them gets no
+        // slip: a zero-pay line reads as "owed nothing", which is a claim.
+        let Some(paid) =
+            paid_month(tx, &employee_id, run.unit(), first_day, next_month, &schedule.prorate_basis)
+                .await?
+        else {
+            continue;
+        };
+        let base = paid.base;
+        let allowances = paid.allowances.clone();
         let statutory_base = allowances
             .iter()
             .try_fold(base, |sum, allowance| {
@@ -631,59 +1220,191 @@ pub async fn build_slips(
                     AND lr.state = 'APPROVED'
                     AND lr.unit_id = $3
                     AND (day)::date >= $2::date
-                    AND (day)::date < ($2::date + interval '1 month')
+                    AND (day)::date < $4::date
              ) counted",
         )
         .bind(&employee_id)
-        .bind(first_day)
+        .bind(window.0)
         .bind(run.unit().as_str())
+        .bind(window.1)
         .fetch_one(&mut **tx)
         .await?;
 
         // Banded, because the statutory table is banded — and the total is the
         // sum of the bands rather than a second query, so `overtime_minutes`
         // and the lines that value it cannot disagree.
-        let (first_hour, later, rest_day, holiday) =
-            overtime_bands(tx, &employee_id, run.unit(), first_day).await?;
-        let overtime = first_hour + later + rest_day + holiday;
+        let bands = overtime_bands(tx, &employee_id, run.unit(), window).await?;
+        let overtime = bands.total();
 
         let rostered: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM roster_day
               WHERE employee_id = $1
                 AND unit_id = $3
-                AND on_date >= $2::date AND on_date < ($2::date + interval '1 month')",
+                AND on_date >= $2::date AND on_date < $4::date",
         )
         .bind(&employee_id)
-        .bind(first_day)
+        .bind(window.0)
         .bind(run.unit().as_str())
+        .bind(window.1)
         .fetch_one(&mut **tx)
         .await?;
+
+        // Absences (0807): rostered working days already past with no punch,
+        // no approved leave and no approved correction. The plan in force is
+        // the last amendment, or the plan as first written.
+        let absent: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM roster_day r
+              WHERE r.employee_id = $1 AND r.unit_id = $3
+                AND r.on_date >= $2::date AND r.on_date < $4::date
+                AND r.on_date < current_date
+                AND COALESCE(r.amendments->-1->'plan'->>'plan',
+                             r.planned->'plan'->>'plan') = 'SCHEDULED'
+                AND NOT EXISTS (SELECT 1 FROM attendance_punch p
+                                 WHERE p.employee_id = r.employee_id
+                                   AND p.business_date = r.on_date)
+                AND NOT EXISTS (SELECT 1 FROM leave_request lr
+                                 WHERE lr.employee_id = r.employee_id
+                                   AND lr.state = 'APPROVED'
+                                   AND r.on_date BETWEEN lr.from_date AND lr.to_date)
+                AND NOT EXISTS (SELECT 1 FROM attendance_correction c
+                                 WHERE c.employee_id = r.employee_id
+                                   AND c.business_date = r.on_date
+                                   AND c.state = 'APPROVED')",
+        )
+        .bind(&employee_id)
+        .bind(window.0)
+        .bind(run.unit().as_str())
+        .bind(window.1)
+        .fetch_one(&mut **tx)
+        .await?;
+        let absence = match &absence_rule {
+            Some(rule) if rule.enabled && absent > 0 => {
+                let of = if rule.basis == "WAGE" { paid.wage } else { paid.monthly_base };
+                let divisor = rule.divisor_days.map_or(paid.days_in_month, i64::from).max(1);
+                Some((Money::new(of * absent / divisor), Money::new(of), absent, divisor))
+            }
+            _ => None,
+        };
 
         let leave_days = leave_days.unwrap_or(0);
         let facts = SlipFacts {
             base: Money::new(base),
             statutory_base: Money::new(statutory_base),
-            overtime_workday_first_hour: first_hour,
-            overtime_workday_later: later,
-            overtime_rest_day: rest_day,
-            overtime_holiday: holiday,
+            overtime_workday_first_hour: bands.first_hour,
+            overtime_workday_later: bands.later,
+            overtime_rest_day: bands.rest_day,
+            overtime_holiday: bands.holiday,
+            overtime_rest_day_next_hour: bands.rest_day_next_hour,
+            overtime_rest_day_beyond: bands.rest_day_beyond,
+            overtime_holiday_next_hour: bands.holiday_next_hour,
+            overtime_holiday_beyond: bands.holiday_beyond,
             rostered_days: rostered,
             leave_days_taken: leave_days,
         };
+        // A loan's instalment is filed before the adjustments are read, so it
+        // rides the slip the way a hand-filed kasbon recovery does (0804).
+        file_loan_instalment(tx, run.unit().as_str(), first_day, &employee_id).await?;
         let adjustments =
             super::components::adjustments_for_run(tx, run.unit(), first_day, &employee_id)
                 .await?;
-        let computed =
-            SlipComputation::compute(Money::new(statutory_base), &facts, &catalogue, &adjustments)
-                .map_err(super::components::component_error)?;
+
+        // Twice through the engine: once for the cash gross the tax is levied
+        // on, then again with the statutory lines that gross decided.
+        let cash = SlipComputation::compute(Money::new(statutory_base), &facts, &catalogue, &adjustments)
+            .map_err(super::components::component_error)?;
+        let identity = statutory_identity(tx, &employee_id).await?;
+        let contribution = statutory::bpjs(Money::new(paid.wage), &rates, identity.enrolment);
+        // THR, when this run carries it (0801): the wage of the agreement in
+        // force, times the months of service to the holiday out of twelve.
+        let thr = match thr_on {
+            Some(holiday) => match hired_on(tx, &employee_id).await? {
+                Some(hired) => statutory::thr(
+                    Money::new(paid.wage),
+                    statutory::service_months(hired, holiday),
+                )
+                .map(|(amount, months)| (amount, months, Money::new(paid.wage))),
+                None => None,
+            },
+            None => None,
+        };
+        let thr_amount = thr.map_or(0, |(amount, _, _)| amount.minor);
+        // An absence is pay never earned, so it comes off the taxable gross.
+        let absence_amount = absence.map_or(0, |(amount, _, _, _)| amount.minor);
+        let taxable = Money::new(
+            cash.gross().minor + thr_amount + contribution.taxable_benefit().minor
+                - absence_amount,
+        );
+        let final_month = is_final_tax_month(tx, &employee_id, first_day, next_month).await?;
+        let tax = match identity.ptkp {
+            Some(ptkp) if final_month => {
+                let earlier = year_to_date(tx, &employee_id, first_day, run.id()).await?;
+                Some(statutory::final_tax(
+                    ptkp,
+                    earlier,
+                    taxable,
+                    contribution.pension_contribution(),
+                    identity.method,
+                ))
+            }
+            Some(ptkp) => Some(statutory::monthly_tax(
+                TerCategory::of(ptkp),
+                taxable,
+                identity.method,
+            )),
+            None => None,
+        };
+        let (mut lines, blocked) =
+            statutory_lines(&catalogue, &rates, &contribution, tax.as_ref(), identity.method, thr);
+        let mut blocked = blocked;
+        if let Some((amount, of, days, divisor)) = absence {
+            if amount.minor > 0 {
+                match catalogue.iter().find(|in_force| {
+                    in_force.component.code().as_str() == ABSENCE_DEDUCTION
+                        && !in_force.component.is_retired()
+                }) {
+                    // base_of is the month's base (or wage) and the rate is the
+                    // days absent over the divisor, in basis points, so a slip
+                    // can say "2/25 × Rp5.000.000".
+                    Some(in_force) => lines.push(SlipLine::statutory(
+                        &in_force.component,
+                        amount,
+                        Some(of),
+                        Some(days * 10_000 / divisor),
+                    )),
+                    None => blocked.push(format!(
+                        "the component {ABSENCE_DEDUCTION} is missing or retired, so {days} \
+                         absent days were not deducted"
+                    )),
+                }
+            }
+        }
+        if identity.ptkp.is_none() {
+            blocked.push(
+                "no PTKP status is recorded for this person, so PPh 21 was not worked out"
+                    .to_owned(),
+            );
+        }
+        let computed = SlipComputation::compute_with(
+            Money::new(statutory_base),
+            &facts,
+            &catalogue,
+            &adjustments,
+            lines,
+            blocked,
+        )
+        .map_err(super::components::component_error)?;
 
         sqlx::query(
             "INSERT INTO payroll_slip
                  (run_id, employee_id, base_minor, fixed_allowances, statutory_base_minor,
                   leave_days_taken, overtime_minutes, rostered_days,
                   gross_minor, deduction_total_minor, net_minor,
-                  components_incomplete_because)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                  components_incomplete_because,
+                  days_paid, days_in_month, tax_method, ptkp, ter_category,
+                  taxable_gross_minor, pph21_minor, pension_contribution_minor,
+                  final_tax_month, company_borne_minor, absent_days)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                     $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
              ON CONFLICT (run_id, employee_id) DO UPDATE SET
                 base_minor = EXCLUDED.base_minor,
                 fixed_allowances = EXCLUDED.fixed_allowances,
@@ -694,7 +1415,18 @@ pub async fn build_slips(
                 gross_minor = EXCLUDED.gross_minor,
                 deduction_total_minor = EXCLUDED.deduction_total_minor,
                 net_minor = EXCLUDED.net_minor,
-                components_incomplete_because = EXCLUDED.components_incomplete_because",
+                components_incomplete_because = EXCLUDED.components_incomplete_because,
+                days_paid = EXCLUDED.days_paid,
+                days_in_month = EXCLUDED.days_in_month,
+                tax_method = EXCLUDED.tax_method,
+                ptkp = EXCLUDED.ptkp,
+                ter_category = EXCLUDED.ter_category,
+                taxable_gross_minor = EXCLUDED.taxable_gross_minor,
+                pph21_minor = EXCLUDED.pph21_minor,
+                pension_contribution_minor = EXCLUDED.pension_contribution_minor,
+                final_tax_month = EXCLUDED.final_tax_month,
+                company_borne_minor = EXCLUDED.company_borne_minor,
+                absent_days = EXCLUDED.absent_days",
         )
         .bind(run.id())
         .bind(&employee_id)
@@ -708,6 +1440,17 @@ pub async fn build_slips(
         .bind(computed.deduction_total().map(|total| total.minor))
         .bind(computed.net().map(|net| net.minor))
         .bind(computed.incomplete_because())
+        .bind(i32::try_from(paid.days_paid).unwrap_or(i32::MAX))
+        .bind(i32::try_from(paid.days_in_month).unwrap_or(i32::MAX))
+        .bind(identity.method.as_str())
+        .bind(identity.ptkp.map(|ptkp| ptkp.to_string()))
+        .bind(identity.ptkp.map(|ptkp| TerCategory::of(ptkp).as_str()))
+        .bind(tax.map(|tax| tax.taxable_gross.minor))
+        .bind(tax.map(|tax| tax.tax.minor))
+        .bind(contribution.pension_contribution().minor)
+        .bind(final_month)
+        .bind(computed.company_borne().minor)
+        .bind(i32::try_from(absent).unwrap_or(i32::MAX))
         .execute(&mut **tx)
         .await?;
 
@@ -1111,6 +1854,14 @@ pub struct RunReconciliation {
     /// Staff at the place with no pay agreement, and therefore no slip. Not a
     /// blocker and not silence: they are simply not being paid from here yet.
     pub without_agreement: usize,
+    /// What the company pays on top of gross: its BPJS share and any PPh 21
+    /// it bears (0800).
+    pub company_borne_total_minor: i64,
+    /// PPh 21 of the month across the run, withheld or borne; `null` when any
+    /// slip's could not be worked out.
+    pub pph21_total_minor: Option<i64>,
+    /// Slips whose pay head office is holding (0803).
+    pub withheld: usize,
 }
 
 pub async fn reconcile(
@@ -1125,7 +1876,8 @@ pub async fn reconcile(
           WHERE a.unit_id = $1 AND a.valid_to IS NULL AND e.status = 'ACTIVE'
             AND NOT EXISTS (
                 SELECT 1 FROM employee_pay pay
-                 WHERE pay.employee_id = a.employee_id AND pay.effective_from <= $2
+                 WHERE pay.employee_id = a.employee_id
+                   AND pay.effective_from < ($2::date + interval '1 month')
             )",
     )
     .bind(run.unit().as_str())
@@ -1171,6 +1923,12 @@ pub async fn reconcile(
             .count(),
         unpayable: slips.iter().filter(|slip| !slip.payable).count(),
         without_agreement: usize::try_from(without_agreement).unwrap_or(0),
+        company_borne_total_minor: slips
+            .iter()
+            .map(|slip| slip.company_borne_minor.unwrap_or(0))
+            .sum(),
+        pph21_total_minor: slips.iter().map(|slip| slip.pph21_minor).sum(),
+        withheld: slips.iter().filter(|slip| slip.withheld).count(),
     })
 }
 
@@ -1470,6 +2228,42 @@ pub async fn hand_over(pool: &PgPool, handover: &PayrollHandover) -> Result<(), 
     Ok(())
 }
 
+/// The deduction an absence costs (0807). Pay never earned rather than money
+/// owed to anybody: the accrual credits it back to salary expense.
+pub const ABSENCE_DEDUCTION: &str = "POTONGAN_ABSEN";
+
+/// The absence rule in force for a run's month (0807).
+struct AbsenceRule {
+    enabled: bool,
+    basis: String,
+    divisor_days: Option<i32>,
+}
+
+async fn absence_rule_in_force(
+    tx: &mut Transaction<'_, Postgres>,
+    first_day: NaiveDate,
+) -> Result<Option<AbsenceRule>, AppError> {
+    let row = sqlx::query(
+        "SELECT enabled, basis, divisor_days FROM absence_deduction_rule
+          WHERE effective_from <= $1 ORDER BY effective_from DESC LIMIT 1",
+    )
+    .bind(first_day)
+    .fetch_optional(&mut **tx)
+    .await?;
+    row.map(|row| {
+        Ok(AbsenceRule {
+            enabled: row.try_get("enabled")?,
+            basis: row.try_get("basis")?,
+            divisor_days: row.try_get("divisor_days")?,
+        })
+    })
+    .transpose()
+}
+
+/// The earning a last month pays back when the year over-withheld PPh 21
+/// (0800). The accrual debits it to `pph21_payable` rather than an expense.
+pub const RETURNED_TAX: &str = "PPH21_RETURN";
+
 /// The accrual a payroll run posts when HR hands it to Finance.
 ///
 /// Every earning debits its component's `payroll_expense` link and every
@@ -1504,7 +2298,7 @@ async fn payroll_accrual_lines(
     .await?;
     let slip_lines = sqlx::query(
         "SELECT l.employee_id, l.kind, l.component_code, l.amount_minor,
-                COALESCE(c.employer_borne, false) AS employer_borne,
+                (l.employer_borne OR COALESCE(c.employer_borne, false)) AS employer_borne,
                 COALESCE(c.paid_from_accrual, false) AS paid_from_accrual
            FROM payroll_slip_line l
            LEFT JOIN pay_component c ON c.code = l.component_code
@@ -1522,6 +2316,7 @@ async fn payroll_accrual_lines(
 
     let mut earnings: BTreeMap<String, i64> = BTreeMap::new();
     let mut from_accrual = 0i64;
+    let mut returned_tax = 0i64;
     let mut deductions: BTreeMap<String, i64> = BTreeMap::new();
     let mut borne: BTreeMap<String, i64> = BTreeMap::new();
     let mut base_pay = 0i64;
@@ -1552,7 +2347,9 @@ async fn payroll_accrual_lines(
                     *deductions.entry(code).or_default() += amount;
                 }
             } else {
-                if line.try_get::<bool, _>("paid_from_accrual")? {
+                if code == RETURNED_TAX {
+                    returned_tax += amount;
+                } else if line.try_get::<bool, _>("paid_from_accrual")? {
                     from_accrual += amount;
                 } else {
                     *earnings.entry(code).or_default() += amount;
@@ -1594,14 +2391,24 @@ async fn payroll_accrual_lines(
     if from_accrual > 0 {
         lines.push(PostingLine::debit("thr_payable", unit_id, from_accrual));
     }
+    // PPh 21 the year over-withheld and a last month gave back: it reduces
+    // what is owed to the tax office rather than costing the company anything.
+    if returned_tax > 0 {
+        lines.push(PostingLine::debit("pph21_payable", unit_id, returned_tax));
+    }
     let mut withheld = 0i64;
     for (code, amount) in &deductions {
         if *amount > 0 {
             withheld += amount;
-            lines.push(
+            // An absence was never earned: it comes back off salary expense
+            // rather than being owed to anybody (0807).
+            let line = if code == ABSENCE_DEDUCTION {
+                PostingLine::credit("payroll_expense", unit_id, *amount).with_qualifier("SALARY")
+            } else {
                 PostingLine::credit("payroll_deduction", unit_id, *amount)
-                    .from_source("PAY_COMPONENT", code),
-            );
+                    .from_source("PAY_COMPONENT", code)
+            };
+            lines.push(line);
         }
     }
     let net = gross_total - withheld;
@@ -1798,4 +2605,917 @@ pub async fn settle_handover(
 fn period_first_day(period: &str) -> Result<NaiveDate, AppError> {
     let month = AttendanceMonth::parse(period).map_err(crate::cloud::postgres::attendance_error)?;
     month_first_day(month)
+}
+
+// ── run options: THR and the schedule (0801) ────────────────────────────────
+
+/// Every payroll schedule stated, newest first, with who stated it.
+pub async fn payroll_schedules(
+    pool: &PgPool,
+) -> Result<Vec<(PayrollSchedule, Authorization)>, AppError> {
+    let rows = sqlx::query(
+        "SELECT effective_from, cutoff_day, pay_day, prorate_basis, ratified FROM payroll_schedule
+          ORDER BY effective_from DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            Ok((
+                PayrollSchedule {
+                    effective_from: row.try_get("effective_from")?,
+                    cutoff_day: row
+                        .try_get::<Option<i32>, _>("cutoff_day")?
+                        .and_then(|day| u32::try_from(day).ok()),
+                    pay_day: row
+                        .try_get::<Option<i32>, _>("pay_day")?
+                        .and_then(|day| u32::try_from(day).ok()),
+                    prorate_basis: row.try_get("prorate_basis")?,
+                },
+                serde_json::from_value(row.try_get("ratified")?)
+                    .map_err(|error| corrupt("schedule authority", error.to_string()))?,
+            ))
+        })
+        .collect()
+}
+
+/// State a payroll schedule from a date — forward only, as every payroll rule.
+pub async fn state_payroll_schedule(
+    pool: &PgPool,
+    effective_from: NaiveDate,
+    cutoff_day: Option<u32>,
+    pay_day: Option<u32>,
+    prorate_basis: &str,
+    authorization: &Authorization,
+) -> Result<(), AppError> {
+    if !["CALENDAR", "WORKDAYS_6", "WORKDAYS_5"].contains(&prorate_basis) {
+        return Err(AppError::Validation(
+            "a month is prorated by CALENDAR days, WORKDAYS_6 or WORKDAYS_5".into(),
+        ));
+    }
+    let mut tx = pool.begin().await?;
+    sqlx::query("LOCK TABLE payroll_schedule IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *tx)
+        .await?;
+    let latest: Option<NaiveDate> =
+        sqlx::query_scalar("SELECT max(effective_from) FROM payroll_schedule")
+            .fetch_one(&mut *tx)
+            .await?;
+    if let Some(latest) = latest {
+        if effective_from <= latest {
+            return Err(AppError::Conflict(format!(
+                "a payroll schedule is already stated from {latest}; a new one takes effect after it"
+            )));
+        }
+    }
+    sqlx::query(
+        "INSERT INTO payroll_schedule (effective_from, cutoff_day, pay_day, ratified, prorate_basis)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(effective_from)
+    .bind(cutoff_day.and_then(|day| i32::try_from(day).ok()))
+    .bind(pay_day.and_then(|day| i32::try_from(day).ok()))
+    .bind(serde_json::to_value(authorization)?)
+    .bind(prorate_basis)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// The THR holiday each run carries, by run id.
+pub async fn run_thr_dates(
+    pool: &PgPool,
+) -> Result<std::collections::HashMap<String, NaiveDate>, AppError> {
+    let rows: Vec<(String, NaiveDate)> =
+        sqlx::query_as("SELECT id, thr_on FROM payroll_run WHERE thr_on IS NOT NULL")
+            .fetch_all(pool)
+            .await?;
+    Ok(rows.into_iter().collect())
+}
+
+/// Set (or clear) the THR holiday on a draft run, and rebuild its slips.
+pub async fn set_run_thr(
+    pool: &PgPool,
+    run: &PayrollRun,
+    first_day: NaiveDate,
+    thr_on: Option<NaiveDate>,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    let state: Option<String> =
+        sqlx::query_scalar("SELECT state FROM payroll_run WHERE id = $1 FOR UPDATE")
+            .bind(run.id())
+            .fetch_optional(&mut *tx)
+            .await?;
+    if state.as_deref() != Some("DRAFT") {
+        return Err(AppError::Conflict(format!(
+            "{} has been submitted; send it back to change its THR",
+            run.id()
+        )));
+    }
+    sqlx::query("UPDATE payroll_run SET thr_on = $2, updated_at = now() WHERE id = $1")
+        .bind(run.id())
+        .bind(thr_on)
+        .execute(&mut *tx)
+        .await?;
+    build_slips(&mut tx, run, first_day).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+// ── tax reports: the month and the year (1721-A1) ───────────────────────────
+
+/// One person's PPh 21 and BPJS in one month, for the tax report.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TaxReportRow {
+    pub run_id: String,
+    pub unit_id: String,
+    pub period: String,
+    pub employee_id: String,
+    pub employee_code: String,
+    pub full_name: Option<String>,
+    pub npwp: Option<String>,
+    pub ptkp: Option<String>,
+    pub ter_category: Option<String>,
+    pub tax_method: Option<String>,
+    pub taxable_gross_minor: Option<i64>,
+    pub pph21_minor: Option<i64>,
+    pub final_tax_month: Option<bool>,
+    /// The employee's own BPJS (Kesehatan, JHT, JP) taken from pay.
+    pub bpjs_employee_minor: i64,
+    /// The company's BPJS share (Kesehatan, JHT, JP, JKK, JKM).
+    pub bpjs_company_minor: i64,
+}
+
+/// Every slip of a month, optionally one unit's, with its tax and BPJS.
+pub async fn tax_report(
+    pool: &PgPool,
+    first_day: NaiveDate,
+    unit: Option<&str>,
+) -> Result<Vec<TaxReportRow>, AppError> {
+    let rows = sqlx::query(
+        "SELECT s.run_id, r.unit_id, r.period, s.employee_id, e.code AS employee_code,
+                p.full_name, i.npwp, s.ptkp, s.ter_category, s.tax_method,
+                s.taxable_gross_minor, s.pph21_minor, s.final_tax_month,
+                COALESCE((SELECT sum(l.amount_minor) FROM payroll_slip_line l
+                           WHERE l.run_id = s.run_id AND l.employee_id = s.employee_id
+                             AND l.component_code IN ('BPJS_KES', 'BPJS_JHT', 'BPJS_JP')), 0)::bigint
+                    AS bpjs_employee,
+                COALESCE((SELECT sum(l.amount_minor) FROM payroll_slip_line l
+                           WHERE l.run_id = s.run_id AND l.employee_id = s.employee_id
+                             AND l.component_code IN ('BPJS_KES_CO', 'BPJS_JHT_CO', 'BPJS_JP_CO',
+                                                      'BPJS_JKK_CO', 'BPJS_JKM_CO')), 0)::bigint
+                    AS bpjs_company
+           FROM payroll_slip s
+           JOIN payroll_run r ON r.id = s.run_id
+           JOIN employee e ON e.id = s.employee_id
+           LEFT JOIN employee_profile p ON p.employee_id = s.employee_id
+           LEFT JOIN payroll_identity i ON i.employee_id = s.employee_id
+          WHERE r.period = $1 AND ($2::text IS NULL OR r.unit_id = $2)
+          ORDER BY r.unit_id, e.code",
+    )
+    .bind(first_day)
+    .bind(unit)
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let period: NaiveDate = row.try_get("period")?;
+            Ok(TaxReportRow {
+                run_id: row.try_get("run_id")?,
+                unit_id: row.try_get("unit_id")?,
+                period: format!("{:04}-{:02}", period.year(), period.month()),
+                employee_id: row.try_get("employee_id")?,
+                employee_code: row.try_get("employee_code")?,
+                full_name: row.try_get("full_name")?,
+                npwp: row.try_get("npwp")?,
+                ptkp: row.try_get("ptkp")?,
+                ter_category: row.try_get("ter_category")?,
+                tax_method: row.try_get("tax_method")?,
+                taxable_gross_minor: row.try_get("taxable_gross_minor")?,
+                pph21_minor: row.try_get("pph21_minor")?,
+                final_tax_month: row.try_get("final_tax_month")?,
+                bpjs_employee_minor: row.try_get("bpjs_employee")?,
+                bpjs_company_minor: row.try_get("bpjs_company")?,
+            })
+        })
+        .collect()
+}
+
+/// Bukti potong 1721-A1: one employee's year, line by line as the form lays
+/// it out, worked out from the slips built since 0800.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AnnualTaxSlip {
+    pub year: i32,
+    pub employee_id: String,
+    pub employee_code: String,
+    pub full_name: Option<String>,
+    pub nik: Option<String>,
+    pub npwp: Option<String>,
+    pub ptkp: Option<String>,
+    /// First and last month with a slip: the *masa perolehan*.
+    pub from_month: u32,
+    pub to_month: u32,
+    /// 1. Gaji / pensiun.
+    pub salary_minor: i64,
+    /// 2. Tunjangan PPh.
+    pub tax_allowance_minor: i64,
+    /// 3. Tunjangan lainnya, uang lembur dan sebagainya.
+    pub other_allowances_minor: i64,
+    /// 5. Premi asuransi yang dibayar pemberi kerja (BPJS Kesehatan, JKK, JKM).
+    pub insurance_minor: i64,
+    /// 7. Tantiem, bonus, gratifikasi, jasa produksi dan THR.
+    pub bonus_thr_minor: i64,
+    /// 8. Penghasilan bruto.
+    pub gross_minor: i64,
+    /// 9. Biaya jabatan.
+    pub biaya_jabatan_minor: i64,
+    /// 10. Iuran pensiun / JHT / JP dibayar pegawai.
+    pub pension_minor: i64,
+    /// 12. Penghasilan neto.
+    pub net_minor: i64,
+    /// 15. PTKP.
+    pub ptkp_minor: i64,
+    /// 16. PKP setahun, rounded down to the thousand.
+    pub taxable_income_minor: i64,
+    /// 17. PPh 21 atas PKP setahun (Pasal 17).
+    pub tax_due_minor: i64,
+    /// 20. PPh 21 yang telah dipotong.
+    pub tax_withheld_minor: i64,
+    /// The year is settled when a last-month slip exists (December, or the
+    /// month employment ended); until then the form is a draft.
+    pub settled: bool,
+}
+
+/// Every employee's 1721-A1 for a year, optionally one person's.
+pub async fn annual_tax_slips(
+    pool: &PgPool,
+    year: i32,
+    employee: Option<&str>,
+) -> Result<Vec<AnnualTaxSlip>, AppError> {
+    use crate::cloud::domain::statutory as law;
+    let start = NaiveDate::from_ymd_opt(year, 1, 1)
+        .ok_or_else(|| AppError::Validation(format!("{year} is not a year")))?;
+    let end = NaiveDate::from_ymd_opt(year + 1, 1, 1)
+        .ok_or_else(|| AppError::Validation(format!("{year} is not a year")))?;
+    let rows = sqlx::query(
+        "WITH slips AS (
+             SELECT s.* , r.period FROM payroll_slip s JOIN payroll_run r ON r.id = s.run_id
+              WHERE r.period >= $1 AND r.period < $2 AND s.taxable_gross_minor IS NOT NULL
+                AND ($3::text IS NULL OR s.employee_id = $3)
+         ),
+         lines AS (
+             SELECT l.employee_id,
+                    sum(l.amount_minor) FILTER (WHERE l.component_code = 'TUNJ_PPH21') AS tax_allowance,
+                    sum(l.amount_minor) FILTER (WHERE l.component_code = 'THR') AS thr,
+                    sum(l.amount_minor) FILTER (WHERE l.kind = 'EARNING'
+                        AND l.component_code NOT IN ('TUNJ_PPH21', 'THR', 'PPH21_RETURN')) AS other_earnings,
+                    sum(l.amount_minor) FILTER (WHERE l.component_code IN
+                        ('BPJS_KES_CO', 'BPJS_JKK_CO', 'BPJS_JKM_CO')) AS insurance
+               FROM payroll_slip_line l JOIN slips s ON s.run_id = l.run_id AND s.employee_id = l.employee_id
+              GROUP BY l.employee_id
+         )
+         SELECT s.employee_id, e.code AS employee_code, p.full_name, p.nik, i.npwp,
+                (array_agg(s.ptkp ORDER BY s.period DESC))[1] AS ptkp,
+                min(extract(month FROM s.period))::int AS from_month,
+                max(extract(month FROM s.period))::int AS to_month,
+                count(DISTINCT s.period)::int AS months,
+                sum(s.base_minor)::bigint AS salary,
+                sum(s.statutory_base_minor - s.base_minor)::bigint AS fixed_allowances,
+                sum(s.taxable_gross_minor)::bigint AS gross,
+                sum(s.pension_contribution_minor)::bigint AS pension,
+                sum(s.pph21_minor)::bigint AS withheld,
+                bool_or(COALESCE(s.final_tax_month, false)) AS settled,
+                COALESCE(max(x.tax_allowance), 0)::bigint AS tax_allowance,
+                COALESCE(max(x.thr), 0)::bigint AS thr,
+                COALESCE(max(x.other_earnings), 0)::bigint AS other_earnings,
+                COALESCE(max(x.insurance), 0)::bigint AS insurance
+           FROM slips s
+           JOIN employee e ON e.id = s.employee_id
+           LEFT JOIN employee_profile p ON p.employee_id = s.employee_id
+           LEFT JOIN payroll_identity i ON i.employee_id = s.employee_id
+           LEFT JOIN lines x ON x.employee_id = s.employee_id
+          GROUP BY s.employee_id, e.code, p.full_name, p.nik, i.npwp
+          ORDER BY e.code",
+    )
+    .bind(start)
+    .bind(end)
+    .bind(employee)
+    .fetch_all(pool)
+    .await?;
+
+    rows.iter()
+        .map(|row| {
+            let ptkp: Option<String> = row.try_get("ptkp")?;
+            let status = ptkp.as_deref().and_then(|raw| PtkpStatus::parse(raw).ok());
+            let gross = Money::new(row.try_get("gross")?);
+            let pension = Money::new(row.try_get("pension")?);
+            let months = u8::try_from(row.try_get::<i32, _>("months")?).unwrap_or(12);
+            let biaya = law::biaya_jabatan(gross, months);
+            let net = gross.minor - biaya.minor - pension.minor;
+            let ptkp_minor = status.map_or(0, |s| law::ptkp_amount(s).minor);
+            let taxable = status.map_or(0, |s| law::taxable_income(Money::new(net), s).minor);
+            let due = law::pasal_17(Money::new(taxable)).minor;
+            let other_earnings: i64 = row.try_get("other_earnings")?;
+            let fixed: i64 = row.try_get("fixed_allowances")?;
+            Ok(AnnualTaxSlip {
+                year,
+                employee_id: row.try_get("employee_id")?,
+                employee_code: row.try_get("employee_code")?,
+                full_name: row.try_get("full_name")?,
+                nik: row.try_get("nik")?,
+                npwp: row.try_get("npwp")?,
+                ptkp,
+                from_month: u32::try_from(row.try_get::<i32, _>("from_month")?).unwrap_or(1),
+                to_month: u32::try_from(row.try_get::<i32, _>("to_month")?).unwrap_or(12),
+                salary_minor: row.try_get("salary")?,
+                tax_allowance_minor: row.try_get("tax_allowance")?,
+                other_allowances_minor: fixed + other_earnings,
+                insurance_minor: row.try_get("insurance")?,
+                bonus_thr_minor: row.try_get("thr")?,
+                gross_minor: gross.minor,
+                biaya_jabatan_minor: biaya.minor,
+                pension_minor: pension.minor,
+                net_minor: net,
+                ptkp_minor,
+                taxable_income_minor: taxable,
+                tax_due_minor: due,
+                tax_withheld_minor: row.try_get("withheld")?,
+                settled: row.try_get("settled")?,
+            })
+        })
+        .collect()
+}
+
+// ── holding pay (0803) ──────────────────────────────────────────────────────
+
+/// One hold on one person's pay on a run.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct WithholdingView {
+    pub run_id: String,
+    pub employee_id: String,
+    pub held_by: String,
+    pub held_at: DateTime<Utc>,
+    pub reason: String,
+    pub released_by: Option<String>,
+    pub released_at: Option<DateTime<Utc>>,
+    pub release_reason: Option<String>,
+}
+
+pub async fn withholdings(pool: &PgPool, run_id: &str) -> Result<Vec<WithholdingView>, AppError> {
+    let rows = sqlx::query(
+        "SELECT run_id, employee_id, withheld, released FROM payroll_withholding
+          WHERE run_id = $1 ORDER BY created_at",
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let held: Authorization = serde_json::from_value(row.try_get("withheld")?)
+                .map_err(|error| corrupt("hold authority", error.to_string()))?;
+            let released: Option<Authorization> = row
+                .try_get::<Option<serde_json::Value>, _>("released")?
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|error| corrupt("release authority", error.to_string()))?;
+            Ok(WithholdingView {
+                run_id: row.try_get("run_id")?,
+                employee_id: row.try_get("employee_id")?,
+                held_by: held.actor().to_string(),
+                held_at: held.at(),
+                reason: held.reason().to_string(),
+                released_by: released.as_ref().map(|a| a.actor().to_string()),
+                released_at: released.as_ref().map(Authorization::at),
+                release_reason: released.as_ref().map(|a| a.reason().to_string()),
+            })
+        })
+        .collect()
+}
+
+/// Hold one person's pay on a run. They must be on it; a hold released
+/// earlier can be placed again.
+pub async fn hold_pay(
+    pool: &PgPool,
+    run_id: &str,
+    employee_id: &str,
+    authorization: &Authorization,
+) -> Result<(), AppError> {
+    let on_run: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM payroll_slip WHERE run_id = $1 AND employee_id = $2)",
+    )
+    .bind(run_id)
+    .bind(employee_id)
+    .fetch_one(pool)
+    .await?;
+    if !on_run {
+        return Err(AppError::NotFound(format!("{employee_id} has no slip on {run_id}")));
+    }
+    let written = sqlx::query(
+        "INSERT INTO payroll_withholding (run_id, employee_id, withheld)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (run_id, employee_id) DO UPDATE SET
+            withheld = EXCLUDED.withheld, released = NULL, released_at = NULL
+          WHERE payroll_withholding.released_at IS NOT NULL",
+    )
+    .bind(run_id)
+    .bind(employee_id)
+    .bind(serde_json::to_value(authorization)?)
+    .execute(pool)
+    .await?;
+    if written.rows_affected() == 0 {
+        return Err(AppError::Conflict(format!(
+            "{employee_id}'s pay on {run_id} is already held"
+        )));
+    }
+    Ok(())
+}
+
+pub async fn release_pay(
+    pool: &PgPool,
+    run_id: &str,
+    employee_id: &str,
+    authorization: &Authorization,
+) -> Result<(), AppError> {
+    let updated = sqlx::query(
+        "UPDATE payroll_withholding SET released = $3, released_at = now()
+          WHERE run_id = $1 AND employee_id = $2 AND released_at IS NULL",
+    )
+    .bind(run_id)
+    .bind(employee_id)
+    .bind(serde_json::to_value(authorization)?)
+    .execute(pool)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::NotFound(format!(
+            "no hold on {employee_id}'s pay on {run_id}"
+        )));
+    }
+    Ok(())
+}
+
+// ── the payslip template and password (0803) ────────────────────────────────
+
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PayslipTemplate {
+    pub company_name: Option<String>,
+    pub company_address: Option<String>,
+    pub footer: Option<String>,
+    pub show_company_contributions: bool,
+    pub password_required: bool,
+}
+
+pub async fn payslip_template(pool: &PgPool) -> Result<PayslipTemplate, AppError> {
+    let row = sqlx::query(
+        "SELECT company_name, company_address, footer, show_company_contributions,
+                password_required FROM payslip_template WHERE singleton",
+    )
+    .fetch_optional(pool)
+    .await?;
+    Ok(match row {
+        Some(row) => PayslipTemplate {
+            company_name: row.try_get("company_name")?,
+            company_address: row.try_get("company_address")?,
+            footer: row.try_get("footer")?,
+            show_company_contributions: row.try_get("show_company_contributions")?,
+            password_required: row.try_get("password_required")?,
+        },
+        None => PayslipTemplate {
+            company_name: None,
+            company_address: None,
+            footer: None,
+            show_company_contributions: true,
+            password_required: false,
+        },
+    })
+}
+
+pub async fn save_payslip_template(
+    pool: &PgPool,
+    template: &PayslipTemplate,
+    authorization: &Authorization,
+) -> Result<(), AppError> {
+    let blank = |value: &Option<String>| {
+        value
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(ToOwned::to_owned)
+    };
+    sqlx::query(
+        "INSERT INTO payslip_template
+             (singleton, company_name, company_address, footer, show_company_contributions,
+              password_required, updated)
+         VALUES (true, $1, $2, $3, $4, $5, $6)
+         ON CONFLICT (singleton) DO UPDATE SET
+            company_name = EXCLUDED.company_name,
+            company_address = EXCLUDED.company_address,
+            footer = EXCLUDED.footer,
+            show_company_contributions = EXCLUDED.show_company_contributions,
+            password_required = EXCLUDED.password_required,
+            updated = EXCLUDED.updated,
+            updated_at = now()",
+    )
+    .bind(blank(&template.company_name))
+    .bind(blank(&template.company_address))
+    .bind(blank(&template.footer))
+    .bind(template.show_company_contributions)
+    .bind(template.password_required)
+    .bind(serde_json::to_value(authorization)?)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn set_payslip_password(
+    pool: &PgPool,
+    employee_id: &str,
+    hash: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO payslip_password (employee_id, hash) VALUES ($1, $2)
+         ON CONFLICT (employee_id) DO UPDATE SET hash = EXCLUDED.hash, set_at = now()",
+    )
+    .bind(employee_id)
+    .bind(hash)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Forget an employee's payslip password, so they choose a new one the next
+/// time they open their payslips. `false` when none was set.
+pub async fn clear_payslip_password(pool: &PgPool, employee_id: &str) -> Result<bool, AppError> {
+    let gone = sqlx::query("DELETE FROM payslip_password WHERE employee_id = $1")
+        .bind(employee_id)
+        .execute(pool)
+        .await?;
+    Ok(gone.rows_affected() > 0)
+}
+
+pub async fn payslip_password_hash(
+    pool: &PgPool,
+    employee_id: &str,
+) -> Result<Option<String>, AppError> {
+    Ok(
+        sqlx::query_scalar("SELECT hash FROM payslip_password WHERE employee_id = $1")
+            .bind(employee_id)
+            .fetch_optional(pool)
+            .await?,
+    )
+}
+
+// ── loans (0804) ────────────────────────────────────────────────────────────
+
+/// The component a loan's instalment is filed under, and the authority it is
+/// filed with — the system, on the plan head office granted.
+pub const LOAN_COMPONENT: &str = "CICILAN_PINJAMAN";
+/// Filed under the ordinary filing key — the domain re-checks it on every
+/// read — and told apart from a hand filing by its actor, the system, and the
+/// advance it names.
+const LOAN_INSTALMENT_KEY: &str = crate::cloud::domain::actions::PAYROLL_ADJUSTMENT_FILE;
+
+/// File this month's loan instalment for one person on one draft run.
+///
+/// Refiled on every build: the instalment this run filed last time is taken
+/// back first (unless an approval already settled it), so a rebuild after a
+/// cash repayment or a stopped plan files what is owed now. A
+/// `CICILAN_PINJAMAN` somebody filed by hand for the month wins — the place
+/// said what comes off, and the system does not file a second.
+///
+/// One loan at a time, the oldest paid first: a second loan's instalments
+/// start when the first is repaid. One run per month: somebody transferred
+/// mid-month pays the instalment on the run that filed it first.
+async fn file_loan_instalment(
+    tx: &mut Transaction<'_, Postgres>,
+    unit_id: &str,
+    first_day: NaiveDate,
+    employee_id: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "DELETE FROM payroll_adjustment a
+          WHERE a.unit_id = $1 AND a.period = $2 AND a.employee_id = $3
+            AND a.component_code = $4
+            AND a.filed->>'actor' = 'system' AND a.advance_id IS NOT NULL
+            AND a.filed->>'action_key' = $5
+            AND NOT EXISTS (SELECT 1 FROM advance_settlement s
+                             WHERE s.payroll_adjustment_id = a.id)",
+    )
+    .bind(unit_id)
+    .bind(first_day)
+    .bind(employee_id)
+    .bind(LOAN_COMPONENT)
+    .bind(LOAN_INSTALMENT_KEY)
+    .execute(&mut **tx)
+    .await?;
+
+    let filed_by_hand: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM payroll_adjustment
+                         WHERE unit_id = $1 AND period = $2 AND employee_id = $3
+                           AND component_code = $4)",
+    )
+    .bind(unit_id)
+    .bind(first_day)
+    .bind(employee_id)
+    .bind(LOAN_COMPONENT)
+    .fetch_one(&mut **tx)
+    .await?;
+    if filed_by_hand {
+        return Ok(());
+    }
+
+    let plans = sqlx::query(
+        "SELECT p.advance_id, p.instalment_minor, ad.advance_number,
+                (ad.amount_minor
+                  - COALESCE((SELECT sum(s.amount_minor) FROM advance_settlement s
+                               WHERE s.advance_id = ad.advance_id), 0)
+                  - COALESCE((SELECT sum(a.amount_minor) FROM payroll_adjustment a
+                               WHERE a.advance_id = ad.advance_id
+                                 AND NOT (a.unit_id = $2 AND a.period = $3)
+                                 AND NOT EXISTS (SELECT 1 FROM advance_settlement s
+                                                  WHERE s.payroll_adjustment_id = a.id)), 0))::bigint
+                  AS left_minor,
+                EXISTS (SELECT 1 FROM payroll_adjustment a
+                         WHERE a.advance_id = ad.advance_id AND a.period = $3
+                           AND a.unit_id <> $2) AS elsewhere
+           FROM employee_loan_plan p
+           JOIN advance ad ON ad.advance_id = p.advance_id
+          WHERE p.employee_id = $1 AND p.stopped_at IS NULL AND p.first_period <= $3
+            AND ad.status IN ('PAID', 'PARTIALLY_SETTLED')
+          ORDER BY ad.paid_at, ad.advance_number",
+    )
+    .bind(employee_id)
+    .bind(unit_id)
+    .bind(first_day)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for plan in &plans {
+        let left: i64 = plan.try_get("left_minor")?;
+        if left <= 0 {
+            continue;
+        }
+        if plan.try_get::<bool, _>("elsewhere")? {
+            return Ok(());
+        }
+        let instalment: i64 = plan.try_get("instalment_minor")?;
+        let number: String = plan.try_get("advance_number")?;
+        let filed = serde_json::json!({
+            "actor": "system",
+            "action_key": LOAN_INSTALMENT_KEY,
+            "at": Utc::now(),
+            "reason": format!("cicilan pinjaman {number}"),
+        });
+        sqlx::query(
+            "INSERT INTO payroll_adjustment
+                 (id, unit_id, period, employee_id, component_code, basis, amount_minor,
+                  advance_id, filed)
+             VALUES ($1, $2, $3, $4, $5, 'PER_OCCASION', $6, $7, $8)
+             ON CONFLICT (unit_id, period, employee_id, component_code) DO NOTHING",
+        )
+        .bind(format!("adj-{}", Uuid::new_v4()))
+        .bind(unit_id)
+        .bind(first_day)
+        .bind(employee_id)
+        .bind(LOAN_COMPONENT)
+        .bind(instalment.min(left))
+        .bind(plan.try_get::<Uuid, _>("advance_id")?)
+        .bind(filed)
+        .execute(&mut **tx)
+        .await?;
+        return Ok(());
+    }
+    Ok(())
+}
+
+/// One repayment of a loan: a month's instalment, or money Finance received.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct LoanRepayment {
+    /// `PAYROLL` for an instalment from pay, `REFUND` for cash returned,
+    /// `EXPENSE` for receipts.
+    pub kind: String,
+    pub amount_minor: i64,
+    /// The month of the run, for an instalment.
+    pub period: Option<String>,
+    pub at: DateTime<Utc>,
+}
+
+/// A loan: the advance, its plan, and what is left.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct LoanView {
+    pub advance_id: String,
+    pub advance_number: String,
+    pub employee_id: String,
+    pub employee_code: String,
+    pub full_name: Option<String>,
+    pub purpose: String,
+    pub amount_minor: i64,
+    /// The advance's state: `APPROVED` is lent and waiting on Finance to pay
+    /// it out; nothing comes off pay until it is `PAID`.
+    pub status: String,
+    pub paid_at: Option<DateTime<Utc>>,
+    pub instalment_minor: i64,
+    /// `YYYY-MM`.
+    pub first_period: String,
+    /// What has come back, settled.
+    pub repaid_minor: i64,
+    /// Instalments on runs not yet approved.
+    pub pending_minor: i64,
+    pub outstanding_minor: i64,
+    /// Months still to go at the instalment, counting what is pending.
+    pub instalments_left: i64,
+    pub stopped: bool,
+    pub granted_by: String,
+    pub repayments: Vec<LoanRepayment>,
+}
+
+const LOAN_SELECT: &str = "
+    SELECT ad.advance_id, ad.advance_number, p.employee_id, e.code AS employee_code,
+           pr.full_name, ad.purpose, ad.amount_minor, ad.status, ad.paid_at,
+           p.instalment_minor, p.first_period, p.stopped_at IS NOT NULL AS stopped,
+           p.granted->>'actor' AS granted_by,
+           COALESCE((SELECT sum(s.amount_minor) FROM advance_settlement s
+                      WHERE s.advance_id = ad.advance_id), 0)::bigint AS repaid_minor,
+           COALESCE((SELECT sum(a.amount_minor) FROM payroll_adjustment a
+                      WHERE a.advance_id = ad.advance_id
+                        AND NOT EXISTS (SELECT 1 FROM advance_settlement s
+                                         WHERE s.payroll_adjustment_id = a.id)), 0)::bigint
+             AS pending_minor
+      FROM employee_loan_plan p
+      JOIN advance ad ON ad.advance_id = p.advance_id
+      JOIN employee e ON e.id = p.employee_id
+      LEFT JOIN employee_profile pr ON pr.employee_id = p.employee_id";
+
+async fn loan_rows(pool: &PgPool, rows: Vec<sqlx::postgres::PgRow>) -> Result<Vec<LoanView>, AppError> {
+    let mut loans = Vec::with_capacity(rows.len());
+    for row in rows {
+        let advance_id: Uuid = row.try_get("advance_id")?;
+        let amount: i64 = row.try_get("amount_minor")?;
+        let repaid: i64 = row.try_get("repaid_minor")?;
+        let pending: i64 = row.try_get("pending_minor")?;
+        let instalment: i64 = row.try_get("instalment_minor")?;
+        let first: NaiveDate = row.try_get("first_period")?;
+        let outstanding = (amount - repaid).max(0);
+        let to_go = (outstanding - pending).max(0);
+        let repayments = sqlx::query(
+            "SELECT s.kind, s.amount_minor, s.settled_at, s.note
+               FROM advance_settlement s WHERE s.advance_id = $1
+              ORDER BY s.settled_at",
+        )
+        .bind(advance_id)
+        .fetch_all(pool)
+        .await?
+        .iter()
+        .map(|r| {
+            let kind: String = r.try_get("kind")?;
+            Ok(LoanRepayment {
+                period: if kind == "PAYROLL" { r.try_get("note")? } else { None },
+                kind,
+                amount_minor: r.try_get("amount_minor")?,
+                at: r.try_get("settled_at")?,
+            })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+        loans.push(LoanView {
+            advance_id: advance_id.to_string(),
+            advance_number: row.try_get("advance_number")?,
+            employee_id: row.try_get("employee_id")?,
+            employee_code: row.try_get("employee_code")?,
+            full_name: row.try_get("full_name")?,
+            purpose: row.try_get("purpose")?,
+            amount_minor: amount,
+            status: row.try_get("status")?,
+            paid_at: row.try_get("paid_at")?,
+            instalment_minor: instalment,
+            first_period: first.format("%Y-%m").to_string(),
+            repaid_minor: repaid,
+            pending_minor: pending,
+            outstanding_minor: outstanding,
+            instalments_left: (to_go + instalment - 1) / instalment,
+            stopped: row.try_get("stopped")?,
+            granted_by: row.try_get::<Option<String>, _>("granted_by")?.unwrap_or_default(),
+            repayments,
+        });
+    }
+    Ok(loans)
+}
+
+/// One person's loans, newest first.
+pub async fn loans_of(pool: &PgPool, employee_id: &str) -> Result<Vec<LoanView>, AppError> {
+    let rows = sqlx::query(&format!(
+        "{LOAN_SELECT} WHERE p.employee_id = $1 ORDER BY p.created_at DESC"
+    ))
+    .bind(employee_id)
+    .fetch_all(pool)
+    .await?;
+    loan_rows(pool, rows).await
+}
+
+/// Every loan in the company, newest first.
+pub async fn all_loans(pool: &PgPool) -> Result<Vec<LoanView>, AppError> {
+    let rows = sqlx::query(&format!("{LOAN_SELECT} ORDER BY p.created_at DESC"))
+        .fetch_all(pool)
+        .await?;
+    loan_rows(pool, rows).await
+}
+
+/// Grant a loan: an EMPLOYEE advance, approved by the granting authority and
+/// left for Finance to pay out, and the plan that repays it. One transaction:
+/// an advance without its plan would be a kasbon nobody meant.
+pub async fn grant_loan(
+    pool: &PgPool,
+    employee_id: &str,
+    amount_minor: i64,
+    instalment_minor: i64,
+    first_period: NaiveDate,
+    purpose: &str,
+    granted: &Authorization,
+) -> Result<Uuid, AppError> {
+    if amount_minor <= 0 || instalment_minor <= 0 {
+        return Err(AppError::Validation(
+            "a loan and its instalment are positive amounts".into(),
+        ));
+    }
+    if instalment_minor > amount_minor {
+        return Err(AppError::Validation(
+            "the instalment is more than the loan; lend it as one month's kasbon instead".into(),
+        ));
+    }
+    let site_id = super::sites::head_office_site_id(pool).await?;
+    let mut tx = pool.begin().await?;
+    let advance_id = Uuid::new_v4();
+    let number: String =
+        sqlx::query_scalar("SELECT 'ADV-' || to_char(nextval('advance_number_seq'), 'FM000000')")
+            .fetch_one(&mut *tx)
+            .await?;
+    let actor = granted.actor().as_str().to_owned();
+    sqlx::query(
+        "INSERT INTO advance
+           (advance_id, advance_number, site_id, party_type, employee_id,
+            advance_qualifier, purpose, amount_minor, requested_by, note,
+            status, approved_by, approved_at)
+         VALUES ($1, $2, $3, 'EMPLOYEE', $4, 'OTHERS', $5, $6, $7, $8,
+                 'APPROVED', $7, now())",
+    )
+    .bind(advance_id)
+    .bind(&number)
+    .bind(&site_id)
+    .bind(employee_id)
+    .bind(format!("Pinjaman karyawan: {}", purpose.trim()))
+    .bind(amount_minor)
+    .bind(&actor)
+    .bind(granted.reason().as_str())
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO employee_loan_plan
+             (advance_id, employee_id, instalment_minor, first_period, granted)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(advance_id)
+    .bind(employee_id)
+    .bind(instalment_minor)
+    .bind(first_period)
+    .bind(serde_json::to_value(granted)?)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(advance_id)
+}
+
+/// Stop a loan's instalments. What came back stays settled; what is still
+/// out is Finance's to collect or write off on the advance.
+pub async fn stop_loan(
+    pool: &PgPool,
+    advance_id: Uuid,
+    stopped: &Authorization,
+) -> Result<String, AppError> {
+    let employee: Option<String> = sqlx::query_scalar(
+        "UPDATE employee_loan_plan SET stopped_at = now(), stopped = $2
+          WHERE advance_id = $1 AND stopped_at IS NULL
+      RETURNING employee_id",
+    )
+    .bind(advance_id)
+    .bind(serde_json::to_value(stopped)?)
+    .fetch_optional(pool)
+    .await?;
+    employee.ok_or_else(|| {
+        AppError::Conflict("no running loan by that id: it does not exist or is already stopped".into())
+    })
+}
+
+/// Whose loan it is, so a caller's reach can be checked first.
+pub async fn loan_employee(pool: &PgPool, advance_id: Uuid) -> Result<Option<String>, AppError> {
+    Ok(
+        sqlx::query_scalar("SELECT employee_id FROM employee_loan_plan WHERE advance_id = $1")
+            .bind(advance_id)
+            .fetch_optional(pool)
+            .await?,
+    )
 }

@@ -35,4 +35,8 @@ units: number | null,
 /**
  * Money per hour for overtime, per day otherwise.
  */
-rate_minor: number | null, amount_minor: number, };
+rate_minor: number | null, amount_minor: number, 
+/**
+ * Paid by the company, not taken from net pay.
+ */
+employer_borne: boolean, };

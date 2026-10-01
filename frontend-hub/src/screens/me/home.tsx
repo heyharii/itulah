@@ -276,15 +276,17 @@ export function Home() {
           <Panel title="Latest payslip">
             <div className="flex items-center gap-2">
               <div>
-                {/* Agreed pay, not a net. Nothing here computes tax or BPJS,
-                    so a figure labelled "net" would be the agreement wearing a
-                    word it has not earned — and this is the card somebody
-                    glances at rather than reads. */}
+                {/* Take-home pay since 0800. A month the server could not
+                    work out says so rather than showing the agreement under a
+                    word it has not earned — this is the card somebody glances
+                    at rather than reads. */}
                 <p className="num text-kpi font-semibold text-ink">
-                  {money(latestPay.statutory_base_minor)}
+                  {latestPay.net_minor === null
+                    ? "Not worked out yet"
+                    : money(latestPay.net_minor)}
                 </p>
                 <p className="text-cell text-body">
-                  Agreed pay · {latestPay.run_id}
+                  Take-home pay · {latestPay.run_id}
                 </p>
               </div>
               <ChevronRight className="ml-auto size-5 text-line-ico" />

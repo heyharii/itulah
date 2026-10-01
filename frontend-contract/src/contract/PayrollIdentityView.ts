@@ -15,6 +15,11 @@ export type PayrollIdentityView = { bank_name: string | null, bank_account_maske
  */
 ptkp: string | null, bpjs_kesehatan: string | null, bpjs_ketenagakerjaan: string | null, 
 /**
+ * Who bears PPh 21: `GROSS` (withheld), `GROSS_UP` (a tunjangan pays it)
+ * or `NETTO` (the company pays it).
+ */
+tax_method: string, 
+/**
  * Whether this person can be paid at all.
  */
 payable: boolean, amendments: Array<IdentityAmendmentView>, };

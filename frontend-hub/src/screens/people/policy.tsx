@@ -1,13 +1,16 @@
-import { ScanFace, Timer } from "lucide-react"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { AppLink } from "@/components/ui/app-link"
 import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { AttendancePolicy } from "@/screens/people/attendance"
+import { MobileAttendance } from "@/screens/people/mobile-attendance"
+import { DelegationsCard, EssModulesCard } from "@/screens/people/employee-app"
+import { BlockedDatesCard } from "@/screens/people/leave-extras"
 import { Holidays } from "@/screens/people/holidays"
 import { LeaveTypes } from "@/screens/people/leave-types"
+import { OrganisationSettings } from "@/screens/people/organisation-settings"
+import { PayrollSettings } from "@/screens/people/payroll-settings"
 import { ShiftPatterns } from "@/screens/people/shifts"
 
 /// HR's settings: the rules every place is measured against, behind one door.
@@ -68,6 +71,9 @@ const TABS = [
   { value: "shifts", label: "Shifts" },
   { value: "leave", label: "Leave types" },
   { value: "holidays", label: "Holidays" },
+  { value: "payroll", label: "Payroll" },
+  { value: "organisation", label: "Organisation" },
+  { value: "app", label: "Employee app" },
 ] as const
 
 /// One sentence per tab, in the page header, because the four answer four
@@ -82,6 +88,11 @@ const SUB: Record<string, string> = {
     "What kinds of leave exist, what each draws on, and the rules a balance folds under.",
   holidays:
     "Which days are red, and which of them come out of somebody's annual leave.",
+  payroll:
+    "What PPh 21 and BPJS are worked out from: the BPJS rates head office states from a date, and the tax tables of the law.",
+  app: "What employees see in their app, and whose approvals are handed to whom.",
+  organisation:
+    "The company and its BPJS numbers, and the departments, job levels and grades people are placed on.",
 }
 
 export function PeopleSettings() {
@@ -89,33 +100,32 @@ export function PeopleSettings() {
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="People"
-        title="Settings"
-        sub={SUB[tab]}
-        actions={
-          // The two setup screens too big to be a tab: the stations (which
-          // have tabs of their own) and what the clock does with these rules
-          // when nobody is looking. Both were sidebar rows until 2026-09-27.
-          <>
-            <AppLink to="/people/terminals" variant="ghost">
-              <ScanFace />
-              Punch stations
-            </AppLink>
-            <AppLink to="/people/scheduler" variant="ghost">
-              <Timer />
-              Scheduler
-            </AppLink>
-          </>
-        }
-      />
+      <PageHeader crumb="People" title="Settings" sub={SUB[tab]} />
 
       <SubTabs tabs={TABS} value={tab} onChange={setTab} />
 
-      {tab === "attendance" && <AttendancePolicy />}
+      {tab === "attendance" && (
+        <>
+          <AttendancePolicy />
+          <MobileAttendance />
+        </>
+      )}
       {tab === "shifts" && <ShiftPatterns />}
-      {tab === "leave" && <LeaveTypes />}
+      {tab === "leave" && (
+        <>
+          <LeaveTypes />
+          <BlockedDatesCard />
+        </>
+      )}
       {tab === "holidays" && <Holidays />}
+      {tab === "payroll" && <PayrollSettings />}
+      {tab === "organisation" && <OrganisationSettings />}
+      {tab === "app" && (
+        <>
+          <EssModulesCard />
+          <DelegationsCard administrator />
+        </>
+      )}
     </PageContent>
   )
 }

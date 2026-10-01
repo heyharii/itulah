@@ -301,13 +301,24 @@ pub async fn require_auth(
         state.config.auth_session_idle_minutes,
     )
     .await?;
-    let role = session.role;
-
     let method = request.method().as_str().to_owned();
+    // A delegation running today (0812) lends its delegator's rung and job —
+    // only on the paths that decide leave, claims and corrections, and only
+    // when it is higher than the caller's own. Everything else is the
+    // caller's own authority, as it always was.
+    let (role, job) = if super::delegation::is_delegable(&method, &path) {
+        match infrastructure::delegated_authority(&state.db, &session.username).await? {
+            Some((lent, lent_job)) if lent > session.role => (lent, lent_job),
+            _ => (session.role, session.job),
+        }
+    } else {
+        (session.role, session.job)
+    };
+
     gate_role_with(&method, &path, role, &permission_overrides(&state).await)?;
     // The second question, after the rung: does this person's job include
     // the part of the hub the path belongs to (0633)?
-    job_role::section_gate(&method, &path, &session.job).map_err(AppError::Forbidden)?;
+    job_role::section_gate(&method, &path, &job).map_err(AppError::Forbidden)?;
 
     if authenticated_with_cookie && !matches!(request.method().as_str(), "GET" | "HEAD" | "OPTIONS")
     {
@@ -337,7 +348,7 @@ pub async fn require_auth(
         username: session.username,
         display_name: session.display_name,
         role,
-        job: session.job,
+        job,
         authenticated_with_cookie,
         relayed: None,
     };

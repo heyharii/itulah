@@ -4,7 +4,6 @@ import {
   FileText,
   Hourglass,
   IdCard,
-  MessageCircleWarning,
   Receipt,
   UserRound,
   Wallet,
@@ -61,14 +60,6 @@ export const meNav: AppModule = {
         },
         { path: "/me/pay/claims", label: "Claims", icon: Receipt },
         { path: "/me/details", label: "My details", icon: IdCard },
-        {
-          path: "/me/voice",
-          label: "Speak up",
-          icon: MessageCircleWarning,
-          // Off the menu on the owner's word (2026-09-26); still reached from
-          // "Raise a concern with HR" on My details.
-          hidden: true,
-        },
       ],
     },
   ],

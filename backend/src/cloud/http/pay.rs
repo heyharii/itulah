@@ -58,10 +58,13 @@ use crate::cloud::{
     domain::{
         actions, required_role_for_action, role_allows, AllowanceCode, AttendanceMonth,
         Authorization, BankAccount, FixedAllowance, IdentityChange, PayRecord, PayrollHandover,
-        PayrollIdentity, PayrollRun, PtkpStatus, Reach, RecordKind, UnitId,
+        PayrollIdentity, PayrollRun, PtkpStatus, Reach, RecordKind, RunState, TaxMethod, UnitId,
     },
     http::audit::DeclaredSubject,
-    postgres::{self as infrastructure, HandoverStanding, PayrollSlipRow, RunReconciliation},
+    postgres::{
+        self as infrastructure, AnnualTaxSlip, HandoverStanding, PayrollSlipRow, RunReconciliation,
+        TaxReportRow,
+    },
 };
 use axum::{
     extract::{Path, Query, State},
@@ -181,6 +184,9 @@ pub struct PayrollIdentityView {
     pub ptkp: Option<String>,
     pub bpjs_kesehatan: Option<String>,
     pub bpjs_ketenagakerjaan: Option<String>,
+    /// Who bears PPh 21: `GROSS` (withheld), `GROSS_UP` (a tunjangan pays it)
+    /// or `NETTO` (the company pays it).
+    pub tax_method: String,
     /// Whether this person can be paid at all.
     pub payable: bool,
     pub amendments: Vec<IdentityAmendmentView>,
@@ -205,6 +211,7 @@ fn identity_view(identity: &PayrollIdentity) -> PayrollIdentityView {
         ptkp: identity.ptkp().map(|ptkp| ptkp.to_string()),
         bpjs_kesehatan: identity.bpjs_kesehatan().map(ToOwned::to_owned),
         bpjs_ketenagakerjaan: identity.bpjs_ketenagakerjaan().map(ToOwned::to_owned),
+        tax_method: identity.tax_method().as_str().to_owned(),
         payable: identity.payable(),
         amendments: identity
             .amendments()
@@ -260,10 +267,66 @@ pub struct PayrollRunView {
     /// have crossed and which of those have been paid.
     pub handover: Option<HandoverStanding>,
     pub history: Vec<RunEventView>,
+    /// The religious holiday THR is paid for on this run, if it carries THR.
+    pub thr_on: Option<NaiveDate>,
+    /// The attendance month the run counts leave, overtime and rostered days
+    /// over — the calendar month, or the days between two cut-offs (0801).
+    pub attendance_from: NaiveDate,
+    pub attendance_to: NaiveDate,
+    /// The day pay goes out under the schedule in force.
+    pub pay_on: NaiveDate,
 }
 
-fn run_view(run: &PayrollRun, handover: Option<HandoverStanding>) -> PayrollRunView {
+/// What a run's month is, under the schedule in force for it.
+struct RunDates {
+    thr_on: Option<NaiveDate>,
+    attendance_from: NaiveDate,
+    attendance_to: NaiveDate,
+    pay_on: NaiveDate,
+}
+
+fn run_dates(
+    run: &PayrollRun,
+    schedules: &[(infrastructure::PayrollSchedule, Authorization)],
+    thr: &std::collections::HashMap<String, NaiveDate>,
+) -> RunDates {
+    let first = AttendanceMonth::parse(run.period())
+        .ok()
+        .and_then(|month| month.first_day())
+        .unwrap_or_default();
+    let next = first
+        .checked_add_months(chrono::Months::new(1))
+        .unwrap_or(first);
+    let fallback = infrastructure::PayrollSchedule {
+        effective_from: first,
+        cutoff_day: None,
+        pay_day: None,
+        prorate_basis: "CALENDAR".to_owned(),
+    };
+    let schedule = schedules
+        .iter()
+        .map(|(schedule, _)| schedule)
+        .find(|schedule| schedule.effective_from <= first)
+        .unwrap_or(&fallback);
+    let (from, to) = schedule.attendance_window(first, next);
+    RunDates {
+        thr_on: thr.get(run.id()).copied(),
+        attendance_from: from,
+        attendance_to: to - chrono::Days::new(1),
+        pay_on: schedule.pay_on(first, next),
+    }
+}
+
+fn run_view(
+    run: &PayrollRun,
+    handover: Option<HandoverStanding>,
+    dates: RunDates,
+) -> PayrollRunView {
     PayrollRunView {
+        thr_on: dates.thr_on,
+        attendance_from: dates.attendance_from,
+        attendance_to: dates.attendance_to,
+        pay_on: dates.pay_on,
         id: run.id().to_owned(),
         unit_id: run.unit().to_string(),
         period: run.period().to_owned(),
@@ -532,10 +595,17 @@ pub async fn amend_identity(
         "bpjs_ketenagakerjaan" => IdentityChange::BpjsKetenagakerjaan {
             number: required("bpjs_ketenagakerjaan")?.to_owned(),
         },
+        "tax_method" => IdentityChange::TaxMethod {
+            method: TaxMethod::parse(required("tax_method")?).ok_or_else(|| {
+                AppError::Validation(
+                    "tax_method is GROSS, GROSS_UP or NETTO".to_owned(),
+                )
+            })?,
+        },
         other => {
             return Err(AppError::Validation(format!(
                 "{other:?} is not an amendable field: expected bank_account, npwp, ptkp, \
-                 bpjs_kesehatan or bpjs_ketenagakerjaan"
+                 bpjs_kesehatan, bpjs_ketenagakerjaan or tax_method"
             )));
         }
     };
@@ -570,12 +640,286 @@ pub async fn payslips(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     Path(raw): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<Vec<PayrollSlipRow>>, AppError> {
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::PAY_READ)?;
     subject_is_reachable(&state, &access).await?;
+    payslip_unlocked(&state, &raw, &access.employee_id, &headers).await?;
+    let mut slips = infrastructure::slips_of(&state.db, &access.employee_id).await?;
+    // The template's choice of whether the employee sees what the company
+    // pays on top is about the employee's own payslip; head office reading
+    // somebody's pay always sees the whole of it.
+    if raw == "me" && !infrastructure::payslip_template(&state.db).await?.show_company_contributions {
+        for slip in &mut slips {
+            slip.company_contributions.clear();
+            slip.company_borne_minor = None;
+        }
+    }
+    Ok(Json(slips))
+}
+
+/// The header an employee's own payslip reads carry the payslip password in.
+pub const PAYSLIP_PASSWORD_HEADER: &str = "x-payslip-password";
+
+/// When the company requires a payslip password (0803), an employee reading
+/// their *own* payslips — through `me` — must send it. Head office and a
+/// manager reading somebody's pay are not asked: the lock is against a phone
+/// left open, not against the people who run payroll.
+///
+/// Two refusals, told apart by their first words so the app can offer the
+/// right form: "payslip password not set" and "payslip password required".
+async fn payslip_unlocked(
+    state: &AppState,
+    raw: &str,
+    employee_id: &str,
+    headers: &axum::http::HeaderMap,
+) -> Result<(), AppError> {
+    if raw != "me" {
+        return Ok(());
+    }
+    let template = infrastructure::payslip_template(&state.db).await?;
+    if !template.password_required {
+        return Ok(());
+    }
+    let Some(hash) = infrastructure::payslip_password_hash(&state.db, employee_id).await? else {
+        return Err(AppError::Forbidden(
+            "payslip password not set: set one before opening your payslips".to_owned(),
+        ));
+    };
+    let given = headers
+        .get(PAYSLIP_PASSWORD_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    if given.is_empty() || !crate::security::password_matches(&hash, given) {
+        return Err(AppError::Forbidden(
+            "payslip password required: the one you set for your payslips".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PayslipPasswordBody {
+    pub password: String,
+    /// The current payslip password, when one is already set.
+    #[serde(default)]
+    pub current: Option<String>,
+}
+
+/// Set one's own payslip password. Only through `me`: nobody sets another
+/// person's. Changing it needs the current one.
+pub async fn set_payslip_password(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(raw): Path<String>,
+    Json(body): Json<PayslipPasswordBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if raw != "me" {
+        return Err(AppError::Forbidden(
+            "a payslip password is set by its owner, through me".to_owned(),
+        ));
+    }
+    let access = resolve(&state, &principal, &raw).await?;
+    if let Some(hash) = infrastructure::payslip_password_hash(&state.db, &access.employee_id).await? {
+        let current = body.current.as_deref().unwrap_or_default();
+        if !crate::security::password_matches(&hash, current) {
+            return Err(AppError::Forbidden(
+                "payslip password required: the current one, to change it".to_owned(),
+            ));
+        }
+    }
+    let hash = crate::security::hash_password(&body.password, 6).map_err(AppError::Validation)?;
+    infrastructure::set_payslip_password(&state.db, &access.employee_id, &hash).await?;
+    Ok(Json(serde_json::json!({ "set": true })))
+}
+
+/// Head office resets a forgotten payslip password: the old one is gone and
+/// the employee chooses a new one on their next visit. HR never learns or
+/// sets the password itself.
+pub async fn reset_payslip_password(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(raw): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    require(&principal, actions::PAY_CHANGE)?;
+    if raw == "me" {
+        return Err(AppError::Forbidden(
+            "your own payslip password is changed with the current one, not reset".to_owned(),
+        ));
+    }
+    let access = resolve(&state, &principal, &raw).await?;
+    subject_is_reachable(&state, &access).await?;
+    let reset = infrastructure::clear_payslip_password(&state.db, &access.employee_id).await?;
+    Ok(Json(serde_json::json!({ "reset": reset })))
+}
+
+pub async fn payslip_template(
+    State(state): State<AppState>,
+) -> Result<Json<infrastructure::PayslipTemplate>, AppError> {
+    Ok(Json(infrastructure::payslip_template(&state.db).await?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SaveTemplateBody {
+    pub company_name: Option<String>,
+    pub company_address: Option<String>,
+    pub footer: Option<String>,
+    pub show_company_contributions: bool,
+    pub password_required: bool,
+    pub reason: String,
+}
+
+pub async fn save_payslip_template(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<SaveTemplateBody>,
+) -> Result<Json<infrastructure::PayslipTemplate>, AppError> {
+    require(&principal, actions::PAY_CHANGE)?;
+    let authorization = Authorization::try_new(
+        &principal.username,
+        actions::PAY_CHANGE,
+        Utc::now(),
+        &body.reason,
+    )
+    .map_err(invalid)?;
+    let template = infrastructure::PayslipTemplate {
+        company_name: body.company_name,
+        company_address: body.company_address,
+        footer: body.footer,
+        show_company_contributions: body.show_company_contributions,
+        password_required: body.password_required,
+    };
+    infrastructure::save_payslip_template(&state.db, &template, &authorization).await?;
+    payslip_template(State(state)).await
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HoldBody {
+    pub employee_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseBody {
+    pub reason: String,
+}
+
+/// The holds on a run's pay.
+pub async fn run_withholdings(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<infrastructure::WithholdingView>>, AppError> {
+    require(&principal, actions::PAY_READ)?;
+    let run = reachable_run(&state, &principal, &id).await?;
+    Ok(Json(infrastructure::withholdings(&state.db, run.id()).await?))
+}
+
+/// Hold one person's pay on a run (0803). Head office's: it is a decision
+/// about somebody's wage.
+pub async fn hold_pay(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<String>,
+    Json(body): Json<HoldBody>,
+) -> Result<Json<Vec<infrastructure::WithholdingView>>, AppError> {
+    require(&principal, actions::PAY_CHANGE)?;
+    let run = reachable_run(&state, &principal, &id).await?;
+    let authorization =
+        Authorization::try_new(&principal.username, actions::PAY_CHANGE, Utc::now(), &body.reason)
+            .map_err(invalid)?;
+    infrastructure::hold_pay(&state.db, run.id(), &body.employee_id, &authorization).await?;
+    Ok(Json(infrastructure::withholdings(&state.db, run.id()).await?))
+}
+
+pub async fn release_pay(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((id, employee)): Path<(String, String)>,
+    Json(body): Json<ReleaseBody>,
+) -> Result<Json<Vec<infrastructure::WithholdingView>>, AppError> {
+    require(&principal, actions::PAY_CHANGE)?;
+    let run = reachable_run(&state, &principal, &id).await?;
+    let authorization =
+        Authorization::try_new(&principal.username, actions::PAY_CHANGE, Utc::now(), &body.reason)
+            .map_err(invalid)?;
+    infrastructure::release_pay(&state.db, run.id(), &employee, &authorization).await?;
+    Ok(Json(infrastructure::withholdings(&state.db, run.id()).await?))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct YearQuery {
+    pub year: i32,
+}
+
+/// One person's 1721-A1 for a year — their own, or somebody head office or
+/// their manager may read.
+pub async fn annual_tax(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(raw): Path<String>,
+    Query(query): Query<YearQuery>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<Option<AnnualTaxSlip>>, AppError> {
+    let access = resolve(&state, &principal, &raw).await?;
+    access.may_read(actions::PAY_READ)?;
+    subject_is_reachable(&state, &access).await?;
+    payslip_unlocked(&state, &raw, &access.employee_id, &headers).await?;
+    let mut slips =
+        infrastructure::annual_tax_slips(&state.db, query.year, Some(&access.employee_id)).await?;
+    Ok(Json(slips.pop()))
+}
+
+/// Every employee's 1721-A1 for a year. Head office's: it is the company's
+/// annual filing, across every unit somebody was paid at.
+pub async fn annual_tax_all(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<YearQuery>,
+) -> Result<Json<Vec<AnnualTaxSlip>>, AppError> {
+    require(&principal, actions::PAY_CHANGE)?;
     Ok(Json(
-        infrastructure::slips_of(&state.db, &access.employee_id).await?,
+        infrastructure::annual_tax_slips(&state.db, query.year, None).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TaxReportQuery {
+    /// `YYYY-MM`.
+    pub period: String,
+    #[serde(default)]
+    pub unit: Option<String>,
+}
+
+/// PPh 21 and BPJS of a month, per person — what is owed to the tax office
+/// and to BPJS. Bounded by reach, as the runs are.
+pub async fn tax_report(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<TaxReportQuery>,
+) -> Result<Json<Vec<TaxReportRow>>, AppError> {
+    require(&principal, actions::PAY_READ)?;
+    let reach = reach_of(&state, &principal).await?;
+    if reach.is_nowhere() {
+        return Ok(Json(Vec::new()));
+    }
+    let unit = match query.unit.as_deref() {
+        Some(asked) => {
+            reaches(&principal, &reach, asked)?;
+            Some(asked.to_owned())
+        }
+        None => reach.sole_unit().map(ToString::to_string),
+    };
+    let month = AttendanceMonth::parse(&query.period).map_err(infrastructure::attendance_error)?;
+    let first = infrastructure::month_first_day(month)?;
+    Ok(Json(
+        infrastructure::tax_report(&state.db, first, unit.as_deref()).await?,
     ))
 }
 
@@ -610,6 +954,8 @@ pub async fn list_runs(
 
     let runs = infrastructure::list_runs(&state.db, unit.as_deref()).await?;
     let mut standings = infrastructure::handover_standings(&state.db, unit.as_deref()).await?;
+    let schedules = infrastructure::payroll_schedules(&state.db).await?;
+    let thr = infrastructure::run_thr_dates(&state.db).await?;
     Ok(Json(
         runs.iter()
             .map(|run| {
@@ -617,7 +963,7 @@ pub async fn list_runs(
                     .iter()
                     .position(|standing| standing.run_id == run.id())
                     .map(|at| standings.swap_remove(at));
-                run_view(run, at)
+                run_view(run, at, run_dates(run, &schedules, &thr))
             })
             .collect(),
     ))
@@ -629,11 +975,11 @@ pub async fn list_runs(
 /// longer opens a shop's run: the people who know whether a month is right are
 /// the people who worked it.
 ///
-/// It still refuses a month whose attendance is not closed. The period is the
-/// payroll gate: while it is open the facts are still moving, and a run built
-/// over moving facts is a run that disagrees with itself an hour later. That
-/// gate is unchanged, and it is now the same place's own signature on both
-/// sides of it.
+/// It no longer waits for the month's attendance to be closed: the owner
+/// dropped period close on 2026-09-30 ("ngapain diubah lagi, kan hanya terkait
+/// gaji"). A draft is a working document instead — [`rebuild_run`] works its
+/// slips out again from what the month holds now, as Talenta's recalculate
+/// does, and submitting it is what freezes the figures.
 pub async fn open_run(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -647,14 +993,6 @@ pub async fn open_run(
     let unit = UnitId::try_new(&body.unit_id).map_err(invalid)?;
     let month = AttendanceMonth::parse(&body.period).map_err(infrastructure::attendance_error)?;
     let first = infrastructure::month_first_day(month)?;
-
-    let period = infrastructure::period_for(&state.db, &unit, first).await?;
-    if !period.is_closed() {
-        return Err(AppError::Conflict(format!(
-            "attendance for {} in {} is not closed, so its facts are still moving",
-            body.unit_id, body.period
-        )));
-    }
 
     // Always, today. When a punch source arrives this becomes conditional; the
     // sentence is written where a person reads it rather than left implicit in
@@ -681,12 +1019,150 @@ pub async fn open_run(
     read_back(&state, run.id()).await
 }
 
+/// Work a draft run's slips out again from what the month holds now — leave
+/// approved since, a PTKP recorded, a raise, a posting. Only a draft: once the
+/// place has submitted, the figures are the ones head office is deciding, and
+/// a reopen is how they move again.
+pub async fn rebuild_run(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Path(id): Path<String>,
+) -> Result<Json<PayrollRunView>, AppError> {
+    require(&principal, actions::PAYROLL_OPEN)?;
+    let run = reachable_run(&state, &principal, &id).await?;
+    if run.state() != RunState::Draft {
+        return Err(AppError::Conflict(format!(
+            "{id} has been submitted; send it back to recalculate it"
+        )));
+    }
+    let month = AttendanceMonth::parse(run.period()).map_err(infrastructure::attendance_error)?;
+    let first = infrastructure::month_first_day(month)?;
+    infrastructure::rebuild_draft_run(&state.db, run.unit().as_str(), first).await?;
+    acted_on.set(RecordKind::PayrollRun, run.id().to_string());
+    read_back(&state, run.id()).await
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ThrBody {
+    /// The holiday THR is paid for; `null` takes THR off the run.
+    pub holiday_on: Option<NaiveDate>,
+    pub reason: String,
+}
+
+/// Put THR on a draft run for a holiday, or take it off (0801). Every slip on
+/// the run gains a THR line — a month's wage after twelve months' service,
+/// `months / 12` of it after at least one — and is recalculated, THR taxed by
+/// the month's TER like any other income.
+pub async fn set_thr(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Path(id): Path<String>,
+    Json(body): Json<ThrBody>,
+) -> Result<Json<PayrollRunView>, AppError> {
+    require(&principal, actions::PAYROLL_OPEN)?;
+    if body.reason.trim().is_empty() {
+        return Err(AppError::Validation("a reason is required".to_owned()));
+    }
+    let run = reachable_run(&state, &principal, &id).await?;
+    let month = AttendanceMonth::parse(run.period()).map_err(infrastructure::attendance_error)?;
+    let first = infrastructure::month_first_day(month)?;
+    infrastructure::set_run_thr(&state.db, &run, first, body.holiday_on).await?;
+    acted_on.set(RecordKind::PayrollRun, run.id().to_string());
+    read_back(&state, run.id()).await
+}
+
+/// One payroll schedule and the date it holds from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PayrollScheduleView {
+    pub effective_from: NaiveDate,
+    /// The attendance month's last day, 1–28; `null` for the calendar month.
+    pub cutoff_day: Option<u32>,
+    /// The day pay goes out; `null` for the month's last day.
+    pub pay_day: Option<u32>,
+    /// `CALENDAR`, `WORKDAYS_6` or `WORKDAYS_5` (0814).
+    pub prorate_basis: String,
+    pub ratified_by: String,
+    pub ratified_at: DateTime<Utc>,
+    pub reason: String,
+}
+
+pub async fn schedules(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<PayrollScheduleView>>, AppError> {
+    let rows = infrastructure::payroll_schedules(&state.db).await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(schedule, ratified)| PayrollScheduleView {
+                effective_from: schedule.effective_from,
+                cutoff_day: schedule.cutoff_day,
+                pay_day: schedule.pay_day,
+                prorate_basis: schedule.prorate_basis,
+                ratified_by: ratified.actor().to_string(),
+                ratified_at: ratified.at(),
+                reason: ratified.reason().to_string(),
+            })
+            .collect(),
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StateScheduleBody {
+    pub effective_from: NaiveDate,
+    pub cutoff_day: Option<u32>,
+    pub pay_day: Option<u32>,
+    /// `CALENDAR` (the default), `WORKDAYS_6` or `WORKDAYS_5` (0814).
+    #[serde(default)]
+    pub prorate_basis: Option<String>,
+    pub reason: String,
+}
+
+/// State the payroll schedule from a date. Head office's, under the ratify key.
+pub async fn state_schedule(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<StateScheduleBody>,
+) -> Result<Json<Vec<PayrollScheduleView>>, AppError> {
+    require(&principal, actions::PAY_COMPONENT_RATIFY)?;
+    if body.cutoff_day.is_some_and(|day| !(1..=28).contains(&day)) {
+        return Err(AppError::Validation("the cut-off day is 1 to 28".to_owned()));
+    }
+    if body.pay_day.is_some_and(|day| !(1..=31).contains(&day)) {
+        return Err(AppError::Validation("the pay day is 1 to 31".to_owned()));
+    }
+    let authorization = Authorization::try_new(
+        &principal.username,
+        actions::PAY_COMPONENT_RATIFY,
+        Utc::now(),
+        &body.reason,
+    )
+    .map_err(|error| AppError::Validation(error.to_string()))?;
+    infrastructure::state_payroll_schedule(
+        &state.db,
+        body.effective_from,
+        body.cutoff_day,
+        body.pay_day,
+        body.prorate_basis.as_deref().unwrap_or("CALENDAR"),
+        &authorization,
+    )
+    .await?;
+    schedules(State(state)).await
+}
+
 async fn read_back(state: &AppState, id: &str) -> Result<Json<PayrollRunView>, AppError> {
     let run = infrastructure::load_run(&state.db, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("payroll run {id}")))?;
     let standing = infrastructure::handover_standing(&state.db, id).await?;
-    Ok(Json(run_view(&run, standing)))
+    let schedules = infrastructure::payroll_schedules(&state.db).await?;
+    let thr = infrastructure::run_thr_dates(&state.db).await?;
+    let dates = run_dates(&run, &schedules, &thr);
+    Ok(Json(run_view(&run, standing, dates)))
 }
 
 /// A run the caller may act on, loaded and reach-checked.
@@ -964,4 +1440,100 @@ async fn read_handover_back(
             AppError::NotFound(format!("payroll run {id} has not been handed to Finance"))
         })?;
     Ok(Json(handover_view(&handover)))
+}
+
+// ── loans (0804) ────────────────────────────────────────────────────────────
+
+/// One person's loans: `me` for the employee's own, or head office reading.
+pub async fn loans(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(raw): Path<String>,
+) -> Result<Json<Vec<infrastructure::LoanView>>, AppError> {
+    let access = resolve(&state, &principal, &raw).await?;
+    access.may_read(actions::PAY_READ)?;
+    subject_is_reachable(&state, &access).await?;
+    Ok(Json(infrastructure::loans_of(&state.db, &access.employee_id).await?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct GrantLoanBody {
+    pub amount_minor: i64,
+    pub instalment_minor: i64,
+    /// `YYYY-MM`: the first month an instalment comes off.
+    pub first_period: String,
+    pub purpose: String,
+    pub reason: String,
+}
+
+/// Grant a loan (0804). Head office's: the advance is approved by granting
+/// it, and Finance pays it out from its advances; instalments come off pay
+/// from the first month once it is paid.
+pub async fn grant_loan(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(raw): Path<String>,
+    Json(body): Json<GrantLoanBody>,
+) -> Result<Json<Vec<infrastructure::LoanView>>, AppError> {
+    require(&principal, actions::PAY_CHANGE)?;
+    if raw == "me" {
+        return Err(AppError::Forbidden("a loan is granted to somebody else".into()));
+    }
+    let access = resolve(&state, &principal, &raw).await?;
+    subject_is_reachable(&state, &access).await?;
+    if body.purpose.trim().is_empty() {
+        return Err(AppError::Validation("say what the loan is for".into()));
+    }
+    let first = NaiveDate::parse_from_str(&format!("{}-01", body.first_period), "%Y-%m-%d")
+        .map_err(|_| AppError::Validation("first_period is a month, YYYY-MM".into()))?;
+    let granted = Authorization::try_new(
+        &principal.username,
+        actions::PAY_CHANGE,
+        Utc::now(),
+        &body.reason,
+    )
+    .map_err(invalid)?;
+    infrastructure::grant_loan(
+        &state.db,
+        &access.employee_id,
+        body.amount_minor,
+        body.instalment_minor,
+        first,
+        &body.purpose,
+        &granted,
+    )
+    .await?;
+    Ok(Json(infrastructure::loans_of(&state.db, &access.employee_id).await?))
+}
+
+/// Every loan, for head office's list.
+pub async fn all_loans(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<Vec<infrastructure::LoanView>>, AppError> {
+    require(&principal, actions::PAY_CHANGE)?;
+    Ok(Json(infrastructure::all_loans(&state.db).await?))
+}
+
+/// Stop a loan's instalments.
+pub async fn stop_loan(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<String>,
+    Json(body): Json<ReleaseBody>,
+) -> Result<Json<Vec<infrastructure::LoanView>>, AppError> {
+    require(&principal, actions::PAY_CHANGE)?;
+    let advance_id = uuid::Uuid::parse_str(&id)
+        .map_err(|_| AppError::NotFound(format!("loan {id}")))?;
+    let stopped = Authorization::try_new(
+        &principal.username,
+        actions::PAY_CHANGE,
+        Utc::now(),
+        &body.reason,
+    )
+    .map_err(invalid)?;
+    let employee = infrastructure::stop_loan(&state.db, advance_id, &stopped).await?;
+    Ok(Json(infrastructure::loans_of(&state.db, &employee).await?))
 }

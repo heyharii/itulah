@@ -117,6 +117,8 @@ pub struct PayComponentWire {
     pub defined: Authorization,
     #[serde(default)]
     pub retired: Option<Authorization>,
+    #[serde(default)]
+    pub employer_borne: bool,
 }
 
 /// One component, as head office defined it. **No numbers.**
@@ -130,6 +132,9 @@ pub struct PayComponent {
     unit: Option<CountedUnit>,
     defined: Authorization,
     retired: Option<Authorization>,
+    /// A deduction the company pays on the employee's behalf (0466): shown on
+    /// the slip, posted as the company's cost, and not taken from net pay.
+    employer_borne: bool,
 }
 
 impl<'de> Deserialize<'de> for PayComponent {
@@ -169,6 +174,7 @@ impl PayComponent {
             unit,
             defined,
             retired: None,
+            employer_borne: false,
         })
     }
 
@@ -232,6 +238,7 @@ impl PayComponent {
             unit: wire.unit,
             defined: wire.defined,
             retired: wire.retired,
+            employer_borne: wire.employer_borne && wire.kind == ComponentKind::Deduction,
         })
     }
 
@@ -255,6 +262,9 @@ impl PayComponent {
     }
     pub const fn defined(&self) -> &Authorization {
         &self.defined
+    }
+    pub const fn employer_borne(&self) -> bool {
+        self.employer_borne
     }
     pub const fn retired(&self) -> Option<&Authorization> {
         self.retired.as_ref()
@@ -321,7 +331,7 @@ impl PayComponent {
                     .multiplier_bp
                     .ok_or_else(|| missing("the multiplier"))?,
             },
-            ComponentShape::PerOccasion => {
+            ComponentShape::PerOccasion | ComponentShape::Statutory => {
                 return Err(ComponentError::PerOccasionHasNoRate {
                     code: self.code.to_string(),
                 })

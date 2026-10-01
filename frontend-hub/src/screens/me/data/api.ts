@@ -11,6 +11,13 @@ import type {
   OvertimeOrderView,
   PayrollIdentityView,
   PayrollSlipRow,
+  PayslipTemplate,
+  AnnualTaxSlip,
+  LoanView,
+  ClaimBalanceRow,
+  WarningLetterView,
+  EssModulesView,
+  OwnAttendanceSetting,
   PunchRecorded,
   LifecycleTaskView,
   Notification as ContractNotification,
@@ -82,14 +89,12 @@ export async function contracts(
 // port recorded; the server kept the agreement at `/pay` and gave payslips
 // their own route, and this is the change that resolves it.
 //
-// # There are no deductions here, and that is not a gap in this file
+// # Deductions, and a net only when everything was worked out
 //
-// The proposal's `PaySlip` carried `gross_idr`, `deductions_idr` and
-// `net_idr`. The server computes none of them: PPh 21 and BPJS are statutory
-// arithmetic whose brackets change by regulation, and a figure computed by
-// this system is a figure somebody files with the tax office. A slip carries
-// the agreement in force and the facts recorded — and the screens say so,
-// rather than showing a net that is really a gross.
+// Since 0800 the server works out PPh 21 and BPJS, so a slip carries its
+// earnings, deductions, what the employer paid on top, and a net — `null`
+// with a sentence whenever something could not be worked out (no PTKP on the
+// record, say), never a nought.
 
 /// Who this person is to payroll. The account number is masked by the server;
 /// there is no route that serves it whole.
@@ -107,10 +112,96 @@ export function payrollIdentity(
 /// Only runs somebody has signed for come back. A draft is a working figure,
 /// and a payslip that changed after it was read would be worse than one that
 /// arrived late.
-export function paySlips(signal?: AbortSignal): Promise<PayrollSlipRow[]> {
+export function paySlips(
+  password: string | null,
+  signal?: AbortSignal
+): Promise<PayrollSlipRow[]> {
   return node.get<PayrollSlipRow[]>(`/api/v1/employees/${SELF}/payslips`, {
     signal,
+    ...lock(password),
   })
+}
+
+/// The payslip password travels in a header of its own, never the URL.
+function lock(password: string | null) {
+  return password === null
+    ? {}
+    : { headers: { "x-payslip-password": password } }
+}
+
+/// What the company's payslip says around its figures, and whether it is
+/// locked.
+export function payslipTemplate(
+  signal?: AbortSignal
+): Promise<PayslipTemplate> {
+  return node.get<PayslipTemplate>(
+    `/api/v1/employees/${SELF}/payslip-template`,
+    { signal }
+  )
+}
+
+/// Set one's own payslip password, or change it with the current one.
+export function setPayslipPassword(body: {
+  password: string
+  current?: string
+}): Promise<{ set: boolean }> {
+  return node.post<{ set: boolean }>(
+    `/api/v1/employees/${SELF}/payslip-password`,
+    body
+  )
+}
+
+/// The employee app's modules the company has turned on (0813).
+export function essModules(signal?: AbortSignal): Promise<EssModulesView> {
+  return node.get<EssModulesView>(`/api/v1/employees/${SELF}/ess-modules`, {
+    signal,
+  })
+}
+
+/// One's own warning letters (0811).
+export function warningLetters(
+  signal?: AbortSignal
+): Promise<WarningLetterView[]> {
+  return node.get<WarningLetterView[]>(
+    `/api/v1/employees/${SELF}/warning-letters`,
+    { signal }
+  )
+}
+
+/// Say a letter was received — not that it is agreed with.
+export function acknowledgeLetter(id: string): Promise<WarningLetterView[]> {
+  return node.post<WarningLetterView[]>(
+    `/api/v1/employees/${SELF}/warning-letters/${encodeURIComponent(id)}/acknowledgement`,
+    {}
+  )
+}
+
+/// One's own claim allowances this year, and what is left (0810).
+export function claimBalances(
+  year: number,
+  signal?: AbortSignal
+): Promise<ClaimBalanceRow[]> {
+  return node.get<ClaimBalanceRow[]>(
+    `/api/v1/employees/${SELF}/claim-balances?year=${year}`,
+    { signal }
+  )
+}
+
+/// One's own loans: what was lent, what came back, what is still owed.
+export function loans(signal?: AbortSignal): Promise<LoanView[]> {
+  return node.get<LoanView[]>(`/api/v1/employees/${SELF}/loans`, { signal })
+}
+
+/// One's own bukti potong 1721-A1 for a year; `null` when nothing was paid.
+export function annualTax(
+  year: number,
+  password: string | null,
+  signal?: AbortSignal
+): Promise<AnnualTaxSlip | null> {
+  return node.get<AnnualTaxSlip | null>(
+    `/api/v1/employees/${SELF}/annual-tax?year=${year}`,
+    { signal, ...lock(password) }
+  )
 }
 // ── leave: live, against the real routes ──────────────────────
 //
@@ -285,10 +376,25 @@ export function attendance(
 /// derives one from the punch's own content, so a double tap, a retry on a lost
 /// connection, or a thumb resting on the button all land once. `newly_recorded`
 /// is `false` when that happened, which is information rather than a failure.
-export function punch(direction: "IN" | "OUT"): Promise<PunchRecorded> {
+export function punch(
+  direction: "IN" | "OUT",
+  at?: { latitude: number; longitude: number }
+): Promise<PunchRecorded> {
   return node.post<PunchRecorded>(`/api/v1/employees/${SELF}/punches`, {
     direction,
+    ...(at ?? {}),
   })
+}
+
+/// Whether the app may punch, whether it must say where it is, and the fence
+/// of the unit this person is posted to (0807).
+export function attendanceSetting(
+  signal?: AbortSignal
+): Promise<OwnAttendanceSetting> {
+  return node.get<OwnAttendanceSetting>(
+    `/api/v1/employees/${SELF}/attendance-setting`,
+    { signal }
+  )
 }
 
 function fromRow(row: CorrectionRow): AttendanceCorrection {

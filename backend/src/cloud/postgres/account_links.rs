@@ -499,6 +499,7 @@ pub async fn posting_readiness(pool: &PgPool) -> Result<PostingReadiness, AppErr
              SELECT CASE kind WHEN 'EARNING' THEN 'payroll_expense' ELSE 'payroll_deduction' END,
                     'PAY_COMPONENT', code
                FROM pay_component WHERE retired_at IS NULL AND NOT paid_from_accrual
+                AND code NOT IN ('PPH21_RETURN', 'POTONGAN_ABSEN') -- posted to pph21_payable (0800) and back to salary (0807)
              UNION
              SELECT 'payroll_expense', 'PAY_COMPONENT', code
                FROM pay_component WHERE retired_at IS NULL AND employer_borne

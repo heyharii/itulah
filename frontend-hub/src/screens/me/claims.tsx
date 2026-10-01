@@ -2,7 +2,7 @@ import { useState } from "react"
 
 import { Plus } from "lucide-react"
 
-import { Async, List, Panel, Unbound } from "@/screens/me/ui/bits"
+import { Async, List, Panel, Row, Unbound } from "@/screens/me/ui/bits"
 import { StatusPill } from "@/screens/me/ui/status-pill"
 import { Button } from "@/screens/me/ui/button"
 import { Day, Field, Input, Select, TAP } from "@/screens/me/ui/field"
@@ -13,6 +13,7 @@ import {
   useFileClaim,
   useMyClaims,
   useSubmitClaim,
+  useClaimBalances,
 } from "@/screens/me/data/queries"
 
 /// Your claims: what you filed and what came of it, and — on request — the
@@ -41,6 +42,7 @@ export function Claims() {
 
   return (
     <div className="flex flex-col gap-4">
+      <Allowances />
       {claims.length > 0 && (
         <Panel>
           <div className="grid grid-cols-2 gap-3">
@@ -277,6 +279,25 @@ function ClaimForm({ onDone }: { onDone: () => void }) {
           rendah dari yang diajukan.
         </p>
       </div>
+    </Panel>
+  )
+}
+
+/// What each kind of claim still allows you this year. Shown only for kinds
+/// with a limit.
+function Allowances() {
+  const balances = useClaimBalances()
+  const limited = (balances.data ?? []).filter(
+    (row) => row.limit_minor !== null
+  )
+  if (limited.length === 0) return null
+  return (
+    <Panel title="Left to claim this year">
+      {limited.map((row) => (
+        <Row key={row.type_code} label={row.type_name}>
+          {money(row.left_minor ?? 0)} of {money(row.limit_minor ?? 0)}
+        </Row>
+      ))}
     </Panel>
   )
 }

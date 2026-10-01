@@ -12,7 +12,6 @@ import { useMemo, useState } from "react"
 import { CalendarClock, UserPlus } from "lucide-react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { AppLink } from "@/components/ui/app-link"
 import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -97,8 +96,15 @@ import type {
   ProfileAmendmentView,
 } from "@itulah/contract"
 import { Quiet } from "@/screens/people/parts"
+import { ChecklistPanel } from "@/screens/people/checklist"
+import { ClaimBalances } from "@/screens/people/claim-benefits"
+import { DisciplinePanel } from "@/screens/people/discipline"
+import { LeaveMoves } from "@/screens/people/leave-extras"
+import { LoansPanel } from "@/screens/people/loans"
 import { PayPanel } from "@/screens/people/pay"
-import { UniformTab } from "@/screens/people/uniforms"
+import { PlacementPanel } from "@/screens/people/placement"
+import { AddEmployeeSheet } from "@/screens/people/add-employee"
+import { ImportExportSheet } from "@/screens/people/import-export"
 
 /// The workforce: who works here, under what contract, and where they are
 /// posted.
@@ -320,6 +326,9 @@ export function Directory() {
   const reach = useReach()
   const bounded = boundedTo(reach.data)
   const employee = useSheet("employee")
+  const adding = useSheet("addEmployee")
+  const porting = useSheet("importExport")
+  const employer = usePeopleAudience() === "employer"
   const [sorting, setSorting] = useState<SortingState>([
     { id: "expiry", desc: false },
   ])
@@ -520,13 +529,17 @@ export function Directory() {
               placeholder="Search number or name"
               className="h-8 w-48"
             />
-            {/* Asking for somebody — a sidebar row until 2026-09-27, and the
-                front of the lifecycle this list holds the rest of. A shop
-                asks here and head office decides here. */}
-            <AppLink to="/people/hire" variant="ghost">
+            {/* Adding somebody, as Talenta's Add employee does it — the
+                hire request it replaced went with recruitment (2026-09-30). */}
+            {employer && (
+              <Button variant="ghost" onClick={() => porting.open(true)}>
+                Import & export
+              </Button>
+            )}
+            <Button variant="primary" onClick={() => adding.open(true)}>
               <UserPlus />
-              New employees
-            </AppLink>
+              Add employee
+            </Button>
           </>
         }
       />
@@ -577,6 +590,15 @@ export function Directory() {
         listed={listed}
         onClose={employee.close}
       />
+      <ImportExportSheet open={porting.isOpen} onClose={porting.close} />
+      <AddEmployeeSheet
+        open={adding.isOpen}
+        onClose={adding.close}
+        onAdded={(id) => {
+          adding.close()
+          employee.open(id)
+        }}
+      />
     </PageContent>
   )
 }
@@ -586,8 +608,11 @@ const TABS = [
   { value: "leave", label: "Leave" },
   { value: "claims", label: "Claims" },
   { value: "contracts", label: "Contracts" },
+  { value: "position", label: "Position" },
+  { value: "checklist", label: "Checklist" },
+  { value: "discipline", label: "Discipline" },
   { value: "pay", label: "Pay" },
-  { value: "uniforms", label: "Uniforms" },
+  { value: "loans", label: "Loans" },
   { value: "exit", label: "Exit" },
   { value: "change", label: "Change" },
 ] as const
@@ -622,7 +647,14 @@ function tabsFor(
 ): readonly (typeof TABS)[number][] {
   const base = employer
     ? TABS
-    : TABS.filter((one) => one.value !== "change" && one.value !== "pay")
+    : TABS.filter(
+        (one) =>
+          one.value !== "change" &&
+          one.value !== "pay" &&
+          one.value !== "loans" &&
+          one.value !== "position" &&
+          one.value !== "discipline"
+      )
   return status === "TERMINATED"
     ? base
     : base.filter((one) => one.value !== "exit")
@@ -822,11 +854,21 @@ function EmployeeSheetBody({
 
         {shown === "contracts" && <Contracts employeeId={person.employee_id} />}
 
+        {shown === "discipline" && (
+          <DisciplinePanel employeeId={person.employee_id} />
+        )}
+
+        {shown === "checklist" && (
+          <ChecklistPanel employeeId={person.employee_id} />
+        )}
+
+        {shown === "position" && (
+          <PlacementPanel employeeId={person.employee_id} />
+        )}
+
         {shown === "pay" && <PayPanel employeeId={person.employee_id} />}
 
-        {shown === "uniforms" && (
-          <UniformTab employeeId={person.employee_id} />
-        )}
+        {shown === "loans" && <LoansPanel employeeId={person.employee_id} />}
 
         {shown === "exit" && (
           <ExitTab employeeId={person.employee_id} employer={employer} />
@@ -2126,6 +2168,7 @@ function LeaveTab({ employeeId }: { employeeId: string }) {
             ),
         })}
       </div>
+      <LeaveMoves employeeId={employeeId} />
     </div>
   )
 }
@@ -2262,6 +2305,7 @@ function ClaimsTab({ employeeId }: { employeeId: string }) {
             ),
         })}
       </div>
+      <ClaimBalances employeeId={employeeId} editable />
     </div>
   )
 }

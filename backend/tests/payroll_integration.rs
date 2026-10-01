@@ -899,6 +899,9 @@ async fn one_person_cannot_submit_and_approve_the_same_run(pool: PgPool) {
 
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
     agree_pay(&app, &cookies, &csrf, &siti, 5_000_000).await;
+    // Approval refuses a run with somebody who has no account to be paid
+    // into; this test is about who signs, so she has one.
+    set_account(&app, &cookies, &csrf, &siti, "1234567890").await;
     close_april(&app, &cookies, &csrf).await;
 
     // Head office holds every key, submit included — Admin outranks
@@ -1007,11 +1010,12 @@ async fn a_store_cannot_touch_another_stores_payroll(pool: PgPool) {
     assert_eq!(all.body.as_array().map(Vec::len), Some(1), "{:?}", all.body);
 }
 
-/// The attendance period is the payroll gate: while it is open the facts are
-/// still moving, and a run built over moving facts disagrees with itself an
-/// hour later.
+/// A run no longer waits for the month's attendance to be closed — the owner
+/// dropped period close on 2026-09-30. A draft is a working document instead:
+/// recalculating it works its slips out again from what the month holds now,
+/// and once the place submits it the figures are frozen.
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn a_run_cannot_be_opened_over_a_month_that_is_still_open(pool: PgPool) {
+async fn a_draft_run_opens_over_an_open_month_and_recalculates_until_submitted(pool: PgPool) {
     cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
         .await
         .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -1021,17 +1025,71 @@ async fn a_run_cannot_be_opened_over_a_month_that_is_still_open(pool: PgPool) {
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
     agree_pay(&app, &cookies, &csrf, &siti, 5_000_000).await;
 
-    let refused = open_run(&app, &cookies, &csrf).await;
-    assert_eq!(refused.status, StatusCode::CONFLICT, "{:?}", refused.body);
-
-    close_april(&app, &cookies, &csrf).await;
     let opened = open_run(&app, &cookies, &csrf).await;
     assert_eq!(opened.status, StatusCode::OK, "{:?}", opened.body);
+    let run_id = opened.body["id"].as_str().unwrap_or_default().to_owned();
 
     // One run per place per month. A second is a correction, and a correction
     // is a new period's business.
     let again = open_run(&app, &cookies, &csrf).await;
     assert_eq!(again.status, StatusCode::CONFLICT, "{:?}", again.body);
+
+    let slip = |body: &Value| body[0]["net_minor"].clone();
+    let before = send(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/payroll/runs/{run_id}/slips"),
+        read_headers(&cookies),
+        None,
+    )
+    .await;
+    assert_eq!(slip(&before.body), Value::Null, "no PTKP yet, so no net");
+
+    // HR records her PTKP after the run was opened; recalculating picks it up.
+    let set = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{siti}/payroll-identity"),
+        write_headers(&cookies, &csrf),
+        Some(json!({
+            "field": "ptkp", "value": "TK/0",
+            "effective_from": "2026-01-01", "reason": "status PTKP",
+        })),
+    )
+    .await;
+    assert_eq!(set.status, StatusCode::OK, "{:?}", set.body);
+    let rebuilt = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/payroll/runs/{run_id}/rebuild"),
+        write_headers(&cookies, &csrf),
+        None,
+    )
+    .await;
+    assert_eq!(rebuilt.status, StatusCode::OK, "{:?}", rebuilt.body);
+    let after = send(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/payroll/runs/{run_id}/slips"),
+        read_headers(&cookies),
+        None,
+    )
+    .await;
+    // 5.500.000 in TER A is 0,25 %: 13.750.
+    assert_eq!(slip(&after.body), 5_500_000 - 13_750, "{:?}", after.body);
+
+    // Submitted, it no longer moves.
+    let submitted = submit(&app, &cookies, &csrf, &run_id).await;
+    assert_eq!(submitted.status, StatusCode::OK, "{:?}", submitted.body);
+    let frozen = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/payroll/runs/{run_id}/rebuild"),
+        write_headers(&cookies, &csrf),
+        None,
+    )
+    .await;
+    assert_eq!(frozen.status, StatusCode::CONFLICT, "{:?}", frozen.body);
 }
 
 /// A slip carries the agreement and the facts, and nothing statutory. What
@@ -1114,11 +1172,12 @@ async fn a_slip_carries_the_agreement_and_the_facts_and_no_invented_deductions(p
     assert_eq!(slip["leave_days_taken"], 2);
     assert_eq!(slip["payable"], true);
     assert_eq!(slip["bank_account_masked"], "••••••7890");
-    // No deduction anywhere, and — since 0251 — that is said rather than
-    // implied. The columns exist now; what does not exist is a nought in them.
-    // A slip on a deployment where nobody has defined a payroll component
-    // carries `null` and a sentence, because nought is what a system reports
-    // after somebody has looked.
+    // No deduction anywhere, and that is said rather than implied. Since 0800
+    // PPh 21 is worked out on every slip — and Siti has no PTKP status
+    // recorded, so it cannot be: the slip carries `null` and a sentence naming
+    // the missing fact, because nought is what a system reports after
+    // somebody has looked. (No BPJS number is recorded either, so no BPJS
+    // line is charged.)
     assert_eq!(slip["gross_minor"], 5_500_000);
     assert_eq!(slip["deduction_total_minor"], Value::Null);
     assert_eq!(slip["net_minor"], Value::Null);
@@ -1126,7 +1185,7 @@ async fn a_slip_carries_the_agreement_and_the_facts_and_no_invented_deductions(p
         slip["components_incomplete_because"]
             .as_str()
             .unwrap_or_default()
-            .contains("no payroll deduction has been defined"),
+            .contains("PTKP"),
         "the slip says what it could not work out: {slip:?}"
     );
     assert!(
@@ -1269,7 +1328,7 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
             "role": "payroll_expense",
             "source_type": "PAY_COMPONENT",
             "source_id": "JABATAN",
-            "scope_type": "SITE_KIND",
+            "scope_type": "UNIT_KIND",
             "scope_key": "STORE",
             "account_code": "6012",
         })),
@@ -1410,7 +1469,7 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
         &pool,
         &cloud::DescribeBankAccountRequest {
             ledger_account_code: "1005".into(),
-            site_id: "dc".into(),
+            unit_id: "ho".into(),
             bank_code: Some("BCA".into()),
             bank_name: String::new(),
             account_no: "8880012345".into(),
@@ -1428,7 +1487,7 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
     let sent = cloud::operating_fund_send(
         &pool,
         &cloud::SendFundRequest {
-            site_id: "store-07".into(),
+            unit_id: "store-07".into(),
             custodian_employee_id: siti.clone(),
             amount_minor: 10_000_000,
             value_date: day,

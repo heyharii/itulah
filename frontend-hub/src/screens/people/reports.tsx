@@ -29,6 +29,8 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { UnitChoice, useUnit } from "@/screens/people/parts"
+import { TaxReports } from "@/screens/people/tax-reports"
+import { ActiveLettersCard } from "@/screens/people/discipline"
 
 /// Comparing units, without making a second source of the numbers.
 ///
@@ -64,6 +66,7 @@ const TABS = [
   { value: "workforce", label: "Workforce" },
   { value: "time", label: "Time & absence" },
   { value: "cost", label: "Payroll cost" },
+  { value: "tax", label: "Tax & BPJS" },
 ] as const
 
 const SUB: Record<string, string> = {
@@ -71,6 +74,7 @@ const SUB: Record<string, string> = {
     "How many people each unit employs, and whose contract is running out.",
   time: "Whether a unit's time data can be trusted yet, and what is still open.",
   cost: "What each unit's payroll came to, and how far it has got towards being paid.",
+  tax: "PPh 21 and BPJS for the month, and each person's 1721-A1 for the year.",
 }
 
 export function PeopleReports() {
@@ -101,6 +105,7 @@ export function PeopleReports() {
         <TimeAndAbsence unitId={unit.unitId} name={unit.name} />
       )}
       {tab === "cost" && <Cost />}
+      {tab === "tax" && <TaxReports />}
     </PageContent>
   )
 }
@@ -193,6 +198,8 @@ function Workforce() {
             ),
         })}
       </Card>
+
+      <ActiveLettersCard />
 
       <p className="text-meta text-mute">
         Counted from the workforce list the app already serves, not from a
@@ -315,17 +322,13 @@ function TimeAndAbsence({
                   <MiniRow key={period.period}>
                     <MiniCell>{period.period}</MiniCell>
                     <MiniCell>
-                      <Pill
-                        tone={period.status === "CLOSED" ? "ok" : "warn"}
-                      >
+                      <Pill tone={period.status === "CLOSED" ? "ok" : "warn"}>
                         {period.status}
                       </Pill>
                     </MiniCell>
                     <MiniCell>
                       {period.reopen_count > 0 && (
-                        <Pill tone="warn">
-                          reopened ×{period.reopen_count}
-                        </Pill>
+                        <Pill tone="warn">reopened ×{period.reopen_count}</Pill>
                       )}
                     </MiniCell>
                   </MiniRow>
@@ -345,10 +348,10 @@ function TimeAndAbsence({
 /// than a fetch away — which is what makes a cross-unit table possible here and
 /// not in the tab beside it.
 ///
-/// **Gross, and it says so.** Nothing statutory is netted off anywhere in this
-/// system; PPh21 and BPJS are computed outside and entered by Finance as
-/// deductions. A column headed only "cost" would be read as take-home pay by
-/// the first person who saw it.
+/// **Gross, and it says so.** The handover crosses the run's gross; the
+/// accrual behind it splits PPh 21 and BPJS off to what the company owes the
+/// tax office and BPJS (0800). A column headed only "cost" would be read as
+/// take-home pay by the first person who saw it.
 function Cost() {
   const runs = useQuery({
     queryKey: payKeys.runs(),
@@ -385,15 +388,15 @@ function Cost() {
                 its payroll can be opened.
               </EmptyState>
             ) : (
-              <MiniTable head={["Month", "Unit", "State", "Gross · Finance", ""]}>
+              <MiniTable
+                head={["Month", "Unit", "State", "Gross · Finance", ""]}
+              >
                 {rows.map((row) => (
                   <MiniRow key={row.id}>
                     <MiniCell>{row.period}</MiniCell>
                     <MiniCell>{row.unit_id}</MiniCell>
                     <MiniCell>
-                      <Pill
-                        tone={row.state === "APPROVED" ? "ok" : "warn"}
-                      >
+                      <Pill tone={row.state === "APPROVED" ? "ok" : "warn"}>
                         {runStateLabel(row.state)}
                       </Pill>
                     </MiniCell>

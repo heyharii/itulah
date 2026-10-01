@@ -490,6 +490,15 @@ pub async fn decide(
             ))
         })
         .collect::<Result<Vec<_>, AppError>>()?;
+    // The year's allowance, per type (0810), before anything is decided.
+    if body.approve {
+        let asked: Vec<(Uuid, i64)> = body
+            .lines
+            .iter()
+            .map(|line| (line.line_id, line.sanctioned_minor))
+            .collect();
+        infrastructure::check_claim_within_allowance(&state.db, claim_id, &asked).await?;
+    }
     infrastructure::decide_claim(
         &state.db,
         &mut claim,
@@ -609,4 +618,101 @@ pub async fn list_advances(
     Ok(Json(
         infrastructure::advances_of_employee(&state.db, &access.employee_id).await?,
     ))
+}
+
+// ── yearly allowances (0810) ────────────────────────────────────────────────
+
+pub async fn benefits(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<Vec<infrastructure::ClaimBenefitView>>, AppError> {
+    require(&principal, actions::EMPLOYEE_READ)?;
+    Ok(Json(infrastructure::claim_benefits(&state.db).await?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StateBenefitBody {
+    pub type_code: String,
+    pub effective_from: chrono::NaiveDate,
+    #[serde(default)]
+    pub yearly_limit_minor: Option<i64>,
+    pub reason: String,
+}
+
+pub async fn state_benefit(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<StateBenefitBody>,
+) -> Result<Json<Vec<infrastructure::ClaimBenefitView>>, AppError> {
+    require(&principal, actions::CLAIM_TYPE_SET)?;
+    let by = Authorization::try_new(&principal.username, actions::CLAIM_TYPE_SET, Utc::now(), &body.reason)
+        .map_err(invalid)?;
+    infrastructure::state_claim_benefit(
+        &state.db,
+        body.type_code.trim(),
+        body.effective_from,
+        body.yearly_limit_minor,
+        &by,
+    )
+    .await?;
+    Ok(Json(infrastructure::claim_benefits(&state.db).await?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct YearQuery {
+    #[serde(default)]
+    pub year: Option<i32>,
+}
+
+/// One person's allowances this year, and what is left. `me` reads one's own.
+pub async fn balances(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(raw): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<YearQuery>,
+) -> Result<Json<Vec<infrastructure::ClaimBalanceRow>>, AppError> {
+    let access = resolve(&state, &principal, &raw).await?;
+    access.may_read(actions::EMPLOYEE_READ)?;
+    let year = query
+        .year
+        .unwrap_or_else(|| chrono::Datelike::year(&crate::reporting::local_today()));
+    Ok(Json(infrastructure::claim_balances(&state.db, &access.employee_id, year).await?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct OverrideBenefitBody {
+    pub type_code: String,
+    pub year: i32,
+    pub limit_minor: i64,
+    pub reason: String,
+}
+
+pub async fn override_benefit(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(raw): Path<String>,
+    Json(body): Json<OverrideBenefitBody>,
+) -> Result<Json<Vec<infrastructure::ClaimBalanceRow>>, AppError> {
+    require(&principal, actions::CLAIM_TYPE_SET)?;
+    if raw == "me" {
+        return Err(AppError::Forbidden("an allowance is set by head office".into()));
+    }
+    let access = resolve(&state, &principal, &raw).await?;
+    let by = Authorization::try_new(&principal.username, actions::CLAIM_TYPE_SET, Utc::now(), &body.reason)
+        .map_err(invalid)?;
+    infrastructure::override_claim_benefit(
+        &state.db,
+        &access.employee_id,
+        body.type_code.trim(),
+        body.year,
+        body.limit_minor,
+        &by,
+    )
+    .await?;
+    Ok(Json(infrastructure::claim_balances(&state.db, &access.employee_id, body.year).await?))
 }

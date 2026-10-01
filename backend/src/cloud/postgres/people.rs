@@ -317,7 +317,7 @@ pub async fn create_task_set(
         "INSERT INTO lifecycle_task (id, employee_id, kind, template_id, state)
          SELECT 'tsk_' || replace(gen_random_uuid()::text, '-', ''), $1, $2, t.id, 'PENDING'
            FROM lifecycle_task_template t
-          WHERE t.kind = $2
+          WHERE t.kind = $2 AND t.retired_at IS NULL
          ON CONFLICT (employee_id, template_id) DO NOTHING",
     )
     .bind(employee_id)
@@ -338,7 +338,7 @@ pub async fn create_task_set_tx(
         "INSERT INTO lifecycle_task (id, employee_id, kind, template_id, state)
          SELECT 'tsk_' || replace(gen_random_uuid()::text, '-', ''), $1, $2, t.id, 'PENDING'
            FROM lifecycle_task_template t
-          WHERE t.kind = $2
+          WHERE t.kind = $2 AND t.retired_at IS NULL
          ON CONFLICT (employee_id, template_id) DO NOTHING",
     )
     .bind(employee_id)

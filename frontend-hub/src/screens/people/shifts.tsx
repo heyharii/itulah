@@ -154,7 +154,9 @@ function Row({
       <MiniCell align="right">
         {pattern.unpaid_break_minutes === 0
           ? "—"
-          : `${pattern.unpaid_break_minutes}m`}
+          : pattern.break_starts_at === null
+            ? `${pattern.unpaid_break_minutes}m`
+            : `${pattern.unpaid_break_minutes}m from ${pattern.break_starts_at}`}
       </MiniCell>
       <MiniCell align="right">
         {paidTime(pattern.planned_work_minutes)}
@@ -194,6 +196,7 @@ const BLANK: NewShift = {
   endsAt: "",
   crossesMidnight: false,
   unpaidBreakMinutes: 60,
+  breakStartsAt: "",
 }
 
 /// `HH:MM`, the way a rota is read off a wall. Checked here as well as on the
@@ -221,7 +224,10 @@ function DefinePattern() {
   })
 
   const timesRead = isClockTime(draft.startsAt) && isClockTime(draft.endsAt)
-  const ready = draft.id.trim() !== "" && draft.name.trim() !== "" && timesRead
+  const breakRead =
+    draft.breakStartsAt.trim() === "" || isClockTime(draft.breakStartsAt.trim())
+  const ready =
+    draft.id.trim() !== "" && draft.name.trim() !== "" && timesRead && breakRead
 
   // Ending before it starts is either an overnight shift or a typo, and the two
   // are one keystroke apart. The form says which reading it is taking rather
@@ -301,6 +307,18 @@ function DefinePattern() {
                 ),
               })
             }
+          />
+        </Field>
+        <Field
+          label="Break starts"
+          hint="HH:MM, inside the shift. Leave empty when the break is taken whenever the floor allows."
+        >
+          <Input
+            value={draft.breakStartsAt}
+            onChange={(event) =>
+              setDraft({ ...draft, breakStartsAt: event.target.value })
+            }
+            placeholder="12:00"
           />
         </Field>
         <Toggle

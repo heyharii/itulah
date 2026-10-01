@@ -80,25 +80,25 @@ fn intent(kind: &str, lines: Vec<PostingLine>) -> PostingIntent {
     }
 }
 
-async fn balance(pool: &PgPool, code: &str, site: Option<&str>) -> i64 {
+async fn balance(pool: &PgPool, code: &str, unit: Option<&str>) -> i64 {
     sqlx::query_scalar(
         "SELECT COALESCE(SUM(debit_minor - credit_minor), 0)::bigint FROM journal_line
-          WHERE account_code = $1 AND ($2::text IS NULL OR site_id = $2)",
+          WHERE account_code = $1 AND ($2::text IS NULL OR unit_id = $2)",
     )
     .bind(code)
-    .bind(site)
+    .bind(unit)
     .fetch_one(pool)
     .await
     .unwrap_or_else(|error| panic!("balance {code}: {error}"))
 }
 
-/// Every journal balances in total and at every site on its own; and every
-/// line whose site differs from the rest of its entry is carried by the
+/// Every journal balances in total and in every unit's own books; and every
+/// line whose unit differs from the rest of its entry is carried by the
 /// affiliate accounts. The client accountant's rule, checked over the ledger.
-async fn every_site_balances_in_its_own_books(pool: &PgPool) {
+async fn every_unit_balances_in_its_own_books(pool: &PgPool) {
     let out: Vec<(Uuid, String, i64)> = sqlx::query_as(
-        "SELECT entry_id, site_id, SUM(debit_minor - credit_minor)::bigint
-           FROM journal_line GROUP BY entry_id, site_id
+        "SELECT entry_id, unit_id, SUM(debit_minor - credit_minor)::bigint
+           FROM journal_line GROUP BY entry_id, unit_id
          HAVING SUM(debit_minor - credit_minor) <> 0",
     )
     .fetch_all(pool)
@@ -125,8 +125,11 @@ async fn every_meaning_a_writer_names_resolves_at_every_site(pool: PgPool) {
     let named = [
         ("cash", ""), ("petty_cash", ""), ("cashier_float", ""),
         ("cash_variance", ""), ("cash_shortage", ""), ("store_manager_receivable", ""),
-        ("employee_receivable", ""), ("payroll_expense", ""), ("payroll_expense", "SALARY"),
-        ("payroll_expense", "OVERTIME"), ("payroll_expense", "THR"), ("payroll_expense", "BONUS"),
+        ("employee_receivable", ""), ("payroll_expense", "SALARY"),
+        // Only SALARY and THR are seeded: 0466 deleted the pay classes the word
+        // search had produced, because a component now brings its own link
+        // (`define_component` in this file, and the Pay Component screen).
+        ("payroll_expense", "THR"),
         ("payroll_payable", ""), ("thr_payable", ""), ("employee_claim_payable", ""),
         ("employee_claim_payable", "MEDICAL"), ("advance", ""), ("advance", "PERJALANAN"),
         ("advance_purchase", ""), ("trade_payable", ""), ("non_merchandise_payable", ""),
@@ -148,7 +151,10 @@ async fn every_meaning_a_writer_names_resolves_at_every_site(pool: PgPool) {
         ("intangible_asset", "PRE_OPENING"), ("amortisation_expense", "PRE_OPENING"),
         ("accumulated_amortisation", "PRE_OPENING"), ("prepaid_expense", ""),
         ("electricity_expense", ""), ("water_expense", ""), ("telephone_expense", ""),
-        ("expense", "expense_household"), ("expense", "expense_stationery"), ("repair_expense", ""),
+        ("expense", "expense_household"), ("expense", "expense_stationery"),
+        // `repair_expense` has no bare link: it is linked per ASSET CLASS
+        // (`COMPANY`/AC, FFE, KENDARAAN, …), so a repair always says what it is
+        // a repair OF.
         ("expense", "expense_transport"), ("cleaning_expense", ""), ("miscellaneous_expense", ""),
         ("affiliate_receivable", "LAIN"), ("affiliate_payable", "LAIN"),
     ];
@@ -192,9 +198,12 @@ async fn each_source_kind_posts_through_the_client_chart(pool: PgPool) {
     let d = |key: &str, site: &str, q: &str| PostingLine::debit(key, site, 100_000).with_qualifier(q);
     let c = |key: &str, site: &str, q: &str| PostingLine::credit(key, site, 100_000).with_qualifier(q);
     let cases: Vec<(&str, Vec<PostingLine>)> = vec![
-        ("PAYROLL_RUN", vec![d("payroll_expense", SITE, "OVERTIME"), c("payroll_payable", SITE, "")]),
-        ("EXPENSE_CLAIM", vec![d("expense_transport", SITE, ""), c("employee_claim_payable", SITE, "")]),
-        ("EXPENSE_CLAIM_PAYOUT", vec![d("employee_claim_payable", SITE, "MEDICAL"), c("petty_cash", SITE, "")]),
+        ("PAYROLL_RUN", vec![d("payroll_expense", SITE, "SALARY"), c("payroll_payable", SITE, "")]),
+        // An expense CATEGORY is a source of its own since the chart's links
+        // moved under `EXPENSE_CATEGORY`; naming it as a plain qualifier looks
+        // for a company-default link that does not exist.
+        ("EXPENSE_CLAIM", vec![d("expense", SITE, "").from_source("EXPENSE_CATEGORY", "expense_transport"), c("employee_claim_payable", SITE, "")]),
+        ("EXPENSE_CLAIM_PAYOUT", vec![d("employee_claim_payable", SITE, "").from_source("EXPENSE_CATEGORY", "MEDICAL"), c("petty_cash", SITE, "")]),
         ("ADVANCE", vec![d("advance", SITE, "PERJALANAN"), c("petty_cash", SITE, "")]),
         ("CASH_SHIFT", vec![d("cash_shortage", SITE, ""), c("cash", SITE, "")]),
         ("CASH_COUNT", vec![d("cash", SITE, ""), c("cash_variance", SITE, "")]),
@@ -219,11 +228,11 @@ async fn each_source_kind_posts_through_the_client_chart(pool: PgPool) {
         ("TRANSFER", vec![d("inventory", "ho", ""), c("inventory", "ho", "")]),
         ("ASSET_DISPOSAL", vec![d("asset_disposal_loss", "ho", ""), c("work_in_progress", "ho", "")]),
         ("AMORTIZATION_RUN", vec![d("amortisation_expense", SITE, "PRE_OPENING"), c("accumulated_amortisation", SITE, "PRE_OPENING")]),
-        ("PREPAID_ALLOCATION", vec![d("expense_misc", SITE, ""), c("prepaid_expense", SITE, "")]),
+        ("PREPAID_ALLOCATION", vec![d("miscellaneous_expense", SITE, ""), c("prepaid_expense", SITE, "")]),
         ("INVENTORY_WRITE_OFF", vec![d("inventory_damage", SITE, ""), c("inventory", SITE, "")]),
         ("STOCK_COUNT", vec![d("stock_loss", SITE, ""), c("inventory", SITE, "")]),
         ("GOODS_RECEIPT", vec![d("inventory", "ho", ""), c("trade_payable", "ho", "")]),
-        ("SUPPLIER_INVOICE", vec![d("repair_expense", "ho", ""), c("non_merchandise_payable", "ho", "")]),
+        ("SUPPLIER_INVOICE", vec![d("repair_expense", "ho", "FFE"), c("non_merchandise_payable", "ho", "")]),
         ("FULL_AND_FINAL", vec![d("employee_claim_payable", SITE, ""), c("petty_cash", SITE, "")]),
         ("PETTY_REPLENISH", vec![d("petty_cash", "ho", ""), c("bank_giro", "ho", "BCA")]),
     ];
@@ -234,7 +243,7 @@ async fn each_source_kind_posts_through_the_client_chart(pool: PgPool) {
         }
     }
     assert!(refused.is_empty(), "source kinds refused on the client chart: {refused:#?}");
-    every_site_balances_in_its_own_books(&pool).await;
+    every_unit_balances_in_its_own_books(&pool).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +267,9 @@ async fn synced_sale(
            (sale_id, origin_id, generation, seq, movement_group_id, site_id, actor_id,
             occurred_at, currency, total_minor, paid_minor, change_minor,
             discount_total_minor)
-         VALUES ($1,'store-edge-01',1,nextval('journal_entry_number_seq'),$2,$3,'kasir',
+         VALUES ($1,'store-edge-01',1,
+                 (SELECT COALESCE(max(seq), 0) + 1 FROM edge_sale WHERE origin_id = 'store-edge-01'),
+                 $2,$3,'kasir',
                  $4,'IDR',$5,$6,$7,$8)",
     )
     .bind(sale_id)
@@ -422,7 +433,7 @@ async fn a_mixed_day_posts_once_and_parks_what_it_cannot_place(pool: PgPool) {
     // The MDR stays in the unit's books; head office only receives the money.
     assert_eq!(balance(&pool, "6005", Some(SITE)).await, 20_000);
     assert_eq!(balance(&pool, "6005", Some("ho")).await, 0);
-    every_site_balances_in_its_own_books(&pool).await;
+    every_unit_balances_in_its_own_books(&pool).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -431,10 +442,10 @@ async fn a_mixed_day_posts_once_and_parks_what_it_cannot_place(pool: PgPool) {
 
 async fn legs_of(pool: &PgPool, entry: Uuid) -> Vec<(String, String, String, i64)> {
     sqlx::query(
-        "SELECT site_id, account_code, COALESCE(counter_site_id, '') AS counter,
+        "SELECT unit_id, account_code, COALESCE(counter_unit_id, '') AS counter,
                 (debit_minor - credit_minor)::bigint AS net
-           FROM journal_line WHERE entry_id = $1 AND counter_site_id IS NOT NULL
-          ORDER BY site_id, account_code",
+           FROM journal_line WHERE entry_id = $1 AND counter_unit_id IS NOT NULL
+          ORDER BY unit_id, account_code",
     )
     .bind(entry)
     .fetch_all(pool)
@@ -443,7 +454,7 @@ async fn legs_of(pool: &PgPool, entry: Uuid) -> Vec<(String, String, String, i64
     .iter()
     .map(|row| {
         (
-            row.get::<String, _>("site_id"),
+            row.get::<String, _>("unit_id"),
             row.get::<String, _>("account_code"),
             row.get::<String, _>("counter"),
             row.get::<i64, _>("net"),
@@ -486,7 +497,7 @@ async fn every_crossing_goes_through_the_affiliate_accounts(pool: PgPool) {
         &intent(
             "PAYMENT",
             vec![
-                PostingLine::debit("expense_cleaning", SITE, 50_000),
+                PostingLine::debit("cleaning_expense", SITE, 50_000),
                 PostingLine::credit("petty_cash", SITE, 50_000),
             ],
         ),
@@ -543,7 +554,7 @@ async fn every_crossing_goes_through_the_affiliate_accounts(pool: PgPool) {
         "Lain-lain is 1059 at HO and 2030 at the unit: {asset_legs:?}"
     );
 
-    every_site_balances_in_its_own_books(&pool).await;
+    every_unit_balances_in_its_own_books(&pool).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -602,7 +613,12 @@ async fn slip_line(pool: &PgPool, run: &str, employee_id: &str, n: i32, kind: &s
 }
 
 /// How Finance sets a component up on its screen (0466): the flags, then one
-/// link per role and kind of site. `links` is (role, `STORE`/`HO`, account).
+/// link per role and kind of unit. `links` is (role, `STORE`/`HO`, account).
+///
+/// `UNIT_KIND`, not the `SITE_KIND` this used to say: 0606 moved an account
+/// link's scope from the premises to the books, and the server refuses a scope
+/// name it does not know rather than ignoring it — which is how this test came
+/// to fail every component it defines.
 async fn define_component(
     pool: &PgPool,
     code: &str,
@@ -626,15 +642,15 @@ async fn define_component(
     )
     .await
     .unwrap_or_else(|error| panic!("{code} flags: {error}"));
-    for (role, site_kind, account) in links {
+    for (role, unit_kind, account) in links {
         cloud::set_account_link(
             pool,
             &cloud::SetAccountLinkRequest {
                 role: (*role).into(),
                 source_type: "PAY_COMPONENT".into(),
                 source_id: code.into(),
-                scope_type: "SITE_KIND".into(),
-                scope_key: (*site_kind).into(),
+                scope_type: "UNIT_KIND".into(),
+                scope_key: (*unit_kind).into(),
                 account_code: (*account).into(),
                 category_code: None,
                 note: None,
@@ -642,7 +658,7 @@ async fn define_component(
             ACTOR,
         )
         .await
-        .unwrap_or_else(|error| panic!("{code} {role} {site_kind}: {error}"));
+        .unwrap_or_else(|error| panic!("{code} {role} {unit_kind}: {error}"));
     }
 }
 
@@ -657,6 +673,14 @@ async fn an_employer_bpjs_component_lands_on_the_insurance_expense(pool: PgPool)
     cloud::open_period(&pool, 2026, 9)
         .await
         .unwrap_or_else(|error| panic!("open: {error}"));
+    // The accrual posts on today's date, so today's month must be open too.
+    let today = Utc::now().date_naive();
+    let _ = cloud::open_period(
+        &pool,
+        chrono::Datelike::year(&today),
+        chrono::Datelike::month(&today) as i32,
+    )
+    .await;
     employee(&pool, "emp-a").await;
     sqlx::query(
         "INSERT INTO payroll_run (id, unit_id, period, state, complete, history)
@@ -848,5 +872,5 @@ async fn payroll_accrues_by_component_and_payment_clears_the_payable(pool: PgPoo
     assert_eq!(balance(&pool, "2017", None).await, 0, "2017 cleared by the payments");
     assert_eq!(balance(&pool, "2021", Some("ho")).await, 0, "BPJS remitted");
     assert_eq!(balance(&pool, "1003", Some(SITE)).await, 0, "petty cash received and spent");
-    every_site_balances_in_its_own_books(&pool).await;
+    every_unit_balances_in_its_own_books(&pool).await;
 }

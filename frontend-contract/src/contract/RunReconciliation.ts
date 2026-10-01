@@ -53,4 +53,18 @@ unpayable: number,
  * Staff at the place with no pay agreement, and therefore no slip. Not a
  * blocker and not silence: they are simply not being paid from here yet.
  */
-without_agreement: number, };
+without_agreement: number, 
+/**
+ * What the company pays on top of gross: its BPJS share and any PPh 21
+ * it bears (0800).
+ */
+company_borne_total_minor: number, 
+/**
+ * PPh 21 of the month across the run, withheld or borne; `null` when any
+ * slip's could not be worked out.
+ */
+pph21_total_minor: number | null, 
+/**
+ * Slips whose pay head office is holding (0803).
+ */
+withheld: number, };

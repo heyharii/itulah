@@ -61,6 +61,42 @@ pub struct ShiftView {
     pub unpaid_break_minutes: u32,
     /// The span less the break — what the day is worth in paid time.
     pub planned_work_minutes: u32,
+    /// `HH:MM` the break starts, when the shift says (0807). It runs for
+    /// `unpaid_break_minutes`.
+    pub break_starts_at: Option<String>,
+}
+
+/// When each shift's break starts, by shift id (0807). Kept beside the shift
+/// rather than in it: a roster day embeds its shift, and the hour of a break
+/// is not something a planned day was ever measured against.
+async fn break_starts(state: &AppState) -> Result<std::collections::HashMap<String, i32>, AppError> {
+    let rows: Vec<(String, Option<i32>)> =
+        sqlx::query_as("SELECT id, break_start_minute FROM attendance_shift")
+            .fetch_all(&state.db)
+            .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(id, minute)| minute.map(|m| (id, m)))
+        .collect())
+}
+
+fn clock(minute: i32) -> String {
+    let minute = minute.rem_euclid(1440);
+    format!("{:02}:{:02}", minute / 60, minute % 60)
+}
+
+fn shift_views(
+    shifts: &[Shift],
+    breaks: &std::collections::HashMap<String, i32>,
+) -> Vec<ShiftView> {
+    shifts
+        .iter()
+        .map(|shift| {
+            let mut view = shift_view(shift);
+            view.break_starts_at = breaks.get(&view.id).copied().map(clock);
+            view
+        })
+        .collect()
 }
 
 fn shift_view(shift: &Shift) -> ShiftView {
@@ -72,6 +108,7 @@ fn shift_view(shift: &Shift) -> ShiftView {
         crosses_midnight: shift.crosses_midnight(),
         unpaid_break_minutes: shift.unpaid_break().get(),
         planned_work_minutes: shift.planned_work().get(),
+        break_starts_at: None,
     }
 }
 
@@ -195,6 +232,10 @@ pub struct ShiftBody {
     pub crosses_midnight: bool,
     #[serde(default)]
     pub unpaid_break_minutes: u32,
+    /// `HH:MM` the break starts (0807). Must fall inside the shift, with the
+    /// whole break before it ends.
+    #[serde(default)]
+    pub break_starts_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -238,7 +279,7 @@ pub struct ReasonBody {
 /// entitled to know what they are. Defining them is head office's.
 pub async fn list_shifts(State(state): State<AppState>) -> Result<Json<Vec<ShiftView>>, AppError> {
     let shifts = infrastructure::list_shifts(&state.db, false).await?;
-    Ok(Json(shifts.iter().map(shift_view).collect()))
+    Ok(Json(shift_views(&shifts, &break_starts(&state).await?)))
 }
 
 pub async fn define_shift(
@@ -261,9 +302,37 @@ pub async fn define_shift(
     )
     .map_err(infrastructure::attendance_error)?;
 
+    // Where the break sits, checked against the shift's own span: minutes
+    // from the start of the shift's first day, a next-day end counted on.
+    let break_start = match body.break_starts_at.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+        None => None,
+        Some(raw) => {
+            let at = i32::from(MinuteOfDay::parse(raw).map_err(infrastructure::attendance_error)?.minutes());
+            let start = i32::from(shift.start().minutes());
+            let end = i32::from(shift.end().minutes()) + if body.crosses_midnight { 1440 } else { 0 };
+            let at = if at < start { at + 1440 } else { at };
+            let length = i32::try_from(body.unpaid_break_minutes).unwrap_or(i32::MAX);
+            if body.unpaid_break_minutes == 0 {
+                return Err(AppError::Validation(
+                    "a break with no minutes has no start; give it a length".to_owned(),
+                ));
+            }
+            if at < start || at + length > end {
+                return Err(AppError::Validation(format!(
+                    "a break from {raw} for {length} minutes does not fit inside the shift"
+                )));
+            }
+            Some(at)
+        }
+    };
     infrastructure::define_shift(&state.db, &shift).await?;
+    sqlx::query("UPDATE attendance_shift SET break_start_minute = $2 WHERE id = $1")
+        .bind(shift.id().to_string())
+        .bind(break_start)
+        .execute(&state.db)
+        .await?;
     let shifts = infrastructure::list_shifts(&state.db, false).await?;
-    Ok(Json(shifts.iter().map(shift_view).collect()))
+    Ok(Json(shift_views(&shifts, &break_starts(&state).await?)))
 }
 
 /// Retire a shift. There is no delete: a roster day already naming it would be
@@ -277,7 +346,7 @@ pub async fn retire_shift(
     require(&principal, actions::SHIFT_PATTERN_SET)?;
     infrastructure::retire_shift(&state.db, &id).await?;
     let shifts = infrastructure::list_shifts(&state.db, false).await?;
-    Ok(Json(shifts.iter().map(shift_view).collect()))
+    Ok(Json(shift_views(&shifts, &break_starts(&state).await?)))
 }
 
 // ── the roster ───────────────────────────────────────────────────────────

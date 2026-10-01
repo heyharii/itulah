@@ -128,11 +128,11 @@ export interface NavItem {
   /// are, except on the module's home and base, which match exactly — they are
   /// a prefix of every other path in the module. That leaves a hidden screen
   /// with nothing lit when its parent row is one of those, or when it shares
-  /// no prefix with the row it belongs to: Period close lives under
-  /// Attendance, Pay agreements under Payroll, Replacements under Repairs,
-  /// since each stopped being a row of its own on 2026-09-27.
+  /// no prefix with the row it belongs to: Overtime lives under Roster,
+  /// Replacements under Repairs, since each stopped being a row of its own on
+  /// 2026-09-27.
   ///
-  /// Without it, arriving at `/people/periods` from the Attendance button
+  /// Without it, arriving at `/people/overtime` from the Roster button
   /// leaves every row in the column unlit — and a sidebar with nothing lit
   /// reads as a screen that does not belong to anything.
   readonly alsoLights?: readonly string[]

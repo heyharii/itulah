@@ -1,18 +1,16 @@
 import {
-  CalendarCheck,
+  BadgeCheck,
+  CalendarDays,
   CalendarRange,
   ChartColumn,
   Clock4,
   Fingerprint,
-  Link2,
   LayoutGrid,
-  MessageSquareWarning,
+  Link2,
+  Network,
   Receipt,
   ReceiptText,
-  ScanFace,
   Settings,
-  Timer,
-  UserPlus,
   Users,
 } from "lucide-react"
 
@@ -62,6 +60,16 @@ import { usePeopleAudience } from "@/screens/people/scope"
 ///    hold, and nothing but the dropped bonus tiers read it; Salary structures
 ///    was a read-only seed the owner dropped with the grade masters.
 ///
+/// # Ten rows (2026-09-30)
+///
+/// Compared line by line with Talenta and Frappe HRMS, the owner struck what
+/// this company does not use: recruitment and the hire request, grievances,
+/// period close, training, performance, uniforms, and the punch-station and
+/// scheduler screens (the stations keep working and the scheduler keeps
+/// running; neither has a screen now). Grievances left the sidebar and the
+/// Speak up page left `/me`. What remains is ten rows — see
+/// `hr-talenta-prototype/MENU-COMPARISON.md`.
+///
 /// Every screen that stopped being a row is `hidden`, not gone: routed, in ⌘K,
 /// and lighting the row it now lives under through `alsoLights`. The four
 /// groups are hairlines rather than words — the front doors, time, money, then
@@ -95,36 +103,39 @@ export const peopleNav: AppModule = {
           /// decide, on one screen. The count is how many of those decisions
           /// are theirs — the badge is the reason to open it.
           path: "/people/overview",
-          label: "Overview",
+          // The queue lives on this screen, so make it discoverable by the
+          // word managers use when they are looking for approvals.
+          label: "Overview & requests",
           icon: LayoutGrid,
           badge: "warn",
           useCount: usePeopleWaitingCount,
         },
         {
+          /// Everybody, and each person's sheet. Adding somebody is a button
+          /// here (Add employee), not a screen of its own.
           path: "/people",
           label: "Employees",
           icon: Users,
-          alsoLights: ["/people/hire"],
         },
         {
-          /// Asking for somebody, and head office answering. The front of the
-          /// lifecycle Employees holds the rest of, so it is opened from there
-          /// — `APPROVED` here is not a person yet: the employment record is
-          /// opened afterwards and starts as a candidate. A shop asks and head
-          /// office decides, so both faces reach it.
-          path: "/people/hire",
-          label: "New employees",
-          icon: UserPlus,
-          hidden: true,
+          /// Who reports to whom, by department and level (0805).
+          path: "/people/org-chart",
+          label: "Org chart",
+          icon: Network,
         },
         {
           /// Who has been sent a link to set their own password, and whether
-          /// they have used it. The "Invite people" sheet it opens is also
-          /// reachable from System › Users & roles and from Home's setup card
-          /// — one composer, three doors.
+          /// they have used it.
           path: "/people/invitations",
           label: "Invitations",
           icon: Link2,
+        },
+        {
+          /// The job roles people are invited as, and which sections of
+          /// Central each sees. Moved here from System on 2026-09-29.
+          path: "/people/job-roles",
+          label: "Job roles",
+          icon: BadgeCheck,
         },
       ],
     },
@@ -134,13 +145,18 @@ export const peopleNav: AppModule = {
       /// group carries an `audience`.
       items: [
         {
-          /// The week, per person: a place builds its roster and head office
-          /// reads it, one screen serving two readings. Overtime is ordered
-          /// from here, because extra hours are part of the plan.
+          /// The week, per person. Overtime is ordered from here, because
+          /// extra hours are part of the plan.
           path: "/people/roster",
           label: "Roster",
           icon: CalendarRange,
           alsoLights: ["/people/overtime"],
+        },
+        {
+          /// Who is away when, a month at a time (0809).
+          path: "/people/calendar",
+          label: "Team calendar",
+          icon: CalendarDays,
         },
         {
           /// What the days amounted to. The path is `/people/attendance-days`
@@ -150,7 +166,6 @@ export const peopleNav: AppModule = {
           path: "/people/attendance-days",
           label: "Attendance",
           icon: Fingerprint,
-          alsoLights: ["/people/periods"],
         },
         {
           /// Ordering extra hours, and the orders' answers. Opened from the
@@ -160,34 +175,22 @@ export const peopleNav: AppModule = {
           icon: Clock4,
           hidden: true,
         },
-        {
-          /// Signing the month off: the place closes, head office reopens.
-          /// Once a month, so it is a button on Attendance — the days it signs
-          /// off — rather than a row read every morning.
-          path: "/people/periods",
-          label: "Period close",
-          icon: CalendarCheck,
-          hidden: true,
-        },
       ],
     },
     {
       /// Money.
       items: [
         {
-          /// Money waiting on a decision — petty-cash claims are filed by a
-          /// place and decided by the manager who did not file them. Both
-          /// faces use it; head office also names the kinds of expense a claim
-          /// may be filed against, on the screen's own Types tab.
+          /// Reimbursement claims and loans: filed by a place, decided by a
+          /// manager who did not file them; head office names the kinds.
           path: "/people/claims",
           label: "Claims",
           icon: ReceiptText,
         },
         {
-          /// **No `audience`.** Hari's decision of 2026-09-13: a place opens
-          /// its own payroll, reads the figures, and submits the batch;
-          /// approving, reopening and handing to Finance stay head office's,
-          /// enforced on the server and reflected by the screen.
+          /// **No `audience`.** A place opens its own payroll, reads the
+          /// figures, and submits the batch; approving, reopening and handing
+          /// to Finance stay head office's, enforced on the server.
           path: "/people/payroll",
           label: "Payroll",
           icon: Receipt,
@@ -205,50 +208,12 @@ export const peopleNav: AppModule = {
           icon: ChartColumn,
         },
         {
-          /// The confidential channel. Head office's queue alone: a grievance
-          /// against a store manager cannot be investigated by that store
-          /// manager, and in a thirteen-store estate the only place that is
-          /// nobody's posting is head office. Reading it is its own key, finer
-          /// than the ladder, so `audience` keeps the row off a place
-          /// manager's sidebar entirely.
-          ///
-          /// A bounded caller who pastes the URL anyway gets the screen's own
-          /// face: the same route answers them with their own filings.
-          path: "/people/grievances",
-          label: "Grievances",
-          icon: MessageSquareWarning,
-          audience: "employer",
-        },
-        {
-          /// Attendance tolerances, shifts, leave kinds and holidays — the
-          /// time rules, as tabs — with Punch stations and the Scheduler
-          /// opened from its header. See `policy.tsx`.
+          /// The rules, as tabs: attendance tolerances, shifts, leave kinds,
+          /// holidays, payroll. See `policy.tsx`.
           path: "/people/settings",
           label: "Settings",
           icon: Settings,
           audience: "employer",
-          alsoLights: ["/people/terminals", "/people/scheduler"],
-        },
-        {
-          /// The fingerprint stations, and whose fingers each unit's station
-          /// knows. Head office's, because binding a biometric to an
-          /// employment record is the employer's act even though the finger
-          /// is on a reader in the shop. Opened from Settings.
-          path: "/people/terminals",
-          label: "Punch stations",
-          icon: ScanFace,
-          audience: "employer",
-          hidden: true,
-        },
-        {
-          /// What the clock does when nobody is looking: accruals, the
-          /// carry-forward a cap put a deadline on, next week's roster, the
-          /// nudges. Opened from Settings.
-          path: "/people/scheduler",
-          label: "Scheduler",
-          icon: Timer,
-          audience: "employer",
-          hidden: true,
         },
       ],
     },

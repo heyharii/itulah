@@ -212,7 +212,7 @@ pub struct StoreActionRequest {
     pub note: Option<String>,
     /// Must be `true` for a dangerous action.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub confirm: bool,
 }
 

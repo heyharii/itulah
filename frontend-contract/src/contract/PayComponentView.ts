@@ -43,4 +43,9 @@ rate: ComponentRateView | null,
  * ratify by definition and is therefore never the reason a slip is
  * incomplete.
  */
-awaiting_rate: boolean, };
+awaiting_rate: boolean, 
+/**
+ * Paid by the company on the employee's behalf: shown on the slip, not
+ * taken from net pay (0466, 0800).
+ */
+employer_borne: boolean, };

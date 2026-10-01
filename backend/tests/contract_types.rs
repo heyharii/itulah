@@ -1796,10 +1796,11 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("RosterDayView: {e}"));
     inventory_backend::cloud::http::roster::PeriodView::export_all(&config)
         .unwrap_or_else(|e| panic!("PeriodView: {e}"));
-    // Pay and payroll. `PayrollSlipRow` carries no deduction and no net, and
-    // it is generated rather than transcribed for exactly that reason: a
-    // hand-written type could grow a `net_minor` that nothing produces, and a
-    // screen would then show a zero as though somebody had computed it.
+    // Pay and payroll. `PayrollSlipRow` carries a deduction total and a net
+    // only when every line on it was worked out, and it is generated rather
+    // than transcribed for exactly that reason: a hand-written type could make
+    // `net_minor` required, and a screen would then show a zero as though
+    // somebody had computed it.
     //
     // `bank_account_masked` is the only account field on any of these. There is
     // no view anywhere that serves the number whole.
@@ -1843,6 +1844,133 @@ fn the_wire_types_are_written_for_the_browser() {
     // facts, and the screen must not let "received" read as "paid".
     inventory_backend::cloud::http::pay::PayrollHandoverView::export_all(&config)
         .unwrap_or_else(|e| panic!("PayrollHandoverView: {e}"));
+    // PPh 21 and BPJS (0800). The BPJS rates a head office states from a
+    // date, the body that states them, and the tax tables the slips were
+    // worked out from — `TerCategory`, `BpjsRates` and the table rows come in
+    // behind them.
+    inventory_backend::cloud::http::components::StatutoryRateView::export_all(&config)
+        .unwrap_or_else(|e| panic!("StatutoryRateView: {e}"));
+    inventory_backend::cloud::http::components::RatifyStatutoryRateBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("RatifyStatutoryRateBody: {e}"));
+    inventory_backend::cloud::http::components::TaxTablesView::export_all(&config)
+        .unwrap_or_else(|e| panic!("TaxTablesView: {e}"));
+    inventory_backend::cloud::domain::TaxMethod::export_all(&config)
+        .unwrap_or_else(|e| panic!("TaxMethod: {e}"));
+    // The payroll schedule and salary structures (0801, 0802).
+    inventory_backend::cloud::http::pay::PayrollScheduleView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayrollScheduleView: {e}"));
+    inventory_backend::cloud::http::pay::StateScheduleBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("StateScheduleBody: {e}"));
+    inventory_backend::cloud::http::components::SalaryStructureView::export_all(&config)
+        .unwrap_or_else(|e| panic!("SalaryStructureView: {e}"));
+    inventory_backend::cloud::http::components::SaveStructureBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveStructureBody: {e}"));
+    inventory_backend::cloud::postgres::WithholdingView::export_all(&config)
+        .unwrap_or_else(|e| panic!("WithholdingView: {e}"));
+    inventory_backend::cloud::postgres::PayslipTemplate::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayslipTemplate: {e}"));
+    inventory_backend::cloud::http::pay::SaveTemplateBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveTemplateBody: {e}"));
+    inventory_backend::cloud::postgres::TaxReportRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("TaxReportRow: {e}"));
+    inventory_backend::cloud::postgres::AnnualTaxSlip::export_all(&config)
+        .unwrap_or_else(|e| panic!("AnnualTaxSlip: {e}"));
+    inventory_backend::cloud::postgres::LoanView::export_all(&config)
+        .unwrap_or_else(|e| panic!("LoanView: {e}"));
+    inventory_backend::cloud::postgres::LoanRepayment::export_all(&config)
+        .unwrap_or_else(|e| panic!("LoanRepayment: {e}"));
+    inventory_backend::cloud::http::pay::GrantLoanBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("GrantLoanBody: {e}"));
+    inventory_backend::cloud::postgres::DepartmentView::export_all(&config)
+        .unwrap_or_else(|e| panic!("DepartmentView: {e}"));
+    inventory_backend::cloud::postgres::JobLevelView::export_all(&config)
+        .unwrap_or_else(|e| panic!("JobLevelView: {e}"));
+    inventory_backend::cloud::postgres::JobGradeView::export_all(&config)
+        .unwrap_or_else(|e| panic!("JobGradeView: {e}"));
+    inventory_backend::cloud::postgres::PlacementView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PlacementView: {e}"));
+    inventory_backend::cloud::postgres::OrgChartNode::export_all(&config)
+        .unwrap_or_else(|e| panic!("OrgChartNode: {e}"));
+    inventory_backend::cloud::postgres::CompanyView::export_all(&config)
+        .unwrap_or_else(|e| panic!("CompanyView: {e}"));
+    inventory_backend::cloud::postgres::BpjsRegistrationView::export_all(&config)
+        .unwrap_or_else(|e| panic!("BpjsRegistrationView: {e}"));
+    inventory_backend::cloud::http::organisation::SaveDepartmentBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveDepartmentBody: {e}"));
+    inventory_backend::cloud::http::organisation::SaveJobLevelBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveJobLevelBody: {e}"));
+    inventory_backend::cloud::http::organisation::SaveJobGradeBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveJobGradeBody: {e}"));
+    inventory_backend::cloud::http::organisation::PlaceBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("PlaceBody: {e}"));
+    inventory_backend::cloud::http::organisation::RegisterBpjsBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("RegisterBpjsBody: {e}"));
+    inventory_backend::cloud::postgres::BusinessUnitView::export_all(&config)
+        .unwrap_or_else(|e| panic!("BusinessUnitView: {e}"));
+    inventory_backend::cloud::postgres::GroupEntityView::export_all(&config)
+        .unwrap_or_else(|e| panic!("GroupEntityView: {e}"));
+    inventory_backend::cloud::http::organisation::SaveBusinessUnitBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveBusinessUnitBody: {e}"));
+    inventory_backend::cloud::http::organisation::SaveGroupEntityBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveGroupEntityBody: {e}"));
+    inventory_backend::cloud::postgres::ChecklistTemplateView::export_all(&config)
+        .unwrap_or_else(|e| panic!("ChecklistTemplateView: {e}"));
+    inventory_backend::cloud::http::organisation::SaveChecklistTemplateBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveChecklistTemplateBody: {e}"));
+    inventory_backend::cloud::postgres::MobileAttendanceSetting::export_all(&config)
+        .unwrap_or_else(|e| panic!("MobileAttendanceSetting: {e}"));
+    inventory_backend::cloud::postgres::GeofenceView::export_all(&config)
+        .unwrap_or_else(|e| panic!("GeofenceView: {e}"));
+    inventory_backend::cloud::postgres::AbsenceRuleView::export_all(&config)
+        .unwrap_or_else(|e| panic!("AbsenceRuleView: {e}"));
+    inventory_backend::cloud::http::attendance_settings::SaveMobileSettingBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveMobileSettingBody: {e}"));
+    inventory_backend::cloud::http::attendance_settings::SetGeofenceBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetGeofenceBody: {e}"));
+    inventory_backend::cloud::http::attendance_settings::StateAbsenceRuleBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("StateAbsenceRuleBody: {e}"));
+    inventory_backend::cloud::http::attendance_settings::OwnAttendanceSetting::export_all(&config)
+        .unwrap_or_else(|e| panic!("OwnAttendanceSetting: {e}"));
+    inventory_backend::cloud::http::attendance_settings::OvertimeTierView::export_all(&config)
+        .unwrap_or_else(|e| panic!("OvertimeTierView: {e}"));
+    inventory_backend::cloud::http::attendance_settings::SetOvertimeTierBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetOvertimeTierBody: {e}"));
+    inventory_backend::cloud::postgres::LeaveBlackoutView::export_all(&config)
+        .unwrap_or_else(|e| panic!("LeaveBlackoutView: {e}"));
+    inventory_backend::cloud::postgres::LeaveEncashmentView::export_all(&config)
+        .unwrap_or_else(|e| panic!("LeaveEncashmentView: {e}"));
+    inventory_backend::cloud::postgres::HolidayWorkView::export_all(&config)
+        .unwrap_or_else(|e| panic!("HolidayWorkView: {e}"));
+    inventory_backend::cloud::postgres::TeamCalendarView::export_all(&config)
+        .unwrap_or_else(|e| panic!("TeamCalendarView: {e}"));
+    inventory_backend::cloud::postgres::TeamLeaveSpan::export_all(&config)
+        .unwrap_or_else(|e| panic!("TeamLeaveSpan: {e}"));
+    inventory_backend::cloud::http::leave_extras::BlockLeaveBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("BlockLeaveBody: {e}"));
+    inventory_backend::cloud::http::leave_extras::EncashLeaveBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("EncashLeaveBody: {e}"));
+    inventory_backend::cloud::http::leave_extras::RecordHolidayWorkBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordHolidayWorkBody: {e}"));
+    inventory_backend::cloud::postgres::ClaimBenefitView::export_all(&config)
+        .unwrap_or_else(|e| panic!("ClaimBenefitView: {e}"));
+    inventory_backend::cloud::postgres::ClaimBalanceRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("ClaimBalanceRow: {e}"));
+    inventory_backend::cloud::http::claims::StateBenefitBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("StateBenefitBody: {e}"));
+    inventory_backend::cloud::http::claims::OverrideBenefitBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("OverrideBenefitBody: {e}"));
+    inventory_backend::cloud::postgres::WarningLetterView::export_all(&config)
+        .unwrap_or_else(|e| panic!("WarningLetterView: {e}"));
+    inventory_backend::cloud::http::discipline::IssueLetterBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("IssueLetterBody: {e}"));
+    inventory_backend::cloud::postgres::DelegationView::export_all(&config)
+        .unwrap_or_else(|e| panic!("DelegationView: {e}"));
+    inventory_backend::cloud::http::delegation::DelegateBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("DelegateBody: {e}"));
+    inventory_backend::cloud::http::delegation::EssModulesView::export_all(&config)
+        .unwrap_or_else(|e| panic!("EssModulesView: {e}"));
+    inventory_backend::cloud::http::delegation::SetEssModulesBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SetEssModulesBody: {e}"));
     // The attendance policy. One root: `export_all` pulls the version view and
     // `Minutes` in behind it.
     inventory_backend::cloud::http::attendance::PolicyScheduleView::export_all(&config)

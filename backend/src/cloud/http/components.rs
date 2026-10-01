@@ -39,7 +39,7 @@ use crate::cloud::{
         actions, required_role_for_action, role_allows, AttendanceMonth, Authorization,
         ComponentBase, ComponentBasis, ComponentCode, ComponentError, ComponentInForce,
         ComponentKind, ComponentRate, ComponentShape, CountedUnit, PayComponent, PayrollAdjustment,
-        RateNumbers, Reach, RecordKind,
+        RateNumbers, Reach, RecordKind, statutory, BpjsRates, PtkpStatus, TerCategory,
     },
     http::audit::DeclaredSubject,
     postgres::{self as infrastructure, PayrollAdjustmentRow},
@@ -198,6 +198,9 @@ pub struct PayComponentView {
     /// ratify by definition and is therefore never the reason a slip is
     /// incomplete.
     pub awaiting_rate: bool,
+    /// Paid by the company on the employee's behalf: shown on the slip, not
+    /// taken from net pay (0466, 0800).
+    pub employer_borne: bool,
 }
 
 fn component_view(in_force: &ComponentInForce) -> PayComponentView {
@@ -220,6 +223,7 @@ fn component_view(in_force: &ComponentInForce) -> PayComponentView {
         retired_reason: component.retired().map(|a| a.reason().to_string()),
         rate: in_force.rate.as_ref().map(rate_view),
         awaiting_rate: !in_force.is_workable(),
+        employer_borne: component.employer_borne(),
     }
 }
 
@@ -349,11 +353,22 @@ pub async fn define(
     )
     .map_err(invalid)?;
 
+    // PPh 21 and BPJS are the statutory kernel's, seeded by 0800 and worked
+    // out from the law and `statutory_rate`. A second one defined by hand
+    // would be a second figure for the same tax.
+    let shape = ComponentShape::parse(&body.basis).map_err(infrastructure::component_error)?;
+    if shape == ComponentShape::Statutory {
+        return Err(AppError::Validation(
+            "STATUTORY components are the system's own (PPh 21, BPJS); define a component of \
+             another basis"
+                .to_owned(),
+        ));
+    }
     let component = PayComponent::define(
         ComponentCode::try_new(&body.code).map_err(infrastructure::component_error)?,
         &body.label,
         ComponentKind::parse(&body.kind).map_err(infrastructure::component_error)?,
-        ComponentShape::parse(&body.basis).map_err(infrastructure::component_error)?,
+        shape,
         body.base_ref
             .as_deref()
             .map(ComponentBase::parse)
@@ -686,4 +701,304 @@ pub async fn withdraw(
     Ok(Json(
         infrastructure::adjustments(&state.db, Some(unit.as_str()), Some(first_day)).await?,
     ))
+}
+
+// ── PPh 21 and BPJS: the rates and the tables (0800) ────────────────────────
+
+/// One set of BPJS rates and the date it holds from.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StatutoryRateView {
+    pub effective_from: NaiveDate,
+    pub rates: BpjsRates,
+    pub ratified_by: String,
+    pub ratified_at: DateTime<Utc>,
+    pub reason: String,
+}
+
+/// Every set of BPJS rates stated, newest first. Not about a named person,
+/// so gated like the component catalogue.
+pub async fn statutory_rates(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<StatutoryRateView>>, AppError> {
+    let records = infrastructure::statutory_rates(&state.db).await?;
+    Ok(Json(
+        records
+            .into_iter()
+            .map(|record| StatutoryRateView {
+                effective_from: record.effective_from,
+                rates: record.rates,
+                ratified_by: record.ratified.actor().to_string(),
+                ratified_at: record.ratified.at(),
+                reason: record.ratified.reason().to_string(),
+            })
+            .collect(),
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct RatifyStatutoryRateBody {
+    pub effective_from: NaiveDate,
+    pub rates: BpjsRates,
+    pub reason: String,
+}
+
+/// State new BPJS rates from a date — the JP cap every March, a new JKK
+/// class. Head office's, under the key that ratifies a component's rate: it
+/// decides what comes out of every wage.
+pub async fn ratify_statutory_rate(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<RatifyStatutoryRateBody>,
+) -> Result<Json<Vec<StatutoryRateView>>, AppError> {
+    require(&principal, actions::PAY_COMPONENT_RATIFY)?;
+    let rates = body.rates;
+    for (name, bp) in [
+        ("kesehatan_company_bp", rates.kesehatan_company_bp),
+        ("kesehatan_employee_bp", rates.kesehatan_employee_bp),
+        ("jht_company_bp", rates.jht_company_bp),
+        ("jht_employee_bp", rates.jht_employee_bp),
+        ("jp_company_bp", rates.jp_company_bp),
+        ("jp_employee_bp", rates.jp_employee_bp),
+        ("jkk_bp", rates.jkk_bp),
+        ("jkm_bp", rates.jkm_bp),
+    ] {
+        if !(0..=10_000).contains(&bp) {
+            return Err(AppError::Validation(format!(
+                "{name} is in hundredths of a percent, 0 to 10000"
+            )));
+        }
+    }
+    if rates.kesehatan_cap_minor <= 0 || rates.jp_cap_minor <= 0 {
+        return Err(AppError::Validation(
+            "the Kesehatan and JP wage caps are positive rupiah amounts".to_owned(),
+        ));
+    }
+    let authorization = Authorization::try_new(
+        &principal.username,
+        actions::PAY_COMPONENT_RATIFY,
+        Utc::now(),
+        &body.reason,
+    )
+    .map_err(invalid)?;
+    infrastructure::ratify_statutory_rate(&state.db, body.effective_from, &rates, &authorization)
+        .await?;
+    statutory_rates(State(state)).await
+}
+
+/// One row of a rate table: up to and including `upto_minor` (`null` on the
+/// last, open row), at `rate_bp` hundredths of a percent.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TaxTableRow {
+    pub upto_minor: Option<i64>,
+    pub rate_bp: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TerTableView {
+    pub category: TerCategory,
+    /// The PTKP statuses that select this table.
+    pub ptkp: Vec<String>,
+    pub rows: Vec<TaxTableRow>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PtkpAmountView {
+    pub status: String,
+    pub amount_minor: i64,
+}
+
+/// The law PPh 21 is worked out from, as this system holds it: the three TER
+/// tables of PP 58/2023, Pasal 17, PTKP and biaya jabatan. Read-only —
+/// regulation, not a setting.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TaxTablesView {
+    pub ter: Vec<TerTableView>,
+    pub pasal_17: Vec<TaxTableRow>,
+    pub ptkp: Vec<PtkpAmountView>,
+    pub biaya_jabatan_bp: i64,
+    pub biaya_jabatan_month_cap_minor: i64,
+}
+
+pub async fn tax_tables() -> Json<TaxTablesView> {
+    let rows = |table: &[(Option<i64>, i64)]| -> Vec<TaxTableRow> {
+        table
+            .iter()
+            .map(|(upto, rate)| TaxTableRow {
+                upto_minor: *upto,
+                rate_bp: *rate,
+            })
+            .collect()
+    };
+    let statuses = ["TK/0", "TK/1", "TK/2", "TK/3", "K/0", "K/1", "K/2", "K/3"];
+    let parsed: Vec<PtkpStatus> = statuses
+        .iter()
+        .filter_map(|raw| PtkpStatus::parse(raw).ok())
+        .collect();
+    let ter = [TerCategory::A, TerCategory::B, TerCategory::C]
+        .into_iter()
+        .map(|category| TerTableView {
+            category,
+            ptkp: parsed
+                .iter()
+                .filter(|status| TerCategory::of(**status) == category)
+                .map(ToString::to_string)
+                .collect(),
+            rows: rows(category.table()),
+        })
+        .collect();
+    Json(TaxTablesView {
+        ter,
+        pasal_17: rows(statutory::pasal_17_layers()),
+        ptkp: parsed
+            .iter()
+            .map(|status| PtkpAmountView {
+                status: status.to_string(),
+                amount_minor: statutory::ptkp_amount(*status).minor,
+            })
+            .collect(),
+        biaya_jabatan_bp: 500,
+        biaya_jabatan_month_cap_minor: 500_000,
+    })
+}
+
+// ── salary structures (0802) ────────────────────────────────────────────────
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StructureAllowance {
+    pub code: String,
+    pub minor: i64,
+}
+
+/// A named base and set of fixed allowances, applied to a pay agreement by
+/// copying.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SalaryStructureView {
+    pub code: String,
+    pub name: String,
+    pub base_minor: Option<i64>,
+    pub allowances: Vec<StructureAllowance>,
+    /// Base plus allowances, when there is a base.
+    pub total_minor: Option<i64>,
+    pub defined_by: String,
+    pub defined_at: DateTime<Utc>,
+    pub retired: bool,
+}
+
+pub async fn salary_structures(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<SalaryStructureView>>, AppError> {
+    let rows = infrastructure::salary_structures(&state.db).await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|row| {
+                let allowances: i64 = row.allowances.iter().map(|(_, minor)| minor).sum();
+                SalaryStructureView {
+                    total_minor: row.base_minor.map(|base| base + allowances),
+                    code: row.code,
+                    name: row.name,
+                    base_minor: row.base_minor,
+                    allowances: row
+                        .allowances
+                        .into_iter()
+                        .map(|(code, minor)| StructureAllowance { code, minor })
+                        .collect(),
+                    defined_by: row.defined.actor().to_string(),
+                    defined_at: row.defined.at(),
+                    retired: row.retired,
+                }
+            })
+            .collect(),
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SaveStructureBody {
+    pub code: String,
+    pub name: String,
+    pub base_minor: Option<i64>,
+    pub allowances: Vec<StructureAllowance>,
+    pub reason: String,
+}
+
+/// Define a structure, or restate a live one. Head office's, under the key
+/// that defines what a payslip may contain.
+pub async fn save_salary_structure(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<SaveStructureBody>,
+) -> Result<Json<Vec<SalaryStructureView>>, AppError> {
+    require(&principal, actions::PAY_COMPONENT_DEFINE)?;
+    let code = body.code.trim().to_uppercase();
+    if code.is_empty() || body.name.trim().is_empty() {
+        return Err(AppError::Validation("a structure has a code and a name".to_owned()));
+    }
+    if body.base_minor.is_some_and(|base| base <= 0) {
+        return Err(AppError::Validation("a base is a positive amount".to_owned()));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut allowances = Vec::with_capacity(body.allowances.len());
+    for line in &body.allowances {
+        let allowance = crate::cloud::domain::FixedAllowance::try_new(
+            crate::cloud::domain::AllowanceCode::try_new(&line.code)
+                .map_err(infrastructure::pay_error)?,
+            Money::new(line.minor),
+        )
+        .map_err(infrastructure::pay_error)?;
+        if !seen.insert(allowance.code().to_string()) {
+            return Err(AppError::Validation(format!(
+                "{} is listed twice",
+                allowance.code()
+            )));
+        }
+        allowances.push((allowance.code().to_string(), allowance.amount().minor));
+    }
+    let defined = Authorization::try_new(
+        &principal.username,
+        actions::PAY_COMPONENT_DEFINE,
+        Utc::now(),
+        &body.reason,
+    )
+    .map_err(invalid)?;
+    infrastructure::save_salary_structure(
+        &state.db,
+        &infrastructure::SalaryStructureRecord {
+            code,
+            name: body.name.trim().to_owned(),
+            base_minor: body.base_minor,
+            allowances,
+            defined,
+            retired: false,
+        },
+    )
+    .await?;
+    salary_structures(State(state)).await
+}
+
+pub async fn retire_salary_structure(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(code): Path<String>,
+    Json(body): Json<ReasonBody>,
+) -> Result<Json<Vec<SalaryStructureView>>, AppError> {
+    require(&principal, actions::PAY_COMPONENT_DEFINE)?;
+    let authorization = Authorization::try_new(
+        &principal.username,
+        actions::PAY_COMPONENT_DEFINE,
+        Utc::now(),
+        &body.reason,
+    )
+    .map_err(invalid)?;
+    infrastructure::retire_salary_structure(&state.db, &code, &authorization).await?;
+    salary_structures(State(state)).await
 }

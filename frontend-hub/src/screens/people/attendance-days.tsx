@@ -5,11 +5,10 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { CalendarCheck, ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
@@ -349,9 +348,7 @@ const columns: ColumnDef<TableSetup, DayRow>[] = [
     /// have punched however early they arrived.
     cell: ({ row }) => (
       <span className="flex flex-wrap items-center gap-1">
-        {row.original.canClockIn === false && (
-          <Tag tone="bad">no finger</Tag>
-        )}
+        {row.original.canClockIn === false && <Tag tone="bad">no finger</Tag>}
         {row.original.canClockIn === null && <Tag>enrolment unread</Tag>}
         {row.original.correction !== null && <Tag tone="info">corrected</Tag>}
         {row.original.punchesConsidered === 0 && <Tag>no punch</Tag>}
@@ -539,9 +536,9 @@ export function AttendanceDays() {
         const who = named.get(one.employee_id)
         const planned =
           one.plan === "SCHEDULED"
-            ? (one.shift_id === null
-                ? "Scheduled"
-                : (shiftName.get(one.shift_id) ?? one.shift_id))
+            ? one.shift_id === null
+              ? "Scheduled"
+              : (shiftName.get(one.shift_id) ?? one.shift_id)
             : one.plan === "REST_DAY"
               ? "Rest day"
               : "Public holiday"
@@ -659,12 +656,6 @@ export function AttendanceDays() {
               clearable={false}
               className="h-8 w-36"
             />
-            {/* Signing off the month these days add up to. Once a month, so
-                a button here rather than a sidebar row (2026-09-27). */}
-            <AppLink to="/people/periods" variant="ghost">
-              <CalendarCheck />
-              Period close
-            </AppLink>
           </>
         }
       />
@@ -702,15 +693,10 @@ export function AttendanceDays() {
           <Kpi label="Arrived" value={count(arrived)} />
           <Kpi label="Late" value={count(late)} />
           <Kpi
-            label={
-              date === today ? "Not arrived yet" : "No arrival recorded"
-            }
+            label={date === today ? "Not arrived yet" : "No arrival recorded"}
             value={count(rows.length - arrived)}
           />
-          <Kpi
-            label="Could not be derived"
-            value={count(underivable.length)}
-          />
+          <Kpi label="Could not be derived" value={count(underivable.length)} />
           <Kpi label="Punches recorded" value={count(punches.length)} />
         </KpiStrip>
       )}
@@ -754,9 +740,9 @@ export function AttendanceDays() {
               <EmptyState>{unsaid(posture, unit.name)}</EmptyState>
             ) : rows.length === 0 ? (
               <EmptyState>
-                Nobody was rostered at {unit.name ?? "this unit"} on{" "}
-                {day(date)}. A day with no plan has no attendance to derive —
-                "absent" only means something against a scheduled day.
+                Nobody was rostered at {unit.name ?? "this unit"} on {day(date)}
+                . A day with no plan has no attendance to derive — "absent" only
+                means something against a scheduled day.
               </EmptyState>
             ) : (
               <DataTable<DayRow>
@@ -781,9 +767,7 @@ export function AttendanceDays() {
         />
       )}
 
-      {unrostered.length > 0 && (
-        <Unrostered rows={unrostered} named={named} />
-      )}
+      {unrostered.length > 0 && <Unrostered rows={unrostered} named={named} />}
 
       <div className="grid gap-[1.125rem] lg:grid-cols-2">
         <Stations query={stations} unit={unit.name} />
@@ -812,9 +796,9 @@ export function AttendanceDays() {
                   </KeyValue>
                   {!month.punch_source_connected && (
                     <p className="mt-2.5 text-meta text-body">
-                      Both are unassessed because no station is registered
-                      here. A period closed on this month records that the
-                      punch checks were not made.
+                      Both are unassessed because no station is registered here.
+                      A period closed on this month records that the punch
+                      checks were not made.
                     </p>
                   )}
                 </>
@@ -832,7 +816,9 @@ export function AttendanceDays() {
             : (named.get(person.value)?.who ?? person.value)
         }
         code={
-          person.value === undefined ? null : (named.get(person.value)?.code ?? null)
+          person.value === undefined
+            ? null
+            : (named.get(person.value)?.code ?? null)
         }
         date={date}
         punches={punches}
@@ -874,8 +860,8 @@ function Source({ posture }: { posture: Posture }) {
     case "SUSPENDED":
       return (
         <Banner tone="warn" className="mb-4">
-          Every station here is suspended. A suspended station may not attest
-          an identification, so today's readings stop at the device.
+          Every station here is suspended. A suspended station may not attest an
+          identification, so today's readings stop at the device.
         </Banner>
       )
     case "SILENT":
@@ -922,7 +908,9 @@ function Underivable({
         >
           {rows.map((row) => (
             <MiniRow key={`${row.employee_id}-${row.date}-${row.reason}`}>
-              <MiniCell>{named.get(row.employee_id)?.who ?? row.employee_id}</MiniCell>
+              <MiniCell>
+                {named.get(row.employee_id)?.who ?? row.employee_id}
+              </MiniCell>
               <MiniCell>{day(row.date)}</MiniCell>
               {/* Quoted, never summarised. The server's sentence names what is
                   missing and who can supply it. */}
@@ -1022,7 +1010,9 @@ function Unrostered({
         >
           {rows.map((row) => (
             <MiniRow key={row.id}>
-              <MiniCell>{named.get(row.employee_id)?.who ?? row.employee_id}</MiniCell>
+              <MiniCell>
+                {named.get(row.employee_id)?.who ?? row.employee_id}
+              </MiniCell>
               <MiniCell>
                 <Tag>{row.direction}</Tag>
               </MiniCell>
@@ -1254,10 +1244,7 @@ function PersonSheet({
                             Could not be derived
                           </p>
                           <MiniTable
-                            head={[
-                              "Date",
-                              { label: "Why not", align: "left" },
-                            ]}
+                            head={["Date", { label: "Why not", align: "left" }]}
                           >
                             {view.underivable.map((one) => (
                               <MiniRow key={`${one.date}-${one.reason}`}>
@@ -1309,7 +1296,9 @@ function PersonSheet({
                         arrival instant are both here rather than folded into
                         one trustworthy-looking time. */}
                     <MiniCell>
-                      <Tag tone={one.clock_quality === "OK" ? "neutral" : "warn"}>
+                      <Tag
+                        tone={one.clock_quality === "OK" ? "neutral" : "warn"}
+                      >
                         {one.clock_quality}
                       </Tag>
                     </MiniCell>

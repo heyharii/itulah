@@ -1,7 +1,7 @@
 //! The payroll component engine, end to end.
 //!
-//! Five tests, and the first is the one this file exists for: **a slip with no
-//! ratified rates says so rather than reporting zeros.** `0105` held that
+//! Five tests, and the first is the one this file exists for: **a slip with a
+//! component nobody priced says so rather than reporting zeros.** `0105` held that
 //! guarantee by having no deduction column at all; `0251` gives it the columns
 //! and keeps the guarantee by making them nullable, with a sentence naming the
 //! component nobody has priced. If that ever regresses, a shop reads a net
@@ -376,6 +376,24 @@ async fn reconciliation(app: &axum::Router, cookies: &str, run_id: &str) -> Resp
 async fn a_shop_with_one_person(app: &axum::Router, cookies: &str, csrf: &str) -> String {
     let siti = staff_at(app, cookies, csrf, "K0701", "store-07").await;
     agree_pay(app, cookies, csrf, &siti, 5_000_000).await;
+    // PPh 21 is worked out on every slip since 0800, and a slip with no PTKP
+    // says so instead of a net. TK/2 selects TER table B, whose first row is
+    // 0 % up to Rp6.200.000 — so at these wages the tax is a real nought and
+    // every figure below is what it was before the statutory lines existed.
+    let set = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{siti}/payroll-identity"),
+        write_headers(cookies, csrf),
+        Some(json!({
+            "field": "ptkp",
+            "value": "TK/2",
+            "effective_from": "2026-01-01",
+            "reason": "status PTKP",
+        })),
+    )
+    .await;
+    assert_eq!(set.status, StatusCode::OK, "ptkp: {:?}", set.body);
     siti
 }
 
@@ -403,28 +421,13 @@ async fn a_slip_with_no_ratified_rates_says_so_rather_than_reporting_zeros(pool:
     let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
     a_shop_with_one_person(&app, &cookies, &csrf).await;
 
-    // Before anything is defined at all: a slip cannot say a deduction total,
-    // because nobody has configured payroll.
-    close_april(&app, &cookies, &csrf).await;
-    let opened = open_run(&app, &cookies, &csrf).await;
-    assert_eq!(opened.status, StatusCode::OK, "{:?}", opened.body);
-    let run_id = opened.body["id"].as_str().unwrap_or_default().to_owned();
-
-    let empty = slips(&app, &cookies, &run_id).await;
-    assert_eq!(empty.status, StatusCode::OK, "{:?}", empty.body);
-    let slip = &empty.body[0];
-    assert_eq!(slip["gross_minor"], 5_500_000, "gross is a real sum");
-    assert_eq!(slip["deduction_total_minor"], Value::Null);
-    assert_eq!(slip["net_minor"], Value::Null);
-    let because = slip["components_incomplete_because"]
-        .as_str()
-        .unwrap_or_else(|| panic!("a sentence: {slip:?}"));
-    assert!(
-        because.contains("no payroll deduction has been defined"),
-        "{because}"
-    );
-
-    // Now define BPJS and leave it unpriced. The sentence names it.
+    // Define BPJS as a share of the wage and leave it unpriced. Defined and
+    // unpriced is a state the catalogue names on the wire, so a settings screen
+    // can show the open decision rather than a blank.
+    //
+    // (Before 0800 a fresh deployment also had no deduction defined at all,
+    // and a slip said that instead. PPh 21 is a deduction every deployment now
+    // has, so that state no longer exists; this one still does.)
     let defined = define(
         &app,
         &cookies,
@@ -440,28 +443,28 @@ async fn a_slip_with_no_ratified_rates_says_so_rather_than_reporting_zeros(pool:
     )
     .await;
     assert_eq!(defined.status, StatusCode::OK, "{:?}", defined.body);
-    // Defined and unpriced is a state the catalogue names on the wire, so a
-    // settings screen can show the open decision rather than a blank.
     assert_eq!(defined.body["awaiting_rate"], true);
     assert_eq!(defined.body["rate"], Value::Null);
 
-    // Rebuild the run's slips by reopening it — the draft is a working
-    // document, and the place's own reopen is how it is rebuilt.
-    let reopened = send(
-        app.clone(),
-        "POST",
-        "/api/v1/payroll/runs",
-        write_headers(&cookies, &csrf),
-        Some(json!({
-            "unit_id": "store-07",
-            "period": "2026-04",
-            "reason": "ulang",
-        })),
-    )
-    .await;
-    // One run per place per month: the second ask is refused, which is why the
-    // check below reads the run that exists rather than a new one.
-    assert_eq!(reopened.status, StatusCode::CONFLICT, "{:?}", reopened.body);
+    close_april(&app, &cookies, &csrf).await;
+    let opened = open_run(&app, &cookies, &csrf).await;
+    assert_eq!(opened.status, StatusCode::OK, "{:?}", opened.body);
+    let run_id = opened.body["id"].as_str().unwrap_or_default().to_owned();
+
+    let built = slips(&app, &cookies, &run_id).await;
+    assert_eq!(built.status, StatusCode::OK, "{:?}", built.body);
+    let slip = &built.body[0];
+    assert_eq!(slip["gross_minor"], 5_500_000, "gross is a real sum");
+    assert_eq!(slip["deduction_total_minor"], Value::Null);
+    assert_eq!(slip["net_minor"], Value::Null);
+    let because = slip["components_incomplete_because"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a sentence: {slip:?}"));
+    assert!(because.contains("BPJS_KESEHATAN"), "{because}");
+
+    // One run per place per month: a second ask is refused.
+    let again = open_run(&app, &cookies, &csrf).await;
+    assert_eq!(again.status, StatusCode::CONFLICT, "{:?}", again.body);
 
     let after = reconciliation(&app, &cookies, &run_id).await;
     assert_eq!(after.status, StatusCode::OK, "{:?}", after.body);
@@ -681,7 +684,7 @@ async fn a_rate_ratified_for_may_does_not_price_april(pool: PgPool) {
         &cookies,
         &csrf,
         json!({
-            "code": "BPJS_JHT",
+            "code": "IURAN_JHT",
             "label": "BPJS JHT",
             "kind": "DEDUCTION",
             "basis": "SHARE_OF_BASE",
@@ -695,7 +698,7 @@ async fn a_rate_ratified_for_may_does_not_price_april(pool: PgPool) {
         &app,
         &cookies,
         &csrf,
-        "BPJS_JHT",
+        "IURAN_JHT",
         json!({
             "effective_from": "2026-05-01",
             "rate_bp": 200,
@@ -711,7 +714,7 @@ async fn a_rate_ratified_for_may_does_not_price_april(pool: PgPool) {
         &app,
         &cookies,
         &csrf,
-        "BPJS_JHT",
+        "IURAN_JHT",
         json!({
             "effective_from": "2026-03-01",
             "rate_bp": 100,
@@ -736,11 +739,15 @@ async fn a_rate_ratified_for_may_does_not_price_april(pool: PgPool) {
         slip["components_incomplete_because"]
             .as_str()
             .unwrap_or_default()
-            .contains("BPJS_JHT"),
+            .contains("IURAN_JHT"),
         "{slip:?}"
     );
+    // The only deduction line is the PPh 21 the statutory kernel worked out
+    // (nought at TER B): nothing was invented for the unpriced component.
     assert!(
-        slip["deductions"].as_array().map(Vec::is_empty) == Some(true),
+        slip["deductions"]
+            .as_array()
+            .is_some_and(|lines| lines.iter().all(|l| l["component_code"] != "IURAN_JHT")),
         "no line was invented: {slip:?}"
     );
 }
@@ -1030,7 +1037,7 @@ async fn the_rules_are_readable_by_everyone_and_the_figures_are_not(pool: PgPool
         &cookies,
         &csrf,
         json!({
-            "code": "BPJS_JP",
+            "code": "IURAN_JP",
             "label": "BPJS Jaminan Pensiun",
             "kind": "DEDUCTION",
             "basis": "SHARE_OF_BASE",
@@ -1044,7 +1051,7 @@ async fn the_rules_are_readable_by_everyone_and_the_figures_are_not(pool: PgPool
         &app,
         &cookies,
         &csrf,
-        "BPJS_JP",
+        "IURAN_JP",
         json!({
             "effective_from": "2026-01-01",
             "rate_bp": 100,
@@ -1073,14 +1080,21 @@ async fn the_rules_are_readable_by_everyone_and_the_figures_are_not(pool: PgPool
         "catalogue: {:?}",
         catalogue.body
     );
-    assert_eq!(catalogue.body[0]["code"], "BPJS_JP");
-    assert_eq!(catalogue.body[0]["rate"]["rate_bp"], 100);
-    assert_eq!(catalogue.body[0]["rate"]["ratified_by"], "admin");
+    // The catalogue also carries the statutory components 0800 seeded, so the
+    // one this test defined is found by its code rather than its position.
+    let jp = catalogue
+        .body
+        .as_array()
+        .and_then(|all| all.iter().find(|c| c["code"] == "IURAN_JP"))
+        .cloned()
+        .unwrap_or_else(|| panic!("IURAN_JP in the catalogue: {:?}", catalogue.body));
+    assert_eq!(jp["rate"]["rate_bp"], 100);
+    assert_eq!(jp["rate"]["ratified_by"], "admin");
 
     let history = send(
         app.clone(),
         "GET",
-        "/api/v1/payroll/components/BPJS_JP/rates",
+        "/api/v1/payroll/components/IURAN_JP/rates",
         read_headers(&hers),
         None,
     )

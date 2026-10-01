@@ -3,7 +3,7 @@ import { useState } from "react"
 
 import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
-import { Field, Input } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { KeyValue, SubHead } from "@/components/ui/rows"
 import { Banner } from "@/components/ui/states"
 import { Timeline } from "@/components/ui/timeline"
@@ -14,9 +14,13 @@ import {
   payKeys,
   readPay,
   readPayrollIdentity,
+  resetPayslipPassword,
+  salaryStructures,
+  taxMethodLabel,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { Quiet } from "@/screens/people/parts"
+import { AllowanceLines } from "@/screens/people/payroll-setup"
 
 /// What somebody is paid, and who they are to payroll — the Pay tab of the
 /// employee's sheet.
@@ -72,7 +76,14 @@ export function PayPanel({ employeeId }: { employeeId: string }) {
                 events={rows.map((record, index) => ({
                   id: record.effective_from,
                   title: `${money(record.base_minor)} base · ${money(record.statutory_base_minor)} with allowances`,
-                  detail: `${day(record.effective_from)} · ${record.agreed_by} · ${record.reason}`,
+                  // What the allowances are, not only their sum.
+                  detail: `${day(record.effective_from)} · ${record.agreed_by} · ${record.reason}${
+                    record.fixed_allowances.length > 0
+                      ? ` · ${record.fixed_allowances
+                          .map((line) => `${line.code} ${money(line.minor)}`)
+                          .join(", ")}`
+                      : ""
+                  }`,
                   at: moment(record.agreed_at),
                   // The last is the one in force, unless it is dated ahead —
                   // which the server permits and a reader should be able to
@@ -93,8 +104,7 @@ export function PayPanel({ employeeId }: { employeeId: string }) {
               {!record.payable && (
                 <Banner tone="bad" className="mb-3">
                   No account on record, so this person cannot be paid — and a
-                  payment file that fails at the bank fails for everybody in
-                  it.
+                  payment file that fails at the bank fails for everybody in it.
                 </Banner>
               )}
               <KeyValue term="Bank">{record.bank_name ?? "—"}</KeyValue>
@@ -105,8 +115,17 @@ export function PayPanel({ employeeId }: { employeeId: string }) {
               <KeyValue term="Account holder">
                 {record.bank_holder ?? "—"}
               </KeyValue>
+              {record.ptkp === null && (
+                <Banner tone="warn" className="mb-3">
+                  No PTKP status, so PPh 21 cannot be worked out and this
+                  person's slips show no take-home pay until one is recorded.
+                </Banner>
+              )}
               <KeyValue term="NPWP">{record.npwp ?? "—"}</KeyValue>
               <KeyValue term="PTKP">{record.ptkp ?? "—"}</KeyValue>
+              <KeyValue term="PPh 21">
+                {taxMethodLabel(record.tax_method)}
+              </KeyValue>
               <KeyValue term="BPJS Kesehatan">
                 {record.bpjs_kesehatan ?? "—"}
               </KeyValue>
@@ -119,7 +138,43 @@ export function PayPanel({ employeeId }: { employeeId: string }) {
       </div>
 
       <AgreePay employeeId={employeeId} />
+      <SetTaxIdentity employeeId={employeeId} />
       <SetAccount employeeId={employeeId} />
+      <ResetPayslipPassword employeeId={employeeId} />
+    </div>
+  )
+}
+
+/// A forgotten payslip password: forget it, and the employee chooses a new
+/// one the next time they open their payslips. HR never learns it.
+function ResetPayslipPassword({ employeeId }: { employeeId: string }) {
+  const reset = useMutation({
+    mutationFn: () => resetPayslipPassword(employeeId),
+  })
+  return (
+    <div>
+      <SubHead>Payslip password</SubHead>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="ghost"
+          pending={reset.isPending}
+          onClick={() => reset.mutate()}
+        >
+          Reset payslip password
+        </Button>
+        {reset.data !== undefined && (
+          <span className="text-[0.875rem] text-mute">
+            {reset.data.reset
+              ? "Reset. They choose a new one when they next open their payslips."
+              : "None was set."}
+          </span>
+        )}
+      </div>
+      {reset.error !== null && (
+        <Banner tone="bad" className="mt-2">
+          {reset.error.message}
+        </Banner>
+      )}
     </div>
   )
 }
@@ -128,15 +183,41 @@ function AgreePay({ employeeId }: { employeeId: string }) {
   const client = useQueryClient()
   const [effectiveFrom, setEffectiveFrom] = useState("")
   const [base, setBase] = useState("")
+  const [lines, setLines] = useState<{ code: string; amount: string }[]>([])
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
+  const structures = useQuery({
+    queryKey: payKeys.structures(),
+    queryFn: ({ signal }) => salaryStructures(signal),
+  })
+
+  /// A structure is copied, not linked: its base and allowances land in the
+  /// form, and what is agreed is what the form says when it is sent.
+  const apply = (code: string) => {
+    const structure = (structures.data ?? []).find((one) => one.code === code)
+    if (structure === undefined) return
+    if (structure.base_minor !== null) setBase(String(structure.base_minor))
+    setLines(
+      structure.allowances.map((line) => ({
+        code: line.code,
+        amount: String(line.minor),
+      }))
+    )
+  }
+
+  const allowances = lines
+    .filter((line) => line.code.trim() !== "")
+    .map((line) => ({
+      code: line.code.trim().toUpperCase(),
+      minor: Number(line.amount.replace(/\D/g, "")) || 0,
+    }))
 
   const agree = useMutation({
     mutationFn: () =>
       agreePay(employeeId, {
         effectiveFrom,
         baseMinor: Number(base) || 0,
-        allowances: [],
+        allowances,
         reason: reason.trim(),
       }),
     onSuccess: () => {
@@ -147,6 +228,8 @@ function AgreePay({ employeeId }: { employeeId: string }) {
     onError: (error: Error) => setFailed(error.message),
   })
 
+  const live = (structures.data ?? []).filter((one) => !one.retired)
+
   return (
     <div className="flex flex-col gap-3">
       <SubHead>Agree new pay</SubHead>
@@ -156,6 +239,21 @@ function AgreePay({ employeeId }: { employeeId: string }) {
         cannot be filed behind the latest — a backdated raise is paid as a
         rapel, not by rewriting a month already settled.
       </Banner>
+      {live.length > 0 && (
+        <Field label="Start from a salary structure">
+          <Select value="" onChange={apply}>
+            <option value="">Choose a structure…</option>
+            {live.map((structure) => (
+              <option key={structure.code} value={structure.code}>
+                {structure.name}
+                {structure.total_minor !== null
+                  ? ` · ${money(structure.total_minor)}`
+                  : ""}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       <Field label="Effective from" required>
         <Day value={effectiveFrom} onChange={setEffectiveFrom} />
       </Field>
@@ -167,6 +265,7 @@ function AgreePay({ employeeId }: { employeeId: string }) {
           onChange={(event) => setBase(event.target.value)}
         />
       </Field>
+      <AllowanceLines lines={lines} onChange={setLines} />
       <Field
         label="Why"
         hint="Recorded against the agreement, and required."
@@ -183,7 +282,10 @@ function AgreePay({ employeeId }: { employeeId: string }) {
           variant="primary"
           pending={agree.isPending}
           disabled={
-            effectiveFrom === "" || Number(base) <= 0 || reason.trim() === ""
+            effectiveFrom === "" ||
+            Number(base) <= 0 ||
+            reason.trim() === "" ||
+            allowances.some((line) => line.minor <= 0)
           }
           onClick={() => agree.mutate()}
         >
@@ -237,7 +339,11 @@ function SetAccount({ employeeId }: { employeeId: string }) {
           placeholder="BCA"
         />
       </Field>
-      <Field label="Account number" hint="Digits only. Shown back as four." required>
+      <Field
+        label="Account number"
+        hint="Digits only. Shown back as four."
+        required
+      >
         <Input
           value={number}
           onChange={(event) => setNumber(event.target.value)}
@@ -273,6 +379,115 @@ function SetAccount({ employeeId }: { employeeId: string }) {
           onClick={() => save.mutate()}
         >
           Record it
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+const PTKP_STATUSES = [
+  "TK/0",
+  "TK/1",
+  "TK/2",
+  "TK/3",
+  "K/0",
+  "K/1",
+  "K/2",
+  "K/3",
+] as const
+
+const TAX_FIELDS = [
+  { value: "ptkp", label: "PTKP status" },
+  { value: "tax_method", label: "Who bears PPh 21" },
+  { value: "npwp", label: "NPWP" },
+  { value: "bpjs_kesehatan", label: "BPJS Kesehatan number" },
+  { value: "bpjs_ketenagakerjaan", label: "BPJS Ketenagakerjaan number" },
+] as const
+
+/// What PPh 21 and BPJS are worked out from, one fact at a time — each change
+/// dated and signed, as the account is. A BPJS number is what enrols somebody
+/// in that programme: nobody is charged for BPJS without one.
+function SetTaxIdentity({ employeeId }: { employeeId: string }) {
+  const client = useQueryClient()
+  const [field, setField] = useState<string>("ptkp")
+  const [value, setValue] = useState<string>("TK/0")
+  const [reason, setReason] = useState("")
+  const [failed, setFailed] = useState<string | null>(null)
+
+  const save = useMutation({
+    mutationFn: () =>
+      amendPayrollIdentity(employeeId, {
+        field,
+        value: value.trim(),
+        effectiveFrom: new Date().toISOString().slice(0, 10),
+        reason: reason.trim(),
+      }),
+    onSuccess: () => {
+      setReason("")
+      setFailed(null)
+      void client.invalidateQueries({ queryKey: payKeys.identity(employeeId) })
+    },
+    onError: (error: Error) => setFailed(error.message),
+  })
+
+  const choose = (next: string) => {
+    setField(next)
+    setValue(next === "ptkp" ? "TK/0" : next === "tax_method" ? "GROSS" : "")
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <SubHead>Tax and BPJS</SubHead>
+      <Field label="What" required>
+        <Select value={field} onChange={choose}>
+          {TAX_FIELDS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Value" required>
+        {field === "ptkp" ? (
+          <Select value={value} onChange={setValue}>
+            {PTKP_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </Select>
+        ) : field === "tax_method" ? (
+          <Select value={value} onChange={setValue}>
+            {["GROSS", "GROSS_UP", "NETTO"].map((method) => (
+              <option key={method} value={method}>
+                {taxMethodLabel(method)}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <Input
+            value={value}
+            inputMode="numeric"
+            onChange={(event) => setValue(event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label="Why" required>
+        <Input
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="data dari karyawan"
+        />
+      </Field>
+      {failed !== null && <Banner tone="bad">{failed}</Banner>}
+      <div>
+        <Button
+          variant="primary"
+          pending={save.isPending}
+          disabled={value.trim() === "" || reason.trim() === ""}
+          onClick={() => save.mutate()}
+        >
+          Save
         </Button>
       </div>
     </div>

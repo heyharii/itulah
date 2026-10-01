@@ -18,12 +18,14 @@ import {
   punchClock,
   weekday,
 } from "@/screens/me/data/format"
+import { ApiError } from "@itulah/contract/client"
 import { isUnbound } from "@/screens/me/data/api"
 import { punchSource, settledOutcomes } from "@/screens/me/data/days"
 import {
   attendanceWindow,
   useAttendance,
   useCorrections,
+  useAttendanceSetting,
   usePunch,
 } from "@/screens/me/data/queries"
 
@@ -55,6 +57,8 @@ export function Attendance() {
   const fortnight = useAttendance()
   const corrections = useCorrections()
   const punch = usePunch()
+  const setting = useAttendanceSetting().data
+  const off = setting?.setting.mobile_enabled === false
   const pending = (corrections.data ?? []).filter(
     (correction) => correction.status === "PENDING"
   )
@@ -75,20 +79,40 @@ export function Attendance() {
           <Button
             variant="primary"
             size="tap"
-            disabled={punch.isPending}
+            disabled={punch.isPending || off}
             onClick={() => punch.mutate("IN")}
           >
             Clock in
           </Button>
           <Button
             size="tap"
-            disabled={punch.isPending}
+            disabled={punch.isPending || off}
             onClick={() => punch.mutate("OUT")}
           >
             Clock out
           </Button>
         </div>
-        {punch.error !== null && <Failure error={punch.error} />}
+        {punch.error !== null &&
+          (punch.error instanceof ApiError ? (
+            <Failure error={punch.error} />
+          ) : (
+            // Not the server: the phone could not say where it is.
+            <p role="alert" className="text-meta text-bad">
+              {punch.error.message}
+            </p>
+          ))}
+        {off && (
+          <p className="text-meta text-mute">
+            Punching from the app is turned off. Punch at the station in your
+            unit.
+          </p>
+        )}
+        {!off && setting?.fence != null && (
+          <p className="text-meta text-mute">
+            Your location is checked: punch within {setting.fence.radius_m} m of{" "}
+            {setting.unit_id ?? "your unit"}.
+          </p>
+        )}
         {punch.data !== undefined && punch.error === null && (
           <p className="rounded-inner bg-ok-bg px-3.5 py-2.5 text-cell text-ok-fg">
             {punch.data.newly_recorded ? (

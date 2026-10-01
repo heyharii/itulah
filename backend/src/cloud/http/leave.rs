@@ -486,6 +486,19 @@ pub async fn file(
             ))
         })?;
 
+    // A person on a roster is charged only the days it schedules them to
+    // work (0809, cuti untuk pekerja roster): the roster's own rest days and
+    // holidays join whatever rest days the caller named.
+    let mut rest_days = body.rest_days.clone();
+    if let Some(rostered) =
+        infrastructure::roster_rest_days(&state.db, &access.employee_id, body.from_date, body.to_date)
+            .await?
+    {
+        rest_days.extend(rostered);
+        rest_days.sort();
+        rest_days.dedup();
+    }
+
     let request = LeaveRequest::file(
         LeaveRequestId::try_new(&body.request_id).map_err(infrastructure::leave_error)?,
         EmployeeId::try_new(&access.employee_id).map_err(invalid)?,
@@ -493,11 +506,21 @@ pub async fn file(
         leave_type,
         period,
         &calendar,
-        &body.rest_days,
+        &rest_days,
         body.evidence.clone(),
         access.authorize(action_key, &body.reason)?,
     )
     .map_err(infrastructure::leave_error)?;
+
+    // Dates head office has closed to leave (0809). Checked on the days the
+    // request would charge: a closed Sunday nobody works costs nobody.
+    if let Some((day, why)) =
+        infrastructure::blocking_leave(&state.db, unit_id, request.chargeable()).await?
+    {
+        return Err(AppError::Conflict(format!(
+            "{day} is closed to leave: {why}"
+        )));
+    }
 
     infrastructure::file_request(&state.db, &request).await?;
     read_back(&state, request.id().as_str(), &catalogue).await

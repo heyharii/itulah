@@ -1,12 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import {
-  Clock4,
-  FileWarning,
-  Receipt,
-  ReceiptText,
-  UserPlus,
-} from "lucide-react"
+import { Clock4, FileWarning, Receipt, ReceiptText } from "lucide-react"
 import { useCallback, useMemo } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -21,21 +15,18 @@ import {
   awaitingOvertime,
   claimsKeys,
   expiringContracts,
-  hireKeys,
   listClaims,
   listEmployees,
-  listHireProposals,
   listRuns,
   listWorkforce,
   payKeys,
   peopleKeys,
   pendingLeave,
   readMinutesSpan,
-  rosterKeys,
-  attendancePeriods,
   leaveKeys,
   overtimeKeys,
 } from "@/lib/queries/people"
+import { DelegationsCard } from "@/screens/people/employee-app"
 import { UnitChoice, useUnit } from "@/screens/people/parts"
 import { RequestQueues } from "@/screens/people/requests"
 
@@ -61,7 +52,7 @@ import { RequestQueues } from "@/screens/people/requests"
 /// Leave is not a row in it: the leave table below is where leave is decided,
 /// and a row pointing at a table on the same page is the same request twice.
 /// What the list carries is everything decided on another screen — a claim,
-/// a hire request, a payroll run — and what nobody here can decide at all:
+/// a payroll run — and what nobody here can decide at all:
 /// a contract running out, an overtime order the worker has not answered.
 ///
 /// The queue stays empty until all of its sources have answered; partial data
@@ -100,10 +91,6 @@ export function PeopleOverview() {
     queryKey: claimsKeys.queue(),
     queryFn: ({ signal }) => listClaims({ state: "SUBMITTED" }, signal),
   })
-  const hires = useQuery({
-    queryKey: hireKeys.list(),
-    queryFn: ({ signal }) => listHireProposals(signal),
-  })
   /// A run waits on head office alone — a unit's part is sending it, which
   /// it does from Payroll — so a unit never asks.
   const runs = useQuery({
@@ -123,11 +110,6 @@ export function PeopleOverview() {
     queryKey: peopleKeys.employees({ status: "ACTIVE", limit: 1000 }),
     queryFn: ({ signal }) =>
       listEmployees({ status: "ACTIVE", limit: 1000 }, signal),
-  })
-  const periods = useQuery({
-    queryKey: rosterKeys.periods(unit.unitId ?? ""),
-    queryFn: ({ signal }) => attendancePeriods(unit.unitId ?? "", signal),
-    enabled: unit.unitId !== null,
   })
 
   const named = useMemo(() => {
@@ -181,32 +163,6 @@ export function PeopleOverview() {
       })
     }
 
-    // A hire request is on one desk at a time: head office's while it is
-    // proposed or approved with no record opened, the shop's when it was
-    // sent back. Only the reader's own desk is listed.
-    for (const hire of hires.data ?? []) {
-      const where = hire.unit_name ?? hire.unit_id
-      const title = unit.employer
-        ? hire.state === "PROPOSED"
-          ? `${where} is asking to hire`
-          : hire.state === "APPROVED"
-            ? `An approved hire at ${where} has no employment record yet`
-            : null
-        : hire.state === "RETURNED"
-          ? `Head office sent a hire request back to ${where}`
-          : null
-      if (title === null) continue
-      found.push({
-        id: `hire-${hire.id}`,
-        title,
-        detail: `Version ${hire.current_version} · asked ${day(hire.created_at)}`,
-        amount: `${count(hire.outstanding)} ${hire.outstanding === 1 ? "person" : "people"}`,
-        severity: "medium",
-        icon: <UserPlus className="size-4" />,
-        onOpen: go("/people/hire", { hireProposal: hire.id }),
-      })
-    }
-
     // A run a unit has sent is waiting on the second signature, and nothing
     // reaches Finance until it has one.
     for (const run of runs.data ?? []) {
@@ -240,19 +196,7 @@ export function PeopleOverview() {
     }
 
     return found
-  }, [
-    expiring.data,
-    claims.data,
-    hires.data,
-    runs.data,
-    overtime.data,
-    unit.employer,
-    go,
-    who,
-    unitName,
-  ])
-
-  const open = (periods.data ?? []).filter((one) => one.status !== "CLOSED")
+  }, [expiring.data, claims.data, runs.data, overtime.data, go, who, unitName])
 
   /// The empty sentence is meaningful only after every source that can put
   /// something in the queue has answered. Keep the sources together so a
@@ -264,21 +208,18 @@ export function PeopleOverview() {
       overtime.isPending ||
       expiring.isPending ||
       claims.isPending ||
-      hires.isPending ||
       runsPending ||
       team.isPending,
     isError:
       overtime.isError ||
       expiring.isError ||
       claims.isError ||
-      hires.isError ||
       (unit.employer && runs.isError) ||
       team.isError,
     error:
       overtime.error ??
       expiring.error ??
       claims.error ??
-      hires.error ??
       (unit.employer ? runs.error : null) ??
       team.error,
     data: exceptions,
@@ -287,7 +228,6 @@ export function PeopleOverview() {
         overtime.refetch(),
         expiring.refetch(),
         claims.refetch(),
-        hires.refetch(),
         ...(unit.employer ? [runs.refetch()] : []),
         team.refetch(),
       ])
@@ -309,15 +249,6 @@ export function PeopleOverview() {
     : overtime.isError
       ? "Unavailable"
       : count(overtime.data.length)
-  const periodsValue =
-    unit.unitId === null
-      ? "No unit available"
-      : periods.isPending
-        ? "Loading…"
-        : periods.isError
-          ? "Unavailable"
-          : count(open.length)
-
   return (
     <PageContent>
       <PageHeader
@@ -339,39 +270,21 @@ export function PeopleOverview() {
 
       {queryState(queueRead, {
         loading:
-          "Checking contracts, claims, hire requests, payroll runs and overtime orders…",
+          "Checking contracts, claims, payroll runs and overtime orders…",
         render: (rows) => (
           <ExceptionQueue
             exceptions={rows}
-            empty="No contract is past due or ending in the next 30 days, and no claim, hire request, payroll run or overtime order is waiting."
+            empty="No contract is past due or ending in the next 30 days, and no claim, payroll run or overtime order is waiting."
           />
         ),
       })}
 
       <RequestQueues />
 
-      <KpiStrip className="md:grid-cols-2 xl:grid-cols-4">
+      <KpiStrip className="md:grid-cols-3 xl:grid-cols-3">
         <Kpi label="Working here" value={workforceValue} />
         <Kpi label="Leave waiting on a decision" value={leaveValue} />
         <Kpi label="Overtime unanswered" value={overtimeValue} />
-        <Kpi
-          label={`Months still open at ${unit.name ?? "your place"}`}
-          value={periodsValue}
-          delta={
-            unit.unitId !== null &&
-            !periods.isPending &&
-            !periods.isError &&
-            open.length > 0 ? (
-              <button
-                type="button"
-                onClick={go("/people/periods")}
-                className="text-left underline decoration-hairline-2 underline-offset-2 hover:decoration-current"
-              >
-                sign one off
-              </button>
-            ) : undefined
-          }
-        />
       </KpiStrip>
 
       {workforce.isError && (
@@ -380,17 +293,19 @@ export function PeopleOverview() {
           onRetry={() => void workforce.refetch()}
         />
       )}
-      {unit.unitId !== null && periods.isError && (
-        <ErrorState
-          error={periods.error}
-          onRetry={() => void periods.refetch()}
-        />
-      )}
 
       <Banner tone="info">
         For today’s attendance and worked hours, open{" "}
         <AppLink to="/people/attendance-days">Attendance</AppLink>.
       </Banner>
+
+      {/* A manager's own hand-over (0812); head office sets them for anybody
+          in Settings › Employee app. */}
+      {!unit.employer && (
+        <div className="mt-4">
+          <DelegationsCard administrator={false} />
+        </div>
+      )}
     </PageContent>
   )
 }

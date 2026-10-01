@@ -40,4 +40,17 @@ approved_by: string | null,
  * over. **No breakdown** — that has its own route; this says which months
  * have crossed and which of those have been paid.
  */
-handover: HandoverStanding | null, history: Array<RunEventView>, };
+handover: HandoverStanding | null, history: Array<RunEventView>, 
+/**
+ * The religious holiday THR is paid for on this run, if it carries THR.
+ */
+thr_on: string | null, 
+/**
+ * The attendance month the run counts leave, overtime and rostered days
+ * over — the calendar month, or the days between two cut-offs (0801).
+ */
+attendance_from: string, attendance_to: string, 
+/**
+ * The day pay goes out under the schedule in force.
+ */
+pay_on: string, };
