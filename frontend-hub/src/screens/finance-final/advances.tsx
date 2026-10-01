@@ -1,21 +1,34 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Button } from "@/components/ui/button"
+import { Day } from "@/components/ui/day"
+import { Field, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import {
+  Banner,
   EmptyState,
   ErrorState,
   LoadMore,
   LoadingState,
 } from "@/components/ui/states"
 import { money } from "@/lib/format"
+import { financeKeys, listCompanyBankAccounts } from "@/lib/queries/finance"
 import {
   advanceControl,
   advancePage,
   domainKeys,
+  payAdvance,
 } from "@/lib/queries/finance-domains"
+import { useCanWrite } from "@/lib/session"
 import {
   Code,
   Grid,
@@ -31,6 +44,8 @@ import {
 /// disagree with the balance beside it.
 export function Advances() {
   const [status, setStatus] = useState<string | undefined>(undefined)
+  const [paying, setPaying] = useState<PayTarget | null>(null)
+  const canWrite = useCanWrite()
   // A page at a time, newest first. The cards read the server's figures over
   // the whole book, never a sum of the pages loaded.
   const advances = useInfiniteQuery({
@@ -163,6 +178,23 @@ export function Advances() {
                   >
                     {row.status}
                   </Pill>
+                  {row.status === "APPROVED" && canWrite && (
+                    <Button
+                      variant="ghost"
+                      className="ml-2"
+                      onClick={() =>
+                        setPaying({
+                          id: row.advance_id,
+                          number: row.advance_number,
+                          party: row.party_label,
+                          purpose: row.purpose,
+                          amount: row.amount_minor,
+                        })
+                      }
+                    >
+                      Cairkan
+                    </Button>
+                  )}
                 </Td>
               </tr>
             ))}
@@ -170,6 +202,99 @@ export function Advances() {
         </table>
       )}
       <LoadMore query={advances} />
+      {paying !== null && (
+        <PaySheet target={paying} onClose={() => setPaying(null)} />
+      )}
     </PageContent>
+  )
+}
+
+interface PayTarget {
+  id: string
+  number: string
+  party: string
+  purpose: string
+  amount: number
+}
+
+/// Pay an approved advance out: the day the money left and where it left
+/// from. An employee's loan starts being taken back from pay only once it is
+/// paid out here.
+function PaySheet({
+  target,
+  onClose,
+}: {
+  target: PayTarget
+  onClose: () => void
+}) {
+  const client = useQueryClient()
+  const [on, setOn] = useState(new Date().toISOString().slice(0, 10))
+  const [source, setSource] = useState("petty_cash|")
+  const banks = useQuery({
+    queryKey: financeKeys.companyBankAccounts(null),
+    queryFn: ({ signal }) => listCompanyBankAccounts(signal),
+  })
+  const pay = useMutation({
+    mutationFn: () => {
+      const [cashKey, qualifier] = source.split("|")
+      return payAdvance(target.id, {
+        posting_date: on,
+        cash_key: cashKey,
+        cash_qualifier: qualifier ?? "",
+      })
+    },
+    onSuccess: () => {
+      // Every status filter's pages, and the control figure beside them.
+      void client.invalidateQueries({ queryKey: ["finance", "advances"] })
+      void client.invalidateQueries({ queryKey: ["people"] })
+      onClose()
+    },
+  })
+  return (
+    <Sheet
+      open
+      onOpenChange={(next) => !next && onClose()}
+      title={`Cairkan ${target.number}`}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="quiet" onClick={onClose}>
+            Batal
+          </Button>
+          <Button
+            variant="primary"
+            pending={pay.isPending}
+            disabled={on === ""}
+            onClick={() => pay.mutate()}
+          >
+            Cairkan
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <Facts>
+          <Fact term="Kepada">{target.party}</Fact>
+          <Fact term="Keperluan">{target.purpose}</Fact>
+          <Fact term="Nilai">{money(target.amount)}</Fact>
+        </Facts>
+        <Field label="Tanggal" required>
+          <Day value={on} onChange={setOn} />
+        </Field>
+        <Field label="Dibayar dari" required>
+          <Select value={source} onChange={setSource}>
+            <option value="petty_cash|">Kas kecil unit</option>
+            {(banks.data ?? []).map((bank) => (
+              <option
+                key={`${bank.ledger_account_code}-${bank.bank_code}`}
+                value={`${bank.kind === "SAVINGS" ? "bank_savings" : "bank_giro"}|${bank.bank_code}`}
+              >
+                {`${bank.bank_code} ${bank.account_no}`}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {pay.error !== null && <Banner tone="bad">{pay.error.message}</Banner>}
+      </div>
+    </Sheet>
   )
 }

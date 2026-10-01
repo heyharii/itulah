@@ -1963,6 +1963,30 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("WarningLetterView: {e}"));
     inventory_backend::cloud::http::discipline::IssueLetterBody::export_all(&config)
         .unwrap_or_else(|e| panic!("IssueLetterBody: {e}"));
+    inventory_backend::cloud::postgres::PersonalDataRequestView::export_all(&config)
+        .unwrap_or_else(|e| panic!("PersonalDataRequestView: {e}"));
+    inventory_backend::cloud::http::data_requests::FileDataRequestBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("FileDataRequestBody: {e}"));
+    inventory_backend::cloud::http::data_requests::DecideDataRequestBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("DecideDataRequestBody: {e}"));
+    inventory_backend::cloud::postgres::BenefitBalanceRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("BenefitBalanceRow: {e}"));
+    inventory_backend::cloud::postgres::BenefitAccountView::export_all(&config)
+        .unwrap_or_else(|e| panic!("BenefitAccountView: {e}"));
+    inventory_backend::cloud::postgres::BenefitSettingView::export_all(&config)
+        .unwrap_or_else(|e| panic!("BenefitSettingView: {e}"));
+    inventory_backend::cloud::postgres::BenefitCodeView::export_all(&config)
+        .unwrap_or_else(|e| panic!("BenefitCodeView: {e}"));
+    inventory_backend::cloud::postgres::BenefitHolderView::export_all(&config)
+        .unwrap_or_else(|e| panic!("BenefitHolderView: {e}"));
+    inventory_backend::cloud::http::benefit::AdjustBenefitBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("AdjustBenefitBody: {e}"));
+    inventory_backend::cloud::http::benefit::BenefitSettingBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("BenefitSettingBody: {e}"));
+    inventory_backend::cloud::http::benefit::BenefitSpendBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("BenefitSpendBody: {e}"));
+    inventory_backend::cloud::http::benefit::BenefitReturnBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("BenefitReturnBody: {e}"));
     inventory_backend::cloud::postgres::DelegationView::export_all(&config)
         .unwrap_or_else(|e| panic!("DelegationView: {e}"));
     inventory_backend::cloud::http::delegation::DelegateBody::export_all(&config)

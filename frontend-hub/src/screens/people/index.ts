@@ -4,6 +4,7 @@ import { AnnualTaxPage } from "@/screens/people/annual-tax-page"
 import { AttendanceDays } from "@/screens/people/attendance-days"
 import { EmployeeChanges } from "@/screens/people/changes"
 import { ClaimTypesPage } from "@/screens/people/claim-types"
+import { BenefitPage } from "@/screens/people/benefit-page"
 import { Claims } from "@/screens/people/claims"
 import { Directory } from "@/screens/people/directory"
 import { Invitations } from "@/screens/people/invitations"
@@ -36,6 +37,7 @@ import { OvertimeSettings } from "@/screens/people/settings-overtime"
 import { PayrollScheduleSettings } from "@/screens/people/settings-payroll-schedule"
 import { PayslipSettings } from "@/screens/people/settings-payslip"
 import { RateSettings } from "@/screens/people/settings-rates"
+import { BenefitSettings } from "@/screens/people/settings-benefit"
 import { ShiftSettings } from "@/screens/people/settings-shifts"
 import { TaxReportPage } from "@/screens/people/tax-report-page"
 import { TeamCalendar } from "@/screens/people/team-calendar"
@@ -70,6 +72,8 @@ export const screens: ScreenMap = {
   "/people/claims": Claims,
   "/people/loans": Loans,
   "/people/claim-allowances": ClaimAllowancesPage,
+  // Benefit
+  "/people/benefit": BenefitPage,
   // Payroll
   "/people/payroll": PayrollRuns,
   "/people/one-offs": OneOffs,
@@ -96,6 +100,7 @@ export const screens: ScreenMap = {
   "/people/settings/absence": AbsenceSettings,
   "/people/settings/rates": RateSettings,
   "/people/claim-types": ClaimTypesPage,
+  "/people/settings/benefit": BenefitSettings,
   // Settings · Access
   "/people/job-roles": JobRoles,
   "/people/settings/checklists": ChecklistSettings,

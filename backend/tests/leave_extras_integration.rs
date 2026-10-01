@@ -448,6 +448,19 @@ async fn a_holiday_worked_earns_a_day_back(pool: PgPool) {
         )
         .await;
     assert_eq!(ordinary.status, StatusCode::BAD_REQUEST, "{:?}", ordinary.body);
+    // Before they joined (hired 5 January), a holiday earned them nothing.
+    let before = hub
+        .post(
+            &format!("/api/v1/employees/{siti}/holiday-work"),
+            json!({ "on_date": "2026-01-01", "leave_type": "CUTI_TAHUNAN", "reason": "salah" }),
+        )
+        .await;
+    assert_eq!(before.status, StatusCode::BAD_REQUEST, "{:?}", before.body);
+    assert!(
+        before.body["error"].as_str().unwrap_or_default().contains("outside their employment"),
+        "{:?}",
+        before.body
+    );
 
     let report = hub.get("/api/v1/holiday-work?from=2026-05-01&to=2026-05-31").await;
     assert_eq!(report.status, StatusCode::OK, "{:?}", report.body);
@@ -574,4 +587,65 @@ async fn a_delegation_lends_approvals_and_nothing_else(pool: PgPool) {
     )
     .await;
     assert_eq!(after.status, StatusCode::FORBIDDEN, "{:?}", after.body);
+}
+
+/// The service rule (service rule, 1 Oct 2026): with an up-front accrual and PRORATE, somebody
+/// who starts in October is given the three months left of twelve days; a
+/// year-long employee the whole year. With twelve months' eligibility (UU
+/// 13/2003 art. 79), somebody who has not served a year earns nothing yet.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn annual_leave_waits_for_eligibility_and_prorates_a_late_starter(pool: PgPool) {
+    let hub = Hub::open(&pool).await;
+    hub.ok(
+        "/api/v1/leave-types",
+        json!({ "code": "CUTI_TAHUNAN", "name": "Cuti Tahunan", "backing": "BALANCE", "payment": "FULL" }),
+    )
+    .await;
+    let stated = hub
+        .ok(
+            "/api/v1/leave-policy",
+            json!({ "version": 1, "effective_from": "2026-01-01", "annual_days": 12,
+                    "accrual": "UP_FRONT", "protected_leave": "CONTINUES",
+                    "eligibility_months": 0, "joiner": "PRORATE" }),
+        )
+        .await;
+    assert_eq!(stated[0]["joiner"], "PRORATE");
+    let dewi = hub.staff("K0971", "store-07", "2026-10-01").await;
+    let budi = hub.staff("K0972", "store-07", "2025-01-01").await;
+    let accrued = |who: String, year: i32| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COALESCE(SUM(centidays), 0)::bigint FROM leave_ledger_entry
+                  WHERE employee_id = $1 AND event = 'ACCRUAL'
+                    AND extract(year FROM on_date) = $2",
+            )
+            .bind(who)
+            .bind(f64::from(year))
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("accrued: {error}"))
+        }
+    };
+
+    hub.ok("/api/v1/hr-scheduler/run-now", json!({ "as_of": "2026-10-15", "reason": "uji" }))
+        .await;
+    assert_eq!(accrued(dewi.clone(), 2026).await, 300, "three months of twelve days");
+    assert_eq!(accrued(budi.clone(), 2026).await, 1_200, "the whole year");
+
+    // From 2027 the company follows UU 13/2003: a year's service first.
+    hub.ok(
+        "/api/v1/leave-policy",
+        json!({ "version": 2, "effective_from": "2027-01-01", "annual_days": 12,
+                "accrual": "UP_FRONT", "protected_leave": "CONTINUES",
+                "eligibility_months": 12, "joiner": "PRORATE" }),
+    )
+    .await;
+    hub.ok("/api/v1/hr-scheduler/run-now", json!({ "as_of": "2027-01-15", "reason": "uji" }))
+        .await;
+    assert_eq!(accrued(dewi.clone(), 2027).await, 0, "not a year's service yet");
+    assert_eq!(accrued(budi.clone(), 2027).await, 1_200);
+    hub.ok("/api/v1/hr-scheduler/run-now", json!({ "as_of": "2027-10-02", "reason": "uji" }))
+        .await;
+    assert_eq!(accrued(dewi, 2027).await, 300, "eligible in October: the three months left");
 }

@@ -43,6 +43,21 @@ pub enum Accrual {
     Monthly,
 }
 
+/// What somebody who starts part-way through a year is given for that year,
+/// under an up-front accrual (service rule, 1 Oct 2026). A monthly accrual counts only the months
+/// from the start either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Joiner {
+    /// The whole year's entitlement on the first day they are eligible — the
+    /// behaviour before the service rule, so a stored generation that never said keeps it.
+    #[default]
+    Full,
+    /// The months left in that year, counting the month they start, in
+    /// twelfths of the entitlement.
+    Prorate,
+}
+
 /// What may cross a year boundary.
 ///
 /// Deliberately not `Option<LeaveDays>`: `None` there would be read as both "no
@@ -96,6 +111,14 @@ pub struct LeavePolicy {
     carry_forward: CarryForward,
     encashment: Encashment,
     protected_leave: AccrualDuringProtectedLeave,
+    /// Months of service before annual leave is earned at all (service rule, 1 Oct 2026). UU
+    /// 13/2003 art. 79 gives it after twelve months of continuous work; a
+    /// company may be more generous. A generation stored before the service rule never
+    /// said, and keeps what it did: from the first day.
+    #[serde(default)]
+    eligibility_months: u32,
+    #[serde(default)]
+    joiner: Joiner,
 }
 
 impl LeavePolicy {
@@ -150,7 +173,84 @@ impl LeavePolicy {
             carry_forward,
             encashment,
             protected_leave,
+            eligibility_months: 0,
+            joiner: Joiner::Full,
         })
+    }
+
+    /// The service rule (service rule, 1 Oct 2026): months before leave is earned, and what a
+    /// part-year starter is given. Refuses more than five years, which is a
+    /// typo rather than a policy.
+    pub fn with_service_rule(
+        mut self,
+        eligibility_months: u32,
+        joiner: Joiner,
+    ) -> Result<Self, LeaveError> {
+        if eligibility_months > 60 {
+            return Err(LeaveError::NotPositive {
+                field: "eligibility_months (at most 60)",
+            });
+        }
+        self.eligibility_months = eligibility_months;
+        self.joiner = joiner;
+        Ok(self)
+    }
+
+    pub const fn eligibility_months(&self) -> u32 {
+        self.eligibility_months
+    }
+    pub const fn joiner(&self) -> Joiner {
+        self.joiner
+    }
+
+    /// How much one person has earned of `as_of`'s year by the end of
+    /// `as_of`'s month, given when their service began.
+    ///
+    /// Nothing before they are eligible (service start plus the waiting
+    /// months). In the year they become eligible, a monthly accrual counts
+    /// the months from that month on, and an up-front one gives the whole
+    /// entitlement or the twelfths left in the year, as `joiner` says. Every
+    /// later year is [`Self::accrued_by_month`]. Without a known start, the
+    /// whole of [`Self::accrued_by_month`].
+    pub fn earned_by(
+        &self,
+        as_of: NaiveDate,
+        service_start: Option<NaiveDate>,
+    ) -> Result<LeaveDays, LeaveError> {
+        use chrono::Datelike;
+        let whole = self.accrued_by_month(as_of.month())?;
+        let Some(start) = service_start else {
+            return Ok(whole);
+        };
+        let eligible = start
+            .checked_add_months(chrono::Months::new(self.eligibility_months))
+            .unwrap_or(start);
+        if as_of < eligible {
+            return LeaveDays::from_centidays(0);
+        }
+        if eligible.year() < as_of.year() {
+            return Ok(whole);
+        }
+        // Eligible this year: count from the month eligibility begins.
+        let from_month = eligible.month() as i32;
+        let months_left = 13 - from_month;
+        let entitlement = self.annual_entitlement.centidays();
+        match self.accrual {
+            Accrual::Monthly => {
+                if as_of.month() == 12 {
+                    // The remainder of the twelfths, as the whole-year rule gives it.
+                    return LeaveDays::from_centidays(
+                        entitlement * months_left / 12 + if from_month == 1 { entitlement % 12 } else { 0 },
+                    );
+                }
+                let counted = as_of.month() as i32 - from_month + 1;
+                LeaveDays::from_centidays((entitlement / 12) * counted.max(0))
+            }
+            Accrual::UpFront => match self.joiner {
+                Joiner::Full => Ok(self.annual_entitlement),
+                Joiner::Prorate => LeaveDays::from_centidays(entitlement * months_left / 12),
+            },
+        }
     }
 
     pub const fn version(&self) -> u32 {

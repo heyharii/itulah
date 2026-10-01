@@ -593,3 +593,116 @@ async fn the_employee_app_shows_the_modules_turned_on(pool: PgPool) {
     assert_eq!(mine.status, StatusCode::OK, "{:?}", mine.body);
     assert_eq!(mine.body["modules"], json!(["ATTENDANCE", "LEAVE", "PAY"]));
 }
+
+/// An employee asks for a new phone and address from their own app; HR sees
+/// it waiting, approves the phone (the record changes, signed by HR) and
+/// rejects the address. Nobody files for somebody else, nobody decides their
+/// own, and a decided request does not move again.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_employee_asks_for_a_detail_to_change_and_hr_decides(pool: PgPool) {
+    let hub = Hub::open(&pool).await;
+    let siti = hub.staff("K0970", "store-07", "2026-01-05").await;
+    hub.ok(
+        &format!("/api/v1/employees/{siti}/personal-data"),
+        json!({ "full_name": "Siti Rahayu", "nik": "3174051234500012", "birth_date": "1998-05-12",
+                "address": "Jl. Merdeka 17, Bandung" }),
+    )
+    .await;
+    hub.ok(
+        "/api/v1/auth/users",
+        json!({ "username": "siti.pdr", "display_name": "Siti", "password": "siti-login-pass-pdr", "role": "CASHIER" }),
+    )
+    .await;
+    hub.ok(&format!("/api/v1/employees/{siti}/account"), json!({ "username": "siti.pdr", "reason": "akun staf" }))
+        .await;
+    let (hers, her_csrf) = sign_in(&hub.app, "siti.pdr", "siti-login-pass-pdr").await;
+    let ask = |body: Value| {
+        send(
+            hub.app.clone(),
+            "POST",
+            "/api/v1/employees/me/personal-data-requests",
+            write_headers(&hers, &her_csrf),
+            Some(body),
+        )
+    };
+
+    let phone = ask(json!({ "field": "phone", "value": "081234567890", "reason": "nomor baru" })).await;
+    assert_eq!(phone.status, StatusCode::OK, "{:?}", phone.body);
+    let again = ask(json!({ "field": "phone", "value": "0811", "reason": "lagi" })).await;
+    assert_eq!(again.status, StatusCode::CONFLICT, "one waiting per field: {:?}", again.body);
+    let nik = ask(json!({ "field": "nik", "value": "1", "reason": "x" })).await;
+    assert_eq!(nik.status, StatusCode::BAD_REQUEST, "NIK changes with HR: {:?}", nik.body);
+    let moved = ask(json!({ "field": "address", "value": "Jl. Sudirman 1, Jakarta", "reason": "pindah" })).await;
+    assert_eq!(moved.status, StatusCode::OK, "{:?}", moved.body);
+    assert_eq!(moved.body.as_array().map(Vec::len), Some(2));
+
+    let for_her = hub
+        .post(
+            &format!("/api/v1/employees/{siti}/personal-data-requests"),
+            json!({ "field": "phone", "value": "0812", "reason": "x" }),
+        )
+        .await;
+    assert_eq!(for_her.status, StatusCode::FORBIDDEN, "HR edits directly: {:?}", for_her.body);
+    let her_queue = send(hub.app.clone(), "GET", "/api/v1/personal-data-requests", read_headers(&hers), None).await;
+    assert_eq!(her_queue.status, StatusCode::FORBIDDEN, "{:?}", her_queue.body);
+
+    let queue = hub.get("/api/v1/personal-data-requests").await;
+    assert_eq!(queue.status, StatusCode::OK, "{:?}", queue.body);
+    let waiting = queue.body.as_array().cloned().unwrap_or_default();
+    assert_eq!(waiting.len(), 2);
+    let id_of = |field: &str| {
+        waiting
+            .iter()
+            .find(|row| row["field"] == field)
+            .and_then(|row| row["id"].as_str())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let address_row = waiting.iter().find(|row| row["field"] == "address").cloned().unwrap_or_default();
+    assert_eq!(address_row["current"], "Jl. Merdeka 17, Bandung");
+
+    let approved = hub
+        .ok(
+            &format!("/api/v1/personal-data-requests/{}/decision", id_of("phone")),
+            json!({ "approve": true, "reason": "sesuai" }),
+        )
+        .await;
+    assert_eq!(approved["state"], "APPROVED");
+    assert_eq!(approved["decided_by"], "admin");
+    let rejected = hub
+        .ok(
+            &format!("/api/v1/personal-data-requests/{}/decision", id_of("address")),
+            json!({ "approve": false, "reason": "lampirkan KTP/domisili" }),
+        )
+        .await;
+    assert_eq!(rejected["state"], "REJECTED");
+    let twice = hub
+        .post(
+            &format!("/api/v1/personal-data-requests/{}/decision", id_of("phone")),
+            json!({ "approve": true, "reason": "lagi" }),
+        )
+        .await;
+    assert_eq!(twice.status, StatusCode::CONFLICT, "{:?}", twice.body);
+
+    let record = hub.get(&format!("/api/v1/employees/{siti}/personal-data")).await;
+    assert_eq!(record.status, StatusCode::OK, "{:?}", record.body);
+    assert_eq!(record.body["phone"], "081234567890", "approved: {:?}", record.body);
+    assert_eq!(record.body["address"], "Jl. Merdeka 17, Bandung", "rejected leaves it");
+    let mine = send(hub.app.clone(), "GET", "/api/v1/employees/me/personal-data-requests", read_headers(&hers), None).await;
+    assert_eq!(mine.body[0]["decision_reason"].as_str().is_some(), true, "{:?}", mine.body);
+
+    // Withdrawn by her while it waits; HR's queue empties.
+    let email = ask(json!({ "field": "email", "value": "siti@contoh.id", "reason": "email baru" })).await;
+    let email_id = email.body[0]["id"].as_str().unwrap_or_default().to_owned();
+    let withdrawn = send(
+        hub.app.clone(),
+        "POST",
+        &format!("/api/v1/personal-data-requests/{email_id}/withdrawal"),
+        write_headers(&hers, &her_csrf),
+        Some(json!({ "reason": "tidak jadi" })),
+    )
+    .await;
+    assert_eq!(withdrawn.status, StatusCode::OK, "{:?}", withdrawn.body);
+    let left = hub.get("/api/v1/personal-data-requests").await;
+    assert_eq!(left.body.as_array().map(Vec::len), Some(0), "{:?}", left.body);
+}

@@ -8,7 +8,11 @@ import {
   peopleKeys,
   type LifecycleTaskView,
 } from "@/lib/queries/people"
-import type { EmployeeSummary, WarningLetterView } from "@itulah/contract"
+import type {
+  EmployeeSummary,
+  PersonalDataRequestView,
+  WarningLetterView,
+} from "@itulah/contract"
 
 /// The employee-lifecycle lists behind People › Employees: change proposals,
 /// onboarding and offboarding checklists, and every warning letter ever
@@ -21,6 +25,46 @@ export const hrEmployeeKeys = {
   tasks: (kind: "ONBOARDING" | "SEPARATION") =>
     ["people", "hr", "lifecycle-tasks", kind] as const,
   letters: () => ["people", "warning-letters", "all"] as const,
+  dataRequests: (all: boolean) =>
+    ["people", "hr", "data-requests", all] as const,
+  dataRequestsAll: () => ["people", "hr", "data-requests"] as const,
+}
+
+/// Requests from employees to change their own phone, email or address,
+/// pending first. `all` adds the decided ones.
+export function listDataRequests(
+  all: boolean,
+  signal?: AbortSignal
+): Promise<PersonalDataRequestView[]> {
+  return node.get<PersonalDataRequestView[]>(
+    `/api/v1/personal-data-requests${all ? "?all=true" : ""}`,
+    { signal }
+  )
+}
+
+export function useDataRequests(all: boolean) {
+  return useQuery({
+    queryKey: hrEmployeeKeys.dataRequests(all),
+    queryFn: ({ signal }) => listDataRequests(all, signal),
+  })
+}
+
+/// Approving changes the person's record; the server refuses the filer
+/// deciding their own request (403).
+export function decideDataRequest(
+  id: string,
+  body: { approve: boolean; reason: string }
+): Promise<PersonalDataRequestView> {
+  return node.post<PersonalDataRequestView>(
+    `/api/v1/personal-data-requests/${encodeURIComponent(id)}/decision`,
+    body
+  )
+}
+
+export const DATA_FIELD_LABEL: Readonly<Record<string, string>> = {
+  phone: "Phone",
+  email: "Email",
+  address: "Address",
 }
 
 /// Every letter, in force or not — `?all=true`. The in-force list the

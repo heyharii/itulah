@@ -65,6 +65,19 @@ pub mod actions {
     pub const PROFILE_READ: &str = "people.profile.read";
     /// Change personal data.
     pub const PROFILE_CHANGE: &str = "people.profile.change";
+    /// Ask HR to change your own phone, email or address (0816). Everybody's
+    /// rung; the bound is the record — only `me` files — and the change is
+    /// made by whoever approves it, under [`PROFILE_CHANGE`].
+    pub const PROFILE_REQUEST_OWN: &str = "people.profile.request_own";
+    /// Fill, take off or reset an employee's benefit balance, and state the
+    /// benefit's settings (0818). Head office's.
+    pub const BENEFIT_MANAGE: &str = "people.benefit.manage";
+    /// Ask for one's own code to show at the till (0818). Everybody's rung;
+    /// the bound is the record — only `me`.
+    pub const BENEFIT_CODE_OWN: &str = "people.benefit.code_own";
+    /// Spend or give back a benefit at the till (0818): the cashier's rung,
+    /// bounded by the code the employee shows.
+    pub const BENEFIT_REDEEM: &str = "people.benefit.redeem";
     /// Sign, renew or amend an employment contract.
     pub const CONTRACT_CHANGE: &str = "people.contract.change";
     /// Decide what counts as late, early, or overtime.
@@ -998,7 +1011,10 @@ pub fn required_role(action_key: &str) -> Role {
         // your own checklist tasks from the phone. The rung is everybody's;
         // the bound is the record, applied by the handler.
         | actions::ROSTER_SWAP_REQUEST_OWN
-        | actions::LIFECYCLE_COMPLETE_OWN => Role::Cashier,
+        | actions::LIFECYCLE_COMPLETE_OWN
+        | actions::PROFILE_REQUEST_OWN
+        | actions::BENEFIT_CODE_OWN
+        | actions::BENEFIT_REDEEM => Role::Cashier,
         // Everything else falls through to Admin — including the six keys the
         // exit lane added: `GRIEVANCE_TYPE_SET`, `GRIEVANCE_INVESTIGATE`,
         // `GRIEVANCE_DECIDE`, `GRIEVANCE_READ`, `EXIT_INTERVIEW_FILE` and

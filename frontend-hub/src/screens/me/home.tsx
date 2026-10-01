@@ -3,7 +3,6 @@ import { Link } from "@tanstack/react-router"
 import { ChevronRight } from "lucide-react"
 
 import { Async, Panel, Row } from "@/screens/me/ui/bits"
-import { Input } from "@/screens/me/ui/field"
 import { Button } from "@/screens/me/ui/button"
 import { StatusPill } from "@/screens/me/ui/status-pill"
 import { button } from "@/screens/me/ui/button-style"
@@ -33,7 +32,6 @@ import {
   usePaySlips,
   useProfile,
 } from "@/screens/me/data/queries"
-import { useState } from "react"
 
 import { useSession } from "@/screens/me/data/session"
 
@@ -81,12 +79,13 @@ export function Home() {
   // for everybody who has finished onboarding, which is why it sits above
   // Today and renders nothing at all once it is done.
   const tasks = useMyLifecycleTasks()
+  // Only what is theirs to tick: the store's, IT's and head office's tasks
+  // are on the same checklist but are not a button on this phone.
   const openTasks = (tasks.data ?? []).filter(
-    (task) => task.state === "PENDING"
+    (task) => task.state === "PENDING" && task.owner === "EMPLOYEE"
   )
   const client = useQueryClient()
   const completeTask = useCompleteOwnTask()
-  const [taskReason, setTaskReason] = useState("")
   void client
 
   return (
@@ -130,23 +129,17 @@ export function Home() {
             {openTasks.map((task) => (
               <div key={task.id} className="flex flex-col gap-1">
                 <p className="text-cell font-medium text-ink">{task.label}</p>
-                <Input
-                  value={taskReason}
-                  placeholder="Confirm to mark done"
-                  onChange={(e) => setTaskReason(e.target.value)}
-                />
                 <Button
                   variant="primary"
                   size="tap"
-                  disabled={taskReason.trim() === "" || completeTask.isPending}
+                  disabled={completeTask.isPending}
                   onClick={() =>
-                    completeTask.mutate(
-                      { templateId: task.template_id, reason: taskReason },
-                      {
-                        onSuccess: () => setTaskReason(""),
-                        onError: () => undefined,
-                      }
-                    )
+                    // The server records a reason against every act; on a
+                    // phone the act is the reason, stated rather than asked.
+                    completeTask.mutate({
+                      templateId: task.template_id,
+                      reason: "ditandai selesai oleh karyawan",
+                    })
                   }
                 >
                   Mark done

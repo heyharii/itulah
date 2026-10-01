@@ -666,10 +666,15 @@ pub async fn pay_claim(
 ) -> Result<(String, String), AppError> {
     let claim_id = Uuid::from_str(claim.id().as_str())
         .map_err(|error| corrupt("claim id", error.to_string()))?;
-    let total = claim
-        .state()
-        .sanctioned_minor()
-        .ok_or_else(|| corrupt("paid claim", "nothing sanctioned to pay".into()))?;
+    // Only an approved claim has a sanctioned figure to pay. Anything else is
+    // the caller's mistake, said as one — not a corrupt row.
+    let total = claim.state().sanctioned_minor().ok_or_else(|| {
+        AppError::Conflict(format!(
+            "claim {} is {}: only an approved claim can be paid out",
+            claim.claim_number(),
+            claim.state().code()
+        ))
+    })?;
 
     let mut tx = pool.begin().await?;
     let unit = claim.unit().as_str().to_string();

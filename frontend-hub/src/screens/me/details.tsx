@@ -1,10 +1,21 @@
-import { Async, Empty, Panel, Row } from "@/screens/me/ui/bits"
+import { useState } from "react"
+
+import { Async, Empty, Failure, List, Panel, Row } from "@/screens/me/ui/bits"
+import { Field, Input, Select, TAP, Textarea } from "@/screens/me/ui/field"
 import { StatusPill } from "@/screens/me/ui/status-pill"
 import { Button } from "@/screens/me/ui/button"
 import { Pill } from "@/screens/me/ui/pill"
-import { longDate, relativeDay, shortDate } from "@/screens/me/data/format"
+import {
+  dateTime,
+  longDate,
+  relativeDay,
+  shortDate,
+} from "@/screens/me/data/format"
 import {
   useAcknowledgeLetter,
+  useAskForDataChange,
+  usePersonalDataRequests,
+  useWithdrawDataChange,
   useWarningLetters,
   useContracts,
   useHolidays,
@@ -62,12 +73,17 @@ export function Me() {
                 {person.joined_on ? longDate(person.joined_on) : "Not started"}
               </Row>
               <p className="text-meta text-mute">
-                Something wrong here? HR changes it — this screen only shows it.
+                Something wrong? Ask HR to change your phone, email or address
+                here; name, NIK and birth date change with HR against a
+                document.
               </p>
+              <AskToChange />
             </>
           )}
         </Async>
       </Panel>
+
+      <ChangeRequests />
 
       <Panel title="Contract">
         <Async query={contracts} empty="No contract on record.">
@@ -218,6 +234,184 @@ function Letters() {
           )}
         </div>
       ))}
+    </Panel>
+  )
+}
+
+type DataField = "phone" | "email" | "address"
+
+const DATA_FIELD: Record<string, string> = {
+  phone: "Phone",
+  email: "Email",
+  address: "Address",
+}
+
+/// A request to HR to change a phone number, email or address.
+///
+/// Inline rather than a route of its own: it is three fields, and the person is
+/// already looking at the record they think is wrong. HR decides; nothing on
+/// the record moves until they do.
+function AskToChange() {
+  const ask = useAskForDataChange()
+  const [open, setOpen] = useState(false)
+  const [field, setField] = useState<DataField>("phone")
+  const [value, setValue] = useState("")
+  const [why, setWhy] = useState("")
+
+  const close = () => {
+    setOpen(false)
+    setValue("")
+    setWhy("")
+    ask.reset()
+  }
+
+  if (!open) {
+    return (
+      <Button
+        className="self-start"
+        onClick={() => {
+          setOpen(true)
+        }}
+      >
+        Ask to change
+      </Button>
+    )
+  }
+
+  const blank = field === "address" && value.trim() === ""
+  return (
+    <form
+      className="flex flex-col gap-3.5"
+      onSubmit={(event) => {
+        event.preventDefault()
+        ask.mutate(
+          { field, value: value.trim(), reason: why.trim() },
+          { onSuccess: close }
+        )
+      }}
+    >
+      <Field label="What should change" required>
+        <Select
+          value={field}
+          onChange={(next) => setField(next as DataField)}
+          aria-label="What should change"
+          className={TAP}
+        >
+          <option value="phone">Phone</option>
+          <option value="email">Email</option>
+          <option value="address">Address</option>
+        </Select>
+      </Field>
+      <Field
+        label="New value"
+        required={field === "address"}
+        hint={field !== "address" && "Leave it empty to remove it."}
+      >
+        {field === "address" ? (
+          <Textarea
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            rows={3}
+            required
+          />
+        ) : (
+          <Input
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            type={field === "email" ? "email" : "tel"}
+          />
+        )}
+      </Field>
+      <Field label="Why" required>
+        <Input
+          value={why}
+          onChange={(event) => setWhy(event.target.value)}
+          placeholder="HR sees this."
+          required
+        />
+      </Field>
+      {ask.error !== null && <Failure error={ask.error} />}
+      <div className="flex flex-col-reverse gap-2 md:flex-row md:justify-end">
+        <Button
+          type="button"
+          variant="quiet"
+          size="tap"
+          className="md:h-control"
+          onClick={close}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          variant="primary"
+          size="tap"
+          className="md:h-control"
+          disabled={ask.isPending || why.trim() === "" || blank}
+        >
+          {ask.isPending ? "Sending…" : "Send"}
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+/// What the person has asked HR to change, and what came of it. Shown only
+/// when there is something to show.
+function ChangeRequests() {
+  const requests = usePersonalDataRequests()
+  const withdraw = useWithdrawDataChange()
+  const rows = requests.data ?? []
+  if (rows.length === 0) return null
+  return (
+    <Panel title="Change requests">
+      <List>
+        {rows.map((request) => (
+          <div key={request.id} className="flex flex-col gap-1.5">
+            <div className="flex items-start gap-2">
+              <div className="min-w-0">
+                <p className="text-cell font-medium text-ink">
+                  {DATA_FIELD[request.field] ?? request.field}
+                </p>
+                <p className="text-meta break-words text-body">
+                  {/* "Now" is the live record, so it only means something
+                      while the request waits; afterwards say what was asked. */}
+                  {request.state === "PENDING"
+                    ? `${request.current ?? "—"} → `
+                    : "Asked for "}
+                  {request.value === "" ? "removed" : request.value}
+                </p>
+              </div>
+              <StatusPill status={request.state} className="ml-auto" />
+            </div>
+            <p className="text-cell text-text">{request.reason}</p>
+            {request.decision_reason !== null && (
+              <p className="text-meta text-body italic">
+                {request.decided_by}: {request.decision_reason}
+              </p>
+            )}
+            <p className="text-meta text-mute">
+              Asked {dateTime(request.filed_at)}
+            </p>
+            {request.state === "PENDING" && (
+              <Button
+                className="mt-1 self-start"
+                disabled={withdraw.isPending}
+                onClick={() =>
+                  withdraw.mutate({
+                    requestId: request.id,
+                    reason: "ditarik oleh pemohon",
+                  })
+                }
+              >
+                Withdraw
+              </Button>
+            )}
+          </div>
+        ))}
+      </List>
+      {withdraw.error !== null && (
+        <Empty>Could not withdraw that request. Try again.</Empty>
+      )}
     </Panel>
   )
 }

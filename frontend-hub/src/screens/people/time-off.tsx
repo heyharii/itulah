@@ -90,6 +90,7 @@ export function TimeOffRequests() {
   const [search, setSearch] = useState("")
   const [opened, setOpened] = useState<Row | null>(null)
   const [filing, setFiling] = useState(false)
+  const [filed, setFiled] = useState<string | null>(null)
   const { nameOf } = useActiveEmployees()
 
   const { from, to } = monthBounds(month)
@@ -202,6 +203,12 @@ export function TimeOffRequests() {
         }
       />
 
+      {filed !== null && (
+        <Banner tone="info" onDismiss={() => setFiled(null)}>
+          {filed}
+        </Banner>
+      )}
+
       <Toolbar>
         <Segmented<View>
           value={view}
@@ -310,7 +317,19 @@ export function TimeOffRequests() {
       </Card>
 
       <RequestSheet row={opened} onClose={() => setOpened(null)} />
-      <FileLeaveSheet open={filing} onClose={() => setFiling(false)} />
+      <FileLeaveSheet
+        open={filing}
+        onClose={() => setFiling(false)}
+        onFiled={(fromDate, name) => {
+          // The filer never decides their own filing, so it is not in their
+          // Waiting list: show it where it is, in its month, and say so.
+          setView("MONTH")
+          setMonth(fromDate.slice(0, 7))
+          setFiled(
+            `Leave filed for ${name}. Somebody other than you approves it — it shows here as pending until then.`
+          )
+        }}
+      />
     </PageContent>
   )
 }
@@ -462,12 +481,14 @@ function RequestSheet({
 function FileLeaveSheet({
   open,
   onClose,
+  onFiled,
 }: {
   open: boolean
   onClose: () => void
+  onFiled: (fromDate: string, name: string) => void
 }) {
   const client = useQueryClient()
-  const { people } = useActiveEmployees()
+  const { people, nameOf } = useActiveEmployees()
   const kinds = useQuery({
     queryKey: leaveKeys.types(),
     queryFn: ({ signal }) => listLeaveTypes(signal),
@@ -498,8 +519,12 @@ function FileLeaveSheet({
         reason: reason.trim(),
         evidence,
       }),
-    onSuccess: () => {
+    onSuccess: (filedRequest) => {
       void client.invalidateQueries({ queryKey: ["people", "leave"] })
+      onFiled(
+        filedRequest.from_date,
+        employee === null ? "them" : nameOf(employee)
+      )
       reset()
       onClose()
     },

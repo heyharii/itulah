@@ -339,6 +339,15 @@ pub fn required_role(method: &str, path: &str) -> Role {
     {
         return Role::Cashier;
     }
+    // The till's benefit acts (0818): finding whose code it is, spending and
+    // giving back. Each handler re-checks `people.benefit.redeem`, and a
+    // cashier cannot ring up their own balance.
+    if matches!(
+        path,
+        "/api/v1/benefit/lookup" | "/api/v1/benefit/spends" | "/api/v1/benefit/returns"
+    ) {
+        return Role::Cashier;
+    }
     // What happens to those filings afterwards, by the person who filed them:
     // sending a drafted claim up, and taking back a claim, a swap, a
     // correction or a grievance. Without this they fell through to Supervisor,
@@ -353,6 +362,8 @@ pub fn required_role(method: &str, path: &str) -> Role {
             ("roster-swaps/", "/withdrawal"),
             ("attendance-corrections/", "/withdrawal"),
             ("grievances/", "/withdrawal"),
+            // A change to one's own phone, email or address (0816).
+            ("personal-data-requests/", "/withdrawal"),
         ];
         if filer_acts.iter().any(|(collection, act)| {
             rest.strip_prefix(collection)

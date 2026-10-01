@@ -20,4 +20,14 @@ encashment: string, encashment_max_centidays: number | null, encashment_second_a
 /**
  * `CONTINUES` or `SUSPENDED`.
  */
-protected_leave: string, };
+protected_leave: string, 
+/**
+ * Months of service before annual leave is earned (0818); 0 is from the
+ * first day.
+ */
+eligibility_months: number, 
+/**
+ * `FULL` or `PRORATE` — what an up-front accrual gives a part-year
+ * starter.
+ */
+joiner: string, };

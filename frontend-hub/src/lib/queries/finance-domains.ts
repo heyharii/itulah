@@ -42,7 +42,8 @@ function search(params: Record<string, string | number | boolean | undefined>) {
 export const domainKeys = {
   prepaidSchedules: (site?: string, status?: string) =>
     ["finance", "prepaid", "schedules", site ?? null, status ?? null] as const,
-  prepaidSchedule: (id: string) => ["finance", "prepaid", "schedule", id] as const,
+  prepaidSchedule: (id: string) =>
+    ["finance", "prepaid", "schedule", id] as const,
   taxTypes: () => ["finance", "tax", "types"] as const,
   taxPeriods: (taxType?: string, year?: number) =>
     ["finance", "tax", "periods", taxType ?? null, year ?? null] as const,
@@ -55,7 +56,8 @@ export const domainKeys = {
   advanceControl: () => ["finance", "advances", "control"] as const,
   principals: () => ["finance", "principals"] as const,
   principal: (id: string) => ["finance", "principal", id] as const,
-  facilities: (status?: string) => ["finance", "facilities", status ?? null] as const,
+  facilities: (status?: string) =>
+    ["finance", "facilities", status ?? null] as const,
   facility: (id: string) => ["finance", "facility", id] as const,
   controls: (asOf?: string) => ["finance", "controls", asOf ?? null] as const,
   closeReadiness: (year: number, month: number) =>
@@ -120,9 +122,13 @@ export function allocatePrepaidMonth(
   body: { year: number; month: number; site_id?: string },
   signal?: AbortSignal
 ): Promise<PrepaidAllocationRun> {
-  return node.post<PrepaidAllocationRun>("/api/v1/finance/prepaid/allocate", body, {
-    signal,
-  })
+  return node.post<PrepaidAllocationRun>(
+    "/api/v1/finance/prepaid/allocate",
+    body,
+    {
+      signal,
+    }
+  )
 }
 
 // ── tax ────────────────────────────────────────────────────────────────────
@@ -135,16 +141,21 @@ export function listTaxPeriods(
   signal?: AbortSignal,
   options: { tax_type?: string; year?: number; limit?: number } = {}
 ): Promise<TaxPeriod[]> {
-  return node.get<TaxPeriod[]>(`/api/v1/finance/tax/periods${search(options)}`, {
-    signal,
-  })
+  return node.get<TaxPeriod[]>(
+    `/api/v1/finance/tax/periods${search(options)}`,
+    {
+      signal,
+    }
+  )
 }
 
 export function readTaxPeriod(
   id: string,
   signal?: AbortSignal
 ): Promise<TaxPeriodDocument> {
-  return node.get<TaxPeriodDocument>(`/api/v1/finance/tax/periods/${id}`, { signal })
+  return node.get<TaxPeriodDocument>(`/api/v1/finance/tax/periods/${id}`, {
+    signal,
+  })
 }
 
 export function taxReconciliation(
@@ -163,7 +174,9 @@ export function listAdvances(
   signal?: AbortSignal,
   options: { site?: string; status?: string; limit?: number } = {}
 ): Promise<Advance[]> {
-  return node.get<Advance[]>(`/api/v1/finance/advances${search(options)}`, { signal })
+  return node.get<Advance[]>(`/api/v1/finance/advances${search(options)}`, {
+    signal,
+  })
 }
 
 /// The same advances a keyset page at a time, newest first, with the card
@@ -186,7 +199,20 @@ export function advancePage(
   )
 }
 
-export function readAdvance(id: string, signal?: AbortSignal): Promise<AdvanceDocument> {
+/// Pay an approved advance out — an employee's loan among them — from a
+/// drawer (`petty_cash`, in the advance's own unit) or one of head office's
+/// bank accounts (`bank_giro`/`bank_savings`, qualified by its bank code).
+export function payAdvance(
+  id: string,
+  body: { posting_date: string; cash_key: string; cash_qualifier: string }
+): Promise<unknown> {
+  return node.post<unknown>(`/api/v1/finance/advances/${id}/pay`, body)
+}
+
+export function readAdvance(
+  id: string,
+  signal?: AbortSignal
+): Promise<AdvanceDocument> {
   return node.get<AdvanceDocument>(`/api/v1/finance/advances/${id}`, { signal })
 }
 
@@ -209,7 +235,9 @@ export function readPrincipal(
   id: string,
   signal?: AbortSignal
 ): Promise<PrincipalDocument> {
-  return node.get<PrincipalDocument>(`/api/v1/finance/principals/${id}`, { signal })
+  return node.get<PrincipalDocument>(`/api/v1/finance/principals/${id}`, {
+    signal,
+  })
 }
 
 // ── financing ──────────────────────────────────────────────────────────────
@@ -228,9 +256,12 @@ export function readFacility(
   id: string,
   signal?: AbortSignal
 ): Promise<FinancingFacilityDocument> {
-  return node.get<FinancingFacilityDocument>(`/api/v1/finance/facilities/${id}`, {
-    signal,
-  })
+  return node.get<FinancingFacilityDocument>(
+    `/api/v1/finance/facilities/${id}`,
+    {
+      signal,
+    }
+  )
 }
 
 // ── control and close ──────────────────────────────────────────────────────

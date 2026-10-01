@@ -703,6 +703,12 @@ pub struct LeavePolicyView {
     pub encashment_second_approver: Option<bool>,
     /// `CONTINUES` or `SUSPENDED`.
     pub protected_leave: String,
+    /// Months of service before annual leave is earned (service rule, 1 Oct 2026); 0 is from the
+    /// first day.
+    pub eligibility_months: u32,
+    /// `FULL` or `PRORATE` — what an up-front accrual gives a part-year
+    /// starter.
+    pub joiner: String,
 }
 
 fn policy_view(policy: &crate::cloud::domain::LeavePolicy) -> LeavePolicyView {
@@ -749,6 +755,12 @@ fn policy_view(policy: &crate::cloud::domain::LeavePolicy) -> LeavePolicyView {
             AccrualDuringProtectedLeave::Suspended => "SUSPENDED",
         }
         .to_owned(),
+        eligibility_months: policy.eligibility_months(),
+        joiner: match policy.joiner() {
+            crate::cloud::domain::Joiner::Full => "FULL",
+            crate::cloud::domain::Joiner::Prorate => "PRORATE",
+        }
+        .to_owned(),
     }
 }
 
@@ -776,6 +788,13 @@ pub struct InstallPolicyBody {
     /// maternity or long sick leave. There is no default: it is one of the four
     /// questions the operator must actually answer.
     pub protected_leave: String,
+    /// Months of service before annual leave is earned (service rule, 1 Oct 2026). Absent is 0,
+    /// from the first day — what every generation before the service rule did.
+    #[serde(default)]
+    pub eligibility_months: u32,
+    /// `FULL` or `PRORATE`; absent is `FULL`, the behaviour before the service rule.
+    #[serde(default)]
+    pub joiner: Option<String>,
 }
 
 /// The rules a balance folds under.
@@ -870,7 +889,21 @@ pub async fn install_policy(
         encashment,
         protected_leave,
     )
+    .and_then(|policy| {
+        policy.with_service_rule(
+            body.eligibility_months,
+            match body.joiner.as_deref() {
+                Some("PRORATE") => crate::cloud::domain::Joiner::Prorate,
+                _ => crate::cloud::domain::Joiner::Full,
+            },
+        )
+    })
     .map_err(infrastructure::leave_error)?;
+    if let Some(other) = body.joiner.as_deref().filter(|j| !matches!(*j, "FULL" | "PRORATE")) {
+        return Err(AppError::Validation(format!(
+            "{other:?} is not a joiner rule: expected FULL or PRORATE"
+        )));
+    }
 
     // The timeline's ordering rule fires here, on the whole set, rather than on
     // the row about to be written.

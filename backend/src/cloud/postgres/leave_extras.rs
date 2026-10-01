@@ -4,7 +4,7 @@
 
 use crate::cloud::application::AppError;
 use crate::cloud::domain::Authorization;
-use chrono::{Datelike, NaiveDate};
+use chrono::{Utc, Datelike, NaiveDate};
 use serde::Serialize;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -455,6 +455,27 @@ pub async fn record_holiday_work(
         return Err(AppError::Validation("a day worked earns up to one day back".into()));
     }
     let mut tx = pool.begin().await?;
+    // Only a day they could have worked: posted somewhere on it, and not yet
+    // to come. A day before they joined earned nothing.
+    if on_date > Utc::now().date_naive() {
+        return Err(AppError::Validation(format!(
+            "{on_date} has not happened yet; record it once it is worked"
+        )));
+    }
+    let posted: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM employee_assignment
+                         WHERE employee_id = $1 AND valid_from <= $2
+                           AND (valid_to IS NULL OR valid_to >= $2))",
+    )
+    .bind(employee_id)
+    .bind(on_date)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !posted {
+        return Err(AppError::Validation(format!(
+            "{on_date} is outside their employment: they were not posted anywhere that day"
+        )));
+    }
     let holiday: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM holiday_calendar h, jsonb_array_elements(h.holidays) x
                          WHERE h.year = $1 AND (x->>'date')::date = $2)",

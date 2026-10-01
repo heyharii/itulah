@@ -626,6 +626,34 @@ pub async fn file_change(
         .parse()
         .map_err(|_| invalid("effective_on is not a date"))?;
     let authorization = access.authorize(actions::CHANGE_PROPOSAL_FILE, &body.reason)?;
+    // What each field is now, copied from the live record at filing time so
+    // the decider sees the starting point the filer saw.
+    let (base_now, position_now, grade_now): (Option<i64>, Option<String>, Option<String>) =
+        sqlx::query_as(
+            "SELECT (SELECT base_minor FROM employee_pay WHERE employee_id = $1
+                      AND effective_from <= current_date
+                    ORDER BY effective_from DESC LIMIT 1),
+                    (SELECT position FROM employee_contract WHERE employee_id = $1
+                      AND starts_on <= current_date ORDER BY starts_on DESC LIMIT 1),
+                    (SELECT grade FROM employee_contract WHERE employee_id = $1
+                      AND starts_on <= current_date ORDER BY starts_on DESC LIMIT 1)",
+        )
+        .bind(access.employee_id.as_str())
+        .fetch_one(&state.db)
+        .await?;
+    let now_of = |field: &str| -> serde_json::Value {
+        match field {
+            "unit_id" => serde_json::Value::String(unit.clone()),
+            "base_minor" => base_now.map_or(serde_json::Value::Null, |b| serde_json::json!(b)),
+            "position" => position_now
+                .clone()
+                .map_or(serde_json::Value::Null, serde_json::Value::String),
+            "grade" => grade_now
+                .clone()
+                .map_or(serde_json::Value::Null, serde_json::Value::String),
+            _ => serde_json::Value::Null,
+        }
+    };
     let props = body
         .props
         .into_iter()
@@ -640,8 +668,8 @@ pub async fn file_change(
                 }
             };
             Ok(ChangeProp {
+                from: now_of(&p.field),
                 field: p.field,
-                from: serde_json::Value::Null,
                 to,
             })
         })

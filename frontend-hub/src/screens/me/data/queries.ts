@@ -29,6 +29,7 @@ export const key = {
   payslipTemplate: ["me", "payslip-template"] as const,
   annualTax: (year: number) => ["me", "annual-tax", year] as const,
   loans: ["me", "loans"] as const,
+  benefit: ["me", "benefit"] as const,
   letters: ["me", "warning-letters"] as const,
   essModules: ["me", "ess-modules"] as const,
   claimBalances: (year: number) => ["me", "claim-balances", year] as const,
@@ -50,6 +51,7 @@ export const key = {
   claimTypes: ["me", "claim-types"] as const,
   claims: ["me", "claims"] as const,
   tasks: ["me", "lifecycle-tasks"] as const,
+  dataRequests: ["me", "data-requests"] as const,
 }
 
 export function useProfile() {
@@ -445,6 +447,18 @@ export function useColleagues(on: string | null) {
   })
 }
 
+/// Who at your place is off over the next two weeks — what Talenta calls
+/// "Who's off", read before asking for the same days.
+export function useWhosOff() {
+  const from = new Date()
+  const to = new Date(from.getTime() + 13 * 86_400_000)
+  const span = [isoDate(from), isoDate(to)] as const
+  return useQuery({
+    queryKey: [...key.leaveRequests, "whos-off", ...span],
+    queryFn: ({ signal }) => hr.teamCalendar(span[0], span[1], signal),
+  })
+}
+
 /// The store head's queue. Three reads, one desk: leave, corrections and
 /// swaps awaiting a decision. Overtime is not here — its answer is the
 /// worker's own, and it arrives on their phone. Each read bounds itself by
@@ -575,6 +589,62 @@ export function useCompleteOwnTask() {
       hr.completeOwnTask(input.templateId, input.reason),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: key.tasks })
+    },
+  })
+}
+
+export function usePersonalDataRequests() {
+  return useQuery({
+    queryKey: key.dataRequests,
+    queryFn: ({ signal }) => hr.personalDataRequests(signal),
+  })
+}
+
+/// Filing changes nothing on the record until HR approves, but the profile is
+/// refetched anyway so an approval made meanwhile shows.
+export function useAskForDataChange() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (request: Parameters<typeof hr.askForDataChange>[0]) =>
+      hr.askForDataChange(request),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key.dataRequests })
+      void client.invalidateQueries({ queryKey: key.profile })
+    },
+  })
+}
+
+export function useWithdrawDataChange() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      requestId,
+      reason,
+    }: {
+      requestId: string
+      reason: string
+    }) => hr.withdrawDataChange(requestId, reason),
+    onSuccess: () =>
+      void client.invalidateQueries({ queryKey: key.dataRequests }),
+  })
+}
+
+/// Not retried: a 403 or 404 is the answer "no benefit for you", and the
+/// panel hides itself on it.
+export function useBenefit() {
+  return useQuery({
+    queryKey: key.benefit,
+    queryFn: ({ signal }) => hr.benefit(signal),
+    retry: false,
+  })
+}
+
+export function useBenefitCode() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => hr.benefitCode(),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key.benefit })
     },
   })
 }

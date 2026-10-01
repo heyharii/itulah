@@ -8,6 +8,8 @@ import { dateRange, dateTime } from "@/screens/me/data/format"
 import {
   useLeaveEntitlements,
   useLeaveRequests,
+  useProfile,
+  useWhosOff,
   useWithdrawLeave,
 } from "@/screens/me/data/queries"
 import { readDays } from "@/screens/me/data/days"
@@ -20,6 +22,8 @@ export function Leave() {
   const entitlements = useLeaveEntitlements()
   const requests = useLeaveRequests()
   const withdraw = useWithdrawLeave()
+  const whosOff = useWhosOff()
+  const me = useProfile().data?.employee_id
 
   return (
     <div className="flex flex-col gap-4">
@@ -139,6 +143,42 @@ export function Leave() {
         {withdraw.error !== null && (
           <Empty>Could not withdraw that request. Try again.</Empty>
         )}
+      </Panel>
+
+      <Panel title="Who's off · next 2 weeks">
+        <Async
+          query={whosOff}
+          empty="Nobody at your place is off in the next two weeks."
+        >
+          {(calendar) =>
+            calendar.leave.length === 0 ? (
+              <Empty>Nobody at your place is off in the next two weeks.</Empty>
+            ) : (
+              <List>
+                {calendar.leave.map((span) => (
+                  <div
+                    key={`${span.employee_id}-${span.from_date}`}
+                    className="flex items-start gap-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-cell font-medium text-ink">
+                        {span.full_name ?? span.employee_code}
+                        {span.employee_id === me && " (you)"}
+                      </p>
+                      <p className="text-meta text-body">
+                        {dateRange(span.from_date, span.to_date)} ·{" "}
+                        {span.leave_name}
+                      </p>
+                    </div>
+                    {span.state === "PENDING" && (
+                      <StatusPill status={span.state} className="ml-auto" />
+                    )}
+                  </div>
+                ))}
+              </List>
+            )
+          }
+        </Async>
       </Panel>
     </div>
   )

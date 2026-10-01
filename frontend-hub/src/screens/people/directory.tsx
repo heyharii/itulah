@@ -18,6 +18,7 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { ExceptionQueue } from "@/components/ui/exception-queue"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { useUnits } from "@/lib/queries/organisation"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Choices } from "@/components/ui/form"
 import { PageHeader } from "@/components/ui/page-header"
@@ -1184,6 +1185,7 @@ function postingReady(draft: PostingDraft): boolean {
 
 function PostingForm({ employeeId }: { employeeId: string }) {
   const client = useQueryClient()
+  const units = useUnits()
 
   const post = useMutation({
     // Wrapped rather than passed by reference: v5 hands a mutation context as
@@ -1237,14 +1239,18 @@ function PostingForm({ employeeId }: { employeeId: string }) {
           <Field
             label="Place"
             required
-            hint="The place id, as the register knows it — ho, jkt-01."
+            hint="To move somebody from one place to another, propose a transfer under Transfers & changes; this records a posting with no other open."
           >
-            <Input
+            <Select
               value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={(event) => field.handleChange(event.target.value)}
-              placeholder="ho"
-            />
+              onChange={(next) => field.handleChange(next)}
+            >
+              {(units.data ?? []).map((one) => (
+                <option key={one.id} value={one.id}>
+                  {one.name}
+                </option>
+              ))}
+            </Select>
           </Field>
         )}
       </form.Field>

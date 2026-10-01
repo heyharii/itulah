@@ -331,10 +331,18 @@ async fn tuan_r_is_withheld_200_000_a_month_and_515_000_in_december(pool: PgPool
     hub.pay(&r, "2026-01-01", 10_000_000, json!([])).await;
     hub.identity(&r, "ptkp", "K/0").await;
     hub.identity(&r, "bpjs_ketenagakerjaan", "11000000001").await;
+    hub.ok(
+        &format!("/api/v1/employees/{r}/payroll-identity"),
+        json!({ "field": "bank_account", "bank_name": "BCA", "bank_account": "1234567890",
+                "bank_holder": "R", "effective_from": "2026-01-01", "reason": "rekening gaji" }),
+    )
+    .await;
 
     let mut withheld = 0;
+    let mut runs = Vec::new();
     for month in 1..=12 {
-        let (_, slips) = hub.run("store-07", &format!("2027-{month:02}")).await;
+        let (run_id, slips) = hub.run("store-07", &format!("2027-{month:02}")).await;
+        runs.push(run_id);
         let slip = slip_of(&slips, &r);
         assert_eq!(slip["ter_category"], "A");
         assert_eq!(slip["pension_contribution_minor"], 100_000, "month {month}");
@@ -357,6 +365,29 @@ async fn tuan_r_is_withheld_200_000_a_month_and_515_000_in_december(pool: PgPool
         assert_eq!(slip["net_minor"], 10_000_000 - 100_000 - tax, "month {month}");
     }
     assert_eq!(withheld, 2_715_000, "the year's Pasal 17 tax");
+
+    // The form and the return read approved months only: the place signs
+    // each month, a second officer approves it.
+    hub.ok(
+        "/api/v1/auth/users",
+        json!({ "username": "hr.budi", "display_name": "Budi", "password": ADMIN_PASSWORD,
+                "role": "ADMIN" }),
+    )
+    .await;
+    let (theirs, their_csrf) = sign_in(&hub.app, "hr.budi", ADMIN_PASSWORD).await;
+    for run_id in &runs {
+        hub.ok(&format!("/api/v1/payroll/runs/{run_id}/submission"), json!({ "reason": "dicek" }))
+            .await;
+        let approved = send(
+            hub.app.clone(),
+            "POST",
+            &format!("/api/v1/payroll/runs/{run_id}/approve"),
+            write_headers(&theirs, &their_csrf),
+            Some(json!({ "reason": "disetujui" })),
+        )
+        .await;
+        assert_eq!(approved.status, StatusCode::OK, "approve {run_id}: {:?}", approved.body);
+    }
 
     // The year's 1721-A1, line by line as PMK 168's example states it.
     let a1 = hub.get(&format!("/api/v1/employees/{r}/annual-tax?year=2027")).await;

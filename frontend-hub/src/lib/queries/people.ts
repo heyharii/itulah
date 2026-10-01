@@ -921,6 +921,24 @@ export function readLeavePolicy(
   return node.get<LeavePolicyView[]>("/api/v1/leave-policy", { signal })
 }
 
+/// Ratify a new generation of the leave policy — never an edit: last
+/// month's balances keep folding under last month's rules.
+export function installLeavePolicy(body: {
+  version: number
+  effective_from: string
+  annual_days: number
+  accrual: string
+  carry_forward_days?: number
+  carry_forward_expires_on?: string
+  encashment_max_days?: number
+  encashment_second_approver?: boolean
+  protected_leave: string
+  eligibility_months: number
+  joiner: string
+}): Promise<LeavePolicyView[]> {
+  return node.post<LeavePolicyView[]>("/api/v1/leave-policy", body)
+}
+
 /// Everything waiting on a decision, bounded by the caller's posting.
 export function pendingLeave(
   signal?: AbortSignal
@@ -1755,11 +1773,14 @@ export function handOverRun(
 /// person closing the loop on their own request.
 export function settleHandover(
   runId: string,
-  reason: string
+  reason: string,
+  bank?: { bank_key: string; bank_qualifier: string }
 ): Promise<PayrollHandoverView> {
+  // A head-office run posts Dr 2017 / Cr the bank it was paid from, so it
+  // names the bank. A store run posts nothing and sends the reason alone.
   return node.post<PayrollHandoverView>(
     `/api/v1/payroll/runs/${encodeURIComponent(runId)}/finance-handover/settlement`,
-    { reason }
+    bank === undefined ? { reason } : { reason, ...bank }
   )
 }
 
@@ -1805,9 +1826,13 @@ export function runStateLabel(state: string): string {
 
 /// What a handover's state means. `null` handover means nobody has sent it.
 export function handoverLabel(state: string): string {
+  // The server says RECEIVED (Finance holds the accrual) and PAID (the money
+  // went out); the older spellings are kept for rows read from a cache.
   switch (state) {
+    case "RECEIVED":
     case "HANDED_OVER":
       return "With Finance"
+    case "PAID":
     case "SETTLED":
       return "Paid"
     default:

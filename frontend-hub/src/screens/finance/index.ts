@@ -32,6 +32,12 @@ import { Financing } from "@/screens/finance-final/financing"
 import { Journals } from "@/screens/finance-final/journals"
 import { AccountsPayable } from "@/screens/finance-final/payable"
 import { Payments } from "@/screens/finance-final/payments"
+import {
+  PayrollPayables,
+  PayrollPayments,
+  PayrollPosting,
+  PayrollRuns,
+} from "@/screens/finance-final/payroll"
 import { PrepaidSchedules } from "@/screens/finance-final/prepaid-schedules"
 import { PrepaidsAndAccruals } from "@/screens/finance-final/prepaids"
 import { AccountsReceivable } from "@/screens/finance-final/receivable"
@@ -83,6 +89,7 @@ import { BankReconciliationList } from "@/screens/finance-lab-2/bank-reconciliat
 /// | Payables → Supplier Bills | `finance/supplier-bills` |
 /// | Payables → Payments | `finance-final/payments` |
 /// | Payables → Aging, Reports → AP Aging | `finance-final/payable` |
+/// | Payroll → Payroll Runs, Payables, Employee Payments, Posting | `finance-final/payroll` |
 /// | Assets → Capitalization | `finance/assets` |
 /// | Financing → Loans | `finance-final/financing` |
 /// | Tax → Tax Payables | `finance-final/tax` |
@@ -130,6 +137,11 @@ export const screens: ScreenMap = {
   "/finance/payables/bills": SupplierBills,
   "/finance/payables/payments": Payments,
   "/finance/payables/aging": AccountsPayable,
+
+  "/finance/payroll/runs": PayrollRuns,
+  "/finance/payroll/payables": PayrollPayables,
+  "/finance/payroll/payments": PayrollPayments,
+  "/finance/payroll/posting": PayrollPosting,
 
   "/finance/assets/capitalization": AssetRegister,
 

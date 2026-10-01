@@ -472,6 +472,16 @@ async fn accrual_for_employee(
     on: NaiveDate,
 ) -> Result<usize, AppError> {
     let mut written = 0usize;
+    // When their service began: the latest hire on the record (a rehire
+    // starts the count again).
+    let service_start: Option<NaiveDate> = sqlx::query_scalar(
+        "SELECT max((event->>'effective_on')::date)
+           FROM employee e, jsonb_array_elements(e.history) event
+          WHERE e.id = $1 AND event->>'transition' = 'HIRE'",
+    )
+    .bind(employee_id)
+    .fetch_one(pool)
+    .await?;
     for leave_type in catalogue.balance_backed() {
         let ledger = infrastructure::load_ledger(pool, employee_id, leave_type.code()).await?;
         // One entry per (person, kind, month). A node that missed March mints
@@ -483,7 +493,7 @@ async fn accrual_for_employee(
             leave_type.code().as_str(),
             on.format("%Y-%m")
         );
-        let due = schedule::accrual_due(policy, &ledger, on, &entry_id)
+        let due = schedule::accrual_due(policy, &ledger, on, &entry_id, service_start)
             .map_err(infrastructure::leave_error)?;
         if let Some(entry) = due {
             infrastructure::append_movement(pool, employee_id, leave_type, &entry).await?;

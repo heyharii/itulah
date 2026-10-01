@@ -14,6 +14,7 @@ import {
   FileText,
   Fingerprint,
   Gauge,
+  Gift,
   Handshake,
   HandCoins,
   Hourglass,
@@ -96,7 +97,11 @@ export const peopleNav: AppModule = {
     {
       label: "Time",
       items: [
-        { path: "/people/leave", label: "Time off requests", icon: CalendarOff },
+        {
+          path: "/people/leave",
+          label: "Time off requests",
+          icon: CalendarOff,
+        },
         {
           path: "/people/leave-balances",
           label: "Time off balances",
@@ -109,7 +114,11 @@ export const peopleNav: AppModule = {
         },
         { path: "/people/overtime", label: "Overtime", icon: Hourglass },
         { path: "/people/roster", label: "Roster", icon: CalendarRange },
-        { path: "/people/calendar", label: "Team calendar", icon: CalendarDays },
+        {
+          path: "/people/calendar",
+          label: "Team calendar",
+          icon: CalendarDays,
+        },
       ],
     },
     {
@@ -126,6 +135,17 @@ export const peopleNav: AppModule = {
           path: "/people/claim-allowances",
           label: "Claim allowances",
           icon: Wallet,
+          audience: "employer",
+        },
+      ],
+    },
+    {
+      label: "Benefit",
+      items: [
+        {
+          path: "/people/benefit",
+          label: "Balances",
+          icon: Gift,
           audience: "employer",
         },
       ],
@@ -261,6 +281,12 @@ export const peopleNav: AppModule = {
           path: "/people/claim-types",
           label: "Claim types",
           icon: ReceiptText,
+          audience: "employer",
+        },
+        {
+          path: "/people/settings/benefit",
+          label: "Benefit",
+          icon: Gift,
           audience: "employer",
         },
       ],

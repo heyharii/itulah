@@ -1,9 +1,10 @@
-import { useNavigate, useSearch } from "@tanstack/react-router"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { useForm, useStore } from "@tanstack/react-form"
 import { useState } from "react"
 
-import { Failure, Panel } from "@/screens/me/ui/bits"
+import { Empty, Failure, Panel } from "@/screens/me/ui/bits"
 import { Button } from "@/screens/me/ui/button"
+import { button } from "@/screens/me/ui/button-style"
 import { Field, Input, Textarea } from "@/screens/me/ui/field"
 import { longDate, punchClock } from "@/screens/me/data/format"
 import { useAttendance, useRequestCorrection } from "@/screens/me/data/queries"
@@ -83,6 +84,26 @@ export function Correction() {
   })
 
   const problem = useStore(form.store, (state) => complaint(state.values))
+
+  // Reached without a day (a bookmark, a typed address): there is nothing to
+  // correct yet, so send them to the list the day is picked from.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return (
+      <Panel title="Correct a day">
+        <Empty>Pick the day to correct from your attendance.</Empty>
+        <Link
+          to={"/me/attendance" as string}
+          className={button({
+            variant: "primary",
+            size: "tap",
+            className: "w-full",
+          })}
+        >
+          Open attendance
+        </Link>
+      </Panel>
+    )
+  }
 
   return (
     <form

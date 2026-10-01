@@ -104,9 +104,28 @@ impl AssignmentTimeline {
             .map(|span| span.unit_id())
     }
 
-    /// The current posting: the span with no end date, if there is one.
+    /// The current posting: the one covering today — or, for somebody whose
+    /// first day is still to come, the one they start on.
+    ///
+    /// Not merely "the span with no end date": a transfer approved ahead of
+    /// time opens the new posting now, and until its first day the person is
+    /// still at the old place — their reach, their punch fence and their
+    /// claims stay there.
     pub fn current(&self) -> Option<&AssignmentSpan> {
-        self.spans.iter().find(|span| span.to.is_none())
+        self.current_on(chrono::Utc::now().date_naive())
+    }
+
+    /// [`Self::current`] as of `on`.
+    pub fn current_on(&self, on: NaiveDate) -> Option<&AssignmentSpan> {
+        self.spans
+            .iter()
+            .find(|span| span.covers(on))
+            .or_else(|| {
+                self.spans
+                    .iter()
+                    .filter(|span| span.from > on)
+                    .min_by_key(|span| span.from)
+            })
     }
 }
 

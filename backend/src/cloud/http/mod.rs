@@ -80,6 +80,8 @@ pub mod overtime;
 pub mod party;
 pub mod attendance_settings;
 pub mod leave_extras;
+pub mod benefit;
+pub mod data_requests;
 pub mod discipline;
 pub mod delegation;
 pub mod organisation;
@@ -2273,6 +2275,28 @@ pub fn router(state: AppState) -> Router {
     .route("/api/v1/ess-modules", get(delegation::ess_modules).post(delegation::set_ess_modules))
     // Warning letters (0811).
     .route("/api/v1/warning-letters", get(discipline::active))
+    .route(
+        "/api/v1/employees/{id}/personal-data-requests",
+        get(data_requests::of_employee).post(data_requests::file),
+    )
+    .route("/api/v1/personal-data-requests", get(data_requests::queue))
+    // The employee benefit balance (0818).
+    .route("/api/v1/benefit/balances", get(benefit::balances))
+    .route("/api/v1/benefit/adjustments", post(benefit::adjust))
+    .route("/api/v1/benefit/settings", get(benefit::settings).post(benefit::state_settings))
+    .route("/api/v1/benefit/lookup", post(benefit::lookup))
+    .route("/api/v1/benefit/spends", post(benefit::spend))
+    .route("/api/v1/benefit/returns", post(benefit::give_back))
+    .route("/api/v1/employees/{id}/benefit", get(benefit::account))
+    .route("/api/v1/employees/{id}/benefit-code", post(benefit::code))
+    .route(
+        "/api/v1/personal-data-requests/{id}/decision",
+        post(data_requests::decide),
+    )
+    .route(
+        "/api/v1/personal-data-requests/{id}/withdrawal",
+        post(data_requests::withdraw),
+    )
     .route("/api/v1/warning-letters/{id}/revocation", post(discipline::revoke))
     // Leave beyond requests (0809).
     .route(

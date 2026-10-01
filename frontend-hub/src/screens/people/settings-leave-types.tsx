@@ -24,6 +24,7 @@ import {
   liftLeaveBlock,
   listLeaveTypes,
   readDays,
+  installLeavePolicy,
   readLeavePolicy,
   useReachableUnits,
   type NewLeaveType,
@@ -32,7 +33,7 @@ import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { ListCard, RowOpen, SheetFooter } from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
-import type { LeaveBlackoutView } from "@itulah/contract"
+import type { LeaveBlackoutView, LeavePolicyView } from "@itulah/contract"
 
 /// Settings › Leave types — what kinds of leave exist, what each draws on, and
 /// the dates head office has closed to leave.
@@ -64,6 +65,7 @@ export function LeaveTypeSettings() {
 
   const newType = useOpener()
   const closing = useOpener()
+  const newPolicy = useOpener()
   const block = useOpener<LeaveBlackoutView>()
 
   return (
@@ -75,6 +77,7 @@ export function LeaveTypeSettings() {
         actions={
           canWrite && (
             <>
+              <Button onClick={() => newPolicy.show()}>Leave policy</Button>
               <Button onClick={() => closing.show()}>Close dates</Button>
               <Button variant="primary" onClick={() => newType.show()}>
                 New type
@@ -161,6 +164,18 @@ export function LeaveTypeSettings() {
                 ? "not allowed"
                 : `up to ${readDays(inForce.encashment_max_centidays ?? 0)} a year`}
             </KeyValue>
+            <KeyValue term="Earned after">
+              {inForce.eligibility_months === 0
+                ? "the first day of work"
+                : `${inForce.eligibility_months} months of service`}
+            </KeyValue>
+            {inForce.accrual === "UP_FRONT" && (
+              <KeyValue term="Somebody starting part-way through a year">
+                {inForce.joiner === "PRORATE"
+                  ? "gets the twelfths left in that year"
+                  : "gets the whole year"}
+              </KeyValue>
+            )}
             <KeyValue term="During maternity or long sick leave">
               {inForce.protected_leave === "CONTINUES"
                 ? "annual leave keeps accruing"
@@ -212,6 +227,12 @@ export function LeaveTypeSettings() {
         key={`type-${newType.n}`}
         open={newType.isOpen}
         onClose={newType.hide}
+      />
+      <LeavePolicySheet
+        key={`policy-${newPolicy.n}`}
+        open={newPolicy.isOpen}
+        onClose={newPolicy.hide}
+        last={inForce}
       />
       <CloseDatesSheet
         key={`close-${closing.n}`}
@@ -543,6 +564,165 @@ function BlockSheet({
           <Problem error={lift.error} />
         </div>
       )}
+    </Sheet>
+  )
+}
+
+/// A new generation of the leave policy, starting from the one in force.
+/// Every question is answered on the form — no field quietly means "off".
+function LeavePolicySheet({
+  open,
+  onClose,
+  last,
+}: {
+  open: boolean
+  onClose: () => void
+  last: LeavePolicyView | null
+}) {
+  const client = useQueryClient()
+  const [from, setFrom] = useState("")
+  const [annual, setAnnual] = useState(
+    last === null ? "12" : String(last.annual_centidays / 100)
+  )
+  const [accrual, setAccrual] = useState(last?.accrual ?? "MONTHLY")
+  const [eligibility, setEligibility] = useState(
+    String(last?.eligibility_months ?? 12)
+  )
+  const [joiner, setJoiner] = useState(last?.joiner ?? "PRORATE")
+  const [carryDays, setCarryDays] = useState(
+    last?.carry_forward_cap_centidays == null
+      ? ""
+      : String(last.carry_forward_cap_centidays / 100)
+  )
+  const [carryLapse, setCarryLapse] = useState(
+    last?.carry_forward_expires_on ?? "03-31"
+  )
+  const [encash, setEncash] = useState(
+    last?.encashment_max_centidays == null
+      ? ""
+      : String(last.encashment_max_centidays / 100)
+  )
+  const [protectedLeave, setProtectedLeave] = useState(
+    last?.protected_leave ?? "CONTINUES"
+  )
+  const whole = (raw: string) => Number(raw.replace(/\D/g, ""))
+  const ready =
+    from !== "" &&
+    whole(annual) > 0 &&
+    eligibility !== "" &&
+    (carryDays.trim() === "" || /^\d{2}-\d{2}$/.test(carryLapse))
+  const save = useMutation({
+    mutationFn: () =>
+      installLeavePolicy({
+        version: (last?.version ?? 0) + 1,
+        effective_from: from,
+        annual_days: whole(annual),
+        accrual,
+        ...(carryDays.trim() === ""
+          ? {}
+          : {
+              carry_forward_days: whole(carryDays),
+              carry_forward_expires_on: carryLapse,
+            }),
+        ...(encash.trim() === "" ? {} : { encashment_max_days: whole(encash) }),
+        protected_leave: protectedLeave,
+        eligibility_months: whole(eligibility),
+        joiner,
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: leaveKeys.policy() })
+      onClose()
+    },
+  })
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      title="Leave policy"
+      caption="A new version from a date; earlier months keep the rules they ran under."
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          onSave={() => save.mutate()}
+          saveLabel="Ratify this version"
+          pendingLabel="Ratifying…"
+          pending={save.isPending}
+          disabled={!ready}
+        />
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <Field label="From" required>
+          <Day value={from} onChange={setFrom} />
+        </Field>
+        <Field label="Annual leave a year" required aside="days">
+          <Input
+            inputMode="numeric"
+            value={annual}
+            onChange={(event) => setAnnual(event.target.value)}
+          />
+        </Field>
+        <Field label="It arrives" required>
+          <Select value={accrual} onChange={setAccrual}>
+            <option value="MONTHLY">A twelfth each month</option>
+            <option value="UP_FRONT">All at once</option>
+          </Select>
+        </Field>
+        <Field
+          label="Earned after"
+          required
+          aside="months of service"
+          hint="UU 13/2003 art. 79: after 12 months of continuous work. 0 is from the first day."
+        >
+          <Input
+            inputMode="numeric"
+            value={eligibility}
+            onChange={(event) =>
+              setEligibility(event.target.value.replace(/\D/g, ""))
+            }
+          />
+        </Field>
+        {accrual === "UP_FRONT" && (
+          <Field label="Somebody starting part-way through a year" required>
+            <Select value={joiner} onChange={setJoiner}>
+              <option value="PRORATE">
+                Gets the twelfths left in that year
+              </option>
+              <option value="FULL">Gets the whole year</option>
+            </Select>
+          </Field>
+        )}
+        <Field label="Carried into next year" aside="days; empty for none">
+          <Input
+            inputMode="numeric"
+            value={carryDays}
+            onChange={(event) => setCarryDays(event.target.value)}
+          />
+        </Field>
+        {carryDays.trim() !== "" && (
+          <Field label="Carried days lapse on" required aside="MM-DD">
+            <Input
+              value={carryLapse}
+              onChange={(event) => setCarryLapse(event.target.value)}
+              placeholder="03-31"
+            />
+          </Field>
+        )}
+        <Field label="May be paid out" aside="days a year; empty for never">
+          <Input
+            inputMode="numeric"
+            value={encash}
+            onChange={(event) => setEncash(event.target.value)}
+          />
+        </Field>
+        <Field label="During maternity or long sick leave" required>
+          <Select value={protectedLeave} onChange={setProtectedLeave}>
+            <option value="CONTINUES">Annual leave keeps accruing</option>
+            <option value="SUSPENDED">Accrual is suspended</option>
+          </Select>
+        </Field>
+        {save.error !== null && <Problem error={save.error} />}
+      </div>
     </Sheet>
   )
 }

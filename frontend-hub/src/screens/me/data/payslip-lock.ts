@@ -48,7 +48,9 @@ export type LockState = "unset" | "required"
 
 export function lockState(error: unknown): LockState | null {
   if (!(error instanceof ApiError) || error.status !== 403) return null
-  if (error.message.startsWith("payslip password not set")) return "unset"
-  if (error.message.startsWith("payslip password required")) return "required"
+  // The server's text arrives behind its status word ("forbidden: …"), so
+  // the refusal is found inside the message rather than at its start.
+  if (error.message.includes("payslip password not set")) return "unset"
+  if (error.message.includes("payslip password required")) return "required"
   return null
 }

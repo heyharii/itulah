@@ -1208,6 +1208,46 @@ pub async fn amend_personal_data(
     Ok(Json(personal_data_view(&access.employee_id, &profile)))
 }
 
+/// Change one contact detail — phone, email or address — the way HR's own
+/// edit does, signed by `authorization`. Shared with the employee's change
+/// request (0816), so an approved request and HR's edit are one write.
+pub(super) async fn amend_contact(
+    state: &AppState,
+    employee_id: &str,
+    field: &str,
+    value: &str,
+    authorization: Authorization,
+) -> Result<(), AppError> {
+    let record = record(state, employee_id).await?;
+    let mut profile = record.profile.ok_or_else(|| {
+        AppError::Conflict(format!(
+            "no personal data has been recorded for {employee_id}, so there is nothing to change"
+        ))
+    })?;
+    let value = value.trim();
+    let contact = || -> Result<Option<Contact>, AppError> {
+        if value.is_empty() {
+            Ok(None)
+        } else {
+            Contact::try_new(value).map(Some).map_err(invalid)
+        }
+    };
+    let field = match field {
+        "phone" => ProfileField::Phone(contact()?),
+        "email" => ProfileField::Email(contact()?),
+        "address" => ProfileField::Address(Address::try_new(value).map_err(invalid)?),
+        other => {
+            return Err(AppError::Validation(format!(
+                "{other:?} is not a detail an employee asks to change: expected phone, email or address"
+            )))
+        }
+    };
+    profile
+        .amend(field, authorization)
+        .map_err(|error| AppError::Conflict(error.to_string()))?;
+    infrastructure::upsert_profile(&state.db, employee_id, &profile).await
+}
+
 pub async fn read_contracts(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,

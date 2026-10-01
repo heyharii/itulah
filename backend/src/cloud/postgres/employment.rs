@@ -546,7 +546,9 @@ impl EmployeeCursor {
 /// `NULLS LAST` orders a result and says nothing a keyset can seek against.
 const WORKFORCE_ROWS: &str = "
     SELECT e.id, e.code, e.status,
-           p.full_name,
+           -- Somebody invited and not yet enrolled is called what the
+           -- invitation called them, until HR keys in their personal data.
+           COALESCE(p.full_name, inv.name) AS full_name,
            a.unit_id, unit.name AS unit_name,
            c.kind AS contract_kind, c.ends_on AS contract_ends_on, c.position,
            u.username,
@@ -554,13 +556,28 @@ const WORKFORCE_ROWS: &str = "
            -- than vanishing into a NULL the keyset cannot compare. That is
            -- also the more useful answer: a list of people whose paperwork is
            -- unfinished is exactly what somebody sorting by name should meet.
-           COALESCE(p.full_name, '') AS name_key,
+           COALESCE(p.full_name, inv.name, '') AS name_key,
            COALESCE(unit.name, a.unit_id, '') AS unit_key,
            COALESCE(c.ends_on, DATE '9999-12-31') AS ends_at
       FROM employee e
       LEFT JOIN employee_profile p ON p.employee_id = e.id
-      LEFT JOIN employee_assignment a
-             ON a.employee_id = e.id AND a.valid_to IS NULL
+      LEFT JOIN LATERAL (
+           SELECT name FROM user_invitation
+            WHERE employee_id = e.id
+            ORDER BY created_at DESC
+            LIMIT 1
+      ) inv ON TRUE
+      -- Where they work today; for somebody not started yet, where they will.
+      -- Not merely the open posting: a transfer approved for next month is
+      -- open already, and they are still at the old place until it starts.
+      LEFT JOIN LATERAL (
+           SELECT unit_id
+             FROM employee_assignment
+            WHERE employee_id = e.id
+              AND (valid_to IS NULL OR valid_to >= current_date)
+            ORDER BY valid_from
+            LIMIT 1
+      ) a ON TRUE
       LEFT JOIN unit unit ON unit.id = a.unit_id
       LEFT JOIN LATERAL (
            SELECT kind, ends_on, position
@@ -576,7 +593,8 @@ const WORKFORCE_ROWS: &str = "
      WHERE ($1::text IS NULL OR a.unit_id = $1)
        -- The number off a badge and the name on it. Not the personal data this
        -- list does not carry.
-       AND ($2::text IS NULL OR e.code ILIKE $2 OR p.full_name ILIKE $2)
+       AND ($2::text IS NULL OR e.code ILIKE $2
+            OR COALESCE(p.full_name, inv.name) ILIKE $2)
 ";
 
 /// The workforce list's filters, spelled once for the page and for the facets'

@@ -1309,6 +1309,15 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
     let app = cloud_http::router(AppState::new(pool.clone(), config()));
     let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
 
+    // The accrual posts on the day it is handed over, so that month is open.
+    let today = chrono::Utc::now().date_naive();
+    cloud::open_period(
+        &pool,
+        chrono::Datelike::year(&today),
+        i32::try_from(chrono::Datelike::month(&today)).unwrap_or(1),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("open: {error}"));
     let siti = staff_at(&app, &cookies, &csrf, "K0701", "store-07").await;
     agree_pay(&app, &cookies, &csrf, &siti, 5_000_000).await;
     set_account(&app, &cookies, &csrf, &siti, "1234567890").await;
@@ -1318,7 +1327,23 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
     // so the handover test's second person needs one too.
     set_account(&app, &cookies, &csrf, &budi, "0987654321").await;
     // Finance says where the standing allowance lands (0466), from its screen:
-    // a store's position allowance is salary, on the store salary leaf.
+    // a store's position allowance is salary, on the store salary leaf. A link
+    // names a component the catalogue holds, so HR defines it first.
+    let defined = send(
+        app.clone(),
+        "POST",
+        "/api/v1/payroll/components",
+        write_headers(&cookies, &csrf),
+        Some(json!({
+            "code": "JABATAN",
+            "label": "Tunjangan jabatan",
+            "kind": "EARNING",
+            "basis": "FIXED_AMOUNT",
+            "reason": "tunjangan tetap di kesepakatan kerja",
+        })),
+    )
+    .await;
+    assert_eq!(defined.status, StatusCode::OK, "define JABATAN: {:?}", defined.body);
     let linked = send(
         app.clone(),
         "POST",
@@ -1438,7 +1463,7 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
             sqlx::query_scalar::<_, i64>(
                 "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
                    FROM journal_line l JOIN journal_entry e ON e.entry_id = l.entry_id
-                  WHERE l.account_code = $1 AND l.site_id = 'store-07'",
+                  WHERE l.account_code = $1 AND l.unit_id = 'store-07'",
             )
             .bind(code)
             .fetch_one(&pool)
@@ -1449,7 +1474,7 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
     let expense: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
            FROM journal_line l JOIN journal_entry e ON e.entry_id = l.entry_id
-          WHERE e.source_kind = 'PAYROLL_RUN' AND l.site_id = 'store-07'
+          WHERE e.source_kind = 'PAYROLL_RUN' AND l.unit_id = 'store-07'
             AND l.account_code BETWEEN '6012' AND '6024'",
     )
     .fetch_one(&pool)
@@ -1550,7 +1575,7 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
     assert_eq!(leaf("2028").await, -10_000_000, "the store owes head office the funding");
     let (ho_1057, company): (i64, i64) = sqlx::query_as(
         "SELECT COALESCE(SUM(debit_minor - credit_minor) FILTER (WHERE account_code = '1057'
-                                                               AND site_id = 'dc'), 0)::bigint,
+                                                               AND unit_id = 'ho'), 0)::bigint,
                 COALESCE(SUM(debit_minor - credit_minor) FILTER (WHERE account_code IN
                     ('1057','1058','1059','2028','2029')), 0)::bigint
            FROM journal_line",

@@ -676,9 +676,11 @@ struct PaidMonth {
 
 /// Prorate a month by calendar days (Talenta's default).
 ///
-/// A posting's `valid_to` is **exclusive** (`AssignmentSpan`), so somebody
-/// transferred on the 15th is paid the 1st–14th by the old unit and the
-/// 15th onward by the new one, and no day is paid twice. A raise that takes
+/// A posting's `valid_to` is its **last day** (`AssignmentSpan::covers` is
+/// inclusive, and a transfer closes the old posting the day before the new
+/// one opens), so somebody transferred on the 15th is paid the 1st–14th by
+/// the old unit and the 15th onward by the new one, and no day is paid twice
+/// or dropped. A raise that takes
 /// effect on the 10th pays the old agreement for nine days and the new one for
 /// the rest. A month with every day posted on one agreement is exactly that
 /// agreement — the arithmetic reduces to it, no rounding.
@@ -718,11 +720,11 @@ async fn paid_month(
         "SELECT DISTINCT d::date AS day
            FROM employee_assignment a,
                 generate_series(greatest(a.valid_from, $2::date),
-                                least(COALESCE(a.valid_to, $3::date), $3::date) - 1,
+                                least(COALESCE(a.valid_to, $3::date - 1), $3::date - 1),
                                 interval '1 day') d
           WHERE a.employee_id = $1 AND a.unit_id = $4
             AND a.valid_from < $3::date
-            AND (a.valid_to IS NULL OR a.valid_to > $2::date)
+            AND (a.valid_to IS NULL OR a.valid_to >= $2::date)
           ORDER BY day",
     )
     .bind(employee_id)
@@ -1003,10 +1005,10 @@ async fn is_final_tax_month(
         "SELECT e.status = 'TERMINATED'
                 AND NOT EXISTS (SELECT 1 FROM employee_assignment a
                                  WHERE a.employee_id = e.id
-                                   AND (a.valid_to IS NULL OR a.valid_to > $3::date))
+                                   AND (a.valid_to IS NULL OR a.valid_to >= $3::date))
                 AND EXISTS (SELECT 1 FROM employee_assignment a
                              WHERE a.employee_id = e.id
-                               AND a.valid_to > $2::date)
+                               AND a.valid_to >= $2::date)
            FROM employee e WHERE e.id = $1",
     )
     .bind(employee_id)
@@ -1175,6 +1177,17 @@ pub async fn build_slips(
     // month, or the days after last month's cut-off up to this one's.
     let schedule = schedule_in_force(tx, first_day).await?;
     let absence_rule = absence_rule_in_force(tx, first_day).await?;
+    // Every code any pay agreement carries as a fixed allowance — see the
+    // per-person catalogue below.
+    let agreement_codes: std::collections::HashSet<String> = sqlx::query_scalar(
+        "SELECT DISTINCT x->>'code' FROM employee_pay p,
+                jsonb_array_elements(p.fixed_allowances) x
+          WHERE x->>'code' IS NOT NULL",
+    )
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .collect();
     let window = schedule.attendance_window(first_day, next_month);
     let thr_on: Option<NaiveDate> =
         sqlx::query_scalar("SELECT thr_on FROM payroll_run WHERE id = $1")
@@ -1307,6 +1320,29 @@ pub async fn build_slips(
         let adjustments =
             super::components::adjustments_for_run(tx, run.unit(), first_day, &employee_id)
                 .await?;
+
+        // A component whose code is a fixed allowance in a pay agreement is a
+        // per-person allowance: its figure is the agreement's, already in the
+        // statutory base, so it is not a standing rate waiting to be
+        // ratified. Head office defines the code so Finance can say where it
+        // lands (0466); each agreement says how much — and somebody whose
+        // agreement does not carry it simply does not get it. One that *has*
+        // a ratified rate is a real standing component, except for the person
+        // whose agreement already pays that code.
+        let catalogue: Vec<ComponentInForce> = catalogue
+            .iter()
+            .filter(|in_force| {
+                let code = in_force.component.code().as_str();
+                if !in_force.component.shape().has_standing_rate() {
+                    return true;
+                }
+                if allowances.iter().any(|allowance| allowance.code().as_str() == code) {
+                    return false;
+                }
+                in_force.rate.is_some() || !agreement_codes.contains(code)
+            })
+            .cloned()
+            .collect();
 
         // Twice through the engine: once for the cash gross the tax is levied
         // on, then again with the statutory lines that gross decided.
@@ -2389,7 +2425,33 @@ async fn payroll_accrual_lines(
         lines.push(PostingLine::credit("payroll_expense", unit_id, -base_pay).with_qualifier("SALARY"));
     }
     if from_accrual > 0 {
-        lines.push(PostingLine::debit("thr_payable", unit_id, from_accrual));
+        // THR comes out of what was accrued for it — the unit's thr_payable
+        // balance so far plus this month's accrual below — and no further.
+        // What was never accrued (a company that started accruing mid-year, a
+        // raise since) is the THR expense of this month, not a debit balance
+        // on a liability.
+        let accrued: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(l.credit_minor - l.debit_minor), 0)::bigint
+               FROM journal_line l
+              WHERE l.unit_id = $1
+                AND l.account_code = (SELECT account_code FROM account_resolution
+                                       WHERE role = 'thr_payable' AND unit_id = $1
+                                         AND source_type = 'COMPANY' AND source_id = '')",
+        )
+        .bind(unit_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        let available = (accrued + thr_accrual).max(0);
+        let from_payable = from_accrual.min(available);
+        if from_payable > 0 {
+            lines.push(PostingLine::debit("thr_payable", unit_id, from_payable));
+        }
+        if from_accrual > from_payable {
+            lines.push(
+                PostingLine::debit("payroll_expense", unit_id, from_accrual - from_payable)
+                    .with_qualifier("THR"),
+            );
+        }
     }
     // PPh 21 the year over-withheld and a last month gave back: it reduces
     // what is owed to the tax office rather than costing the company anything.
@@ -2773,6 +2835,8 @@ pub async fn tax_report(
            LEFT JOIN employee_profile p ON p.employee_id = s.employee_id
            LEFT JOIN payroll_identity i ON i.employee_id = s.employee_id
           WHERE r.period = $1 AND ($2::text IS NULL OR r.unit_id = $2)
+            -- What the return declares is what was approved, not a draft.
+            AND r.state = 'APPROVED'
           ORDER BY r.unit_id, e.code",
     )
     .bind(first_day)
@@ -2863,7 +2927,10 @@ pub async fn annual_tax_slips(
     let rows = sqlx::query(
         "WITH slips AS (
              SELECT s.* , r.period FROM payroll_slip s JOIN payroll_run r ON r.id = s.run_id
+              -- Only months head office approved: a draft is a working
+              -- figure, and the form is what was paid and withheld.
               WHERE r.period >= $1 AND r.period < $2 AND s.taxable_gross_minor IS NOT NULL
+                AND r.state = 'APPROVED'
                 AND ($3::text IS NULL OR s.employee_id = $3)
          ),
          lines AS (
@@ -3447,7 +3514,28 @@ pub async fn grant_loan(
             "the instalment is more than the loan; lend it as one month's kasbon instead".into(),
         ));
     }
-    let site_id = super::sites::head_office_site_id(pool).await?;
+    // The advance sits in the books of the unit the person works for, because
+    // that unit's payroll takes the instalments back (Cr 1054 there): a store
+    // cashier's loan is the store's receivable, paid out of what the store
+    // holds, and head office's staff borrow from head office. Somebody posted
+    // nowhere borrows from head office.
+    let posted: Option<String> = sqlx::query_scalar(
+        "SELECT s.id
+           FROM employee_assignment a
+           JOIN site s ON s.unit_id = a.unit_id
+          WHERE a.employee_id = $1
+            AND a.valid_from <= current_date
+            AND (a.valid_to IS NULL OR a.valid_to >= current_date)
+          ORDER BY a.valid_from DESC, (s.kind = 'HO') DESC, s.id
+          LIMIT 1",
+    )
+    .bind(employee_id)
+    .fetch_optional(pool)
+    .await?;
+    let site_id = match posted {
+        Some(site) => site,
+        None => super::sites::head_office_site_id(pool).await?,
+    };
     let mut tx = pool.begin().await?;
     let advance_id = Uuid::new_v4();
     let number: String =

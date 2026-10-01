@@ -187,6 +187,7 @@ export function PayrollRuns() {
                   "Unit",
                   "Pay day",
                   { label: "State", align: "left" },
+                  { label: "Finance", align: "left" },
                 ]}
               >
                 {shown.map((row) => (
@@ -206,7 +207,22 @@ export function PayrollRuns() {
                       <Pill tone={stateTone(row.state)}>
                         {runStateLabel(row.state)}
                       </Pill>{" "}
-                      {!row.complete && <Pill tone="warn">Incomplete</Pill>}
+                      {!row.complete && (
+                        <span title={row.incomplete_because ?? undefined}>
+                          <Pill tone="warn">Incomplete</Pill>
+                        </span>
+                      )}
+                    </MiniCell>
+                    <MiniCell>
+                      {row.handover === null ? (
+                        <span className="text-mute">Not handed over</span>
+                      ) : (
+                        <Pill
+                          tone={row.handover.state === "PAID" ? "ok" : "info"}
+                        >
+                          {handoverLabel(row.handover.state)}
+                        </Pill>
+                      )}
                     </MiniCell>
                   </MiniRow>
                 ))}

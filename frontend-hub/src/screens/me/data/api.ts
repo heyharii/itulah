@@ -14,6 +14,8 @@ import type {
   PayslipTemplate,
   AnnualTaxSlip,
   LoanView,
+  BenefitAccountView,
+  BenefitCodeView,
   ClaimBalanceRow,
   WarningLetterView,
   EssModulesView,
@@ -27,6 +29,8 @@ import type {
   CalendarView,
   CalendarYearsView,
   CorrectionRow,
+  PersonalDataRequestView,
+  TeamCalendarView,
 } from "@itulah/contract"
 import type {
   AttendanceCorrection,
@@ -632,6 +636,19 @@ export function colleagues(
   )
 }
 
+/// Who at your place is away, or asking to be, between two days. The server
+/// keeps an employee to their own unit.
+export function teamCalendar(
+  from: IsoDate,
+  to: IsoDate,
+  signal?: AbortSignal
+): Promise<TeamCalendarView> {
+  return node.get<TeamCalendarView>(
+    `/api/v1/team-calendar?from=${from}&to=${to}`,
+    { signal }
+  )
+}
+
 export function pendingSwaps(signal?: AbortSignal): Promise<RosterSwapView[]> {
   return node.get<RosterSwapView[]>("/api/v1/roster-swaps/pending", { signal })
 }
@@ -743,5 +760,57 @@ export function completeOwnTask(
   return node.post<LifecycleTaskView>(
     `/api/v1/employees/${SELF}/lifecycle-tasks/${encodeURIComponent(templateId)}/completion`,
     { reason }
+  )
+}
+
+// ── asking HR to change phone, email or address ────────────────
+
+/// The person's own change requests, newest first.
+export function personalDataRequests(
+  signal?: AbortSignal
+): Promise<PersonalDataRequestView[]> {
+  return node.get<PersonalDataRequestView[]>(
+    `/api/v1/employees/${SELF}/personal-data-requests`,
+    { signal }
+  )
+}
+
+/// Ask HR to change one detail. An empty `value` clears a phone or email; an
+/// address cannot be empty. The answer is the person's list after filing.
+export function askForDataChange(request: {
+  field: "phone" | "email" | "address"
+  value: string
+  reason: string
+}): Promise<PersonalDataRequestView[]> {
+  return node.post<PersonalDataRequestView[]>(
+    `/api/v1/employees/${SELF}/personal-data-requests`,
+    request
+  )
+}
+
+/// Only the filer, and only while it is pending.
+export function withdrawDataChange(
+  requestId: string,
+  reason: string
+): Promise<PersonalDataRequestView[]> {
+  return node.post<PersonalDataRequestView[]>(
+    `/api/v1/personal-data-requests/${encodeURIComponent(requestId)}/withdrawal`,
+    { reason }
+  )
+}
+
+/// Your employee benefit: the balance and what moved it, newest first. A 403
+/// or 404 means this company does not give one to you.
+export function benefit(signal?: AbortSignal): Promise<BenefitAccountView> {
+  return node.get<BenefitAccountView>(`/api/v1/employees/${SELF}/benefit`, {
+    signal,
+  })
+}
+
+/// A short-lived 6-digit code to show the cashier. 409 when the benefit is off.
+export function benefitCode(): Promise<BenefitCodeView> {
+  return node.post<BenefitCodeView>(
+    `/api/v1/employees/${SELF}/benefit-code`,
+    {}
   )
 }

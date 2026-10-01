@@ -139,13 +139,16 @@ pub fn accrual_due(
     ledger: &LeaveLedger,
     as_of: NaiveDate,
     entry_id: &str,
+    service_start: Option<NaiveDate>,
 ) -> Result<Option<LedgerEntry>, LeaveError> {
     if policy.effective_from() > as_of {
         return Err(LeaveError::NotPositive {
             field: "accrual before the policy was in force",
         });
     }
-    let earned = policy.accrued_by_month(as_of.month())?;
+    // What this person has earned this year, by the service rule (service rule, 1 Oct 2026):
+    // nothing before they are eligible, part of a year when they start in it.
+    let earned = policy.earned_by(as_of, service_start)?;
     let already: i32 = ledger
         .entries()
         .iter()
@@ -239,7 +242,7 @@ mod tests {
     fn an_up_front_entitlement_is_earned_once() {
         let p = policy(12, Accrual::UpFront, "2026-01-01");
         let ledger = LeaveLedger::new();
-        let first = accrual_due(&p, &ledger, date("2026-09-25"), "acc-1")
+        let first = accrual_due(&p, &ledger, date("2026-09-25"), "acc-1", None)
             .unwrap_or_else(|error| panic!("{error}"))
             .expect("the year's entitlement is due");
         assert_eq!(first.amount().centidays(), 1200);
@@ -251,7 +254,7 @@ mod tests {
             .append(first)
             .unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(
-            accrual_due(&p, &ledger_after, date("2026-09-25"), "acc-2")
+            accrual_due(&p, &ledger_after, date("2026-09-25"), "acc-2", None)
                 .unwrap_or_else(|error| panic!("{error}")),
             None,
             "nothing is missing a second time"
@@ -263,7 +266,7 @@ mod tests {
     #[test]
     fn a_monthly_accrual_makes_up_a_month_the_node_missed() {
         let p = policy(12, Accrual::Monthly, "2026-01-01");
-        let january = accrual_due(&p, &LeaveLedger::new(), date("2026-01-31"), "acc-jan")
+        let january = accrual_due(&p, &LeaveLedger::new(), date("2026-01-31"), "acc-jan", None)
             .unwrap_or_else(|error| panic!("{error}"))
             .expect("January earns a twelfth");
         assert_eq!(january.amount().centidays(), 100);
@@ -273,7 +276,7 @@ mod tests {
         ledger
             .append(january)
             .unwrap_or_else(|error| panic!("{error}"));
-        let october = accrual_due(&p, &ledger, date("2026-10-31"), "acc-oct")
+        let october = accrual_due(&p, &ledger, date("2026-10-31"), "acc-oct", None)
             .unwrap_or_else(|error| panic!("{error}"))
             .expect("ten twelfths less January's one");
         assert_eq!(october.amount().centidays(), 900);
@@ -294,7 +297,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("{error}")),
             )
             .unwrap_or_else(|error| panic!("{error}"));
-        let december = accrual_due(&p, &ledger, date("2026-12-31"), "acc-dec")
+        let december = accrual_due(&p, &ledger, date("2026-12-31"), "acc-dec", None)
             .unwrap_or_else(|error| panic!("{error}"))
             .expect("the residue is due");
         assert_eq!(december.amount().centidays(), 300);
@@ -305,7 +308,7 @@ mod tests {
     #[test]
     fn a_policy_not_yet_in_force_earns_nothing() {
         let p = policy(12, Accrual::Monthly, "2027-01-01");
-        assert!(accrual_due(&p, &LeaveLedger::new(), date("2026-12-31"), "acc-x").is_err());
+        assert!(accrual_due(&p, &LeaveLedger::new(), date("2026-12-31"), "acc-x", None).is_err());
     }
 
     /// The generation in force is the one the clock reads, so an amended

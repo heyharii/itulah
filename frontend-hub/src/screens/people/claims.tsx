@@ -642,7 +642,9 @@ function ClaimSheet({
 
       <Facts>
         <Fact term="Employee">
-          <span className="font-mono text-id">{row.employee_id}</span>
+          {row.employee_name ?? (
+            <span className="font-mono text-id">{row.employee_id}</span>
+          )}
         </Fact>
         <Fact term="Unit">{row.unit_name ?? row.unit_id}</Fact>
         <Fact term="Filed">{day(row.posted_on)}</Fact>

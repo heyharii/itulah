@@ -1,20 +1,24 @@
+import { ApiError } from "@itulah/contract/client"
 import { Link } from "@tanstack/react-router"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { ChevronRight } from "lucide-react"
 
 import { Async, Empty, List, Panel, Row } from "@/screens/me/ui/bits"
 import { Button } from "@/screens/me/ui/button"
-import { money } from "@/screens/me/data/format"
+import { dateTime, money } from "@/screens/me/data/format"
 import { lockState } from "@/screens/me/data/payslip-lock"
 import {
   useAnnualTax,
+  useBenefit,
+  useBenefitCode,
   useLoans,
   usePaySlips,
   usePayslipTemplate,
 } from "@/screens/me/data/queries"
 import { ChangePayslipPassword, PayslipGate } from "@/screens/me/payslip-gate"
-import type { AnnualTaxSlip, LoanView } from "@itulah/contract"
+import { codeGroups, secondsLeft } from "@/screens/me/data/benefit"
+import type { AnnualTaxSlip, BenefitCodeView, LoanView } from "@itulah/contract"
 
 /// What you were paid, month by month.
 ///
@@ -69,9 +73,148 @@ export function Pay() {
           )}
         </Async>
       </Panel>
+      <Benefit />
       <Loans />
       <AnnualTax />
       {template.data?.password_required === true && <ChangePayslipPassword />}
+    </div>
+  )
+}
+
+/// The employee benefit: a balance to spend at the till. The cashier is shown
+/// a short-lived code; it works once. Hidden when this person has no benefit.
+function Benefit() {
+  const account = useBenefit()
+  const ask = useBenefitCode()
+  const error = account.error
+  if (
+    error instanceof ApiError &&
+    (error.status === 403 || error.status === 404)
+  )
+    return null
+  const refused =
+    ask.error instanceof ApiError && ask.error.status === 409
+      ? "The benefit is not available right now."
+      : null
+  return (
+    <Panel title="Benefit">
+      <Async query={account}>
+        {(view) => (
+          <div className="flex flex-col gap-3">
+            <div>
+              <p className="text-meta text-body">Your balance</p>
+              <p className="num text-hero font-semibold text-ink">
+                {money(view.balance_minor)}
+              </p>
+            </div>
+            {ask.data !== undefined && refused === null ? (
+              <Code
+                key={ask.data.expires_at}
+                code={ask.data}
+                renewing={ask.isPending}
+                onRenew={() => ask.mutate()}
+              />
+            ) : (
+              <div>
+                <Button
+                  variant="primary"
+                  disabled={ask.isPending}
+                  onClick={() => ask.mutate()}
+                >
+                  {ask.isPending ? "Getting a code…" : "Show my code"}
+                </Button>
+              </div>
+            )}
+            {refused !== null && (
+              <p role="alert" className="text-meta text-bad">
+                {refused}
+              </p>
+            )}
+            {ask.error !== null && refused === null && (
+              <p role="alert" className="text-meta text-bad">
+                {ask.error instanceof ApiError
+                  ? ask.error.message
+                  : "Could not reach the server."}
+              </p>
+            )}
+            {view.entries.length > 0 && (
+              <List className="-mx-2 px-2">
+                {view.entries.slice(0, 10).map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="flex items-baseline justify-between gap-3 text-cell"
+                  >
+                    <span className="min-w-0 text-body">
+                      {dateTime(entry.at)} · {KIND[entry.kind] ?? entry.kind}
+                    </span>
+                    <span className="num font-medium text-ink">
+                      {entry.delta_minor > 0
+                        ? "+"
+                        : entry.delta_minor < 0
+                          ? "-"
+                          : ""}
+                      {money(Math.abs(entry.delta_minor))}
+                    </span>
+                  </div>
+                ))}
+              </List>
+            )}
+          </div>
+        )}
+      </Async>
+    </Panel>
+  )
+}
+
+const KIND: Readonly<Record<string, string>> = {
+  ADD: "Added",
+  REMOVE: "Taken off",
+  RESET: "Reset",
+  SPEND: "Spent",
+  RETURN: "Returned",
+}
+
+/// The six digits, large and spaced, with the time left. A QR rendering can
+/// replace the digits once a QR library is approved; none is installed.
+function Code({
+  code,
+  renewing,
+  onRenew,
+}: {
+  code: BenefitCodeView
+  renewing: boolean
+  onRenew: () => void
+}) {
+  // A tick that only re-renders; the time left is worked out from the clock.
+  const [, tick] = useState(0)
+  useEffect(() => {
+    const timer = window.setInterval(() => tick((n) => n + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const left = secondsLeft(code.expires_at)
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-inner bg-soft-2 px-4 py-4">
+      {left > 0 ? (
+        <>
+          <p className="num text-[2.25rem] font-semibold tracking-[0.12em] text-ink">
+            {codeGroups(code.code)}
+          </p>
+          <p className="text-meta text-body">
+            Good for {Math.floor(left / 60)}:
+            {String(left % 60).padStart(2, "0")}
+          </p>
+          <p className="text-meta text-body">
+            Show this to the cashier. It works once.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-meta text-body">This code has run out.</p>
+          <Button variant="primary" disabled={renewing} onClick={onRenew}>
+            Show a new code
+          </Button>
+        </>
+      )}
     </div>
   )
 }

@@ -53,7 +53,8 @@ pub use kinds::{
 };
 pub use ledger::{LeaveEvent, LeaveLedger, LedgerEntry};
 pub use policy::{
-    Accrual, AccrualDuringProtectedLeave, CarryForward, Encashment, LeavePolicy, PolicyTimeline,
+    Accrual, AccrualDuringProtectedLeave, CarryForward, Encashment, Joiner, LeavePolicy,
+    PolicyTimeline,
 };
 pub use request::{
     BalanceContext, LeavePeriod, LeaveRequest, LeaveRequestId, LeaveRequestState, LeaveRequestWire,

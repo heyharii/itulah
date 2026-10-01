@@ -21,6 +21,7 @@ import {
   leaveKeys,
   liftLeaveBlock,
   recordHolidayWork,
+  readLeavePolicy,
   useReachableUnits,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
@@ -380,6 +381,10 @@ export function HolidayWorkedForm({ employeeId }: { employeeId: string }) {
 export function AdjustBalanceForm({ employeeId }: { employeeId: string }) {
   const client = useQueryClient()
   const { kinds } = useBalanceKinds(employeeId)
+  const policy = useQuery({
+    queryKey: leaveKeys.policy(),
+    queryFn: ({ signal }) => readLeavePolicy(signal),
+  })
   const [kind, setKind] = useState<string | null>(null)
   const [event, setEvent] = useState("ADJUSTMENT")
   const [days, setDays] = useState("")
@@ -449,6 +454,14 @@ export function AdjustBalanceForm({ employeeId }: { employeeId: string }) {
           <Day value={expires} onChange={setExpires} />
         </Field>
       </div>
+      {event === "ALLOCATION" && (policy.data ?? []).length > 0 && (
+        <Banner tone="warn">
+          The leave policy already grants the yearly entitlement on its own
+          schedule (Settings › Time off types). Granting it here as well gives
+          the days twice — use a correction for anything the policy does not
+          cover.
+        </Banner>
+      )}
       {move.error !== null && <Banner tone="bad">{move.error.message}</Banner>}
       <div>
         <Button

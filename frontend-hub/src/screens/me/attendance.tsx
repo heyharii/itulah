@@ -26,6 +26,7 @@ import {
   useAttendance,
   useCorrections,
   useAttendanceSetting,
+  useProfile,
   usePunch,
 } from "@/screens/me/data/queries"
 
@@ -58,6 +59,7 @@ export function Attendance() {
   const corrections = useCorrections()
   const punch = usePunch()
   const setting = useAttendanceSetting().data
+  const unitName = useProfile().data?.unit_name
   const off = setting?.setting.mobile_enabled === false
   const pending = (corrections.data ?? []).filter(
     (correction) => correction.status === "PENDING"
@@ -110,7 +112,7 @@ export function Attendance() {
         {!off && setting?.fence != null && (
           <p className="text-meta text-mute">
             Your location is checked: punch within {setting.fence.radius_m} m of{" "}
-            {setting.unit_id ?? "your unit"}.
+            {unitName ?? setting.unit_id ?? "your unit"}.
           </p>
         )}
         {punch.data !== undefined && punch.error === null && (
