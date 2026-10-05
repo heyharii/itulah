@@ -195,9 +195,10 @@ function defaultOrderSorting(): SortingState {
   return []
 }
 
-/// Late orders stand above everything else whatever the list is sorted by —
-/// the owner's rule (2026-09-26). A hidden first key in front of whatever the
-/// header asked for.
+/// Orders with a count to review stand above everything else, then late ones,
+/// whatever the list is sorted by — the owner's rule (2026-09-26, and the
+/// review count first on 2026-10-05). A hidden first key in front of whatever
+/// the header asked for.
 const OVERDUE_FIRST = { id: "overdue", desc: false } as const
 
 function dateRank(value: string | null): number {
@@ -289,9 +290,16 @@ const STATUS_TEXT: Record<ReturnType<typeof poStatus>["tone"], string> = {
 /// heading and figure needs; the order's own column takes the rest.
 const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
   {
-    // The sort key that keeps late orders on top. Never shown.
+    // The sort key that keeps the orders somebody has to act on on top: first
+    // those with a count waiting for the buyer's review, then the late ones
+    // (owner, 2026-10-05). Never shown.
     id: "overdue",
-    accessorFn: (row) => (row.overdue ? 0 : 1),
+    accessorFn: (row) =>
+      (row as PurchaseOrderRow & { readonly review?: boolean }).review
+        ? 0
+        : row.overdue
+          ? 1
+          : 2,
     header: "",
     enableHiding: false,
     meta: { card: "hide" },
@@ -762,7 +770,17 @@ export function PurchaseOrders() {
 
   const rows = useMemo(() => orders.data?.rows ?? [], [orders.data])
 
-  const viewRows = rows
+  /// The orders the Gudang has counted something on, waiting for the buyer.
+  /// Carried on each row so the hidden first sort key can put them on top.
+  const awaiting = useCountsAwaiting()
+  const viewRows = useMemo(
+    () =>
+      rows.map((row) => ({
+        ...row,
+        review: (awaiting.get(row.po_number)?.length ?? 0) > 0,
+      })),
+    [rows, awaiting]
+  )
 
   /// How many orders each supplier has in the list, and what they add up to —
   /// the group headings' figures.
