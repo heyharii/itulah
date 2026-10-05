@@ -21,7 +21,7 @@ import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { wholeProduct } from "@/lib/decimal"
-import { count, label, moment } from "@/lib/format"
+import { count, label, recentMoment } from "@/lib/format"
 import {
   procurementKeys,
   purchaseOrderDetail,
@@ -81,18 +81,30 @@ function latestOf(
   return awaiting.reduce((a, b) => (b.counted_at > a.counted_at ? b : a))
 }
 
-/// Who counted it, by name.
-function CountedByName({
+/// The count in one cell: the pieces, and under them who counted and when.
+function CountedCell({
   awaiting,
 }: {
   awaiting: readonly PurchaseCountAwaitingVerification[]
 }) {
   const nameOfLogin = useNameOfLogin()
-  return <>{titled(nameOfLogin(latestOf(awaiting).counted_by))}</>
+  const latest = latestOf(awaiting)
+  return (
+    <span className="flex flex-col items-end leading-5 whitespace-nowrap tabular-nums">
+      <span className="font-medium text-ink">
+        {`${count(awaiting.reduce((sum, one) => sum + one.counted_quantity, 0))} pcs`}
+      </span>
+      <span className="text-mute">
+        {titled(nameOfLogin(latest.counted_by))}
+        {" · "}
+        {recentMoment(latest.counted_at)}
+      </span>
+    </span>
+  )
 }
 
 /// Orders with a button to press — still to count — lead the list.
-const TO_COUNT_FIRST = { id: "action", desc: false } as const
+const TO_COUNT_FIRST = { id: "to-count", desc: false } as const
 
 export function Receiving() {
   const counting = useSheet("delivery")
@@ -163,54 +175,35 @@ export function Receiving() {
   const columns = useMemo<ColumnDef<TableSetup, OrderRow>[]>(
     () => [
       {
-        id: "no",
-        header: "No.",
-        size: 70,
-        enableSorting: false,
-        meta: { align: "right", priority: 2, card: "hide" },
-        // The place in the list as it is drawn, not the order the rows came in:
-        // sorted, the old number read 4, 3, 6, 5.
-        cell: ({ row, table }) => (
-          <span className="text-mute">
-            {table.getRowModel().rows.findIndex((one) => one.id === row.id) + 1}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "po_number",
+        // The order as the PO list draws it: the supplier, and its number under
+        // it. Sorted by the number, as the screen has always opened.
+        id: "po_number",
+        accessorFn: (row: OrderRow) => row.po_number,
         header: "PO",
-        size: 190,
-        meta: { card: "id" },
-        cell: ({ row }) => (
-          <span className="font-mono text-id text-ink">
-            {row.original.po_number}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "supplier_id",
-        header: "Supplier",
-        size: 300,
-        meta: { card: "title", grow: 300 },
+        size: 320,
+        meta: { card: "title", grow: 320 },
         cell: ({ row }) => {
-          // The buyer sent a count back: their reason, under the supplier.
+          // The buyer sent a count back: their reason, under the order.
           const reason = row.original.lines.find(
             (line) => line.recount_reason !== null
           )?.recount_reason
           return (
-            <>
+            <span className="flex min-w-0 flex-col gap-0.5 py-1 leading-5">
               <span className="block truncate font-medium text-ink">
                 <SupplierName
                   code={row.original.supplier_id}
                   name={row.original.supplier_name}
                 />
               </span>
+              <span className="font-mono text-id text-mute">
+                {row.original.po_number}
+              </span>
               {reason ? (
-                <span className="mt-1 block truncate text-body">
+                <span className="block truncate text-body">
                   {`“${reason}”`}
                 </span>
               ) : null}
-            </>
+            </span>
           )
         },
       },
@@ -226,71 +219,18 @@ export function Receiving() {
         cell: ({ row }) => count(row.original.lines.length),
       },
       {
-        id: "counted",
+        // One column for the count: what was counted, who and when, once it is
+        // counted; the Count receive button while it is not (owner, 2026-10-05).
+        id: "count",
         accessorFn: (row: OrderRow) =>
           row.awaiting.reduce((sum, one) => sum + one.counted_quantity, 0),
-        header: "Counted",
-        size: 130,
-        meta: { align: "right", card: "metric" },
-        cell: ({ row }) =>
-          row.original.awaiting.length === 0 ? (
-            <span className="text-mute">—</span>
-          ) : (
-            <span className="tabular-nums">
-              {`${count(
-                row.original.awaiting.reduce(
-                  (sum, one) => sum + one.counted_quantity,
-                  0
-                )
-              )} pcs`}
-            </span>
-          ),
-      },
-      {
-        id: "counted_by",
-        accessorFn: (row: OrderRow) =>
-          row.awaiting.length === 0 ? "" : latestOf(row.awaiting).counted_by,
-        header: "Counted By",
-        size: 180,
-        meta: { card: "meta", priority: 2 },
-        cell: ({ row }) =>
-          row.original.awaiting.length === 0 ? (
-            <span className="text-mute">—</span>
-          ) : (
-            <span className="truncate">
-              <CountedByName awaiting={row.original.awaiting} />
-            </span>
-          ),
-      },
-      {
-        id: "counted_at",
-        accessorFn: (row: OrderRow) =>
-          row.awaiting.length === 0 ? "" : latestOf(row.awaiting).counted_at,
-        header: "Counted At",
-        size: 190,
-        meta: { align: "right", card: "meta", priority: 3 },
-        cell: ({ row }) =>
-          row.original.awaiting.length === 0 ? (
-            <span className="text-mute">—</span>
-          ) : (
-            <span className="whitespace-nowrap tabular-nums">
-              {moment(latestOf(row.original.awaiting).counted_at)}
-            </span>
-          ),
-      },
-      {
-        // Also the hidden first sort key: orders still waiting for a count (the
-        // ones with the button) stand above those already counted, whatever the
-        // headings sort by (owner, 2026-10-05).
-        id: "action",
-        accessorFn: (row: OrderRow) => (row.awaiting.length === 0 ? 0 : 1),
-        header: "",
-        size: 200,
-        meta: { card: "status", align: "right" },
+        header: "Count",
+        size: 300,
+        meta: { align: "right", card: "status" },
         cell: ({ row }) => {
           const order = row.original
-          // Counted: the Gudang is done, the buyer has it to review.
-          if (order.awaiting.length > 0) return null
+          if (order.awaiting.length > 0)
+            return <CountedCell awaiting={order.awaiting} />
           const again = order.lines.some((line) => line.recount_reason !== null)
           return (
             <Button
@@ -305,6 +245,14 @@ export function Receiving() {
           )
         },
       },
+      {
+        // Never drawn, only sorted on: orders still to count lead the list
+        // whatever the headings sort by.
+        id: TO_COUNT_FIRST.id,
+        accessorFn: (row: OrderRow) => (row.awaiting.length === 0 ? 0 : 1),
+        header: "",
+        enableHiding: false,
+      },
     ],
     []
   )
@@ -318,7 +266,10 @@ export function Receiving() {
         getRowId: (row: OrderRow) => row.po_number,
         // The hidden key leads whatever was chosen, and is taken back out of
         // anything the table hands back.
-        state: { sorting: [TO_COUNT_FIRST, ...sorting] },
+        state: {
+          sorting: [TO_COUNT_FIRST, ...sorting],
+          columnVisibility: { [TO_COUNT_FIRST.id]: false },
+        },
         onSortingChange: (
           next: SortingState | ((prev: SortingState) => SortingState)
         ) =>
