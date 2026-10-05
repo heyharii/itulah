@@ -1071,7 +1071,7 @@ function RowCard<TRow>({
           </div>
 
           {parts.meta.length > 0 && (
-            <div className="flex flex-wrap items-center gap-x-1.5 text-meta text-body">
+            <div className="flex flex-wrap items-center gap-x-1.5 text-[0.875rem] text-mute">
               {parts.meta.map((cell, index) => (
                 <span
                   key={cell.id}

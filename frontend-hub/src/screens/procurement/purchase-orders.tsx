@@ -317,7 +317,11 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     cell: ({ row }) => (
       <span className="flex min-w-0 flex-col gap-0.5 leading-5">
         <span
-          className="truncate text-[0.875rem] font-medium text-ink"
+          // The name is what somebody is looking for, so on a phone, where the
+          // row is a card, it is the largest and heaviest thing in it: 16px
+          // semibold, over the number in regular weight and the date in the
+          // quiet colour (it read the other way round: the date was bigger).
+          className="truncate text-[0.875rem] font-medium text-ink max-md:text-[1rem] max-md:font-semibold"
           title={row.original.supplier_name ?? undefined}
         >
           <SupplierName
@@ -325,7 +329,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
             name={row.original.supplier_name}
           />
         </span>
-        <span className="font-mono text-[0.875rem] text-mute">
+        <span className="font-mono text-[0.875rem] font-normal text-mute">
           {row.original.po_number}
         </span>
       </span>
@@ -484,7 +488,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
       // A word, no dot and no box (the owner, 2026-09-29): the colour says
       // whether it still wants somebody, and a finished order recedes.
       return (
-        <span className="flex flex-col leading-5">
+        <span className="flex flex-col leading-5 max-md:items-end">
           <StatusWord
             po={row.original.po_number}
             className={cn("whitespace-nowrap", STATUS_TEXT[status.tone])}
@@ -499,6 +503,14 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
               {`+${pcs(pendingExcess)} over`}
             </span>
           )}
+          {/* Only where the table is a list of cards (a phone): the quantity
+              has no column there, so it stands under the status, on the right —
+              the pieces ordered, or how many of them have arrived. */}
+          <span className="mt-1 text-[0.875rem] whitespace-nowrap text-body tabular-nums md:hidden">
+            {row.original.received_stock_units > 0
+              ? `${count(row.original.received_stock_units)} / ${pcs(row.original.expected_stock_units)}`
+              : pcs(row.original.expected_stock_units)}
+          </span>
         </span>
       )
     },
