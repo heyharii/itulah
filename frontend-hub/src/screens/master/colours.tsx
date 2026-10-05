@@ -2,7 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Search } from "lucide-react"
+import { EyeOff, Pencil, Power, PowerOff, Search } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -14,12 +14,13 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { ColumnsMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { Switch, SwitchPill } from "@/components/ui/form"
+import { SwitchPill } from "@/components/ui/form"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
+import { toast } from "@/lib/toast"
 import {
   colourKeys,
   createColour,
@@ -33,7 +34,7 @@ import { readColour } from "@/lib/colour-parse"
 import { ColourField } from "@/screens/master/colour-field"
 import { HEX, mistakenFor } from "@/screens/master/colour-hex"
 import { ColourSwatch } from "@/screens/master/colour-picker"
-import { CodeFact, SubmitRow } from "@/screens/master/term-form"
+import { ActiveRow, CodeFact, SubmitRow } from "@/screens/master/term-form"
 import {
   said,
   snake,
@@ -112,11 +113,25 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
     size: 260,
     meta: { grow: 260 },
     cell: ({ row }) => (
-      <ColourSwatch
-        hex={row.original.term.hex_code}
-        label={row.original.term.label}
-        code={row.original.term.code}
-      />
+      <span
+        className={
+          row.original.active
+            ? "inline-flex items-center gap-2"
+            : "inline-flex items-center gap-2 opacity-60"
+        }
+      >
+        {!row.original.active && (
+          <EyeOff
+            aria-label="Inactive"
+            className="size-3.5 shrink-0 text-mute"
+          />
+        )}
+        <ColourSwatch
+          hex={row.original.term.hex_code}
+          label={row.original.term.label}
+          code={row.original.term.code}
+        />
+      </span>
     ),
   },
   {
@@ -156,7 +171,67 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
       )
     },
   },
+  {
+    id: "action",
+    header: "Action",
+    size: 96,
+    enableSorting: false,
+    meta: { align: "right" },
+    cell: ({ row }) => <RowActions row={row.original} />,
+  },
 ]
+
+/// Edit and Active / Inactive, in the row; see the same in `vocabulary.tsx`.
+function RowActions({ row }: { row: ColourRow }) {
+  const client = useQueryClient()
+  const change = useMutation({
+    mutationFn: () =>
+      updateColour(
+        row.term.code,
+        { active: !row.active },
+        row.term.version,
+        crypto.randomUUID()
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: colourKeys.all })
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error ? error.message : "That did not save."
+      ),
+  })
+  const box =
+    "inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink disabled:cursor-progress disabled:opacity-50"
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      <button
+        type="button"
+        aria-label={`Edit ${row.term.label}`}
+        title="Edit"
+        className={box}
+      >
+        <Pencil className="size-4" />
+      </button>
+      <button
+        type="button"
+        disabled={change.isPending}
+        aria-label={`${row.active ? "Make Inactive" : "Make Active"}: ${row.term.label}`}
+        title={row.active ? "Make Inactive" : "Make Active"}
+        className={box}
+        onClick={(event) => {
+          event.stopPropagation()
+          change.mutate()
+        }}
+      >
+        {row.active ? (
+          <PowerOff className="size-4" />
+        ) : (
+          <Power className="size-4" />
+        )}
+      </button>
+    </span>
+  )
+}
 
 type StatusTab = "ALL" | "ACTIVE" | "INACTIVE"
 
@@ -694,13 +769,11 @@ function ColourForm({
             {colour !== null && (
               <form.Field name="active">
                 {(field) => (
-                  <Field label="Active">
-                    <Switch
-                      on={field.state.value}
-                      label="Color is active"
-                      onToggle={() => field.handleChange(!field.state.value)}
-                    />
-                  </Field>
+                  <ActiveRow
+                    on={field.state.value}
+                    noun="color"
+                    onToggle={() => field.handleChange(!field.state.value)}
+                  />
                 )}
               </form.Field>
             )}

@@ -85,6 +85,9 @@ export const masterNav: AppModule = {
           label: "Units",
           icon: Building2,
           moved: ["/system/units"],
+          // Hidden from the menu (owner, 2026-10-05); the screen and its path
+          // still work.
+          hidden: true,
         },
       ],
     },

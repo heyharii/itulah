@@ -2,7 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Search } from "lucide-react"
+import { EyeOff, Pencil, Power, PowerOff, Search } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
-import { Switch, SwitchPill } from "@/components/ui/form"
+import { SwitchPill } from "@/components/ui/form"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { ColumnsMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
@@ -20,6 +20,7 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
+import { toast } from "@/lib/toast"
 import {
   createTerm,
   listTerms,
@@ -30,7 +31,7 @@ import {
 } from "@/lib/queries/vocabulary"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { CodeFact, SubmitRow } from "@/screens/master/term-form"
+import { ActiveRow, CodeFact, SubmitRow } from "@/screens/master/term-form"
 import {
   said,
   snake,
@@ -187,7 +188,19 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
       size: 260,
       meta: { grow: 260 },
       cell: ({ row }) => (
-        <span className="text-[0.875rem] font-medium text-ink">
+        <span
+          className={
+            row.original.active
+              ? "inline-flex items-center gap-2 text-[0.875rem] font-medium text-ink"
+              : "inline-flex items-center gap-2 text-[0.875rem] font-medium text-mute"
+          }
+        >
+          {!row.original.active && (
+            <EyeOff
+              aria-label="Inactive"
+              className="size-3.5 shrink-0 text-mute"
+            />
+          )}
           {row.original.term.label}
         </span>
       ),
@@ -222,7 +235,7 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
   columns.push({
     id: "articles",
     accessorFn: (row) => row.term.in_use,
-    header: vocabulary.kind === "sizes" ? "In Use" : "Articles",
+    header: "In Use",
     size: 120,
     // The one clause these lists want: "is 0" is the set worth looking at
     // before tidying up, which on forty tags is not something a sort makes
@@ -232,7 +245,7 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
       align: "right",
       filter: {
         kind: "number",
-        label: vocabulary.kind === "sizes" ? "In Use" : "Articles",
+        label: "In Use",
         unit: vocabulary.kind === "sizes" ? "SKUs" : "articles",
       },
     },
@@ -240,20 +253,91 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
     // that "unused" is the state somebody scans for — but it read as a
     // licence to delete, which it is not, and a column of numbers with one
     // word in it is a column that stops adding up.
+    // The number, and what it counts beside it in the quiet colour: "4 Articles".
+    cell: ({ row }) => {
+      const n = row.original.term.in_use
+      const unit = vocabulary.kind === "sizes" ? "SKU" : "Article"
+      return (
+        <span className="text-[0.875rem] tabular-nums">
+          <span className={n === 0 ? "text-mute" : "text-ink"}>{count(n)}</span>{" "}
+          <span className="text-mute">{n === 1 ? unit : `${unit}s`}</span>
+        </span>
+      )
+    },
+  })
+
+  columns.push({
+    id: "action",
+    header: "Action",
+    size: 96,
+    enableSorting: false,
+    meta: { align: "right" },
     cell: ({ row }) => (
-      <span
-        className={
-          row.original.term.in_use === 0
-            ? "text-[0.875rem] text-mute tabular-nums"
-            : "text-[0.875rem] text-text tabular-nums"
-        }
-      >
-        {count(row.original.term.in_use)}
-      </span>
+      <RowActions vocabulary={vocabulary} row={row.original} />
     ),
   })
 
   return columns
+}
+
+/// Edit and Active / Inactive, in the row. Edit is the row's own click (the
+/// button only says so); the other one changes the state at once and is
+/// reversible from the same place.
+function RowActions({
+  vocabulary,
+  row,
+}: {
+  vocabulary: Vocabulary
+  row: TermRow
+}) {
+  const client = useQueryClient()
+  const change = useMutation({
+    mutationFn: () =>
+      updateTerm(
+        vocabulary.kind,
+        row.term.code,
+        { active: !row.active },
+        row.term.version,
+        crypto.randomUUID()
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: vocabularyKeys.all })
+      void client.invalidateQueries({ queryKey: ["procurement", "vocabulary"] })
+      void client.invalidateQueries({ queryKey: ["articles"] })
+    },
+    onError: (error) => toast.error(said(error)),
+  })
+  const box =
+    "inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink disabled:cursor-progress disabled:opacity-50"
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      <button
+        type="button"
+        aria-label={`Edit ${row.term.label}`}
+        title="Edit"
+        className={box}
+      >
+        <Pencil className="size-4" />
+      </button>
+      <button
+        type="button"
+        disabled={change.isPending}
+        aria-label={`${row.active ? "Make Inactive" : "Make Active"}: ${row.term.label}`}
+        title={row.active ? "Make Inactive" : "Make Active"}
+        className={box}
+        onClick={(event) => {
+          event.stopPropagation()
+          change.mutate()
+        }}
+      >
+        {row.active ? (
+          <PowerOff className="size-4" />
+        ) : (
+          <Power className="size-4" />
+        )}
+      </button>
+    </span>
+  )
 }
 
 function capitalise(word: string): string {
@@ -681,13 +765,11 @@ function TermForm({
             {term !== null && (
               <form.Field name="active">
                 {(field) => (
-                  <Field label="Active">
-                    <Switch
-                      on={field.state.value}
-                      label={`${capitalise(vocabulary.one)} is active`}
-                      onToggle={() => field.handleChange(!field.state.value)}
-                    />
-                  </Field>
+                  <ActiveRow
+                    on={field.state.value}
+                    noun={vocabulary.one}
+                    onToggle={() => field.handleChange(!field.state.value)}
+                  />
                 )}
               </form.Field>
             )}
