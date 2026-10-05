@@ -345,7 +345,7 @@ export function OpsActivityLog() {
     <PageContent>
       <PageHeader
         crumb="Operations"
-        title="Activity log"
+        title="Activity Log"
         sub="What the centre recorded, newest first, sorted into the flows Ops runs. Work done on this warehouse's edge node never passes the cloud, so floor actions do not appear here."
       />
 

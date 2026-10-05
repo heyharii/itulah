@@ -78,7 +78,7 @@ export function GeneralLedger() {
     <PageContent>
       <PageHeader
         crumb="Reports"
-        title="General ledger"
+        title="General Ledger"
         sub="One account, every movement, running balance."
         actions={
           <Button disabled={!code} onClick={() => setPrinting(true)}>

@@ -208,7 +208,7 @@ export function PaymentTemplates() {
   return (
     <PageContent>
       <PageHeader
-        title="Payment templates"
+        title="Payment Templates"
         actions={
           <>
             <Button

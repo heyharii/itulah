@@ -193,7 +193,7 @@ export function SalesAnalytics() {
     <PageContent>
       <PageHeader
         crumb="Sales"
-        title="Sales analytics"
+        title="Sales Analytics"
         sub="Every store against the estate, and against the same span before it."
       />
 

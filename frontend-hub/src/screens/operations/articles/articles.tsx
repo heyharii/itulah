@@ -113,7 +113,7 @@ export function StockByArticle() {
 
   return (
     <PageContent fill>
-      <PageHeader title="Stock by article" />
+      <PageHeader title="Stock by Article" />
 
       <label className="relative mb-6 block">
         <span className="sr-only">Search</span>

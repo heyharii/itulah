@@ -71,7 +71,7 @@ export const systemNav: AppModule = {
           // The register, whether each is up, its incidents and its sync
           // lane — one page, four tabs. See `screens/system/servers.tsx`.
           path: "/system/servers",
-          label: "Store servers",
+          label: "Store Servers",
           icon: Server,
           // Not `/system` — that redirect is `AppModule.base`'s, generated
           // automatically because `home` already points here. Listing it

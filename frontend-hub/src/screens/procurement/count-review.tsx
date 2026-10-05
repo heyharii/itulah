@@ -25,6 +25,7 @@ import { Fact, Facts } from "@/components/ui/sheet"
 import { Problem, Receipt } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { useNameOfLogin } from "@/lib/queries/hr-employees"
+import { recordKeys } from "@/lib/queries/records"
 import { count, label, money, recentMoment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { useEdgeActor, useEdgeNodeIdentity } from "@/lib/edge-session"
@@ -220,7 +221,7 @@ export function CountReview({
         <BaseDialog.Backdrop className="fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-(--t-sheet) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0" />
         {/* A sheet, like the order it is opened from: full height, so five or
           ten articles read as a page instead of a cramped window. */}
-        <BaseDialog.Popup className="fixed top-5 right-5 bottom-5 z-40 flex outline-none w-[clamp(27.5rem,72vw,56rem)] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-shell border border-hairline bg-canvas shadow-float transition-[translate,opacity] duration-(--t-sheet) ease-(--ease-drawer) data-[ending-style]:translate-x-[calc(100%+1.25rem)] data-[ending-style]:duration-(--t-exit) data-[starting-style]:translate-x-[calc(100%+1.25rem)] motion-reduce:data-[ending-style]:translate-x-0 motion-reduce:data-[ending-style]:opacity-0 motion-reduce:data-[starting-style]:translate-x-0 motion-reduce:data-[starting-style]:opacity-0">
+        <BaseDialog.Popup className="fixed top-5 right-5 bottom-5 z-40 flex w-[clamp(27.5rem,72vw,56rem)] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-shell border border-hairline bg-canvas shadow-float transition-[translate,opacity] duration-(--t-sheet) ease-(--ease-drawer) outline-none data-[ending-style]:translate-x-[calc(100%+1.25rem)] data-[ending-style]:duration-(--t-exit) data-[starting-style]:translate-x-[calc(100%+1.25rem)] motion-reduce:data-[ending-style]:translate-x-0 motion-reduce:data-[ending-style]:opacity-0 motion-reduce:data-[starting-style]:translate-x-0 motion-reduce:data-[starting-style]:opacity-0">
           {head}
           {body}
           <SavedDialog
@@ -353,11 +354,14 @@ function Review({
   // Under each article: its division and tags, as the order itself shows it.
   const detail = useQuery({
     queryKey: procurementKeys.order(order?.purchase_order_id ?? ""),
-    queryFn: ({ signal }) => purchaseOrderDetail(order!.purchase_order_id, signal),
+    queryFn: ({ signal }) =>
+      purchaseOrderDetail(order!.purchase_order_id, signal),
     enabled: order !== undefined,
   })
   const kindOf = (row: Count) => {
-    const line = detail.data?.lines.find((one) => one.po_line_id === row.po_line_id)
+    const line = detail.data?.lines.find(
+      (one) => one.po_line_id === row.po_line_id
+    )
     if (line === undefined) return row.article_code
     return [
       line.division_code === null ? "Unclassified" : label(line.division_code),
@@ -456,8 +460,12 @@ function Review({
     void client.invalidateQueries({ queryKey: keys.taggingJobs() })
     void client.invalidateQueries({ queryKey: procurementKeys.orders() })
     void client.invalidateQueries({ queryKey: procurementKeys.returns() })
+    void client.invalidateQueries({ queryKey: recordKeys.all })
   }
 
+  /// Why the rest was closed short, typed in the dialog; read when the count
+  /// is accepted.
+  const closeReason = useRef("")
   const accept = useMutation({
     mutationFn: async (choice: Short) => {
       const targets = rows
@@ -466,9 +474,7 @@ function Review({
       // the checker marked as not as ordered — the wrong pieces and any over
       // that came with them — plus the over on the other lines too: it all
       // goes back, there is no option to keep it.
-      const returnRows = rows.filter(
-        (row) => gap(row) > 0 || wrongOf(row) > 0
-      )
+      const returnRows = rows.filter((row) => gap(row) > 0 || wrongOf(row) > 0)
       // What the order held in excess before this count lands, so the return
       // below waits for exactly this count's excess and not an older one.
       if (baseline.current === null) {
@@ -495,7 +501,13 @@ function Review({
         })
       }
       if (shorts.length > 0 && choice === "close") {
-        await closeRestShort(shorts, actor, "Closed short at count review")
+        await closeRestShort(
+          shorts,
+          actor,
+          closeReason.current.trim() === ""
+            ? "Closed short at count review"
+            : closeReason.current.trim()
+        )
       }
       if (returnRows.length > 0) {
         await returnOver(po, returnRows, before, keyFor(`Return:${po}`))
@@ -618,7 +630,11 @@ function Review({
           {/* Two columns: who and when on the left, the totals on the right,
             then what the count found — for a count of any length. */}
           {(() => {
-            const fact = (name: string, value: React.ReactNode, tone = "text-body") => (
+            const fact = (
+              name: string,
+              value: React.ReactNode,
+              tone = "text-body"
+            ) => (
               <Fragment key={name}>
                 <dt className="text-mute">{name}</dt>
                 <dd className={cn("tabular-nums", tone)}>{value}</dd>
@@ -657,7 +673,9 @@ function Review({
                       `${count(offCount)} of ${count(rows.length)} items differ`,
                       shortQty > 0 ? `${pcs(shortQty)} short` : null,
                       extraQty > 0 ? `${pcs(extraQty)} extra` : null,
-                      totalWrong > 0 ? `${pcs(totalWrong)} not as ordered` : null,
+                      totalWrong > 0
+                        ? `${pcs(totalWrong)} not as ordered`
+                        : null,
                     ]
                       .filter(Boolean)
                       .join(" · ")}
@@ -674,7 +692,7 @@ function Review({
               Hide matched
               <Switch
                 on={hideMatched}
-                label="Hide matched items"
+                label="Hide Matched Items"
                 onToggle={() => setHideMatched((v) => !v)}
               />
             </label>
@@ -709,10 +727,7 @@ function Review({
                       {index + 1}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <TwoLines
-                        top={row.article_name}
-                        bottom={kindOf(row)}
-                      />
+                      <TwoLines top={row.article_name} bottom={kindOf(row)} />
                     </div>
                   </div>
                   <dl className="grid grid-cols-3 gap-3 text-[0.9375rem]">
@@ -752,9 +767,7 @@ function Review({
               )
             })}
             <li className="flex items-center justify-between rounded-card bg-soft-2 px-4 py-3.5 text-[0.9375rem]">
-              <span className="font-medium text-body">
-                Total
-              </span>
+              <span className="font-medium text-body">Total</span>
               <span className="font-semibold text-ink tabular-nums">
                 {[
                   pcs(totalCounted),
@@ -784,7 +797,9 @@ function Review({
                     {recounting && (
                       <th className={cn(HEAD, "text-center")}>
                         <Checkbox
-                          label={<span className="sr-only">Tick every line</span>}
+                          label={
+                            <span className="sr-only">Tick every line</span>
+                          }
                           checked={allPicked}
                           disabled={rows.length === 0}
                           onChange={(next) =>
@@ -835,7 +850,10 @@ function Review({
                           {index + 1}
                         </td>
                         <td className={CELL}>
-                          <div title={row.article_name} className="min-w-0 py-1">
+                          <div
+                            title={row.article_name}
+                            className="min-w-0 py-1"
+                          >
                             <div className="line-clamp-2 leading-[1.4] font-medium text-ink">
                               {row.article_name}
                             </div>
@@ -874,7 +892,12 @@ function Review({
                   <tr className="border-t border-hairline bg-soft-2">
                     {recounting && <td className={CELL} />}
                     <td className={CELL} />
-                    <td className={cn(CELL, "font-medium whitespace-nowrap text-body")}>
+                    <td
+                      className={cn(
+                        CELL,
+                        "font-medium whitespace-nowrap text-body"
+                      )}
+                    >
                       Total
                     </td>
                     <td className={NUM_TOTAL}>{pcs(totalOwed)}</td>
@@ -886,8 +909,12 @@ function Review({
                         <span className="text-body">—</span>
                       ) : (
                         <span className="flex flex-col leading-tight">
-                          {shortQty > 0 && <span>{`${pcs(shortQty)} short`}</span>}
-                          {extraQty > 0 && <span>{`${pcs(extraQty)} extra`}</span>}
+                          {shortQty > 0 && (
+                            <span>{`${pcs(shortQty)} short`}</span>
+                          )}
+                          {extraQty > 0 && (
+                            <span>{`${pcs(extraQty)} extra`}</span>
+                          )}
                         </span>
                       )}
                     </td>
@@ -897,7 +924,10 @@ function Review({
                       {recounting && <td className={CELL} />}
                       <td className={CELL} />
                       <td
-                        className={cn(CELL, "font-medium whitespace-nowrap text-body")}
+                        className={cn(
+                          CELL,
+                          "font-medium whitespace-nowrap text-body"
+                        )}
                       >
                         Not as Ordered
                       </td>
@@ -942,7 +972,9 @@ function Review({
                 <span>
                   {wrongRows.length > 0 && cleanOvers.length > 0 ? (
                     <>
-                      <b className="font-medium text-ink">{pcs(wrongQty + overQty)}</b>{" "}
+                      <b className="font-medium text-ink">
+                        {pcs(wrongQty + overQty)}
+                      </b>{" "}
                       will be returned to the supplier
                       <span className="text-mute">
                         {` · ${count(wrongQty)} not as ordered, ${count(overQty)} extra`}
@@ -951,10 +983,12 @@ function Review({
                   ) : (
                     <>
                       <b className="font-medium text-ink">
-                        {pcs(wrongRows.length > 0 ? wrongQty + overQty : overQty)}
+                        {pcs(
+                          wrongRows.length > 0 ? wrongQty + overQty : overQty
+                        )}
                       </b>{" "}
-                      {wrongRows.length > 0 ? "not as ordered" : "extra"} will be
-                      returned to the supplier
+                      {wrongRows.length > 0 ? "not as ordered" : "extra"} will
+                      be returned to the supplier
                     </>
                   )}
                 </span>
@@ -1014,12 +1048,16 @@ function Review({
                   label="Close Short"
                   variant="soft"
                   tone="danger"
-                  title="Close this short?"
+                  title="Close This Short?"
                   description={`${pcs(shortQty)} will be removed from the order, and the PO completes as received. This can't be undone.`}
                   confirmLabel="Close Short"
+                  reason={{ label: "Reason for Closing" }}
                   disabled={unnamed || rows.length === 0 || accept.isPending}
                   pending={accept.isPending}
-                  onConfirm={() => accept.mutateAsync("close")}
+                  onConfirm={(reason) => {
+                    closeReason.current = reason
+                    return accept.mutateAsync("close")
+                  }}
                 />
                 <Button
                   variant="primary"
@@ -1182,8 +1220,7 @@ function InvoiceBlock({
   const priced = counts.filter((row) => row.unit_price_minor !== null)
   const agreedMinor = priced.reduce(
     (total, row) =>
-      total +
-      Math.min(correct(row), owed(row)) * (row.unit_price_minor ?? 0),
+      total + Math.min(correct(row), owed(row)) * (row.unit_price_minor ?? 0),
     0
   )
   const invoicedMinor = receipt?.invoice_total_minor ?? null
@@ -1259,7 +1296,7 @@ function InvoiceBlock({
           >
             <form.Field name="number">
               {(field) => (
-                <Field label="Invoice number" required>
+                <Field label="Invoice Number" required>
                   <Input
                     className="font-mono"
                     value={field.state.value}
@@ -1270,7 +1307,7 @@ function InvoiceBlock({
             </form.Field>
             <form.Field name="totalMinor">
               {(field) => (
-                <Field label="Invoice total">
+                <Field label="Invoice Total">
                   <Money
                     prefix="Rp"
                     value={field.state.value}
@@ -1281,7 +1318,7 @@ function InvoiceBlock({
             </form.Field>
             <form.Field name="date">
               {(field) => (
-                <Field label="Invoice date">
+                <Field label="Invoice Date">
                   <Input
                     type="date"
                     value={field.state.value}
@@ -1467,9 +1504,7 @@ async function closeRestShort(
       const want =
         line === undefined
           ? Number.POSITIVE_INFINITY
-          : line.ordered_quantity -
-            row.outstanding_stock_units +
-            correct(row)
+          : line.ordered_quantity - row.outstanding_stock_units + correct(row)
       const landed = line !== undefined && line.received_quantity >= want
       if (landed) {
         await closeLineShort(row.po_line_id, actor, reason)

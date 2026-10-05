@@ -318,7 +318,7 @@ export function ProfitAndLoss() {
     <PageContent>
       <PageHeader
         crumb="Reports"
-        title="Profit & loss"
+        title="Profit & Loss"
         sub="Summed from the journal at the moment you ask. Nothing here is stored."
         actions={UNIT_FILTER(unit, setUnit, () => setPrinting(true))}
       />
@@ -424,7 +424,7 @@ export function BalanceSheet() {
     <PageContent>
       <PageHeader
         crumb="Reports"
-        title="Balance sheet"
+        title="Balance Sheet"
         sub="Assets against what funds them, at the last posting date."
         actions={UNIT_FILTER(unit, setUnit, () => setPrinting(true))}
       />
@@ -591,7 +591,7 @@ export function CashFlow() {
     <PageContent>
       <PageHeader
         crumb="Reports"
-        title="Cash flow"
+        title="Cash Flow"
         sub="Direct method — what actually moved through the money accounts, and what for."
         actions={UNIT_FILTER(unit, setUnit, () => setPrinting(true))}
       />
@@ -789,7 +789,7 @@ export function TrialBalance() {
     <PageContent>
       <PageHeader
         crumb="Reports"
-        title="Trial balance"
+        title="Trial Balance"
         sub="Every account posted to, with both its totals."
       />
 
@@ -1035,7 +1035,7 @@ export function Consolidated() {
     <PageContent>
       <PageHeader
         crumb="Reports"
-        title="Unit / HO / consolidated"
+        title="Unit / HO / Consolidated"
         sub="Each book on its own, and the group after the interunit balances come out."
 
         actions={

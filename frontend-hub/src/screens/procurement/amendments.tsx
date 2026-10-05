@@ -180,7 +180,7 @@ export function PriceAmendments() {
     <PageContent>
       <PageHeader
         crumb="Procurement"
-        title="Price amendments"
+        title="Price Amendments"
         sub="Deliveries billed at a price the order does not carry, waiting on an answer."
         actions={
           <Input
@@ -192,10 +192,10 @@ export function PriceAmendments() {
       />
 
       <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
-        <Kpi label="Waiting on an answer" value={rows.length} />
-        <Kpi label="Billed above the order" value={over} />
+        <Kpi label="Waiting on an Answer" value={rows.length} />
+        <Kpi label="Billed Above the Order" value={over} />
         <Kpi
-          label="Net difference"
+          label="Net Difference"
           value={money(exposure)}
           delta={exposure > 0 ? "Against us" : "In our favour"}
           tone={exposure > 0 ? "down" : "up"}

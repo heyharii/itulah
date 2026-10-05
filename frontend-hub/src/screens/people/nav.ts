@@ -65,7 +65,7 @@ export const peopleNav: AppModule = {
           /// What is waiting on the caller: leave, corrections, swaps,
           /// overtime, claims and payroll decisions.
           path: "/people/overview",
-          label: "Overview & requests",
+          label: "Overview & Requests",
           icon: LayoutGrid,
           badge: "warn",
           useCount: usePeopleWaitingCount,
@@ -75,11 +75,11 @@ export const peopleNav: AppModule = {
     {
       label: "Employees",
       items: [
-        { path: "/people", label: "Employee list", icon: Users },
-        { path: "/people/org-chart", label: "Org chart", icon: Network },
+        { path: "/people", label: "Employee List", icon: Users },
+        { path: "/people/org-chart", label: "Org Chart", icon: Network },
         {
           path: "/people/changes",
-          label: "Transfers & changes",
+          label: "Transfers & Changes",
           icon: Repeat2,
           audience: "employer",
         },
@@ -99,12 +99,12 @@ export const peopleNav: AppModule = {
       items: [
         {
           path: "/people/leave",
-          label: "Time off requests",
+          label: "Time Off Requests",
           icon: CalendarOff,
         },
         {
           path: "/people/leave-balances",
-          label: "Time off balances",
+          label: "Time Off Balances",
           icon: Scale,
         },
         {
@@ -116,7 +116,7 @@ export const peopleNav: AppModule = {
         { path: "/people/roster", label: "Roster", icon: CalendarRange },
         {
           path: "/people/calendar",
-          label: "Team calendar",
+          label: "Team Calendar",
           icon: CalendarDays,
         },
       ],
@@ -133,7 +133,7 @@ export const peopleNav: AppModule = {
         },
         {
           path: "/people/claim-allowances",
-          label: "Claim allowances",
+          label: "Claim Allowances",
           icon: Wallet,
           audience: "employer",
         },
@@ -153,11 +153,11 @@ export const peopleNav: AppModule = {
     {
       label: "Payroll",
       items: [
-        { path: "/people/payroll", label: "Payroll runs", icon: Receipt },
+        { path: "/people/payroll", label: "Payroll Runs", icon: Receipt },
         { path: "/people/one-offs", label: "One-offs", icon: Coins },
         {
           path: "/people/tax-report",
-          label: "Tax & BPJS report",
+          label: "Tax & BPJS Report",
           icon: FileSpreadsheet,
           audience: "employer",
         },
@@ -185,7 +185,7 @@ export const peopleNav: AppModule = {
         },
         {
           path: "/people/settings/group",
-          label: "Group & business units",
+          label: "Group & Business Units",
           icon: Landmark,
           audience: "employer",
         },
@@ -197,7 +197,7 @@ export const peopleNav: AppModule = {
         },
         {
           path: "/people/settings/levels",
-          label: "Job levels & grades",
+          label: "Job Levels & Grades",
           icon: Gauge,
           audience: "employer",
         },
@@ -208,25 +208,25 @@ export const peopleNav: AppModule = {
       items: [
         {
           path: "/people/settings/attendance",
-          label: "Attendance rules",
+          label: "Attendance Rules",
           icon: Clock4,
           audience: "employer",
         },
         {
           path: "/people/settings/mobile",
-          label: "Mobile & locations",
+          label: "Mobile & Locations",
           icon: MapPin,
           audience: "employer",
         },
         {
           path: "/people/settings/shifts",
-          label: "Shifts & breaks",
+          label: "Shifts & Breaks",
           icon: Timer,
           audience: "employer",
         },
         {
           path: "/people/settings/leave-types",
-          label: "Time off types",
+          label: "Time Off Types",
           icon: CalendarOff,
           audience: "employer",
         },
@@ -238,7 +238,7 @@ export const peopleNav: AppModule = {
         },
         {
           path: "/people/settings/overtime",
-          label: "Overtime rules",
+          label: "Overtime Rules",
           icon: Hourglass,
           audience: "employer",
         },
@@ -249,13 +249,13 @@ export const peopleNav: AppModule = {
       items: [
         {
           path: "/people/settings/payroll-schedule",
-          label: "Schedule & pro-rate",
+          label: "Schedule & Pro-rate",
           icon: CalendarDays,
           audience: "employer",
         },
         {
           path: "/people/settings/components",
-          label: "Components & structures",
+          label: "Components & Structures",
           icon: ListChecks,
           audience: "employer",
         },
@@ -267,19 +267,19 @@ export const peopleNav: AppModule = {
         },
         {
           path: "/people/settings/absence",
-          label: "Absence deduction",
+          label: "Absence Deduction",
           icon: UserX,
           audience: "employer",
         },
         {
           path: "/people/settings/rates",
-          label: "BPJS & tax rates",
+          label: "BPJS & Tax Rates",
           icon: BadgePercent,
           audience: "employer",
         },
         {
           path: "/people/claim-types",
-          label: "Claim types",
+          label: "Claim Types",
           icon: ReceiptText,
           audience: "employer",
         },
@@ -296,25 +296,25 @@ export const peopleNav: AppModule = {
       items: [
         {
           path: "/people/job-roles",
-          label: "Job roles",
+          label: "Job Roles",
           icon: BadgeCheck,
           audience: "employer",
         },
         {
           path: "/people/settings/checklists",
-          label: "Onboarding tasks",
+          label: "Onboarding Tasks",
           icon: ClipboardCheck,
           audience: "employer",
         },
         {
           path: "/people/settings/delegation",
-          label: "Approval delegation",
+          label: "Approval Delegation",
           icon: Handshake,
           audience: "employer",
         },
         {
           path: "/people/settings/app",
-          label: "Employee app",
+          label: "Employee App",
           icon: Smartphone,
           audience: "employer",
         },

@@ -155,7 +155,7 @@ export function Ageing() {
     <PageContent>
       <PageHeader
         crumb="Finance final · Reports"
-        title="Payable &amp; Receivable ageing"
+        title="Payable &amp; Receivable Ageing"
         sub="Who we are late paying, and who is late paying us — both sides of the debt on one set of buckets."
       />
 

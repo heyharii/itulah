@@ -724,7 +724,7 @@ export function Depreciation() {
     <PageContent>
       <PageHeader
         crumb="Assets"
-        title="Depreciation & amortisation"
+        title="Depreciation & Amortisation"
         sub="Charged from the purchase date, which is what the client's own July entry proves."
         actions={
           <div className="flex items-center gap-2">
@@ -927,7 +927,7 @@ export function OeReplacement() {
     <PageContent>
       <PageHeader
         crumb="Assets"
-        title="OE replacement"
+        title="OE Replacement"
         sub="1021607 Cadangan Penggantian OE — described in the manual, never funded in the journal."
         actions={
           <div className="flex items-center gap-2">

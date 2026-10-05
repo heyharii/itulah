@@ -17,7 +17,7 @@ export function Periods() {
 
   return (
     <PageContent>
-      <PageHeader crumb="Finance" title="Period close" />
+      <PageHeader crumb="Finance" title="Period Close" />
       <Section title={`${periods.length} periods`}>
         <Table
           head={[

@@ -41,7 +41,7 @@ export function TeamCalendar() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Team calendar"
+        title="Team Calendar"
         sub="Who is away when, with the holidays and the dates closed to leave."
         actions={
           <div className="flex items-center gap-2">

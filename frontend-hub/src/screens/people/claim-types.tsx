@@ -47,7 +47,7 @@ export function ClaimTypesPage() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Claim types"
+        title="Claim Types"
         sub="The kinds of expense a claim may be filed against. Head office names them; a place picks from them."
         actions={
           canWrite && (

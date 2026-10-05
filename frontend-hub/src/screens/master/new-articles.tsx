@@ -8,7 +8,7 @@ import { SetupWorkspace } from "@/screens/procurement/setups"
 export function NewArticles() {
   return (
     <PageContent>
-      <PageHeader title="New articles" />
+      <PageHeader title="New Articles" />
       <SetupWorkspace />
     </PageContent>
   )

@@ -7,7 +7,7 @@ import { useShopName } from "@/components/operations/outbound-papers"
 import { Button } from "@/components/ui/button"
 import { Checkbox, Input, Select } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
+import { ErrorState, LoadingState } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { SHOW_MISSING } from "@/lib/features"
 import { ago, count } from "@/lib/format"
@@ -429,20 +429,6 @@ export function Board() {
     )
   }
 
-  if (
-    !received.isPending &&
-    [allPicks, allToPack, allSealed, allOnRoad, allArrived].every(
-      (list) => list.length === 0
-    )
-  ) {
-    return (
-      <PageContent fill>
-        <Header view={viewState} />
-        <EmptyState>Nothing going out.</EmptyState>
-      </PageContent>
-    )
-  }
-
   return (
     <PageContent fill>
       <Header actions={filters} view={viewState} />
@@ -453,7 +439,7 @@ export function Board() {
           <Lane
             id="to-pick"
             tone="bg-mute"
-            title="Pick list"
+            title="Pick List"
             pieces={sum(picks, (pick) => pick.pieces)}
             cards={picks.length}
           >
@@ -508,7 +494,7 @@ export function Board() {
               <div className="flex items-center justify-between gap-3">
                 <span>{count(sealed.length)} koli</span>
                 <Checkbox
-                  label="Select all"
+                  label="Select All"
                   checked={sealed.length > 0 && sealedPicked === sealed.length}
                   indeterminate={
                     sealedPicked > 0 && sealedPicked < sealed.length

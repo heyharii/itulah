@@ -137,25 +137,25 @@ export const financeNav: AppModule = {
       fold: true,
       items: [
         { path: "/finance/stores", label: "Overview", icon: Store },
-        { path: "/finance/stores/sales", label: "Sales by day", icon: Receipt },
+        { path: "/finance/stores/sales", label: "Sales by Day", icon: Receipt },
         {
           path: "/finance/stores/cash-on-hand",
-          label: "Cash on hand",
+          label: "Cash on Hand",
           icon: Banknote,
         },
         {
           path: "/finance/stores/petty-cash",
-          label: "Petty cash",
+          label: "Petty Cash",
           icon: Wallet,
         },
         {
           path: "/finance/stores/cashier-float",
-          label: "Cashier float",
+          label: "Cashier Float",
           icon: Coins,
         },
         {
           path: "/finance/stores/cash-counts",
-          label: "Cash counts",
+          label: "Cash Counts",
           icon: HandCoins,
         },
       ],
@@ -168,27 +168,27 @@ export const financeNav: AppModule = {
       items: [
         {
           path: "/finance/inventory/valuation",
-          label: "Inventory valuation",
+          label: "Inventory Valuation",
           icon: Boxes,
         },
         {
           path: "/finance/inventory/stock-vs-ledger",
-          label: "Stock vs ledger",
+          label: "Stock vs Ledger",
           icon: Scale,
         },
         {
           path: "/finance/inventory/goods-in-transit",
-          label: "Goods in transit",
+          label: "Goods in Transit",
           icon: Truck,
         },
         {
           path: "/finance/inventory/cogs",
-          label: "Cost of goods sold",
+          label: "Cost of Goods Sold",
           icon: Percent,
         },
         {
           path: "/finance/inventory/adjustments",
-          label: "Stock adjustments",
+          label: "Stock Adjustments",
           icon: SlidersHorizontal,
         },
       ],
@@ -240,7 +240,7 @@ export const financeNav: AppModule = {
         {
           path: "/finance/reports/accounts-payable-summary",
           // Was "AP Summary" (owner, 2026-10-01): everything owed, per supplier.
-          label: "Supplier bills",
+          label: "Supplier Bills",
           icon: Hourglass,
         },
         // Kartu Hutang: one supplier's movements with a running balance.
@@ -600,7 +600,7 @@ export const financeNav: AppModule = {
         // into assets at the end (owner, 2026-10-01).
         {
           path: "/finance/assets/contractor-projects",
-          label: "Contractor projects",
+          label: "Contractor Projects",
           icon: HardHat,
         },
         {

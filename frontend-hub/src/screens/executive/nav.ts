@@ -29,15 +29,15 @@ export const executiveNav: AppModule = {
     {
       items: [
         { path: "/executive", label: "Ringkasan", icon: LayoutDashboard },
-        { path: "/executive/stores", label: "Kinerja toko", icon: Store },
-        { path: "/executive/stock", label: "Barang & pembelian", icon: Boxes },
-        { path: "/executive/finance", label: "Kas & laba", icon: Wallet },
+        { path: "/executive/stores", label: "Kinerja Toko", icon: Store },
+        { path: "/executive/stock", label: "Barang & Pembelian", icon: Boxes },
+        { path: "/executive/finance", label: "Kas & Laba", icon: Wallet },
         {
           path: "/executive/customers",
-          label: "Pelanggan & promosi",
+          label: "Pelanggan & Promosi",
           icon: Megaphone,
         },
-        { path: "/executive/people", label: "Tim & aset", icon: Users },
+        { path: "/executive/people", label: "Tim & Aset", icon: Users },
       ],
     },
   ],

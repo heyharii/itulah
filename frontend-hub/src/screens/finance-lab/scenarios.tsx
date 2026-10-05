@@ -68,7 +68,7 @@ export function Scenarios() {
 
   return (
     <PageContent>
-      <PageHeader crumb="Finance" title="Acceptance scenarios" />
+      <PageHeader crumb="Finance" title="Acceptance Scenarios" />
 
       <div
         className={cn(

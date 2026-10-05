@@ -428,7 +428,7 @@ export function InTransit() {
     <PageContent>
       <PageHeader
         crumb="Inventory"
-        title="BDP / in transit"
+        title="BDP / in Transit"
         sub="Dispatched and not yet received. Valued at cost, owned by nobody's shop floor."
         actions={
           <div className="flex items-center gap-2">

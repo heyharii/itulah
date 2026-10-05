@@ -136,7 +136,11 @@ export function downloadOrdersPdf({
         .setFont("helvetica", "bold")
         .setFontSize(narrow ? 14 : 18)
       doc.text(
-        order.lifecycle === "CANCELLED" ? "CANCELLED" : "COMPLETED",
+        order.lifecycle === "CANCELLED"
+          ? "CANCELLED"
+          : order.lifecycle === "SHORT_RECEIVED"
+            ? "CLOSED SHORT"
+            : "FULLY RECEIVED",
         narrow ? pageW / 2 - 6 : pageW / 2 + 4,
         MARGIN + 11,
         { align: "center", angle: 6 }
@@ -344,7 +348,7 @@ export function downloadOrdersPdf({
         .setFontSize(SMALL)
         .setTextColor(...MUTE)
       doc.text(
-        `Discount per item: - ${money(Math.floor(discount / pieces))} / pc`,
+        `Discount per item: - ${money(Math.round(discount / pieces))} / pc`,
         MARGIN,
         y + 1
       )

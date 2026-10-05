@@ -492,7 +492,7 @@ export function InterunitDue() {
     <PageContent>
       <PageHeader
         crumb="Affiliation"
-        title="Due from / due to"
+        title="Due from / Due to"
         sub="One row per pair of units. Cash, goods, principal and other kept apart."
         actions={
           <div className="flex items-center gap-2">

@@ -208,7 +208,7 @@ export function GiroPrinting() {
     <PageContent>
       <style>{PRINT_CSS}</style>
       <PageHeader
-        title="Giro printing"
+        title="Giro Printing"
         sub="Where the words land on each bank's own leaf."
         actions={
           current && (

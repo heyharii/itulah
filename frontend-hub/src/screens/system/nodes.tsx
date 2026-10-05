@@ -428,7 +428,7 @@ export function Nodes({
     <PageContent>
       <PageHeader
         crumb="System"
-        title="Store servers"
+        title="Store Servers"
         sub="Every store server the centre has issued a key to, and how far behind it is."
         actions={actions}
       />

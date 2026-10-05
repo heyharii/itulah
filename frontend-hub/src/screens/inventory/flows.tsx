@@ -153,7 +153,7 @@ export function Flows() {
     <PageContent>
       <PageHeader
         crumb="Inventory"
-        title="Goods flows"
+        title="Goods Flows"
         sub="The stages each route of goods runs: who raises its plan, who does each stage, the proof and the deadline. What a stage means is fixed in the system; the order is set here."
         actions={
           isAdmin ? (

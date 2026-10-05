@@ -186,7 +186,7 @@ export function PackingLists() {
 
   return (
     <PageContent>
-      <PageHeader title="Packing lists" />
+      <PageHeader title="Packing Lists" />
       <SubTabs
         value={tab}
         onChange={(next) => setTab(next as Tab)}

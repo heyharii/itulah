@@ -86,7 +86,7 @@ export function BenefitPage() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Employee benefit"
+        title="Employee Benefit"
         sub="A rupiah balance each employee spends at the till with a code from their own app. Unused balance carries over."
         actions={
           canWrite && (

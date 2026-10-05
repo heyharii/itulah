@@ -34,7 +34,7 @@ export function noteStatus(row: Row): string {
   if (row.reference === null) return row.status
   if (row.handedOverAt !== null) return "Confirmed"
   if (row.noteAt !== null) return "Generated"
-  return "Not generated"
+  return "Not Generated"
 }
 
 /// The date of each order, by number, for the PO Date column.
@@ -148,7 +148,7 @@ const columns: ColumnDef<TableSetup, Dated>[] = [
       // Colour only where somebody has something to do: a return without its
       // note. Generated waits for the confirm; confirmed has finished.
       const tone =
-        status === "Not generated"
+        status === "Not Generated"
           ? "text-warn-fg"
           : status === "Confirmed"
             ? "text-body"

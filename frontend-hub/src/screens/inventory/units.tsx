@@ -51,7 +51,7 @@ export function Units() {
 
   return (
     <PageContent>
-      <PageHeader title="Satuan & conversions" />
+      <PageHeader title="Satuan & Conversions" />
       <p className="-mt-3 mb-5 max-w-[46rem] text-[0.875rem] leading-[1.375rem] text-body">
         Stock is kept in the main unit. A conversion says how many of the main
         unit one other unit is worth — one LUSIN is 12 PCS — so an order typed

@@ -127,7 +127,7 @@ export function LabAssets() {
     <PageContent>
       <PageHeader
         crumb="Assets"
-        title="Asset register"
+        title="Asset Register"
         sub="Everything the business owns, what it cost, and what it is worth now."
         actions={
           <div className="flex items-center gap-2">

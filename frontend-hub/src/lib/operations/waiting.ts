@@ -8,9 +8,11 @@ import { keys } from "@/lib/operations/keys"
 ///
 /// Work arrives at a warehouse from head office and from the other people on
 /// the floor, so a screen left open on a bay must notice a new job without
-/// anybody reloading it. Thirty seconds is the interval the app this replaces
-/// settled on and nobody complained about.
-const POLL_MS = 30_000
+/// anybody reloading it. A minute: nine questions every thirty seconds, from
+/// every page, was most of what an idle tab asked the server (2026-10-05) —
+/// and the screens themselves refresh their own lists and push the badge when
+/// they change something.
+const POLL_MS = 60_000
 
 /// What is waiting, per station — the badges on the rail and the sidebar.
 ///

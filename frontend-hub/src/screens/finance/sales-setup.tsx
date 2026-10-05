@@ -107,7 +107,7 @@ export function SalesSetup() {
     <PageContent>
       <PageHeader
         crumb="Finance · Setup"
-        title="Sales & banks"
+        title="Sales & Banks"
         sub="EDC terminals, MDR rates, tolerances, and adding a bank"
       />
       <div className="grid gap-4 lg:grid-cols-2">

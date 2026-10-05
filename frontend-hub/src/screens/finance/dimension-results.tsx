@@ -60,7 +60,7 @@ export function DimensionResults() {
     <PageContent>
       <PageHeader
         crumb="Finance · Reports"
-        title="Dimension results"
+        title="Dimension Results"
         sub="The profit and loss cut by one accounting dimension. Lines with no value are one row, so the rows add up to the whole."
       />
 

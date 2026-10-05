@@ -59,7 +59,7 @@ export function TimeOffBalances() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Leave balances"
+        title="Leave Balances"
         sub="What each person has left per kind of leave. Open one to see it, correct it or pay days out."
       />
 

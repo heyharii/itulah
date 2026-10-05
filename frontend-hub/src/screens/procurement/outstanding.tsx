@@ -196,9 +196,9 @@ export function Outstanding() {
       />
 
       <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
-        <Kpi label="Orders behind" value={count(rows.length)} />
-        <Kpi label="Suppliers to chase" value={count(suppliers)} />
-        <Kpi label="Units still owed" value={count(units)} />
+        <Kpi label="Orders Behind" value={count(rows.length)} />
+        <Kpi label="Suppliers to Chase" value={count(suppliers)} />
+        <Kpi label="Units Still Owed" value={count(units)} />
       </KpiStrip>
 
       <Toolbar>
@@ -325,7 +325,7 @@ function ChaseSheet({
                     they were accepted at. Not a payable: nothing has validated
                     it and nothing is in the ledger until Finance matches a
                     supplier bill against it. */}
-                <Fact term="Expected value">
+                <Fact term="Expected Value">
                   {money(order.expected_value_minor)}
                 </Fact>
                 <Fact term="Created By">{nameOfLogin(order.created_by)}</Fact>

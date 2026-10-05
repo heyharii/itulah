@@ -120,7 +120,7 @@ export function InventoryValuationScreen() {
     <PageContent>
       <PageHeader
         crumb="Finance · Inventory"
-        title="Inventory valuation"
+        title="Inventory Valuation"
         sub="What the stock is worth: every piece on hand × the price it was bought at."
       />
       <div className="flex items-start gap-6">
@@ -425,7 +425,7 @@ export function StockVsLedger() {
     <PageContent>
       <PageHeader
         crumb="Finance · Inventory"
-        title="Stock vs ledger"
+        title="Stock vs Ledger"
         sub="Each unit's stock at cost against its inventory account (1029), and goods on the road against 1031."
       />
       {result.isPending ? (

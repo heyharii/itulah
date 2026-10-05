@@ -43,7 +43,7 @@ export function OrgChart() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Org chart"
+        title="Org Chart"
         sub="Who reports to whom, by department and level."
         actions={
           <>

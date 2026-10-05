@@ -657,15 +657,21 @@
     }
   }
 
-  /* Scrollbars are chrome, and chrome in this system is pale. */
+  /* Scrollbars are chrome, and chrome in this system is pale — but not so
+     pale that nobody sees the page scrolls: the client could not find the
+     handle (2026-10-05), a 4px #eee thumb on a #f6f6f7 canvas. Now 8px of
+     mid grey, darker under the pointer. */
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
   }
   ::-webkit-scrollbar-thumb {
-    background: #eeeeee;
+    background: #c3c7cd;
     border-radius: 8px;
-    border: 3px solid var(--canvas);
+    border: 2px solid var(--canvas);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #9aa0a9;
   }
   ::-webkit-scrollbar-track {
     background: transparent;

@@ -85,22 +85,22 @@ export const salesNav: AppModule = {
         },
         {
           path: "/sales/by-store",
-          label: "Sales by store",
+          label: "Sales by Store",
           icon: Store,
         },
         {
           path: "/sales/by-division",
-          label: "Sales by division",
+          label: "Sales by Division",
           icon: FolderTree,
         },
         {
           path: "/sales/by-tag",
-          label: "Sales by tag",
+          label: "Sales by Tag",
           icon: Tags,
         },
         {
           path: "/sales/by-article",
-          label: "Sales by article",
+          label: "Sales by Article",
           icon: Shirt,
         },
         {
@@ -115,24 +115,24 @@ export const salesNav: AppModule = {
         },
         {
           path: "/sales/by-supplier",
-          label: "Sales by supplier",
+          label: "Sales by Supplier",
           icon: Truck,
         },
         {
           path: "/sales/by-campaign",
-          label: "Sales by campaign",
+          label: "Sales by Campaign",
           icon: Megaphone,
         },
         {
           path: "/sales/by-payment",
-          label: "Sales by payment",
+          label: "Sales by Payment",
           icon: CreditCard,
         },
         {
           // One cashier at one seat, drawer open to drawer counted (owner,
           // 2026-10-01: "sales by session kasir harusnya ada").
           path: "/sales/by-session",
-          label: "Sales by cashier session",
+          label: "Sales by Cashier Session",
           icon: Clock,
         },
         {
@@ -141,7 +141,7 @@ export const salesNav: AppModule = {
           // usual question; this stays for the trend and the Gaining/Losing
           // ground ranking.
           path: "/sales/analytics",
-          label: "Store analytics",
+          label: "Store Analytics",
           icon: LineChart,
           moved: ["/storeops/sales-analysis"],
           more: true,
@@ -162,7 +162,7 @@ export const salesNav: AppModule = {
         },
         {
           path: "/sales/overview",
-          label: "Shop floor",
+          label: "Shop Floor",
           icon: Gauge,
           moved: ["/storeops"],
           more: true,

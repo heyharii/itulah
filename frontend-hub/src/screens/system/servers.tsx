@@ -53,7 +53,7 @@ export function StoreServers() {
     <PageContent>
       <PageHeader
         crumb="System"
-        title="Store servers"
+        title="Store Servers"
         sub="Every shop's own machine: whether it is up, whether data is moving, and what to do about it."
         actions={
           // On the page, not inside one tab: installing a server is the

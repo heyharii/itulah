@@ -196,7 +196,7 @@ export const operationsNav: AppModule = {
         /// A store's return, from the road to the return pool.
         {
           path: "/operations/board/returns",
-          label: "Return from store",
+          label: "Return from Store",
           icon: Store,
           useCount: useFromStore,
           badge: "warn",
@@ -205,14 +205,14 @@ export const operationsNav: AppModule = {
         /// no longer a tab of the board.
         {
           path: "/operations/board/suppliers",
-          label: "Return to supplier",
+          label: "Return to Supplier",
           icon: Undo2,
           useCount: useToSuppliers,
           badge: "warn",
         },
         {
           path: "/operations/activity",
-          label: "Activity log",
+          label: "Activity Log",
           icon: History,
         },
       ],
@@ -241,7 +241,7 @@ export const operationsNav: AppModule = {
         /// One per sealed carton — the paper that prints when it is sealed.
         {
           path: "/operations/packing-lists",
-          label: "Packing lists",
+          label: "Packing Lists",
           icon: ClipboardList,
           more: true,
         },
@@ -281,7 +281,7 @@ export const operationsNav: AppModule = {
         },
         {
           path: "/operations/stock/articles",
-          label: "Stock by article",
+          label: "Stock by Article",
           icon: PackageSearch,
           more: true,
         },
@@ -293,7 +293,7 @@ export const operationsNav: AppModule = {
         },
         {
           path: "/operations/ledger",
-          label: "Stock ledger",
+          label: "Stock Ledger",
           icon: BookOpen,
           more: true,
         },

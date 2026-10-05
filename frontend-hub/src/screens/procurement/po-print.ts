@@ -119,10 +119,11 @@ export function purchaseOrdersHtml({
     const stamp =
       order.lifecycle === "CANCELLED"
         ? { word: "CANCELLED", tone: "bad" }
-        : order.lifecycle === "FULLY_RECEIVED" ||
-            order.lifecycle === "SHORT_RECEIVED"
-          ? { word: "COMPLETED", tone: "ok" }
-          : null
+        : order.lifecycle === "FULLY_RECEIVED"
+          ? { word: "FULLY RECEIVED", tone: "ok" }
+          : order.lifecycle === "SHORT_RECEIVED"
+            ? { word: "CLOSED SHORT", tone: "ok" }
+            : null
     const values = order.lines.map((line) =>
       lineValue(line, received ? line.received_quantity : line.ordered_quantity)
     )
@@ -235,7 +236,7 @@ ${stamp === null ? "" : `<div class="stamp ${stamp.tone}">${stamp.word}</div>`}
   <tbody>${rows}</tbody>
 </table>
 
-${discount > 0 && pieces > 0 ? `<div class="sub" style="margin-top:3px">Discount per item: − ${money(Math.floor(discount / pieces))} / pc</div>` : ""}
+${discount > 0 && pieces > 0 ? `<div class="sub" style="margin-top:3px">Discount per item: − ${money(Math.round(discount / pieces))} / pc</div>` : ""}
 
 <table class="totals">
   <tr><td>Total Quantity</td><td>${received ? `${count(arrived)} of ${count(pieces)} pcs` : `${count(pieces)} pcs`}</td></tr>

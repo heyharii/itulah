@@ -46,7 +46,7 @@ export function Dimensions() {
     <PageContent>
       <PageHeader
         crumb="Finance · Setup"
-        title="Accounting dimensions"
+        title="Accounting Dimensions"
         sub="What a journal line can be cut by besides its unit, which values it takes, and where naming one is required."
         actions={
           <Button variant="primary" onClick={() => setEditing("new")}>

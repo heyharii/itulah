@@ -60,7 +60,7 @@ export function ChartOfAccounts() {
     <PageContent>
       <PageHeader
         crumb="Accounting & close"
-        title="Chart of accounts"
+        title="Chart of Accounts"
         sub="The client's own chart, as exported. Nothing here is ours to rename."
       />
 
@@ -201,7 +201,7 @@ export function AccountMap() {
 
   return (
     <PageContent>
-      <PageHeader crumb="Finance" title="Account map" />
+      <PageHeader crumb="Finance" title="Account Map" />
       <Section
         title={`${rows.length} pemetaan`}
         right={
@@ -254,7 +254,7 @@ export function AccountMap() {
 export function BankAccounts() {
   return (
     <PageContent>
-      <PageHeader crumb="Finance" title="Bank accounts" />
+      <PageHeader crumb="Finance" title="Bank Accounts" />
       <Section title={`${count(BANK_ACCOUNTS.length, "account")}`}>
         <Table
           head={[

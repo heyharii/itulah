@@ -40,7 +40,7 @@ export function GroupSettings() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Group & business units"
+        title="Group & Business Units"
         sub="The companies around this one, and the lines of business its units belong to."
         actions={
           canWrite && (

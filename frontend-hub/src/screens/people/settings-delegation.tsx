@@ -14,7 +14,7 @@ export function DelegationSettings() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Approval delegation"
+        title="Approval Delegation"
         sub="Who decides leave, claims and corrections in someone else's place, and for how long."
         actions={
           canWrite && (

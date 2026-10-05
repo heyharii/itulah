@@ -263,7 +263,7 @@ export function SalesReconciliation() {
     <PageContent>
       <PageHeader
         crumb="Finance · Receivables"
-        title="Sales reconciliation"
+        title="Sales Reconciliation"
         sub="What the till says was taken, what the drawer held, and what the bank says arrived — and which of the gaps between them is explained."
       />
 

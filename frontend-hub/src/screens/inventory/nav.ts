@@ -138,7 +138,7 @@ export const inventoryNav: AppModule = {
         },
         {
           path: "/inventory/time-machine",
-          label: "Time machine",
+          label: "Time Machine",
           icon: History,
           hidden: true,
         },

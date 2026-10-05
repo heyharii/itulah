@@ -48,7 +48,7 @@ export function LevelSettings() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Levels & grades"
+        title="Levels & Grades"
         sub="The ranks people are placed on, and the pay band on each."
         actions={
           canWrite && (

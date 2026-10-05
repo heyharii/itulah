@@ -197,7 +197,7 @@ export const PO_STATUS: Readonly<
 > = {
   ACTIVE: { label: "Active", tone: "ok" },
   PARTIALLY_RECEIVED: { label: "Partially received", tone: "info" },
-  SHORT_RECEIVED: { label: "Completed", tone: "done" },
+  SHORT_RECEIVED: { label: "Closed short", tone: "done" },
   FULLY_RECEIVED: { label: "Fully received", tone: "done" },
   CANCELLED: { label: "Cancelled", tone: "neutral" },
 }
@@ -214,7 +214,7 @@ export function pcs(quantity: number): string {
 /// What an order's terms and conditions say when nobody wrote anything else.
 /// Printed under the notes, in Indonesian, on every purchase order.
 export const DEFAULT_TERMS =
-  "Penerimaan barang hari Senin–Sabtu pukul 08.00–15.00, istirahat pukul 12.00–13.00. Khusus hari Jumat, istirahat pukul 11.30–13.00."
+  "Goods are received Monday to Saturday, 08:00–15:00, with a break from 12:00 to 13:00. On Fridays the break is from 11:30 to 13:00."
 
 /// What `pieces` of a line come to, in whole rupiah, by the one rule: pieces
 /// times the price as agreed (per dozen, per kodi or per piece) over the pieces
@@ -310,7 +310,10 @@ export function useFitHidden(
     size?: number
     meta?: unknown
   }>,
-  visibility: Readonly<Record<string, boolean>>
+  visibility: Readonly<Record<string, boolean>>,
+  /// Columns the reader has touched in the View menu: theirs, never given up
+  /// for room. The table may then scroll sideways, which is what they asked for.
+  pinned: ReadonlySet<string> = new Set()
 ): {
   ref: (node: HTMLElement | null) => void
   hidden: Record<string, boolean>
@@ -358,7 +361,7 @@ export function useFitHidden(
     const shown = leaves.filter((one) => visibility[one.id] !== false)
     let total = shown.reduce((sum, one) => sum + one.size, 0)
     const order = shown
-      .filter((one) => one.priority > 1)
+      .filter((one) => one.priority > 1 && !pinned.has(one.id))
       .sort((a, b) => b.priority - a.priority || b.index - a.index)
     for (const one of order) {
       if (total <= width - 2) break
@@ -398,4 +401,39 @@ export function flattenSingles<
         : column.header
     return { ...only, header }
   })
+}
+
+/// The View menu's column switches, with the room the card has taken into
+/// account: what the reader switched stays as they set it, and any other
+/// low-priority column the card has no room for is left out (`useFitHidden`).
+///
+/// The menu is drawn from `shown`, so a column the card gave up reads as off,
+/// and one press turns it on — and pins it. Without the pin, a column switched
+/// on was given up again on the next measure and the switch did nothing (a
+/// tester tried four columns at laptop width).
+export function useFittedVisibility(
+  columns: Parameters<typeof useFitHidden>[0],
+  initial: Record<string, boolean>
+) {
+  const [visibility, setVisibility] = useState<Record<string, boolean>>(initial)
+  const [pinned, setPinned] = useState<ReadonlySet<string>>(new Set())
+  const fit = useFitHidden(columns, visibility, pinned)
+  const shown = { ...visibility, ...fit.hidden }
+  const change = (
+    next:
+      | Record<string, boolean>
+      | ((was: Record<string, boolean>) => Record<string, boolean>)
+  ) => {
+    const resolved = typeof next === "function" ? next(shown) : next
+    const touched = Object.keys(resolved).filter(
+      (id) => (resolved[id] ?? true) !== (shown[id] ?? true)
+    )
+    if (touched.length === 0) return
+    setVisibility((was) => ({
+      ...was,
+      ...Object.fromEntries(touched.map((id) => [id, resolved[id] ?? true])),
+    }))
+    setPinned((was) => new Set([...was, ...touched]))
+  }
+  return { visibility, shown, change, ref: fit.ref, hidden: fit.hidden }
 }

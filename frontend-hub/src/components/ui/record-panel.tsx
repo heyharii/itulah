@@ -38,8 +38,13 @@ export function RecordPanel({
   const info = useQuery({
     queryKey: recordKeys.info(subject.kind, subject.id),
     queryFn: ({ signal }) => recordInfo(subject.kind, subject.id, signal),
-    // A record's surroundings do not change while you are reading them.
-    staleTime: 30_000,
+    // A record changes under an open sheet — a count lands, an order is
+    // received — and its activity must say so: asked again on every open and
+    // every fifteen seconds while the sheet is up (a tester saw "1 · created
+    // this order" beside ten events).
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchInterval: 15_000,
   })
 
   if (info.isPending) {

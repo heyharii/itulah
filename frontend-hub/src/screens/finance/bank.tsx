@@ -325,7 +325,7 @@ export function BankReconciliation() {
     <PageContent>
       <PageHeader
         crumb="Finance"
-        title="Cash & bank"
+        title="Cash & Bank"
         sub="Every place money sits, what the books say, and what the bank last said."
         actions={
           <>

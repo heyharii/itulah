@@ -55,7 +55,7 @@ export function PayComponentSettings() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Salary structures & components"
+        title="Salary Structures & Components"
         sub="The named pay packages an agreement is filled from, and the components a payslip may carry."
         actions={
           canWrite && (

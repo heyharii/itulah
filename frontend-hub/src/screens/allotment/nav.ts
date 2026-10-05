@@ -63,7 +63,7 @@ export const allotmentNav: AppModule = {
         },
         {
           path: "/allotment/new",
-          label: "New allotment",
+          label: "New Allotment",
           icon: Grid3x3,
           hidden: true,
         },

@@ -59,7 +59,7 @@ export function PayComponents() {
     <PageContent>
       <PageHeader
         crumb="Finance · Setup"
-        title="Pay components"
+        title="Pay Components"
         sub="How each component HR pays posts, and the account it lands on. The account is an account link with the component as its source."
         actions={
           <Input

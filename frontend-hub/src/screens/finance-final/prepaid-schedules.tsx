@@ -86,7 +86,7 @@ export function PrepaidSchedules() {
     <PageContent>
       <PageHeader
         crumb="Finance"
-        title="Biaya dibayar dimuka"
+        title="Biaya Dibayar Dimuka"
         sub="Jadwal, dan bulan-bulan yang sudah diambil dari padanya."
         actions={
           <div className="flex items-center gap-2">

@@ -75,7 +75,7 @@ export function RateSettings() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Tax & BPJS rates"
+        title="Tax & BPJS Rates"
         sub="The BPJS rates head office states from a date, and the tax tables of the law payslips are checked against."
         actions={
           canWrite && (

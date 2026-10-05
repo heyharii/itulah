@@ -35,7 +35,7 @@ export function AnnualTaxPage() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Annual tax"
+        title="Annual Tax"
         sub="Each person's 1721-A1 for the year. A year is settled once its last month has been paid."
         actions={
           <Button

@@ -88,7 +88,7 @@ export function ExpensesOverview() {
     <PageContent>
       <PageHeader
         crumb="Finance"
-        title="Expenses & bills"
+        title="Expenses & Bills"
         sub="What we owe, what we spent, and what is still waiting on somebody."
       />
 

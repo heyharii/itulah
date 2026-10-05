@@ -56,7 +56,7 @@ export function AbsenceSettings() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Absence deduction"
+        title="Absence Deduction"
         sub="What a day absent costs on a payslip. Each payslip counts absences either way; the rule decides whether they cost anything."
         actions={
           canWrite && (

@@ -119,7 +119,7 @@ export function Financing() {
       )}
 
       <PageHeader
-        title="Owners & investors"
+        title="Owners & Investors"
         sub="Capital paid in, drawings, and loans from the owners."
       />
       {owners.isPending ? (

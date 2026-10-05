@@ -655,7 +655,7 @@ export function SetupWorkspace() {
         onOpenChange={(open) => {
           if (!open) setPending(null)
         }}
-        title="Discard this draft?"
+        title="Discard This Draft?"
         confirm="Discard"
         cancel="Keep editing"
         tone="danger"
@@ -1367,12 +1367,12 @@ function SessionRecord({
                       .map((tag) => termLabel(vocabulary.data?.tags, tag))
                       .join(" · ")}
               </Fact>
-              <Fact term="Article code">
+              <Fact term="Article Code">
                 <span className="font-mono text-id">
                   {session.article_code}
                 </span>
               </Fact>
-              <Fact term="Base price">
+              <Fact term="Base Price">
                 {session.variants.length === 0
                   ? "—"
                   : baseMin === baseMax
@@ -2798,7 +2798,7 @@ function SessionComposer({
         </Field>
 
         <Field
-          label="Base price"
+          label="Base Price"
           required
           problem={
             baseTooLow
@@ -2900,7 +2900,7 @@ function SessionComposer({
               onChange={(next) =>
                 setChosenColours(next.slice(0, COLOURWAY_CEILING))
               }
-              label="The colours that arrived"
+              label="The Colours That Arrived"
               leading={(code) => (
                 <ColourSwatch hex={colourNamed.get(code)?.hex_code ?? null} />
               )}
@@ -2920,7 +2920,7 @@ function SessionComposer({
               choices={sizeChoices}
               values={chosenSizes}
               onChange={setChosenSizes}
-              label="The sizes that arrived"
+              label="The Sizes That Arrived"
             />
           </Field>
         </div>

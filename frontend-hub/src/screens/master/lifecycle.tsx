@@ -145,8 +145,8 @@ export function MasterLifecycle({
             {change.isPending
               ? "Saving…"
               : active
-                ? `Cancel this ${subject}`
-                : `Restore this ${subject}`}
+                ? `Cancel This ${subject.charAt(0).toUpperCase()}${subject.slice(1)}`
+                : `Restore This ${subject.charAt(0).toUpperCase()}${subject.slice(1)}`}
           </Button>
 
           {deletable &&
@@ -157,7 +157,7 @@ export function MasterLifecycle({
                   pending={remove.isPending}
                   onClick={() => remove.mutate()}
                 >
-                  {remove.isPending ? "Deleting…" : "Delete permanently"}
+                  {remove.isPending ? "Deleting…" : "Delete Permanently"}
                 </Button>
                 <Button variant="quiet" onClick={() => setConfirming(false)}>
                   Cancel

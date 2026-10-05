@@ -643,7 +643,7 @@ export function AccrualsDeferrals() {
     <PageContent>
       <PageHeader
         crumb="Accounting & close"
-        title="Accruals & deferrals"
+        title="Accruals & Deferrals"
         sub="Every accrual and every deferral, whichever domain raised it. Read here, worked there."
 
         actions={
@@ -822,7 +822,7 @@ export function Provisions() {
     <PageContent>
       <PageHeader
         crumb="Accounting & close"
-        title="Provisions & reserves"
+        title="Provisions & Reserves"
         sub="What is set aside — and, just as usefully, what is described but never funded."
 
         actions={

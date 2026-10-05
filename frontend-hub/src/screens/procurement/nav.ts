@@ -81,7 +81,7 @@ export const procurementNav: AppModule = {
       items: [
         {
           path: "/procurement/orders",
-          label: "Purchase orders",
+          label: "Purchase Orders",
           icon: ClipboardList,
           // Orders whose count is waiting for the buyer's review.
           useCount: useOrdersAwaitingReview,
@@ -111,7 +111,7 @@ export const procurementNav: AppModule = {
           // with Operations' own returns rows. Pre-filters the allotment book
           // to `RETURN_TO_SUPPLIER` — see `screens/allotment/returns.tsx`.
           path: "/procurement/returns",
-          label: "Return to supplier",
+          label: "Return PO",
           icon: Undo2,
           // Returns to a supplier that are still open.
           useCount: useOpenReturns,
@@ -136,7 +136,7 @@ export const procurementNav: AppModule = {
         },
         {
           path: "/procurement/amendments",
-          label: "Price amendments",
+          label: "Price Amendments",
           icon: Percent,
           hidden: true,
         },

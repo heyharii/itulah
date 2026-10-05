@@ -86,9 +86,12 @@ export function SuppliersBoard() {
       ...register.all,
       ...edge
         .filter((one) => !known.has(one.return_id))
-        .map((one) => fromEdge(one, supplierName)),
+        .map((one) =>
+          fromEdge(one, supplierName, (login) => titled(nameOfLogin(login)))
+        ),
     ]
-  }, [register.all, edge, supplierName])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [register.all, edge, supplierName, nameOfLogin])
 
   const groups = useMemo(() => {
     const needle = typed.trim().toLowerCase()
@@ -297,7 +300,8 @@ export function SuppliersBoard() {
 /// moment head office's register has not got it yet.
 function fromEdge(
   row: PurchaseReturnWork,
-  supplierName: ReturnType<typeof useSupplierName>
+  supplierName: ReturnType<typeof useSupplierName>,
+  person: (login: string) => string
 ): Row {
   const open = row.status === "OPEN"
   return {
@@ -316,7 +320,7 @@ function fromEdge(
     tone: open ? "neutral" : "done",
     open,
     raisedAt: row.received_at,
-    raisedBy: row.raised_by,
+    raisedBy: person(row.raised_by),
     handedOverAt: row.handed_over_at,
     lines: row.lines.map((line) => ({
       sku: line.article_code,

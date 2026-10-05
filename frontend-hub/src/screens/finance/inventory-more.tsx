@@ -81,7 +81,7 @@ export function GoodsInTransitScreen() {
     <PageContent>
       <PageHeader
         crumb="Finance · Inventory"
-        title="Goods in transit"
+        title="Goods in Transit"
         sub="BDP (1031): goods head office has sent and the shop has not counted in yet."
       />
       {result.isPending ? (
@@ -258,7 +258,7 @@ export function CogsScreen() {
     <PageContent>
       <PageHeader
         crumb="Finance · Inventory"
-        title="Cost of goods sold"
+        title="Cost of Goods Sold"
         sub="What the stock that was sold cost, against what it sold for — per month and per unit."
       />
       <div className="flex items-start gap-6">
@@ -374,7 +374,7 @@ export function StockAdjustmentsScreen() {
     <PageContent>
       <PageHeader
         crumb="Finance · Inventory"
-        title="Stock adjustments"
+        title="Stock Adjustments"
         sub="Stock value that changed for any reason other than buying, moving or selling: counts, losses, write-offs."
       />
       {result.isPending ? (

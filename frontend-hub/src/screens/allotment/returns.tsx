@@ -161,7 +161,7 @@ function NewReturn({
   return (
     <PageContent>
       <PageHeader
-        title="New return"
+        title="New Return"
         actions={
           <Button variant="quiet" onClick={onDone}>
             Back

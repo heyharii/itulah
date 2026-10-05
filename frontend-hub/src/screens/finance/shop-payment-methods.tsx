@@ -82,7 +82,7 @@ export function ShopPaymentMethods() {
     <PageContent>
       <PageHeader
         crumb="Finance · Setup"
-        title="Shop payment methods"
+        title="Shop Payment Methods"
         sub="Which of the company's payment methods each shop takes. The shop's tills show only these, and refuse a sale paid any other way."
         actions={
           <Input

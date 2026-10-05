@@ -254,7 +254,7 @@ export function Reconciliations() {
     <PageContent>
       <PageHeader
         crumb="Inventory"
-        title="Claim reconciliation"
+        title="Claim Reconciliation"
         sub="Every tag a DC says it sent, against every tag a store says it received."
       />
 

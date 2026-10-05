@@ -58,7 +58,7 @@ export const maintenanceNav: AppModule = {
 /// because its home is the longer match.
 export const serviceScheduleNav: AppModule = {
   id: "maintenance-schedule",
-  label: "Service schedule",
+  label: "Service Schedule",
   icon: CalendarClock,
   home: "/maintenance/schedule",
   sections: [
@@ -66,7 +66,7 @@ export const serviceScheduleNav: AppModule = {
       items: [
         {
           path: "/maintenance/schedule",
-          label: "Service schedule",
+          label: "Service Schedule",
           icon: CalendarClock,
         },
       ],

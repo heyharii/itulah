@@ -125,7 +125,7 @@ export function TimeMachine() {
     <PageContent>
       <PageHeader
         crumb="Inventory"
-        title="Time machine"
+        title="Time Machine"
         sub="Fold the ledger to any point, and find the exact event where two accounts of it part."
       />
 

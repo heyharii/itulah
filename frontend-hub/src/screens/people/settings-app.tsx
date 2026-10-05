@@ -13,7 +13,7 @@ export function EmployeeAppSettings() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Employee app"
+        title="Employee App"
         sub="Which parts of the employee app are switched on."
         actions={
           canWrite && (

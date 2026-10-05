@@ -173,7 +173,7 @@ export function CataloguePicker({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      title="Add from the catalogue"
+      title="Add from the Catalogue"
       id={supplierName === "" ? undefined : supplierName}
       width="wide"
       // `md:`, not a bare width — see the same note on the composer. A plain

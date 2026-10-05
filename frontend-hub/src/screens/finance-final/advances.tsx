@@ -77,7 +77,7 @@ export function Advances() {
     <PageContent>
       <PageHeader
         crumb="Finance"
-        title="Uang muka"
+        title="Uang Muka"
         sub="Perjalanan, kontraktor, dan keperluan yang belum ada tagihannya."
       />
 

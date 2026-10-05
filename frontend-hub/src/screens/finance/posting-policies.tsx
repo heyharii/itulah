@@ -63,7 +63,7 @@ export function PostingPolicies() {
     <PageContent>
       <PageHeader
         crumb="Finance · Settings"
-        title="Posting policies"
+        title="Posting Policies"
         sub="Whether automatic posting runs, which documents may reach which account, and which accounts belong to head office alone."
       />
       <SubTabs

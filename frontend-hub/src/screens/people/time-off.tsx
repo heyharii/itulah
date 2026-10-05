@@ -194,7 +194,7 @@ export function TimeOffRequests() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Time off"
+        title="Time Off"
         sub="Leave requests — what is waiting on a decision, and who is away in a month."
         actions={
           <Button variant="primary" onClick={() => setFiling(true)}>

@@ -413,7 +413,7 @@ function UploadStep({
   if (drafts.length === 0 && reports.length > 0) {
     return (
       <div className="flex flex-col gap-4">
-        <Section title="Hasil baca">
+        <Section title="Hasil Baca">
           <div className="flex flex-col gap-2">
             {reports.map((report, index) => (
               <div
@@ -672,7 +672,7 @@ function WizardStep({
 
   return (
     <div className="flex flex-col gap-5">
-      <Section title="Lengkapi data yang belum jelas">
+      <Section title="Lengkapi Data Yang Belum Jelas">
         <p className="-mt-2 mb-3 text-[0.875rem] text-mute">
           {draft.source_files.join(", ")} · {draft.parser_note ?? draft.parser}
         </p>

@@ -122,7 +122,7 @@ function ProjectList({ onOpen }: { onOpen: (id: string) => void }) {
     <PageContent>
       <PageHeader
         crumb="Finance · Assets"
-        title="Contractor projects"
+        title="Contractor Projects"
         sub="Work paid for ahead and invoiced over months, split into assets when it is done."
         actions={
           <Button variant="primary" onClick={() => setCreating(true)}>

@@ -97,7 +97,7 @@ export function Schedule() {
     <PageContent>
       <PageHeader
         crumb="GA"
-        title="Service schedule"
+        title="Service Schedule"
         sub="Set up recurring service and record inspection results. A finding can be carried forward as a repair."
         actions={
           <>

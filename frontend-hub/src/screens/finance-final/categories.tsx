@@ -57,7 +57,7 @@ export function LineCategories() {
     <PageContent>
       <PageHeader
         crumb="Finance"
-        title="Kategori baris"
+        title="Kategori Baris"
         sub="Apa yang dulu membedakan dua kode akun, sekarang dipilih di baris jurnal."
       />
 

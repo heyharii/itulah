@@ -66,7 +66,7 @@ export function Rules() {
 
   return (
     <PageContent>
-      <PageHeader crumb="Accounting & close" title="Schedules & rules" />
+      <PageHeader crumb="Accounting & close" title="Schedules & Rules" />
 
       <Section title="New rule">
         <div className="flex flex-wrap items-end gap-3">

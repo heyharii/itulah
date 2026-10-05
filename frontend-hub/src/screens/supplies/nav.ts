@@ -28,7 +28,7 @@ import type { AppModule } from "@/lib/navigation"
 /// See the stage report for what is still open.
 export const gaSuppliesNav: AppModule = {
   id: "ga-supplies",
-  label: "Supply requests",
+  label: "Supply Requests",
   icon: Package,
   home: "/supplies",
   // First of the day-to-day work, under the overview (owner, 2026-09-27).
@@ -38,7 +38,7 @@ export const gaSuppliesNav: AppModule = {
   // and the seven categories are cards in the form, not a second screen.
   sections: [
     {
-      items: [{ path: "/supplies", label: "Supply requests", icon: Package }],
+      items: [{ path: "/supplies", label: "Supply Requests", icon: Package }],
     },
   ],
 }

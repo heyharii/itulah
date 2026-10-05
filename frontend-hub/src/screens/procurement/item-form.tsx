@@ -3,6 +3,7 @@ import { ImagePlus, Trash2 } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Dialog } from "@/components/ui/dialog"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Section } from "@/components/ui/rows"
@@ -702,65 +703,76 @@ export function ItemFormSheet({
     save.mutate()
   }
 
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => !next && close()}
-      title={line?.title ?? (editing ? "Edit item" : "Add item")}
-      id={line?.caption ?? (editing ? item.supplier_item_code : undefined)}
-      // As wide as the composer, and for the same reason: this is the form
-      // that decides what Sourcing is able to show, and a rail would make the
-      // colour and size pickers two stacked strips of chips.
-      //
-      // `wide` and `md:`, both load-bearing. A rail sheet sets `md:w-[27.5rem]`
-      // and twMerge only lets a class beat another at the SAME breakpoint, so
-      // the bare `w-[64rem]` this carried lost everywhere except a phone — the
-      // form has been 27.5rem wide on every desk since it was written. `wide`
-      // additionally makes it a task over the page rather than a column beside
-      // the list, which is what lets it open on top of the composer.
-      width="wide"
-      className="md:w-[64rem]"
-      // Two buttons at their own size, at the trailing edge — the shape the
-      // composer's footer settled on, and this form now opens over it. A
-      // full-width black bar across 64rem reads as a banner, and it left the ×
-      // in the corner as the only way to abandon a half-filled form.
-      footer={
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="ghost" onClick={close}>
-            Cancel
-          </Button>
-          {onSkip !== undefined && (
-            <Button variant="ghost" onClick={onSkip}>
-              Skip this one
-            </Button>
-          )}
-          {onDraft !== undefined && !editing && line === undefined && (
-            <Button variant="ghost" onClick={() => submit(true)}>
-              Add next item
-            </Button>
-          )}
-          <Button
-            variant="primary"
-            pending={save.isPending}
-            onClick={() => submit(false)}
-          >
-            {save.isPending ? "Submitting…" : "Submit"}
-          </Button>
-        </div>
-      }
-    >
-      <div ref={body} className="flex flex-col gap-4">
-        {save.isError && (
-          <Banner tone="bad">{(save.error as Error).message}</Banner>
-        )}
-        {photoTrouble !== null && (
-          <Banner tone="warn" onDismiss={() => setPhotoTrouble(null)}>
-            The item is saved, but its photograph is not: {photoTrouble}. Open
-            the item from the catalogue to try the picture again.
-          </Banner>
-        )}
+  /// Typed into, or a photograph picked, since the form opened: closing it
+  /// then asks first. An outside click used to throw a half-filled item and
+  /// its photo away without a word.
+  const dirty =
+    open &&
+    (JSON.stringify(draft) !== JSON.stringify(seed()) ||
+      (photo !== null && photo !== (line?.photo ?? null)))
+  const [discarding, setDiscarding] = useState(false)
+  const askClose = () => (dirty ? setDiscarding(true) : close())
 
-        {/* **The picture leads.** It is the half of a catalogue row anybody
+  return (
+    <>
+      <Sheet
+        open={open}
+        onOpenChange={(next) => !next && askClose()}
+        title={line?.title ?? (editing ? "Edit item" : "Add item")}
+        id={line?.caption ?? (editing ? item.supplier_item_code : undefined)}
+        // As wide as the composer, and for the same reason: this is the form
+        // that decides what Sourcing is able to show, and a rail would make the
+        // colour and size pickers two stacked strips of chips.
+        //
+        // `wide` and `md:`, both load-bearing. A rail sheet sets `md:w-[27.5rem]`
+        // and twMerge only lets a class beat another at the SAME breakpoint, so
+        // the bare `w-[64rem]` this carried lost everywhere except a phone — the
+        // form has been 27.5rem wide on every desk since it was written. `wide`
+        // additionally makes it a task over the page rather than a column beside
+        // the list, which is what lets it open on top of the composer.
+        width="wide"
+        className="md:w-[64rem]"
+        // Two buttons at their own size, at the trailing edge — the shape the
+        // composer's footer settled on, and this form now opens over it. A
+        // full-width black bar across 64rem reads as a banner, and it left the ×
+        // in the corner as the only way to abandon a half-filled form.
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" onClick={askClose}>
+              Cancel
+            </Button>
+            {onSkip !== undefined && (
+              <Button variant="ghost" onClick={onSkip}>
+                Skip this one
+              </Button>
+            )}
+            {onDraft !== undefined && !editing && line === undefined && (
+              <Button variant="ghost" onClick={() => submit(true)}>
+                Add next item
+              </Button>
+            )}
+            <Button
+              variant="primary"
+              pending={save.isPending}
+              onClick={() => submit(false)}
+            >
+              {save.isPending ? "Submitting…" : "Submit"}
+            </Button>
+          </div>
+        }
+      >
+        <div ref={body} className="flex flex-col gap-4">
+          {save.isError && (
+            <Banner tone="bad">{(save.error as Error).message}</Banner>
+          )}
+          {photoTrouble !== null && (
+            <Banner tone="warn" onDismiss={() => setPhotoTrouble(null)}>
+              The item is saved, but its photograph is not: {photoTrouble}. Open
+              the item from the catalogue to try the picture again.
+            </Banner>
+          )}
+
+          {/* **The picture leads.** It is the half of a catalogue row anybody
             actually recognises, and standing it beside the identity fields —
             rather than under the description, where the URL box used to be —
             is what makes this a product form instead of a list of ten boxes.
@@ -768,378 +780,401 @@ export function ItemFormSheet({
             Who sells it and under what code of theirs is asked once, when the
             item is created: changing either afterwards does not correct this
             item, it describes a different one. */}
-        <div className="grid gap-4 md:grid-cols-[13rem_1fr]">
-          <Field label="Photograph" problem={photoRefused ?? undefined}>
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                disabled={photoFixed}
-                onClick={() => chooser.current?.click()}
-                className="group relative block aspect-square w-full overflow-hidden rounded-card border border-hairline bg-soft-2 transition-colors enabled:hover:border-hairline-strong"
-                aria-label={
-                  showing === null
-                    ? "Choose a photograph"
-                    : "Replace the photograph"
-                }
-              >
-                {showing === null &&
-                (draft.name.trim() !== "" || draft.division !== null) ? (
-                  <>
+          <div className="grid gap-4 md:grid-cols-[13rem_1fr]">
+            <Field label="Photograph" problem={photoRefused ?? undefined}>
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  disabled={photoFixed}
+                  onClick={() => chooser.current?.click()}
+                  className="group relative block aspect-square w-full overflow-hidden rounded-card border border-hairline bg-soft-2 transition-colors enabled:hover:border-hairline-strong"
+                  aria-label={
+                    showing === null
+                      ? "Choose a photograph"
+                      : "Replace the photograph"
+                  }
+                >
+                  {showing === null &&
+                  (draft.name.trim() !== "" || draft.division !== null) ? (
+                    <>
+                      <Thumbnail
+                        url={null}
+                        name={draft.name}
+                        division={draft.division}
+                        className="size-full"
+                      />
+                      <span className="absolute inset-x-0 bottom-2 text-center text-[0.875rem] text-mute">
+                        {photoFixed ? "No picture" : "Choose a picture"}
+                      </span>
+                    </>
+                  ) : showing === null ? (
+                    <span className="flex size-full flex-col items-center justify-center gap-1.5 text-mute">
+                      <ImagePlus className="size-5" />
+                      <span className="text-[0.875rem]">
+                        {photoFixed ? "No picture" : "Choose a picture"}
+                      </span>
+                    </span>
+                  ) : (
                     <Thumbnail
-                      url={null}
-                      name={draft.name}
-                      division={draft.division}
+                      url={showing}
+                      fallback="Cannot be read"
                       className="size-full"
                     />
-                    <span className="absolute inset-x-0 bottom-2 text-center text-[0.875rem] text-mute">
-                      {photoFixed ? "No picture" : "Choose a picture"}
-                    </span>
-                  </>
-                ) : showing === null ? (
-                  <span className="flex size-full flex-col items-center justify-center gap-1.5 text-mute">
-                    <ImagePlus className="size-5" />
-                    <span className="text-[0.875rem]">
-                      {photoFixed ? "No picture" : "Choose a picture"}
-                    </span>
-                  </span>
-                ) : (
-                  <Thumbnail
-                    url={showing}
-                    fallback="Cannot be read"
-                    className="size-full"
-                  />
-                )}
-              </button>
-              {/* The file input itself is never seen. A bare one renders as
+                  )}
+                </button>
+                {/* The file input itself is never seen. A bare one renders as
                   the browser's own grey "No file chosen" strip, which is the
                   one control on this form nobody could restyle. */}
-              <input
-                ref={chooser}
-                type="file"
-                // Every picture the browser can decode, not just the one the
-                // bucket stores. A screenshot is a PNG, and `accept` greyed
-                // every one of them out with no way to tell why — see
-                // `lib/image`, which converts what is chosen.
-                accept={PICTURE_TYPES}
-                className="hidden"
-                onChange={(event) => {
-                  const picked = event.target.files?.[0] ?? null
-                  if (picked !== null) {
-                    setPhotoRefused(null)
-                    void asJpeg(picked).then(setPhoto, (error: Error) =>
-                      setPhotoRefused(error.message)
-                    )
-                  }
-                  // Cleared so choosing the SAME file twice still fires a
-                  // change — the second pick is a person correcting a mistake,
-                  // and a silent no-op reads as the form ignoring them.
-                  event.target.value = ""
-                }}
-              />
-              {showing !== null && !photoFixed && (
-                <Button
-                  variant="quiet"
-                  size="sm"
-                  className="self-start"
-                  onClick={() => {
-                    setPhoto(null)
-                    setPhotoRefused(null)
-                    set({ image: "" })
+                <input
+                  ref={chooser}
+                  type="file"
+                  // Every picture the browser can decode, not just the one the
+                  // bucket stores. A screenshot is a PNG, and `accept` greyed
+                  // every one of them out with no way to tell why — see
+                  // `lib/image`, which converts what is chosen.
+                  accept={PICTURE_TYPES}
+                  className="hidden"
+                  onChange={(event) => {
+                    const picked = event.target.files?.[0] ?? null
+                    if (picked !== null) {
+                      setPhotoRefused(null)
+                      void asJpeg(picked).then(setPhoto, (error: Error) =>
+                        setPhotoRefused(error.message)
+                      )
+                    }
+                    // Cleared so choosing the SAME file twice still fires a
+                    // change — the second pick is a person correcting a mistake,
+                    // and a silent no-op reads as the form ignoring them.
+                    event.target.value = ""
                   }}
-                >
-                  <Trash2 />
-                  Remove
-                </Button>
-              )}
-            </div>
-          </Field>
+                />
+                {showing !== null && !photoFixed && (
+                  <Button
+                    variant="quiet"
+                    size="sm"
+                    className="self-start"
+                    onClick={() => {
+                      setPhoto(null)
+                      setPhotoRefused(null)
+                      set({ image: "" })
+                    }}
+                  >
+                    <Trash2 />
+                    Remove
+                  </Button>
+                )}
+              </div>
+            </Field>
 
-          <div className="flex flex-col gap-4">
-            {/* One column when the supplier is already known, two when it has
+            <div className="flex flex-col gap-4">
+              {/* One column when the supplier is already known, two when it has
                 to be asked. A lone code box occupying half a row, with the
                 other half empty, reads as a field somebody forgot to fill in
                 rather than as the only question on the line. */}
-            {/* The supplier's own code is not asked for an item added from an
+              {/* The supplier's own code is not asked for an item added from an
                 order (the owner, 2026-10-01): the order's supplier is known and
                 the item is given a code of ours. The catalogue still asks. */}
-            {!editing &&
-              line === undefined &&
-              (supplierId === undefined || onDraft === undefined) && (
-                <div
-                  className={cn(
-                    "grid gap-4",
-                    supplierId === undefined &&
-                      onDraft === undefined &&
-                      "md:grid-cols-2"
-                  )}
-                >
-                  {supplierId === undefined && (
-                    <Field
-                      label="Supplier"
-                      required
-                      problem={say(gaps.supplier)}
-                    >
-                      <PickOne
+              {!editing &&
+                line === undefined &&
+                (supplierId === undefined || onDraft === undefined) && (
+                  <div
+                    className={cn(
+                      "grid gap-4",
+                      supplierId === undefined &&
+                        onDraft === undefined &&
+                        "md:grid-cols-2"
+                    )}
+                  >
+                    {supplierId === undefined && (
+                      <Field
                         label="Supplier"
-                        choices={supplierChoices}
-                        value={draft.supplierId}
-                        onChange={(chosen) => set({ supplierId: chosen })}
-                      />
-                    </Field>
-                  )}
-                  {onDraft === undefined && (
-                    <Field label="Supplier's item code">
-                      <Input
-                        value={draft.code}
-                        onChange={(event) => set({ code: event.target.value })}
-                      />
-                    </Field>
-                  )}
-                </div>
-              )}
+                        required
+                        problem={say(gaps.supplier)}
+                      >
+                        <PickOne
+                          label="Supplier"
+                          choices={supplierChoices}
+                          value={draft.supplierId}
+                          onChange={(chosen) => set({ supplierId: chosen })}
+                        />
+                      </Field>
+                    )}
+                    {onDraft === undefined && (
+                      <Field label="Supplier's Item Code">
+                        <Input
+                          value={draft.code}
+                          onChange={(event) =>
+                            set({ code: event.target.value })
+                          }
+                        />
+                      </Field>
+                    )}
+                  </div>
+                )}
 
-            <Field label="Name" required problem={say(gaps.name)}>
-              <Input
-                value={draft.name}
-                onChange={(event) => titled(event, (name) => set({ name }))}
-              />
-            </Field>
+              <Field label="Name" required problem={say(gaps.name)}>
+                <Input
+                  value={draft.name}
+                  onChange={(event) => titled(event, (name) => set({ name }))}
+                />
+              </Field>
 
-            <Field label="Description">
-              <Textarea
-                rows={3}
-                value={draft.description}
-                readOnly={photoFixed}
-                onChange={(event) =>
-                  titled(
-                    event,
-                    (description) => set({ description }),
-                    capitaliseFirst
-                  )
-                }
-              />
-            </Field>
+              <Field label="Description">
+                <Textarea
+                  rows={3}
+                  value={draft.description}
+                  readOnly={photoFixed}
+                  onChange={(event) =>
+                    titled(
+                      event,
+                      (description) => set({ description }),
+                      capitaliseFirst
+                    )
+                  }
+                />
+              </Field>
 
-            {/* Grouped and prefixed, not a bare number box. `200000000` is a
+              {/* Grouped and prefixed, not a bare number box. `200000000` is a
                 figure somebody has to count the zeros of; `Rp 200.000.000` is
                 one they can read — and the money field hands back the digits
                 either way, so nothing downstream learns about separators. */}
+            </div>
           </div>
-        </div>
 
-        {/* What it IS, and it has to be said. The same vocabulary our own
+          {/* What it IS, and it has to be said. The same vocabulary our own
             articles are filed under — a supplier's shirt and our shirt have to
             be the same word, or the two catalogues cannot be compared, and
             comparing them is the whole point of sourcing. Both are required:
             see the note on `ready`. */}
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Division" required problem={say(gaps.division)}>
-            <PickOne
-              label="Division"
-              choices={divisionChoices}
-              value={draft.division}
-              onChange={(division) => set({ division })}
-            />
-          </Field>
-          <Field label="Tags" required problem={say(gaps.tags)}>
-            <PickMany
-              label="Tags"
-              choices={tagChoices}
-              values={draft.tags}
-              onChange={(tags) => set({ tags })}
-            />
-          </Field>
-        </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Division" required problem={say(gaps.division)}>
+              <PickOne
+                label="Division"
+                choices={divisionChoices}
+                value={draft.division}
+                onChange={(division) => set({ division })}
+              />
+            </Field>
+            <Field label="Tags" required problem={say(gaps.tags)}>
+              <PickMany
+                label="Tags"
+                choices={tagChoices}
+                values={draft.tags}
+                onChange={(tags) => set({ tags })}
+              />
+            </Field>
+          </div>
 
-        {/* What it COMES IN. Both optional and both may stay empty: an item
+          {/* What it COMES IN. Both optional and both may stay empty: an item
               nobody has broken down into variants is most of a scraped feed, and
               it is better shown as nothing than guessed at. Not asked on an order. */}
-        {!ordering && (
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Colours">
-              <PickMany
-                label="Colours"
-                choices={colourChoices}
-                loading={
-                  colourMaster.isPending ? "Loading colours…" : undefined
-                }
-                values={draft.colours}
-                disabled={photoFixed}
-                onChange={(colours) => set({ colours })}
-                leading={(code) => <ColourSwatch hex={hexOf(code)} />}
-              />
-            </Field>
-            <Field label="Sizes">
-              <PickMany
-                label="Sizes"
-                choices={sizeChoices}
-                loading={vocabulary.isPending ? "Loading sizes…" : undefined}
-                values={draft.sizes}
-                disabled={photoFixed}
-                onChange={(sizes) => set({ sizes })}
-              />
-            </Field>
-          </div>
-        )}
+          {!ordering && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Colours">
+                <PickMany
+                  label="Colours"
+                  choices={colourChoices}
+                  loading={
+                    colourMaster.isPending ? "Loading colours…" : undefined
+                  }
+                  values={draft.colours}
+                  disabled={photoFixed}
+                  onChange={(colours) => set({ colours })}
+                  leading={(code) => <ColourSwatch hex={hexOf(code)} />}
+                />
+              </Field>
+              <Field label="Sizes">
+                <PickMany
+                  label="Sizes"
+                  choices={sizeChoices}
+                  loading={vocabulary.isPending ? "Loading sizes…" : undefined}
+                  values={draft.sizes}
+                  disabled={photoFixed}
+                  onChange={(sizes) => set({ sizes })}
+                />
+              </Field>
+            </div>
+          )}
 
-        {/* What it costs and what it will sell for — the markup and the base
+          {/* What it costs and what it will sell for — the markup and the base
             price move together, so they cannot disagree. */}
-        {!(ordering && !byVariant) && (
-          <Section title="Price" rule={false}>
-            {ordering ? (
-              // On an order the item is bought, not priced for sale: one price,
-              // what the supplier charges (the owner, 2026-10-01). Markup and the
-              // selling price are the catalogue's to set.
-              <div className="grid gap-4 md:grid-cols-[12rem_1fr]">
-                <Field label="Price" required aside="per pc">
-                  <Money
-                    label="Price"
-                    prefix="Rp"
-                    value={draft.price}
-                    onChange={(price) => {
-                      setPriceTyped(true)
-                      set({ price })
-                    }}
-                    className="pl-10"
-                  />
-                </Field>
-              </div>
-            ) : (
-              <PricingFields
-                required
-                pricing={{
-                  purchase: draft.price,
-                  markup: draft.markup,
-                  base: draft.basePrice,
-                }}
-                onChange={(next) =>
-                  set({
-                    price: next.purchase,
-                    markup: next.markup,
-                    basePrice: next.base,
-                  })
-                }
-                sellingProblem={gaps.selling}
-              />
-            )}
-            {say(gaps.price) !== null && (
-              <span data-problem className="text-[0.875rem] text-bad">
-                {gaps.price}
-              </span>
-            )}
-          </Section>
-        )}
-
-        {/* How many, when the item is going straight onto an order: one
-            quantity in any unit, or — when it comes in colours and sizes —
-            a quantity and a price per SKU. */}
-        {ordering && (
-          <div className="flex flex-col gap-3.5 pt-3">
-            {byVariant && (
-              <h4 className="text-card-title font-semibold text-ink">Order</h4>
-            )}
-            {byVariant ? (
-              <VariantGrid
-                variants={skuRows}
-                onChange={(variants) => set({ variants })}
-                colourLabel={(code) =>
-                  colourTerms.find((one) => one.code === code)?.label ?? code
-                }
-                basePrice={draft.basePrice}
-                fallbackPrice={draft.price}
-                sizeLabel={(code) =>
-                  sizeChoices.find((one) => one.value === code)?.label ?? code
-                }
-              />
-            ) : (
-              <div className="flex flex-col gap-2.5">
-                <div className="grid gap-4 md:grid-cols-2">
-                  {/* The number and its unit are one box: "10 | Kodi" is a
-                      single quantity, not two answers. */}
-                  <Field label="Quantity" required problem={say(gaps.quantity)}>
-                    <div className="flex">
-                      <Input
-                        inputMode="decimal"
-                        value={draft.quantity}
-                        onChange={(event) =>
-                          set({ quantity: event.target.value })
-                        }
-                        className="min-w-0 flex-1 rounded-r-none text-right tabular-nums"
-                        aria-label="Quantity to order"
-                      />
-                      <Select
-                        aria-label="Unit"
-                        value={draft.orderUnit}
-                        onChange={changeUnit}
-                        className="-ml-px w-32 shrink-0 rounded-l-none"
-                      >
-                        {orderUnits.map((unit) => (
-                          <option key={unit.code} value={unit.code}>
-                            {unit.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                  </Field>
-                  <Field label="Price" required problem={say(gaps.price)}>
-                    <span className="relative flex w-full min-w-0 items-center">
-                      <Money
-                        label="Price"
-                        prefix="Rp"
-                        value={draft.price}
-                        onChange={(price) => {
-                          setPriceTyped(true)
-                          set({ price })
-                        }}
-                        className="pr-20 pl-10"
-                      />
-                      <span className="pointer-events-none absolute right-3 text-[0.875rem] text-mute">
-                        / {unitLabel}
-                      </span>
-                    </span>
+          {!(ordering && !byVariant) && (
+            <Section title="Price" rule={false}>
+              {ordering ? (
+                // On an order the item is bought, not priced for sale: one price,
+                // what the supplier charges (the owner, 2026-10-01). Markup and the
+                // selling price are the catalogue's to set.
+                <div className="grid gap-4 md:grid-cols-[12rem_1fr]">
+                  <Field label="Price" required aside="per pc">
+                    <Money
+                      label="Price"
+                      prefix="Rp"
+                      value={draft.price}
+                      onChange={(price) => {
+                        setPriceTyped(true)
+                        set({ price })
+                      }}
+                      className="pl-10"
+                    />
                   </Field>
                 </div>
-                <p className="text-[0.875rem] text-body tabular-nums">
-                  {/* Open hands: nothing typed, nothing said — the line speaks
+              ) : (
+                <PricingFields
+                  required
+                  pricing={{
+                    purchase: draft.price,
+                    markup: draft.markup,
+                    base: draft.basePrice,
+                  }}
+                  onChange={(next) =>
+                    set({
+                      price: next.purchase,
+                      markup: next.markup,
+                      basePrice: next.base,
+                    })
+                  }
+                  sellingProblem={gaps.selling}
+                />
+              )}
+              {say(gaps.price) !== null && (
+                <span data-problem className="text-[0.875rem] text-bad">
+                  {gaps.price}
+                </span>
+              )}
+            </Section>
+          )}
+
+          {/* How many, when the item is going straight onto an order: one
+            quantity in any unit, or — when it comes in colours and sizes —
+            a quantity and a price per SKU. */}
+          {ordering && (
+            <div className="flex flex-col gap-3.5 pt-3">
+              {byVariant && (
+                <h4 className="text-card-title font-semibold text-ink">
+                  Order
+                </h4>
+              )}
+              {byVariant ? (
+                <VariantGrid
+                  variants={skuRows}
+                  onChange={(variants) => set({ variants })}
+                  colourLabel={(code) =>
+                    colourTerms.find((one) => one.code === code)?.label ?? code
+                  }
+                  basePrice={draft.basePrice}
+                  fallbackPrice={draft.price}
+                  sizeLabel={(code) =>
+                    sizeChoices.find((one) => one.value === code)?.label ?? code
+                  }
+                />
+              ) : (
+                <div className="flex flex-col gap-2.5">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {/* The number and its unit are one box: "10 | Kodi" is a
+                      single quantity, not two answers. */}
+                    <Field
+                      label="Quantity"
+                      required
+                      problem={say(gaps.quantity)}
+                    >
+                      <div className="flex">
+                        <Input
+                          inputMode="decimal"
+                          value={draft.quantity}
+                          onChange={(event) =>
+                            set({ quantity: event.target.value })
+                          }
+                          className="min-w-0 flex-1 rounded-r-none text-right tabular-nums"
+                          aria-label="Quantity to order"
+                        />
+                        <Select
+                          aria-label="Unit"
+                          value={draft.orderUnit}
+                          onChange={changeUnit}
+                          className="-ml-px w-32 shrink-0 rounded-l-none"
+                        >
+                          {orderUnits.map((unit) => (
+                            <option key={unit.code} value={unit.code}>
+                              {unit.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                    </Field>
+                    <Field label="Price" required problem={say(gaps.price)}>
+                      <span className="relative flex w-full min-w-0 items-center">
+                        <Money
+                          label="Price"
+                          prefix="Rp"
+                          value={draft.price}
+                          onChange={(price) => {
+                            setPriceTyped(true)
+                            set({ price })
+                          }}
+                          className="pr-20 pl-10"
+                        />
+                        <span className="pointer-events-none absolute right-3 text-[0.875rem] text-mute">
+                          / {unitLabel}
+                        </span>
+                      </span>
+                    </Field>
+                  </div>
+                  <p className="text-[0.875rem] text-body tabular-nums">
+                    {/* Open hands: nothing typed, nothing said — the line speaks
                       once a quantity is in (owner, 2026-10-04: the quantity
                       opens empty). */}
-                  {draft.quantity.trim() === ""
-                    ? null
-                    : quantity === null
-                      ? "Not a whole number of pieces."
-                      : `${count(quantity)} pcs`}
-                  {Number.isFinite(price) &&
-                    Number.isFinite(Number(draft.quantity)) &&
-                    Number(draft.quantity) > 0 && (
-                      <>
-                        {" · Total "}
-                        <span className="font-medium text-ink">
-                          {money(
-                            quantity === null
-                              ? 0
-                              : lineTotal(
-                                  quantity,
-                                  price,
-                                  pricedFactor > 1 && !byVariant
-                                    ? pricedFactor
-                                    : null
-                                )
-                          )}
-                        </span>
-                      </>
-                    )}
-                </p>
-              </div>
-            )}
-            {gaps.selling !== null && (
-              <span data-problem className="text-[0.875rem] text-bad">
-                {gaps.selling}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-    </Sheet>
+                    {draft.quantity.trim() === ""
+                      ? null
+                      : quantity === null
+                        ? "Not a whole number of pieces."
+                        : `${count(quantity)} pcs`}
+                    {Number.isFinite(price) &&
+                      Number.isFinite(Number(draft.quantity)) &&
+                      Number(draft.quantity) > 0 && (
+                        <>
+                          {" · Total "}
+                          <span className="font-medium text-ink">
+                            {money(
+                              quantity === null
+                                ? 0
+                                : lineTotal(
+                                    quantity,
+                                    price,
+                                    pricedFactor > 1 && !byVariant
+                                      ? pricedFactor
+                                      : null
+                                  )
+                            )}
+                          </span>
+                        </>
+                      )}
+                  </p>
+                </div>
+              )}
+              {gaps.selling !== null && (
+                <span data-problem className="text-[0.875rem] text-bad">
+                  {gaps.selling}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </Sheet>
+      <Dialog
+        open={discarding}
+        onOpenChange={setDiscarding}
+        title="Discard This Item?"
+        confirm="Discard"
+        cancel="Keep Editing"
+        tone="danger"
+        onConfirm={() => {
+          setDiscarding(false)
+          close()
+        }}
+      >
+        What you typed and the photo will be lost.
+      </Dialog>
+    </>
   )
 }
 

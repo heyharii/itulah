@@ -107,7 +107,7 @@ export function Overview() {
     <PageContent>
       <PageHeader
         crumb="Sales"
-        title="Shop floor"
+        title="Shop Floor"
         sub="The last 500 sales and returns the centre holds — not a business day, which the reports own."
       />
 

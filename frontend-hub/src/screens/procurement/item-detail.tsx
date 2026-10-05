@@ -91,8 +91,8 @@ export function ItemDetail({
               : supplierDisplayName(supplier.data)}
           </AppLink>
         </Fact>
-        <Fact term="Supplier code">{item.supplier_item_code}</Fact>
-        <Fact term="Unit price">{money(item.unit_price_minor)}</Fact>
+        <Fact term="Supplier Code">{item.supplier_item_code}</Fact>
+        <Fact term="Unit Price">{money(item.unit_price_minor)}</Fact>
         <Fact term="Currency">{item.currency}</Fact>
         <Fact term="Division">
           {termLabel(vocabulary?.divisions, item.division_code)}
@@ -102,11 +102,11 @@ export function ItemDetail({
         {bought !== undefined && bought.orders > 0 && (
           <>
             <Fact term="Bought">{count(bought.units)} pieces</Fact>
-            <Fact term="On orders">{count(bought.orders)}</Fact>
-            <Fact term="Last ordered">{day(bought.last_ordered_at)}</Fact>
+            <Fact term="On Orders">{count(bought.orders)}</Fact>
+            <Fact term="Last Ordered">{day(bought.last_ordered_at)}</Fact>
           </>
         )}
-        <Fact term="Our article">
+        <Fact term="Our Article">
           {/* Blank is a real state and it is the one that matters: an item with
               no internal article code can never be tagged, priced or sold. */}
           {item.internal_article_code ?? "Not linked"}

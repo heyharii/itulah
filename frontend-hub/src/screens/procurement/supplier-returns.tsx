@@ -45,9 +45,11 @@ import {
   type SupplierReturnReason,
 } from "@/lib/queries/supplier-returns"
 import { queryState } from "@/lib/query-state"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
 import { sourcePoolsFor } from "@/screens/inventory/shared"
+import { titled } from "@/screens/procurement/po-print"
 import { openPrintWindow, printInto } from "@/screens/procurement/print"
 import {
   groupBySupplier,
@@ -131,7 +133,8 @@ const STATUS_TONE: Record<SupplierReturn["status"], Tone> = {
 
 function fromSupplierReturn(
   r: SupplierReturn,
-  supplierName: ReturnType<typeof useSupplierName>
+  supplierName: ReturnType<typeof useSupplierName>,
+  person: (login: string) => string
 ): Row {
   const byKind: Partial<Record<SettleBy, number>> = {}
   for (const s of r.settlements) {
@@ -153,7 +156,7 @@ function fromSupplierReturn(
     tone: STATUS_TONE[r.status],
     open: !["SETTLED", "CLOSED_SHORT"].includes(r.status),
     raisedAt: r.raised_at,
-    raisedBy: r.raised_by,
+    raisedBy: person(r.raised_by),
     handedOverAt: r.handed_over_at,
     lines: r.lines.map((l) => ({
       sku: l.sku_code,
@@ -218,9 +221,13 @@ export function useReturnRows() {
   })
 
   const supplierName = useSupplierName()
+  const nameOfLogin = useNameOfLogin()
+  /// A person as the screens write one: the full name, in Title Case — never the
+  /// login ("candra") the server keeps.
+  const person = (login: string) => titled(nameOfLogin(login))
   const all = useMemo<Row[]>(() => {
     const own = (returns.data ?? []).map((r) =>
-      fromSupplierReturn(r, supplierName)
+      fromSupplierReturn(r, supplierName, person)
     )
     const excess = (over.data ?? []).map<Row>((r) => ({
       id: r.return_id,
@@ -238,7 +245,7 @@ export function useReturnRows() {
       tone: r.status === "OPEN" ? "neutral" : "done",
       open: r.status === "OPEN",
       raisedAt: r.raised_at,
-      raisedBy: r.raised_by,
+      raisedBy: person(r.raised_by),
       handedOverAt: r.handed_over_at,
       lines: r.lines.map((l) => ({
         sku: l.article_code,
@@ -256,7 +263,8 @@ export function useReturnRows() {
       raw: null,
     }))
     return [...own, ...excess]
-  }, [returns.data, over.data, supplierName])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [returns.data, over.data, supplierName, nameOfLogin])
   return { all, returns, over }
 }
 
@@ -301,7 +309,7 @@ export function SupplierReturns() {
   return (
     <PageContent>
       <PageHeader
-        title="Return to supplier"
+        title="Return PO"
         actions={
           <Button variant="primary" onClick={() => setAsking(true)}>
             New return
@@ -568,12 +576,12 @@ export function ReturnSheet({
                   </Button>
                 )}
                 <ConfirmButton
-                  label="Close short"
+                  label="Close Short"
                   variant="danger"
                   tone="danger"
-                  title={`Close ${row.number} short?`}
+                  title={`Close ${row.number} Short?`}
                   description={`${money(row.owedMinor)} owed is written off.`}
-                  confirmLabel="Close short"
+                  confirmLabel="Close Short"
                   reason={{ label: "Reason" }}
                   pending={short.isPending}
                   onConfirm={(reason) => short.mutateAsync(reason)}
@@ -794,7 +802,7 @@ function NewReturn({
   return (
     <PageContent>
       <PageHeader
-        title="New return to supplier"
+        title="New Return PO"
         actions={
           <Button variant="quiet" onClick={onDone}>
             Back

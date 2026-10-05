@@ -66,7 +66,7 @@ export function AttendanceRuleSettings() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Attendance rules"
+        title="Attendance Rules"
         sub="The tolerances a month of arrivals is judged against. Anybody signed in may read them; only head office may change them."
         actions={
           canWrite && (

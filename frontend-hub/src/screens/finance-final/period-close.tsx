@@ -169,7 +169,7 @@ export function PeriodClose() {
     <PageContent>
       <PageHeader
         crumb="Finance final · Accounting"
-        title="Period close"
+        title="Period Close"
         sub="Sealing a month refuses every posting dated inside it, for good. It moves no figure, it sweeps nothing into equity, and there is no reopen."
       />
 

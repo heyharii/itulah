@@ -168,7 +168,7 @@ export function TaxPositionScreen() {
     <PageContent>
       <PageHeader
         crumb="Tax"
-        title="Tax position"
+        title="Tax Position"
         sub="1011302 against 2012101. The net is the answer, not an input."
         actions={
           <div className="flex items-center gap-2">

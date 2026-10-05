@@ -1,5 +1,6 @@
 import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { Menu } from "@base-ui/react/menu"
+import { AppLink } from "@/components/ui/app-link"
 import {
   useMutation,
   useQuery,
@@ -105,7 +106,7 @@ import {
   receivedTone,
   sentence,
   flattenSingles,
-  useFitHidden,
+  useFittedVisibility,
   useActor,
   useIdempotencyKey,
 } from "@/screens/procurement/shared"
@@ -576,7 +577,7 @@ function FilterRow({
       />
       <DayRange
         quiet
-        label="Delivery date"
+        label="Delivery Date"
         placeholder="Delivery date"
         value={range("expected_arrival")}
         onChange={(next) => setRange("expected_arrival", next)}
@@ -657,13 +658,13 @@ export function PurchaseOrders() {
   // column's comparator puts open orders first, then oldest promises, and
   // keeps completed orders newest-first below them.
   const [sorting, setSorting] = useState<SortingState>(defaultOrderSorting)
-  const [visibility, setVisibility] = useState<Record<string, boolean>>({
+  const [groupBySupplier, setGroupBySupplier] = useState(false)
+  const fit = useFittedVisibility(columns, {
     overdue: false,
     created: false,
     invoicing: false,
   })
-  const [groupBySupplier, setGroupBySupplier] = useState(false)
-  const fit = useFitHidden(columns, visibility)
+  const visibility = fit.visibility
   /// The order raised a moment ago, while its line is still glowing. Cleared
   /// well after the glow ends, because the line only exists once the list has
   /// been read again.
@@ -773,9 +774,11 @@ export function PurchaseOrders() {
     // it every keystroke empties the table to a loading line and the screen
     // flashes its way through a word.
     placeholderData: (previous) => previous,
-    // Counts and receipts land while the page is open: look again every ten
-    // seconds while it is seen, and when the window comes back.
-    refetchInterval: 10_000,
+    // Counts and receipts land while the page is open: look again every half
+    // minute while it is seen, and when the window comes back. Ten seconds
+    // asked the whole order book 91 times in one test session; a count that
+    // lands is also pushed here by the invalidation its own screen makes.
+    refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   })
 
@@ -856,9 +859,14 @@ export function PurchaseOrders() {
         // groups are by supplier name and nothing else leads.
         state: {
           sorting: groupBySupplier ? sorting : [OVERDUE_FIRST, ...sorting],
-          columnVisibility: { ...visibility, ...fit.hidden },
+          // A cancelled order took nothing in: its Receiving column is a
+          // row of zeros, so that tab leaves it out.
+          columnVisibility:
+            tab === "cancelled"
+              ? { ...fit.shown, received_qty: false }
+              : fit.shown,
         },
-        onColumnVisibilityChange: setVisibility,
+        onColumnVisibilityChange: fit.change,
         onSortingChange: (
           next: SortingState | ((prev: SortingState) => SortingState)
         ) => {
@@ -891,7 +899,7 @@ export function PurchaseOrders() {
   return (
     <PageContent>
       {/* The four figures of the tab showing, as cards over the list. */}
-      <PageHeader title="Purchase orders" small />
+      <PageHeader title="Purchase Orders" small />
       <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
         {(
           bookKpis(orders.data) ??
@@ -1028,7 +1036,7 @@ export function PurchaseOrders() {
                 <span className="pointer-events-none">
                   <Switch
                     on={groupBySupplier}
-                    label="Group by supplier"
+                    label="Group by Supplier"
                     onToggle={() => {}}
                   />
                 </span>
@@ -1045,7 +1053,7 @@ export function PurchaseOrders() {
       </div>
 
       {/* New order on a phone: a floating button at the thumb's corner. */}
-      <Fab label="New order" onClick={() => composer.open(true)} />
+      <Fab label="New Order" onClick={() => composer.open(true)} />
       {/* `overflow-clip`, not `overflow-hidden`: hidden makes the card a
           scroll box, and the table's heading would stick to the card instead
           of the window. */}
@@ -1277,16 +1285,16 @@ async function printOrders(
 /// more of them. Rather than print a confident wrong total, a partial page
 /// says `of {n} shown` under the figure — the number is still useful, and the
 /// reader is told what it covers.
-/// `49.923.900.000` → `Rp 49,9 M`. Indonesian scale: ribu, juta, miliar.
+/// `49.923.900.000` → `Rp 49,9 billion`. Words, not the Indonesian jt/rb.
 function brief(minor: number): string {
   const abs = Math.abs(minor)
   const [scale, suffix] =
     abs >= 1_000_000_000
-      ? [1_000_000_000, " M"]
+      ? [1_000_000_000, " billion"]
       : abs >= 1_000_000
-        ? [1_000_000, " jt"]
+        ? [1_000_000, " million"]
         : abs >= 1_000
-          ? [1_000, " rb"]
+          ? [1_000, " thousand"]
           : [1, ""]
   const scaled = minor / scale
   const shown =
@@ -1477,14 +1485,14 @@ export function OrderSheet({
                 owedPieces > 0 && (
                   <ConfirmButton
                     label="Close Short"
-                    title="Close this short?"
+                    title="Close This Short?"
                     description={`${pcs(owedPieces)} will be removed from the order, and the PO completes as received. This can't be undone.`}
                     confirmLabel="Close Short"
                     tone="danger"
                     variant="ghost"
                     size="sm"
                     pending={closeShort.isPending}
-                    reason={{ label: "Why", optional: true }}
+                    reason={{ label: "Reason for Closing" }}
                     onConfirm={(reason) => closeShort.mutateAsync(reason)}
                   />
                 )}
@@ -1502,17 +1510,17 @@ export function OrderSheet({
               )}
               {detail.data.cancellable && !countOpen && (
                 <ConfirmButton
-                  label="Cancel order"
+                  label="Cancel Order"
                   title={`Cancel ${detail.data.po_number}?`}
                   description="The warehouse will stop receiving against this order. It stays on record as cancelled."
-                  cancelLabel="Keep order"
-                  confirmLabel="Cancel order"
+                  cancelLabel="Keep Order"
+                  confirmLabel="Cancel Order"
                   tone="danger"
                   variant="ghost"
                   size="sm"
                   pending={cancel.isPending}
                   reason={{
-                    label: "Why",
+                    label: "Reason for Cancelling",
                     optional: true,
                   }}
                   onConfirm={(reason) =>
@@ -1746,10 +1754,6 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
     (sum, line) => sum + line.received_quantity,
     0
   )
-  const pct =
-    order.net_minor > 0
-      ? Math.min(100, (order.expected_value_minor / order.net_minor) * 100)
-      : 0
   const open =
     order.lifecycle === "ACTIVE" || order.lifecycle === "PARTIALLY_RECEIVED"
   const late =
@@ -1776,16 +1780,29 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
   )
   const gross = amounts.reduce((sum, one) => sum + one, 0)
   const totalTone = receivedTone(pieces, received)
+  /// Pieces the order was closed short on, and what they were worth after
+  /// their share of the discount: the invoice is the order less both. An order
+  /// that was not closed short owes its whole total.
+  const closedShortPieces = order.lines.reduce(
+    (sum, line) => sum + (line.closed_short_units ?? 0),
+    0
+  )
+  const closedShortValue =
+    closedShortPieces > 0
+      ? Math.max(0, gross - order.discount_minor - order.expected_value_minor)
+      : 0
+  const grandTotal = gross - order.discount_minor - closedShortValue
   /// The green stamp once the order is done, the red one once it is called
   /// off. Laid over the document's corner, not given a row of its own: it takes
   /// no room, and what is under it still reads through it.
   const stamp =
     order.lifecycle === "CANCELLED"
       ? { word: "CANCELLED", tone: "bad" as const }
-      : order.lifecycle === "FULLY_RECEIVED" ||
-          order.lifecycle === "SHORT_RECEIVED"
-        ? { word: "COMPLETED", tone: "ok" as const }
-        : null
+      : order.lifecycle === "FULLY_RECEIVED"
+        ? { word: "FULLY RECEIVED", tone: "ok" as const }
+        : order.lifecycle === "SHORT_RECEIVED"
+          ? { word: "CLOSED SHORT", tone: "ok" as const }
+          : null
   return (
     <div className="relative flex flex-col gap-5">
       {stamp !== null && (
@@ -1814,7 +1831,7 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
             order.supplier_ref_id
           )}
         </Fact>
-        <Fact term="Delivery date">
+        <Fact term="Delivery Date">
           <span className={late ? "font-medium text-bad-fg" : undefined}>
             {order.expected_arrival === null
               ? "—"
@@ -1822,14 +1839,29 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
           </span>
         </Fact>
         {order.payment_terms_code && (
-          <Fact term="Payment terms">
+          <Fact term="Payment Terms">
             {order.payment_terms_name ?? order.payment_terms_code}
           </Fact>
         )}
-        <Fact term="Payment method">{methodName(order.payment_method)}</Fact>
+        <Fact term="Payment Method">{methodName(order.payment_method)}</Fact>
         {received > 0 && (
-          <Fact term="Receiving">
-            {`${Math.round(pct)}% · ${money(order.expected_value_minor)}`}
+          // In pieces and in value, no percentage (the owner, 2026-10-05): the
+          // list says "N pcs short", and a percentage by value said another
+          // number for the same thing.
+          <Fact term="Received">
+            {/* Red only once it is short for good: the order is late or was
+                closed short. A part-delivered open order is simply in
+                progress. */}
+            <span
+              className={
+                received < pieces &&
+                (late || order.lifecycle === "SHORT_RECEIVED")
+                  ? "text-bad-fg"
+                  : undefined
+              }
+            >
+              {`${count(received)} of ${count(pieces)} pcs \u00b7 ${money(order.expected_value_minor)} of ${money(gross - order.discount_minor)}`}
+            </span>
           </Fact>
         )}
       </Facts>
@@ -1850,7 +1882,7 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
                   <LineItem line={line} />
                   <dl className="grid grid-cols-2 gap-3 text-[0.9375rem]">
                     <div className="flex flex-col gap-0.5">
-                      <dt className="text-mute">Order qty</dt>
+                      <dt className="text-mute">Order Qty</dt>
                       <dd className="text-ink tabular-nums">
                         {pcs(line.ordered_quantity)}
                         {line.order_unit_code && line.order_unit_quantity && (
@@ -1869,7 +1901,7 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
                       </dd>
                     </div>
                     <div className="flex flex-col gap-0.5">
-                      <dt className="text-mute">Unit price</dt>
+                      <dt className="text-mute">Unit Price</dt>
                       <dd className="text-ink tabular-nums">
                         {unitPriceText(line)}
                       </dd>
@@ -1901,20 +1933,32 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
                 <div className="flex items-baseline justify-between gap-3 text-body">
                   <span>
                     {`Discount \u00b7 ${percentText(order.discount_bps ?? percentFromDiscount(order.discount_minor, gross))} %`}
+                    {pieces > 0 && (
+                      <span className="block text-mute">
+                        {`${money(Math.round(order.discount_minor / pieces))} / pc`}
+                      </span>
+                    )}
                   </span>
                   <span className="text-ink tabular-nums">
                     {`\u2212 ${money(order.discount_minor)}`}
                   </span>
                 </div>
               )}
-              {order.discount_minor !== 0 && pieces > 0 && (
-                <div className="flex items-baseline justify-between gap-3 text-mute">
-                  <span>Discount per Item</span>
-                  <span className="tabular-nums">
-                    {`\u2212 ${money(Math.floor(order.discount_minor / pieces))} / pc`}
+
+              {closedShortPieces > 0 && (
+                <div className="flex items-baseline justify-between gap-3 text-body">
+                  <span>{`Closed Short \u00b7 ${pcs(closedShortPieces)}`}</span>
+                  <span className="text-ink tabular-nums">
+                    {`\u2212 ${money(closedShortValue)}`}
                   </span>
                 </div>
               )}
+              <div className="flex items-baseline justify-between gap-3 border-t border-hairline pt-2">
+                <span className="font-medium text-body">Grand Total</span>
+                <span className="font-medium text-ink tabular-nums">
+                  {money(grandTotal)}
+                </span>
+              </div>
             </li>
           </ul>
         </div>
@@ -2015,19 +2059,36 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
                   <tr className="border-t border-hairline">
                     <td colSpan={4} className="px-4 py-3 text-body">
                       {`Discount \u00b7 ${percentText(order.discount_bps ?? percentFromDiscount(order.discount_minor, gross))} %`}
+                      {pieces > 0 && (
+                        <span className="block text-mute">
+                          {`${money(Math.round(order.discount_minor / pieces))} / pc`}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right text-ink tabular-nums">
                       {`\u2212 ${money(order.discount_minor)}`}
                     </td>
                   </tr>
                 )}
-                {order.discount_minor !== 0 && pieces > 0 && (
+
+                {closedShortPieces > 0 && (
                   <tr className="border-t border-hairline">
-                    <td colSpan={5} className="px-4 py-2.5 text-mute">
-                      {`Discount per Item \u00b7 \u2212 ${money(Math.floor(order.discount_minor / pieces))} / pc`}
+                    <td colSpan={4} className="px-4 py-3 text-body">
+                      {`Closed Short \u00b7 ${pcs(closedShortPieces)}`}
+                    </td>
+                    <td className="px-4 py-3 text-right text-ink tabular-nums">
+                      {`\u2212 ${money(closedShortValue)}`}
                     </td>
                   </tr>
                 )}
+                <tr className="border-t border-hairline bg-soft">
+                  <td colSpan={4} className="px-4 py-3 font-medium text-body">
+                    Grand Total
+                  </td>
+                  <td className="px-4 py-3 text-right font-medium text-ink tabular-nums">
+                    {money(grandTotal)}
+                  </td>
+                </tr>
               </tfoot>
             </table>
           </div>
@@ -2040,7 +2101,7 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
 
       {order.terms_and_conditions != null &&
         order.terms_and_conditions.trim() !== "" && (
-          <Section title="Terms and conditions" rule={false} quiet>
+          <Section title="Terms and Conditions" rule={false} quiet>
             <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
               {order.terms_and_conditions.trim()}
             </p>
@@ -2048,7 +2109,7 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
         )}
 
       {cancelReason !== null && (
-        <Section title="Cancel reason" rule={false} quiet>
+        <Section title="Cancel Reason" rule={false} quiet>
           <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
             {cancelReason}
           </p>
@@ -2170,9 +2231,9 @@ function BeyondTheOrder({ order }: { order: PurchaseOrderDetail }) {
             </ul>
             <ConfirmButton
               label={`Return ${pcs(pendingTotal)} to supplier`}
-              title="Send the excess back"
+              title="Send the Excess Back"
               description={`These ${count(pendingTotal)} pieces came beyond the order and go back to ${supplier}. The Gudang hands them over.`}
-              confirmLabel="Raise the return"
+              confirmLabel="Raise the Return"
               className="self-start"
               pending={raise.isPending}
               onConfirm={() => raise.mutateAsync()}
@@ -2180,15 +2241,50 @@ function BeyondTheOrder({ order }: { order: PurchaseOrderDetail }) {
           </>
         )}
         {returns.length > 0 && (
-          <ul className="flex flex-col gap-1.5">
-            {/* How many went back, nothing else: the return itself is in
-              Return to supplier. */}
+          <ul className="flex flex-col gap-3">
+            {/* Each return with what went back and what it was worth, and a way
+              into the return itself. */}
             {returns.map((ret) => (
               <li
                 key={ret.return_id}
-                className="text-[0.9375rem] text-ink tabular-nums"
+                className="flex flex-col gap-1.5 rounded-inner border border-hairline p-3"
               >
-                {pcs(ret.quantity)}
+                <div className="flex items-baseline justify-between gap-3">
+                  <AppLink
+                    to="/procurement/returns"
+                    sheet={{ key: "allotment", value: ret.return_id }}
+                    className="font-medium text-accent hover:underline"
+                  >
+                    {ret.return_number}
+                  </AppLink>
+                  <span className="text-[0.875rem] text-mute">
+                    {ret.status !== "OPEN"
+                      ? "Confirmed"
+                      : ret.note_generated_at != null
+                        ? "Generated"
+                        : "Not Generated"}
+                  </span>
+                </div>
+                {ret.lines.map((one) => {
+                  const line = order.lines.find(
+                    (l) => l.po_line_id === one.po_line_id
+                  )
+                  return (
+                    <div
+                      key={`${one.receipt_line_id}-${one.po_line_id}`}
+                      className="flex items-baseline justify-between gap-3 text-[0.875rem]"
+                    >
+                      <span className="min-w-0 truncate text-ink">
+                        {one.article_name}
+                      </span>
+                      <span className="shrink-0 text-body tabular-nums">
+                        {line === undefined
+                          ? pcs(one.quantity)
+                          : `${pcs(one.quantity)} \u00b7 ${money(lineValue(line, one.quantity))}`}
+                      </span>
+                    </div>
+                  )
+                })}
               </li>
             ))}
           </ul>

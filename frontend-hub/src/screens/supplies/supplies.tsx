@@ -103,7 +103,7 @@ export function Supplies() {
     <PageContent>
       <PageHeader
         crumb="GA"
-        title="Supply requests"
+        title="Supply Requests"
         sub="Submit and track requests for consumables needed by the office, warehouse, stores and mess."
         actions={
           <Button variant="primary" onClick={() => setAdding(true)}>

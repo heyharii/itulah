@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Sheet } from "@/components/ui/sheet"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
@@ -621,6 +621,13 @@ function TermForm({
   // a code corrected by hand should not be silently rewritten by the next
   // keystroke in the field above it.
   const [codeTyped, setCodeTyped] = useState(false)
+  /// Nothing is called wrong before it has been touched: a new term's form
+  /// used to open red, two errors over two empty boxes. Gaps are named once a
+  /// field has been left, or once Add / Save has been pressed on a form that
+  /// is not ready.
+  const [tried, setTried] = useState(false)
+  const reveal = (touched: boolean, problem: string | undefined) =>
+    tried || touched ? problem : undefined
 
   const save = useMutation({
     mutationFn: (draft: TermDraft) => {
@@ -659,7 +666,12 @@ function TermForm({
       label: term?.term.label ?? "",
       order: String(term?.order ?? 0),
     } as TermDraft,
-    onSubmit: ({ value }) => save.mutate(value),
+    onSubmit: ({ value }) => {
+      setTried(true)
+      const found = problemsWith(value, vocabulary, term, existing)
+      if (Object.keys(found).length > 0) return
+      save.mutate(value)
+    },
   })
 
   return (
@@ -681,7 +693,11 @@ function TermForm({
           <>
             <form.Field name="label">
               {(field) => (
-                <Field label="Label" required problem={problems.label}>
+                <Field
+                  label="Label"
+                  required
+                  problem={reveal(field.state.meta.isTouched, problems.label)}
+                >
                   <Input
                     value={field.state.value}
                     onBlur={field.handleBlur}
@@ -700,28 +716,35 @@ function TermForm({
               )}
             </form.Field>
 
-            <form.Field name="code">
-              {(field) => (
-                <Field
-                  label="Code"
-                  required={term === null}
-                  problem={problems.code}
-                >
-                  <Input
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      setCodeTyped(true)
-                      field.handleChange(event.target.value)
-                    }}
-                    // Existing codes are shown, never edited: the goods point
-                    // at them. Disabled rather than hidden, because somebody
-                    // reading a database row needs to see it here.
-                    disabled={term !== null}
-                  />
-                </Field>
-              )}
-            </form.Field>
+            {term === null ? (
+              <form.Field name="code">
+                {(field) => (
+                  <Field
+                    label="Code"
+                    required
+                    problem={reveal(field.state.meta.isTouched, problems.code)}
+                  >
+                    <Input
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => {
+                        setCodeTyped(true)
+                        field.handleChange(event.target.value)
+                      }}
+                    />
+                  </Field>
+                )}
+              </form.Field>
+            ) : (
+              // An existing code is read, not edited: the goods point at it.
+              // Said as a fact, not as a greyed box that looks like a field
+              // that is broken.
+              <Facts>
+                <Fact term="Code">
+                  <span className="font-mono">{term.term.code}</span>
+                </Fact>
+              </Facts>
+            )}
 
             {/* Only where an order is a decision. A tag's was a number
                 nobody set and every row showed 0 — a field that exists
@@ -729,7 +752,10 @@ function TermForm({
             {vocabulary.ordered && (
               <form.Field name="order">
                 {(field) => (
-                  <Field label="Order" problem={problems.order}>
+                  <Field
+                    label="Order"
+                    problem={reveal(field.state.meta.isTouched, problems.order)}
+                  >
                     <Input
                       value={field.state.value}
                       onBlur={field.handleBlur}
@@ -744,21 +770,12 @@ function TermForm({
             )}
 
             <div className="flex items-center justify-end gap-2 pt-1">
-              <Button
-                type="submit"
-                variant="primary"
-                pending={save.isPending}
-                disabled={
-                  problems.label !== undefined ||
-                  problems.code !== undefined ||
-                  problems.order !== undefined
-                }
-              >
+              <Button type="submit" variant="primary" pending={save.isPending}>
                 {save.isPending
-                  ? "Submitting…"
+                  ? "Saving…"
                   : term === null
-                    ? `Add ${vocabulary.one}`
-                    : "Submit"}
+                    ? `Add ${capitalise(vocabulary.one)}`
+                    : "Save"}
               </Button>
             </div>
           </>

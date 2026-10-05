@@ -43,12 +43,12 @@ export function PricingFields({
   return (
     <div className="grid gap-4 md:grid-cols-3">
       <Field
-        label="Purchase price"
+        label="Purchase Price"
         required={required}
         aside={`per ${unit?.label ?? "pc"}`}
       >
         <Money
-          label="Purchase price"
+          label="Purchase Price"
           prefix="Rp"
           value={pricing.purchase}
           onChange={(purchase) => set({ purchase })}
@@ -69,12 +69,12 @@ export function PricingFields({
         </span>
       </Field>
       <Field
-        label="Base price"
+        label="Base Price"
         aside="selling, per pc"
         problem={sellingProblem ?? null}
       >
         <Money
-          label="Base price"
+          label="Base Price"
           prefix="Rp"
           value={pricing.base}
           onChange={(base) => set({ base })}

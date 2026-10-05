@@ -83,7 +83,7 @@ export function LabClose() {
     <PageContent>
       <PageHeader
         crumb="Accounting & close"
-        title="Period close"
+        title="Period Close"
         actions={
           <div className="flex items-center gap-2">
             <Select value={month} onChange={setMonth} className={FILTER_W}>

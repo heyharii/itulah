@@ -1,3 +1,4 @@
+import { useRouterState } from "@tanstack/react-router"
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
@@ -37,10 +38,55 @@ export function EmptyState({
 /// A spinner on a 400ms fetch is a flash; a spinner on a hang is a lie that
 /// work is still happening. Skeleton rows are allowed inside an already-open
 /// sheet whose header already shows the record id — never for a whole screen.
+///
+/// **Skeletons for Ops, Procurement and Master** (owner, 2026-10-05): those
+/// screens are lists and boards opened all day, and a line of text that
+/// becomes a table moves the whole page. There the loading state is the shape
+/// of what is coming — a table's rows — and the sentence stays for a screen
+/// reader. Every other department keeps the sentence.
 export function LoadingState({ children }: { children?: React.ReactNode }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const skeleton = SKELETON_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(prefix + "/")
+  )
+  if (skeleton) return <ListSkeleton label={children ?? "Loading…"} />
   return (
     <div className="mx-auto max-w-[28em] px-4 py-14 text-center">
       <p className="text-meta text-body">{children ?? "Loading…"}</p>
+    </div>
+  )
+}
+
+const SKELETON_PREFIXES = [
+  "/operations",
+  "/procurement",
+  "/master",
+  "/merchandise",
+]
+
+/// A list's rows, drawn before the rows exist: the same 56px rhythm a table
+/// has, a name and a figure per row, and a slow fade so it reads as waiting and
+/// not as broken. Held still for anyone who asked for less motion.
+function ListSkeleton({ label }: { label: React.ReactNode }) {
+  const widths = ["w-2/5", "w-1/3", "w-1/2", "w-2/5", "w-[28%]", "w-1/2"]
+  return (
+    <div role="status" aria-live="polite" className="px-0.5 pt-2">
+      <span className="sr-only">{label}</span>
+      <div
+        aria-hidden
+        className="bg-card overflow-hidden rounded-inner border border-hairline motion-safe:animate-pulse"
+      >
+        {Array.from({ length: 8 }, (_, row) => (
+          <div
+            key={row}
+            className="flex h-14 items-center gap-6 border-t border-hairline px-4 first:border-t-0"
+          >
+            <span className={`h-3.5 rounded-full bg-soft ${widths[row % 6]}`} />
+            <span className="ml-auto h-3.5 w-16 rounded-full bg-soft" />
+            <span className="h-3.5 w-20 rounded-full bg-soft max-md:hidden" />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

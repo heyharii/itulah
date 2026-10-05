@@ -76,7 +76,7 @@ export function EmployeeChanges() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Employee changes"
+        title="Employee Changes"
         sub="Transfers, promotions, salary changes and separations — proposed, then decided."
         actions={
           canWrite && (

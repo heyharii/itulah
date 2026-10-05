@@ -287,7 +287,7 @@ export function AccountLinks() {
     <PageContent>
       <PageHeader
         crumb="Finance"
-        title="Account links"
+        title="Account Links"
         sub="The posting rules name roles; the client's chart has accounts. A link says which account answers, for every unit, one kind of unit, or one unit."
         actions={
           <Input

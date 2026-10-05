@@ -83,7 +83,7 @@ export function PostingReadinessScreen() {
     <PageContent>
       <PageHeader
         crumb="Finance"
-        title="Posting readiness"
+        title="Posting Readiness"
         sub="Every role the posting rules use, against every unit: the account a posting would land on now, or a gap where it would be refused."
         actions={
           <Input

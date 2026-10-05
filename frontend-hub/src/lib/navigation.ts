@@ -24,6 +24,7 @@ import { meNav } from "@/screens/me/nav"
 import { mobileNav } from "@/screens/mobile/nav"
 import { inventoryNav } from "@/screens/inventory/nav"
 import { masterNav, useNewArticlesCount } from "@/screens/master/nav"
+import { merchandiseArticlesNav } from "@/screens/merchandise/nav"
 import { membersNav } from "@/screens/members/nav"
 import { operationsNav } from "@/screens/operations/nav"
 import { peopleNav } from "@/screens/people/nav"
@@ -272,6 +273,7 @@ export const modules: readonly AppModule[] = [
   executiveNav,
   commercialNav,
   masterNav,
+  merchandiseArticlesNav,
   inventoryNav,
   allotmentNav,
   procurementNav,
@@ -436,7 +438,7 @@ const allDomains: readonly AppDomain[] = [
     id: "merchandise",
     label: "Merchandise",
     icon: Shirt,
-    modules: ["allotment"],
+    modules: ["merchandise-articles", "allotment"],
   },
   // Ops stands apart from Inventory for a reason that is not taste: every one
   // of its screens talks to a DC node behind its own login, so a domain that
@@ -687,6 +689,7 @@ export function screenForPath(
 const SECTION_OF_MODULE: Readonly<Record<string, SectionCode>> = {
   commercial: "marketing",
   master: "merchandise",
+  "merchandise-articles": "merchandise",
   allotment: "merchandise",
   inventory: "inventory",
   procurement: "procurement",

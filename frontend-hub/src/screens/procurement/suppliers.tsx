@@ -66,7 +66,10 @@ import { ItemDetail } from "@/screens/procurement/item-detail"
 import { ItemFormSheet } from "@/screens/procurement/item-form"
 import { OrderSheet } from "@/screens/procurement/purchase-orders"
 import { escapeHtml } from "@/screens/procurement/print"
-import { useFitHidden, useIdempotencyKey } from "@/screens/procurement/shared"
+import {
+  useFittedVisibility,
+  useIdempotencyKey,
+} from "@/screens/procurement/shared"
 import {
   LEGAL_FORMS,
   completeNpwp,
@@ -356,9 +359,8 @@ export function Suppliers() {
   const search = useSheet("q")
   // Nothing chosen is the house order: active suppliers first, then by name.
   const [sorting, setSorting] = useState<SortingState>([])
-  const [visibility, setVisibility] =
-    useState<VisibilityState>(HIDDEN_BY_DEFAULT)
-  const fit = useFitHidden(columns, visibility)
+  const fit = useFittedVisibility(columns, HIDDEN_BY_DEFAULT)
+  const visibility = fit.visibility
   /// The book is narrowed by two things and only two (the owner,
   /// 2026-09-28): its status, as tabs, and whether a supplier has an order
   /// still open, as a switch. The filter panel, views and chips are gone.
@@ -459,13 +461,13 @@ export function Suppliers() {
         getRowId: (row: SupplierRow) => row.supplier_id,
         state: {
           sorting,
-          columnVisibility: { ...visibility, ...fit.hidden },
+          columnVisibility: fit.shown,
         },
         // The rows arrive in the order the request asked for. Sorting them
         // again here would sort what has loaded, not the book.
         manualSorting: true,
         onSortingChange: setSorting,
-        onColumnVisibilityChange: setVisibility,
+        onColumnVisibilityChange: fit.change,
       }),
       [rows, sorting, fit.hidden, visibility]
     )
@@ -590,7 +592,7 @@ export function Suppliers() {
           </div>
         </>
       </div>
-      <Fab label="New supplier" onClick={() => supplier.open("new")} />
+      <Fab label="New Supplier" onClick={() => supplier.open("new")} />
 
       {/* `overflow-clip`, not `overflow-hidden`: hidden makes the card a
           scroll box, and the table's heading would stick to the card instead
@@ -787,16 +789,16 @@ function TabLabel({ text, n }: { text: string; n: number }) {
   )
 }
 
-/// `49.923.900.000` → `Rp 49,9 M`. Indonesian scale: ribu, juta, miliar.
+/// `49.923.900.000` → `Rp 49,9 billion`. Words, not the Indonesian jt/rb.
 function brief(minor: number): string {
   const abs = Math.abs(minor)
   const [scale, suffix] =
     abs >= 1_000_000_000
-      ? [1_000_000_000, " M"]
+      ? [1_000_000_000, " billion"]
       : abs >= 1_000_000
-        ? [1_000_000, " jt"]
+        ? [1_000_000, " million"]
         : abs >= 1_000
-          ? [1_000, " rb"]
+          ? [1_000, " thousand"]
           : [1, ""]
   const scaled = minor / scale
   const shown =
@@ -1167,7 +1169,7 @@ function ContactsFields({
 
   if (readOnly) {
     return (
-      <Section title="Contact person" rule={false} quiet>
+      <Section title="Contact Person" rule={false} quiet>
         {contacts.length === 0 ? (
           <p className="text-[0.875rem] text-body">
             Nobody is on file at this supplier yet.
@@ -1205,7 +1207,7 @@ function ContactsFields({
   // 2026-09-28), so it stays in one place however many people are listed.
   return (
     <Section
-      title="Contact person"
+      title="Contact Person"
       rule={false}
       quiet
       actions={
@@ -1514,7 +1516,7 @@ export function SupplierComposer({
       <Sheet
         open={open}
         onOpenChange={(next) => !next && close()}
-        title="New supplier"
+        title="New Supplier"
         width="wide"
         footer={
           <div className="flex items-center justify-end gap-2">
@@ -1888,7 +1890,7 @@ function SupplierSheet({
         onOpenChange={(next) => {
           if (!next) setSavedEdit(false)
         }}
-        title="Supplier saved"
+        title="Supplier Saved"
       />
     </>
   )
@@ -1951,7 +1953,7 @@ function StatusSwitch({ supplier }: { supplier: Supplier }) {
       <Dialog
         open={asking}
         onOpenChange={setAsking}
-        title="Make this supplier non-active?"
+        title="Make This Supplier Non-Active?"
         confirm="Continue"
         cancel="Cancel"
         tone="danger"

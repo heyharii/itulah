@@ -171,7 +171,7 @@ export function BasketSheet({
           <Kpi label="Suppliers" value={count(groups.length)} />
           <Kpi label="Lines" value={count(lines.length)} />
           <Kpi label="Pieces" value={count(pieces)} />
-          <Kpi label="At catalogue prices" value={money(value)} />
+          <Kpi label="At Catalogue Prices" value={money(value)} />
         </KpiStrip>
 
         {queryState(basket, {
@@ -202,7 +202,9 @@ export function BasketSheet({
                       </span>
                     </CardStrip>
                     <div className="px-4 py-3.5">
-                      <MiniTable head={["Item", "Unit", "Quantity", "Value", ""]}>
+                      <MiniTable
+                        head={["Item", "Unit", "Quantity", "Value", ""]}
+                      >
                         {group.lines.map((line) => (
                           <tr
                             key={line.item.supplier_item_id}

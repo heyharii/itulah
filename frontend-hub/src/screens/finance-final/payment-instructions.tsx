@@ -122,7 +122,7 @@ export function PaymentInstructions() {
     <PageContent>
       <PageHeader
         crumb="Finance final · Store"
-        title="Payment instruction"
+        title="Payment Instruction"
         sub="A shop asking head office to pay something, and what happened to the ask."
       />
 

@@ -30,16 +30,18 @@ function useEchoesTopBar(title: React.ReactNode): boolean {
 export function PageHeader({
   crumb,
   title,
-  sub,
   actions,
-  small = false,
   className,
 }: {
   crumb?: React.ReactNode
   title: React.ReactNode
+  /// No longer drawn. A screen's title stands alone (owner, 2026-10-05: "di
+  /// semua menu ga ada subtitlenya"); the prop stays so the screens that still
+  /// pass one keep compiling, and says nothing.
   sub?: React.ReactNode
   actions?: React.ReactNode
-  /// A quiet title, 16px, for a screen that opens straight onto its figures.
+  /// Kept for the callers that pass it: every title is now the quiet 15px one
+  /// the Purchase orders screen opened with (owner, 2026-10-05).
   small?: boolean
   className?: string
 }) {
@@ -50,7 +52,7 @@ export function PageHeader({
         // 24px under the header on a desk (airy charcoal, 2026-09-28): the
         // title is the page's one bold thing and needs the air to be it.
         "flex flex-col items-stretch gap-3",
-        small ? "mb-2 md:-mt-1" : "mb-5 md:mb-6",
+        "mb-2 md:-mt-1",
         // The actions stand level with the title rather than hanging off its
         // first line: a 22px heading and a 36px button centre on each other.
         "md:flex-row md:items-center md:justify-between md:gap-5",
@@ -65,18 +67,10 @@ export function PageHeader({
           </div>
         )}
         <h1
-          className={cn(
-            "font-semibold text-ink",
-            small ? "text-[1rem] leading-5" : "text-hero"
-          )}
+          className={cn("font-semibold text-ink", "text-[0.9375rem] leading-5")}
         >
           {title}
         </h1>
-        {sub && (
-          <p className="mt-1 text-[0.875rem] leading-[1.375rem] text-body">
-            {sub}
-          </p>
-        )}
       </div>
       {actions && (
         // On a phone the actions wrap onto a second line rather than pushing

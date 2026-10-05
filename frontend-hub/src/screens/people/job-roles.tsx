@@ -38,7 +38,7 @@ export function JobRoles() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Job roles"
+        title="Job Roles"
         sub="Every job role a person can be invited as, and which parts of Central each one may see."
       />
       <RolesTab />

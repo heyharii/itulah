@@ -39,7 +39,7 @@ export function ClaimAllowancesPage() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Yearly allowances"
+        title="Yearly Allowances"
         sub="How much one person may be reimbursed for each kind of claim in a year."
         actions={
           canWrite && (

@@ -89,7 +89,7 @@ export function Permissions() {
     <PageContent>
       <PageHeader
         crumb="Finance · Settings"
-        title="Rung permissions"
+        title="Rung Permissions"
         sub="The least rung that may call a route, on top of the built-in rules. The longest matching path wins; removing an override restores the built-in rule."
         actions={
           <Input

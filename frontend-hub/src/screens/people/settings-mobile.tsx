@@ -48,7 +48,7 @@ export function MobileSettings() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Mobile attendance"
+        title="Mobile Attendance"
         sub="Whether the employee app may punch, whether it must say where the phone is, and the circle around each unit a punch must come from."
         actions={
           canWrite && (

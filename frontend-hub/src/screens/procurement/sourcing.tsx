@@ -524,7 +524,7 @@ export function Sourcing() {
               {picked > 0 && ` · ${count(picked)}`}
             </Button>
           </div>
-          <Fab label="Add item" onClick={() => adding.open(true)} />
+          <Fab label="Add Item" onClick={() => adding.open(true)} />
 
           {queryState(catalogue, {
             loading: "Reading the catalogue…",

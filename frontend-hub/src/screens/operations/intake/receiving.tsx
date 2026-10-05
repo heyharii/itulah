@@ -795,7 +795,7 @@ export function CountSheet({
                   )}
                 >
                   <span className="flex min-h-11 items-center font-medium text-ink">
-                    Total as Ordered
+                    Total Counted
                   </span>
                   <span className="max-sm:hidden" />
                   <span className="flex min-h-11 items-center justify-end text-right font-medium text-ink tabular-nums">

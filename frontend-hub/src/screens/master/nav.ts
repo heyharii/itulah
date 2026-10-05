@@ -64,7 +64,7 @@ export const masterNav: AppModule = {
         { path: "/master", label: "Articles", icon: Shirt },
         {
           path: "/master/new-articles",
-          label: "New articles",
+          label: "New Articles",
           icon: PackagePlus,
           useCount: useNewArticlesCount,
           badge: "warn",
@@ -106,7 +106,7 @@ export const masterNav: AppModule = {
         { path: "/master/colours", label: "Colours", icon: Palette },
         {
           path: "/master/name-suggestions",
-          label: "Name suggestions",
+          label: "Name Suggestions",
           icon: TextCursorInput,
         },
       ],
@@ -120,7 +120,7 @@ export const masterNav: AppModule = {
       items: [
         {
           path: "/master/units",
-          label: "Satuan & conversions",
+          label: "Satuan & Conversions",
           icon: Scale,
           moved: ["/inventory/units"],
         },
@@ -155,7 +155,7 @@ export const masterNav: AppModule = {
       items: [
         {
           path: "/master/payment-templates",
-          label: "Payment templates",
+          label: "Payment Templates",
           icon: CalendarClock,
         },
       ],

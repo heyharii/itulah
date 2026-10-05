@@ -218,7 +218,7 @@ export function StockLedger() {
 
   return (
     <PageContent>
-      <PageHeader title="Stock ledger" />
+      <PageHeader title="Stock Ledger" />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <label className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-mute" />

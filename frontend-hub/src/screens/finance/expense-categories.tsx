@@ -56,7 +56,7 @@ export function ExpenseCategories() {
     <PageContent>
       <PageHeader
         crumb="Finance · Setup"
-        title="Expense categories"
+        title="Expense Categories"
         sub="What a shop's expense or an employee's claim is filed under. The account each lands on is an account link."
         actions={
           <>

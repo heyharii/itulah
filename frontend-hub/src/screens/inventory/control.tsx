@@ -314,7 +314,7 @@ export function Control() {
     <PageContent>
       <PageHeader
         crumb="Inventory"
-        title="Ledger control"
+        title="Ledger Control"
         sub="Whether the projection every other screen reads still equals the movements underneath it."
       />
 

@@ -166,7 +166,7 @@ export function UnmatchedCharges() {
     <PageContent>
       <PageHeader
         crumb="Finance"
-        title="Charges without a sale"
+        title="Charges Without a Sale"
         sub="Money a shop took where no sale was written. The shop's own day report balances, so nobody there can see it."
       />
 

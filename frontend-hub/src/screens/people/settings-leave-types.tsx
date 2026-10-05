@@ -72,7 +72,7 @@ export function LeaveTypeSettings() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Leave types"
+        title="Leave Types"
         sub="What kinds of leave exist, what each draws on, and the dates closed to leave."
         actions={
           canWrite && (

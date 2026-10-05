@@ -43,7 +43,7 @@ export function PayrollScheduleSettings() {
     <PageContent>
       <PageHeader
         crumb="People"
-        title="Payroll schedule"
+        title="Payroll Schedule"
         sub="When the attendance month closes, when pay goes out, and how a part month is prorated."
         actions={
           canWrite && (

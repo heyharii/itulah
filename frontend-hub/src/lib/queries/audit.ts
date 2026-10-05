@@ -179,6 +179,10 @@ export function describeAction(entry: AuditEntry): string {
         ? `${count(pieces)} pcs of ${article}`
         : (article ?? "the goods")
     if (parts[1] === "purchase-counts") return `counted ${what}`
+    if (parts[1] === "purchase-close-short") {
+      const reason = text("reason")
+      return `closed ${what} short${reason ? `, reason: ${reason}` : ""}`
+    }
     if (parts[1] === "purchase-verifications") {
       // `excess` is everything beyond the order, and `wrong` — the pieces
       // the checker counted as not the article — is part of it, so the two
@@ -187,7 +191,9 @@ export function describeAction(entry: AuditEntry): string {
       const wrong = number("wrong") ?? 0
       const pieces = [
         wrong > 0 ? `${count(wrong)} pcs not as ordered` : null,
-        excess - wrong > 0 ? `${count(excess - wrong)} pcs over the order` : null,
+        excess - wrong > 0
+          ? `${count(excess - wrong)} pcs over the order`
+          : null,
       ].filter(Boolean)
       return pieces.length > 0
         ? `verified the count of ${what}, ${pieces.join(", ")}`

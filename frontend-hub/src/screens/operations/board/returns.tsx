@@ -191,7 +191,7 @@ export function StoreReturnsBoard() {
   const header = (actions?: React.ReactNode) => (
     <BoardHeader
       board="store-returns"
-      title="Return from store"
+      title="Return from Store"
       actions={actions}
       view={viewState}
     />
@@ -238,7 +238,7 @@ export function StoreReturnsBoard() {
           <Lane
             id="on-way"
             tone="bg-info"
-            title="On the way"
+            title="On the Way"
             pieces={sum(way, (one) => one.koli_count)}
             unit="koli"
             cards={way.length}
@@ -261,7 +261,7 @@ export function StoreReturnsBoard() {
           <Lane
             id="receive-count"
             tone="bg-warn"
-            title="Receive count"
+            title="Receive Count"
             pieces={sum(counting, (one) => one.result?.received_units ?? 0)}
             cards={counting.length}
           >
@@ -291,7 +291,7 @@ export function StoreReturnsBoard() {
           <Lane
             id="in-review"
             tone="bg-body"
-            title="In review"
+            title="In Review"
             pieces={sum(review, (row) => row.waiting_units)}
             cards={review.length}
             problem={inspections.isError ? inspections.error : undefined}

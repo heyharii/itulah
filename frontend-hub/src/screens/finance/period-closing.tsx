@@ -57,7 +57,7 @@ export function PeriodClosing() {
     <PageContent>
       <PageHeader
         crumb="Finance · Opening & Closing"
-        title="Period closing vouchers"
+        title="Period Closing Vouchers"
         sub="Move a range's profit or loss into retained earnings as one entry. Only the latest voucher can be cancelled, by reversing it."
       />
 
