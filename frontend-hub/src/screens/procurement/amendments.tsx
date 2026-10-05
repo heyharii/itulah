@@ -221,7 +221,7 @@ export function PriceAmendments() {
                 table={table}
                 onRowClick={(row) => amendment.open(row.request_id)}
                 isSelected={(row) => row.request_id === amendment.value}
-                className="max-h-[calc(100vh-20rem)]"
+                className="max-h-[calc(100dvh-20rem)]"
               />
             ),
         })}

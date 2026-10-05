@@ -257,7 +257,7 @@ export function StockLedger() {
                 virtualizeAbove={0}
                 rowHeight={72}
                 more={ledger}
-                className="max-h-[calc(100vh-14rem)]"
+                className="max-h-[calc(100dvh-14rem)]"
               />
             ),
         })}

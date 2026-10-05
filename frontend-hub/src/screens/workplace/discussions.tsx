@@ -523,7 +523,7 @@ function Board({
                 more={threads}
                 estimate={82}
                 getKey={(row) => row.thread_id}
-                className="max-h-[calc(100vh-17rem)]"
+                className="max-h-[calc(100dvh-17rem)]"
               >
                 {(row) => (
                   <TopicRow thread={row} onOpen={() => onOpen(row.thread_id)} />

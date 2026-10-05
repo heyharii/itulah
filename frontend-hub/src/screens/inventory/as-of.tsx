@@ -321,7 +321,7 @@ export function AsOf() {
                   <DataTable<Pool>
                     table={table}
                     empty="No pool in this replay matches the filters in force."
-                    className="max-h-[calc(100vh-28rem)]"
+                    className="max-h-[calc(100dvh-28rem)]"
                   />
                 )}
               </Card>

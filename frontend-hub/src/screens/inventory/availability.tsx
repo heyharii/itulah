@@ -330,7 +330,7 @@ export function Availability() {
                     <DataTable<AvailabilityItem>
                       table={table}
                       more={page}
-                      className="max-h-[calc(100vh-26rem)]"
+                      className="max-h-[calc(100dvh-26rem)]"
                     />
                     <div className="border-t border-hairline px-4 py-2.5 text-[0.875rem] text-mute tabular-nums">
                       {count(data.total_items)} SKUs

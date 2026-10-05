@@ -400,7 +400,7 @@ export function Nodes({
                 onRowClick={(row) => origin.open(row.origin_id)}
                 isSelected={(row) => row.origin_id === origin.value}
                 empty="No server matches that search."
-                className="max-h-[calc(100vh-14rem)]"
+                className="max-h-[calc(100dvh-14rem)]"
               />
             ),
         })}

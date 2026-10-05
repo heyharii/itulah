@@ -293,7 +293,7 @@ export function Periods() {
                 onRowClick={(row) => period.open(periodId(row))}
                 isSelected={(row) => periodId(row) === period.value}
                 empty="No month matches the filters in force."
-                className="max-h-[calc(100vh-20rem)]"
+                className="max-h-[calc(100dvh-20rem)]"
               />
             ),
         })}

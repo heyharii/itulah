@@ -11,6 +11,7 @@ import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, Row, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import {
+  Ban,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -26,6 +27,8 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
 import { DataTable } from "@/components/ui/data-table"
+import { columnName } from "@/components/ui/column-name"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Fab } from "@/components/ui/fab"
 import { Switch } from "@/components/ui/form"
 import { DayRange, type DayWindow } from "@/components/ui/day-range"
@@ -880,6 +883,13 @@ export function PurchaseOrders() {
     )
   )
 
+  /// The phone's drawer opens the filter or the sort sheet by name.
+  const [optionsAt, setOptionsAt] = useState<"filter" | "sort" | null>(null)
+  const sortedBy = table
+    .getAllLeafColumns()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .find((column: any) => column.id === sorting[0]?.id)
+  const sortName = sortedBy === undefined ? "Default" : columnName(sortedBy)
   const chooseSort = (id: string, desc: boolean) => {
     setGroupBySupplier(false)
     setCollapsed(new Set())
@@ -912,23 +922,29 @@ export function PurchaseOrders() {
       </KpiStrip>
 
       <SubTabs
-        tabs={TABS.map((one) => ({
-          value: one.value,
-          label: (
-            <span>
-              {one.label}
-              <span className="ml-1.5 text-body tabular-nums">
-                {count(
-                  (orders.data?.facets.order_status ?? [])
-                    .filter((facet) =>
-                      (one.statuses as readonly string[]).includes(facet.value)
-                    )
-                    .reduce((sum, facet) => sum + facet.count, 0)
-                )}
+        // On a phone these are drawn in the context row over the bottom bar
+        // (owner, 2026-10-05), as the word alone.
+        dock
+        tabs={TABS.map((one) => {
+          const figure = (orders.data?.facets.order_status ?? [])
+            .filter((facet) =>
+              (one.statuses as readonly string[]).includes(facet.value)
+            )
+            .reduce((sum, facet) => sum + facet.count, 0)
+          return {
+            value: one.value,
+            short: one.label.replace(/ PO$/, ""),
+            icon: one.value === "cancelled" ? Ban : undefined,
+            label: (
+              <span>
+                {one.label}
+                <span className="ml-1.5 text-body tabular-nums">
+                  {count(figure)}
+                </span>
               </span>
-            </span>
-          ),
-        }))}
+            ),
+          }
+        })}
         value={tab}
         onChange={(next) => {
           setTab(next as OrderTab)
@@ -976,7 +992,7 @@ export function PurchaseOrders() {
           (2026-09-28): it took 256px from a table that needs every one, and
           its figures are the cards above. On a phone: the search, and one
           button for filter and sort — see `ListOptionsSheet`. */}
-      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
         <SearchSuggest
           value={search.value ?? ""}
           onChange={(next) => (next ? search.open(next) : search.close())}
@@ -1069,6 +1085,33 @@ export function PurchaseOrders() {
 
       {/* New order on a phone: a floating button at the thumb's corner. */}
       <Fab label="New Order" onClick={() => composer.open(true)} />
+      {/* On a phone the search and the filter live in the drawer over the
+          bottom bar, not at the top of the list (owner, 2026-10-05). */}
+      <DockTools
+        search={{
+          value: search.value ?? "",
+          onChange: (next) => (next ? search.open(next) : search.close()),
+          label: "Search Orders",
+        }}
+        filter={{
+          count: filters.filters.length,
+          onOpen: () => setOptionsAt("filter"),
+        }}
+        sort={{
+          label: sortName,
+          onOpen: () => setOptionsAt("sort"),
+        }}
+      />
+      <ListOptionsSheet
+        hideTrigger
+        openAt={optionsAt}
+        onOpenAtChange={setOptionsAt}
+        model={filters}
+        filterModel={{ ...filters, fields: counted }}
+        table={table}
+        sorting={sorting}
+        onSort={chooseSort}
+      />
       {/* `overflow-clip`, not `overflow-hidden`: hidden makes the card a
           scroll box, and the table's heading would stick to the card instead
           of the window. */}

@@ -294,7 +294,7 @@ function ReconciliationTab() {
             ) : (
               <DataTable<PoolDiscrepancy>
                 table={table}
-                className="max-h-[calc(100vh-18rem)]"
+                className="max-h-[calc(100dvh-18rem)]"
               />
             ),
         })}

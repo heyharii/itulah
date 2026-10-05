@@ -303,7 +303,7 @@ export function ActivityLog() {
               <DataTable<AuditEntry>
                 table={table}
                 more={feed}
-                className="max-h-[calc(100vh-15rem)]"
+                className="max-h-[calc(100dvh-15rem)]"
               />
             ),
         })}

@@ -623,13 +623,13 @@ function Review({
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto px-8 pt-5 pb-8 [&>*]:shrink-0">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pt-4 pb-6 md:gap-8 md:px-8 md:pt-5 md:pb-8 [&>*]:shrink-0">
         {unnamed && <NameTheVerifier />}
 
         {/* The head of the report: who, when, which order — reference, not the
           point of the screen. Label and value on one line, plain weight, so
           the table below is what the eye lands on. */}
-        <dl className="grid grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)] gap-x-4 gap-y-2 text-[0.9375rem] [&_dd]:mr-6">
+        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 text-[0.9375rem] md:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)] md:[&_dd]:mr-6">
           {/* Two columns: who and when on the left, the totals on the right,
             then what the count found — for a count of any length. */}
           {(() => {
@@ -1003,7 +1003,7 @@ function Review({
         <Problem error={accept.error ?? recount.error} />
       </div>
 
-      <div className="flex items-center gap-3 border-t border-hairline px-6 py-4">
+      <div className="grid grid-cols-2 gap-2 border-t border-hairline px-4 py-3 md:flex md:items-center md:gap-3 md:px-6 md:py-4">
         {recounting ? (
           <>
             <Button
@@ -1032,13 +1032,17 @@ function Review({
           <>
             <Button
               variant="soft"
+              className={cn(
+                "max-md:justify-center",
+                shorts.length === 0 && "max-md:col-span-2"
+              )}
               disabled={unnamed || rows.length === 0 || accept.isPending}
               onClick={startRecount}
             >
               <RotateCcw />
               Recount
             </Button>
-            <span className="flex-1" />
+            <span className="flex-1 max-md:hidden" />
             {/* A short count's one decision is the button itself: no choice to
               set and then confirm. Primary is the one that keeps the order
               open; closing it short is the deliberate other. */}
@@ -1051,6 +1055,7 @@ function Review({
                   label="Close Short"
                   variant="soft"
                   tone="danger"
+                  className="max-md:justify-center"
                   title="Close This Short?"
                   description={`${pcs(shortQty)} will be removed from the order, and the PO completes as received. This can't be undone.`}
                   confirmLabel="Close Short"
@@ -1064,6 +1069,7 @@ function Review({
                 />
                 <Button
                   variant="primary"
+                  className="max-md:order-first max-md:col-span-2 max-md:justify-center"
                   pending={accept.isPending}
                   title={`${pcs(shortQty)} stay open on the order`}
                   disabled={unnamed || rows.length === 0}
@@ -1076,6 +1082,7 @@ function Review({
             ) : (
               <Button
                 variant="primary"
+                className="max-md:order-first max-md:col-span-2 max-md:justify-center"
                 pending={accept.isPending}
                 disabled={unnamed || rows.length === 0}
                 onClick={() => accept.mutate("keep")}

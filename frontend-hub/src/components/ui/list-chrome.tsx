@@ -1244,6 +1244,9 @@ export function ListOptionsSheet({
   id = "orders",
   all = "All orders",
   className,
+  openAt,
+  onOpenAtChange,
+  hideTrigger = false,
 }: {
   /// What the views are compared against and applied to.
   readonly model: FilterState
@@ -1268,10 +1271,31 @@ export function ListOptionsSheet({
   readonly id?: string
   readonly all?: string
   readonly className?: string
+  /// Opened from outside, at a page, by whatever else offers it (the phone's
+  /// drawer, which asks Filter or Sort before it opens this). `null` is shut.
+  /// Leave it out and the sheet is opened by its own button, as it always was.
+  readonly openAt?: "filter" | "sort" | null
+  readonly onOpenAtChange?: (page: "filter" | "sort" | null) => void
+  /// No button of its own: it is opened from elsewhere.
+  readonly hideTrigger?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [openOwn, setOpenOwn] = useState(false)
+  const controlled = openAt !== undefined
+  const open = controlled ? openAt !== null : openOwn
+  const setOpen = (next: boolean) => {
+    if (controlled) {
+      if (!next) onOpenAtChange?.(null)
+    } else setOpenOwn(next)
+  }
   const [page, setPage] = useState<string>("menu")
   const [back, setBack] = useState(false)
+  // Arriving from outside lands on the page that was asked for.
+  useEffect(() => {
+    if (openAt) {
+      setPage(openAt)
+      setBack(false)
+    }
+  }, [openAt])
   const go = (next: string, backwards = next === "menu") => {
     setBack(backwards)
     setPage(next)
@@ -1329,30 +1353,32 @@ export function ListOptionsSheet({
 
   return (
     <>
-      <button
-        type="button"
-        aria-label={
-          narrowing > 0
-            ? `Filter, sort and views, ${narrowing} filters`
-            : "Filter, sort and views"
-        }
-        aria-haspopup="dialog"
-        onClick={() => {
-          setPage("menu")
-          setOpen(true)
-        }}
-        className={cn(
-          "relative grid size-tap shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-text shadow-soft transition-[scale] duration-(--t-press) active:scale-[0.97]",
-          className
-        )}
-      >
-        <SlidersHorizontal className="size-4" />
-        {narrowing > 0 && (
-          <span className="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.875rem] font-semibold text-white tabular-nums ring-2 ring-canvas">
-            {narrowing}
-          </span>
-        )}
-      </button>
+      {!hideTrigger && (
+        <button
+          type="button"
+          aria-label={
+            narrowing > 0
+              ? `Filter, sort and views, ${narrowing} filters`
+              : "Filter, sort and views"
+          }
+          aria-haspopup="dialog"
+          onClick={() => {
+            setPage("menu")
+            setOpen(true)
+          }}
+          className={cn(
+            "relative grid size-tap shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-text shadow-soft transition-[scale] duration-(--t-press) active:scale-[0.97]",
+            className
+          )}
+        >
+          <SlidersHorizontal className="size-4" />
+          {narrowing > 0 && (
+            <span className="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.875rem] font-semibold text-white tabular-nums ring-2 ring-canvas">
+              {narrowing}
+            </span>
+          )}
+        </button>
+      )}
 
       <BottomSheet
         open={open}

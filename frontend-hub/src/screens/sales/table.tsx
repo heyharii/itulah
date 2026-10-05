@@ -97,7 +97,7 @@ export function SalesTable({
   const CELL = "border-b border-hairline px-3 py-2 text-right tabular-nums"
 
   return (
-    <div className="max-h-[calc(100vh-25rem)] min-h-0 overflow-auto rounded-card">
+    <div className="max-h-[calc(100dvh-25rem)] min-h-0 overflow-auto rounded-card">
       {/* Stacks on a phone rather than scrolling a 750px matrix sideways
           inside a 320px card (`useStackLabels`). */}
       <table

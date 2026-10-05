@@ -389,7 +389,7 @@ export function Journal() {
                 // final once the register has been read to its end.
                 empty={<NoMatch what="entries" onClear={clearNarrowing} />}
                 more={entries}
-                className="max-h-[calc(100vh-17rem)]"
+                className="max-h-[calc(100dvh-17rem)]"
               />
             ),
         })}

@@ -228,7 +228,7 @@ export function Outstanding() {
                 table={table}
                 onRowClick={(row) => order.open(row.purchase_order_id)}
                 isSelected={(row) => row.purchase_order_id === order.value}
-                className="max-h-[calc(100vh-20rem)]"
+                className="max-h-[calc(100dvh-20rem)]"
               />
             ),
         })}

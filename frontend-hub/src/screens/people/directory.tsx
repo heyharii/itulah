@@ -579,7 +579,7 @@ export function Directory() {
                 onRowClick={(row) => employee.open(row.employee_id)}
                 isSelected={(row) => row.employee_id === employee.value}
                 more={people}
-                className="max-h-[calc(100vh-14rem)]"
+                className="max-h-[calc(100dvh-14rem)]"
               />
             ),
         })}

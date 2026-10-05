@@ -94,10 +94,20 @@ function CountedCell({
       <span className="font-medium text-ink">
         {`${count(awaiting.reduce((sum, one) => sum + one.counted_quantity, 0))} pcs`}
       </span>
-      <span className="text-mute">
-        {titled(nameOfLogin(latest.counted_by))}
-        {" · "}
-        {recentMoment(latest.counted_at)}
+      {/* A login can be 32 characters, and 32 characters and a time are wider
+          than the column: ellipsis at the end of the NAME (the time is what
+          is compared across rows), the whole line on hover. */}
+      <span
+        className="flex max-w-[16.5rem] text-mute"
+        title={`${titled(nameOfLogin(latest.counted_by))} · ${recentMoment(latest.counted_at)}`}
+      >
+        <span className="min-w-0 truncate">
+          {titled(nameOfLogin(latest.counted_by))}
+        </span>
+        <span className="shrink-0">
+          {" · "}
+          {recentMoment(latest.counted_at)}
+        </span>
       </span>
     </span>
   )

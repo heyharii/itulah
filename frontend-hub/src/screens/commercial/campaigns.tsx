@@ -1127,7 +1127,7 @@ export function Campaigns() {
                         ? "No campaign matches those filters."
                         : "No campaign matches that search."
                     }
-                    className={`max-h-[calc(100vh-15rem)] ${ROOMY}`}
+                    className={`max-h-[calc(100dvh-15rem)] ${ROOMY}`}
                   />
                 ),
             })}

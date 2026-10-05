@@ -11,6 +11,7 @@ import { AssistantPanel } from "@/components/assistant/panel"
 import { AssistantProvider } from "@/components/assistant/session"
 import { useAssistant } from "@/components/assistant/state"
 import { BottomBar } from "@/components/shell/bottom-bar"
+import { DockProvider, useDockRow } from "@/components/shell/dock"
 import { CommandPalette } from "@/components/shell/command-palette"
 import { NavColumn } from "@/components/shell/nav-column"
 import { SubSidebar, useSubSidebar } from "@/components/shell/sub-sidebar"
@@ -189,43 +190,44 @@ function Shell() {
   }, [toggleSidebar, assistant])
 
   return (
-    <div className="app-shell flex h-full w-full overflow-hidden bg-soft-3">
-      {/* The rail is docked-only and always the icons; the screens live in
+    <DockProvider phone={phone}>
+      <div className="app-shell flex h-full w-full overflow-hidden bg-soft-3">
+        {/* The rail is docked-only and always the icons; the screens live in
           the light panel beside it. Under 64rem both become the drawer:
           68px + 232px of permanent chrome on a 768px screen, to hold
           something a thumb opens once a session, is the trade the drawer
           exists to refuse. */}
-      {docked && (
-        <NavColumn
-          folded
-          panelOpen={subSidebar === null || sidebarOpen}
-          onSearch={() => setPaletteOpen(true)}
-          onToggleNav={toggleSidebar}
-        />
-      )}
-      {/* Full height, beside the page column: the desk bar spans only the
+        {docked && (
+          <NavColumn
+            folded
+            panelOpen={subSidebar === null || sidebarOpen}
+            onSearch={() => setPaletteOpen(true)}
+            onToggleNav={toggleSidebar}
+          />
+        )}
+        {/* Full height, beside the page column: the desk bar spans only the
           page, and the panel's head (the rail brand's height) is what lines
           the three columns' lower edges up. */}
-      {docked && subSidebar !== null && sidebarOpen && (
-        <SubSidebar onFold={toggleSidebar} />
-      )}
-      <div ref={page} className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* On a desk the header is a slim strip carrying only the business
+        {docked && subSidebar !== null && sidebarOpen && (
+          <SubSidebar onFold={toggleSidebar} />
+        )}
+        <div ref={page} className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* On a desk the header is a slim strip carrying only the business
             time (2 Oct 2026; the "Find anything" bar went, search stays on
             ⌘K and in the column). It sits outside the scroller below, so
             sticky table headers at `top-0` still stick to the strip's edge.
             Tablet and phone keep the old bar — the drawer's button and the
             page's name live there. */}
-        {!docked && (
-          <TopBar onOpenNav={phone ? undefined : () => setDrawerOpen(true)} />
-        )}
-        {/* `isolate` makes the page its own stacking context, so a screen's
+          {!docked && (
+            <TopBar onOpenNav={phone ? undefined : () => setDrawerOpen(true)} />
+          )}
+          {/* `isolate` makes the page its own stacking context, so a screen's
             z-index — a sticky table header, a frozen first column — is a
             statement about that screen and can never be read against the
             shell's. Floating layers are unaffected: base-ui portals its
             popups and sheets to `body`, outside this element. */}
-        <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* The scroll container is here, not on `body`: screens below hold a
+          <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col">
+            {/* The scroll container is here, not on `body`: screens below hold a
               table body or a detail rail that scrolls inside itself, and a page
               that grows instead would put a second scrollbar around the lot.
 
@@ -235,7 +237,7 @@ function Shell() {
               and an animation that reads as considered on the first click reads
               as lag on the tenth. The sidebar's list swaps with that motion
               instead, and only when the domain changes — see `nav-swap`. */}
-          {/* 29.5rem: the panel's 27.5, its 1rem inset off the right edge,
+            {/* 29.5rem: the panel's 27.5, its 1rem inset off the right edge,
               and 1rem of air between it and the page.
 
               Padding rather than a flex sibling, because the panel is
@@ -244,37 +246,51 @@ function Shell() {
               measure their own box to decide how many columns they can afford,
               so an animated width would have them re-deciding twelve times on
               the way. */}
-          <div className="flex min-h-0 min-w-0 flex-1">
-            <div
-              className={cn(
-                "min-h-0 min-w-0 flex-1 overflow-y-auto",
-                // The last row clears the bottom bar on a phone.
-                phone && "pb-[calc(4rem+env(safe-area-inset-bottom,0px))]",
-                beside && "pr-[29.5rem]"
-              )}
-            >
-              <Outlet />
+            <div className="flex min-h-0 min-w-0 flex-1">
+              <PageScroller phone={phone} beside={beside} />
             </div>
           </div>
         </div>
-      </div>
 
-      {phone && <BottomBar />}
-      {!docked && !phone && (
-        <NavDrawer
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          onSearch={() => {
-            setDrawerOpen(false)
-            setPaletteOpen(true)
-          }}
-        />
-      )}
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
-      {/* Not modal: the panel is meant to be read beside the screen that
+        {phone && <BottomBar />}
+        {!docked && !phone && (
+          <NavDrawer
+            open={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            onSearch={() => {
+              setDrawerOpen(false)
+              setPaletteOpen(true)
+            }}
+          />
+        )}
+        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+        {/* Not modal: the panel is meant to be read beside the screen that
           raised the question, and a modal one would grey out the very rows
           somebody is asking about. */}
-      <AssistantPanel />
+        <AssistantPanel />
+      </div>
+    </DockProvider>
+  )
+}
+
+/// The page's scroll container: the one place the bottom bar's height is read.
+/// On a phone the last row clears the bottom bar, and, while a screen has put
+/// its tabs or its action in the context row above it (`dock.tsx`), that row
+/// too.
+function PageScroller({ phone, beside }: { phone: boolean; beside: boolean }) {
+  const row = useDockRow()
+  return (
+    <div
+      className={cn(
+        "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain",
+        phone &&
+          (row
+            ? "pb-[calc(6.25rem+env(safe-area-inset-bottom,0px))]"
+            : "pb-[calc(3.25rem+env(safe-area-inset-bottom,0px))]"),
+        beside && "pr-[29.5rem]"
+      )}
+    >
+      <Outlet />
     </div>
   )
 }
@@ -377,7 +393,7 @@ function writeSidebarOpen(open: boolean) {
 /// `fill` makes the column exactly as tall as the shell's scroll area and lays
 /// its children out as a flex column, so a screen whose subject is one long
 /// table can hand the table the leftover height with `flex-1` instead of
-/// guessing at it. The guess is what `max-h-[calc(100vh-19rem)]` was: a
+/// guessing at it. The guess is what `max-h-[calc(100dvh-19rem)]` was: a
 /// subtraction standing for a header, a search box and however many banners
 /// happen to be showing, which is wrong the moment a banner appears or does
 /// not — too short and the table stops halfway down an empty screen, too tall

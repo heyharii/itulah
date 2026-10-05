@@ -547,7 +547,7 @@ export function Movements() {
                     /// rows, another.
                     virtualizeAbove={0}
                     more={ledger}
-                    className="max-h-[calc(100vh-14rem)]"
+                    className="max-h-[calc(100dvh-14rem)]"
                   />
                 ),
             })}

@@ -370,7 +370,7 @@ export function AccountLinks() {
                 onRowClick={(row) => mapping.open(row.key)}
                 isSelected={(row) => row.key === mapping.value}
                 empty="No role matches the search and filters in force."
-                className="max-h-[calc(100vh-22rem)]"
+                className="max-h-[calc(100dvh-22rem)]"
               />
             ),
         })}

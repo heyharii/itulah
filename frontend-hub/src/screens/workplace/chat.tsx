@@ -296,7 +296,7 @@ export function Chat() {
           the rooms, full width, until one is opened — then that room, full
           width, with a way back. Side by side at 375px the room was 104px
           wide and could not hold a sentence. */}
-      <Card className="flex h-[calc(100vh-11.5rem)] overflow-hidden max-md:h-[calc(100dvh-13.5rem-env(safe-area-inset-bottom,0px))]">
+      <Card className="flex h-[calc(100dvh-11.5rem)] overflow-hidden max-md:h-[calc(100dvh-13.5rem-env(safe-area-inset-bottom,0px))]">
         <div
           className={cn(
             "flex w-[20rem] shrink-0 flex-col border-r border-hairline max-md:w-full max-md:border-r-0",

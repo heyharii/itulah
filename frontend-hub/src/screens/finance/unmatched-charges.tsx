@@ -212,7 +212,7 @@ export function UnmatchedCharges() {
                 onRowClick={(row) => chosen.open(row.checkout_id)}
                 isSelected={(row) => row.checkout_id === chosen.value}
                 empty="No case matches the filters in force."
-                className="max-h-[calc(100vh-20rem)]"
+                className="max-h-[calc(100dvh-20rem)]"
               />
             ),
         })}

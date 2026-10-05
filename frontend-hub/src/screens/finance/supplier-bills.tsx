@@ -979,7 +979,7 @@ export function SupplierBills() {
                     // only final once the list has been read to its end.
                     empty={<NoMatch what="bills" onClear={clearBills} />}
                     more={bills}
-                    className="max-h-[calc(100vh-21rem)]"
+                    className="max-h-[calc(100dvh-21rem)]"
                   />
                 ),
             })}
@@ -1027,7 +1027,7 @@ export function SupplierBills() {
                       <NoMatch what="expense bills" onClear={clearExpenses} />
                     }
                     more={expenses}
-                    className="max-h-[calc(100vh-25rem)]"
+                    className="max-h-[calc(100dvh-25rem)]"
                   />
                 ),
             })}
@@ -1078,7 +1078,7 @@ export function SupplierBills() {
                       <NoMatch what="draft dari GA" onClear={clearExpenses} />
                     }
                     more={gaBills}
-                    className="max-h-[calc(100vh-25rem)]"
+                    className="max-h-[calc(100dvh-25rem)]"
                   />
                 )
               },
@@ -1121,7 +1121,7 @@ export function SupplierBills() {
                         onClear={() => setQuery("")}
                       />
                     }
-                    className="max-h-[calc(100vh-25rem)]"
+                    className="max-h-[calc(100dvh-25rem)]"
                   />
                 ),
             })}

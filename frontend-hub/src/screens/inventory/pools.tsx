@@ -804,7 +804,7 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
                     isSelected={(row) =>
                       row.pool !== null && row.pool.id === pool.value
                     }
-                    className="max-h-[calc(100vh-16rem)]"
+                    className="max-h-[calc(100dvh-16rem)]"
                   />
                 ),
             })}

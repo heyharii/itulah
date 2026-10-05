@@ -201,7 +201,7 @@ export function Destinations() {
               <DataTable<DestinationRow>
                 table={table}
                 empty="No destination matches the filters in force."
-                className="max-h-[calc(100vh-20rem)]"
+                className="max-h-[calc(100dvh-20rem)]"
               />
             ),
         })}

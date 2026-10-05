@@ -126,7 +126,7 @@ export function PostingReadinessScreen() {
                   : "No row matches the search."}
               </EmptyState>
             ) : (
-              <div className="max-h-[calc(100vh-20rem)] overflow-auto">
+              <div className="max-h-[calc(100dvh-20rem)] overflow-auto">
                 <table className="w-max min-w-full border-collapse text-[0.875rem]">
                   <thead className="sticky top-0 z-10 bg-canvas">
                     <tr>

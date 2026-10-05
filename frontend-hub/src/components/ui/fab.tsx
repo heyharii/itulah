@@ -1,39 +1,56 @@
 import { Plus } from "lucide-react"
 
+import { DockPortal, useDock } from "@/components/shell/dock"
 import { cn } from "@/lib/utils"
 
-/// The one thing a list screen exists to start, as a floating button — on a
-/// phone only.
+/// The one thing a list screen exists to start — on a phone only, and in the
+/// context row over the bottom bar (`components/shell/dock.tsx`), where the
+/// thumb is, rather than floating over the last row of the list.
 ///
-/// Below 48rem the toolbar is the search and one options button; the screen's
-/// primary action leaves the line (where it cost a third of the width the
-/// search needs) and sits at the thumb's corner, above the home bar, over
-/// every row — and above the bottom bar (4rem), which every phone screen
-/// carries (`bottom-bar.tsx`). From 48rem up it is not drawn at all: the toolbar's own button
-/// is there, and a desk does not need a thumb target.
+/// Beside tabs it is a round "+" at the end of the row, after the search: a
+/// search, three tabs and a labelled button do not fit 343px, and a screen
+/// reader hears "Add New Order" either way. With no tabs there is room, and it
+/// takes the whole row and says the specific thing. From 48rem up it is not drawn: the
+/// toolbar's own button is there, and a desk does not need a thumb target.
 export function Fab({
   label,
   onClick,
   className,
 }: {
-  /// What it does, for the screen reader and the tooltip — the icon alone
-  /// says "add", not what is added.
+  /// What it makes: "New Order", "Add Item".
   label: string
   onClick: () => void
   className?: string
 }) {
+  const dock = useDock()
+  const beside = (dock?.claimed.tabs ?? 0) > 0
+  // "Add New" says nothing about what, so a screen reader hears it: "Add New
+  // Order".
+  const spoken = /^(New|Add)\s+/i.test(label)
+    ? `Add New ${label.replace(/^(New|Add)\s+/i, "")}`
+    : label
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className={cn(
-        "fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] z-30 grid size-12 place-items-center rounded-full bg-cta text-cta-fg shadow-float transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.94] md:hidden",
-        className
-      )}
-    >
-      <Plus className="size-5" />
-    </button>
+    <DockPortal slot="action">
+      <button
+        type="button"
+        aria-label={beside ? spoken : label}
+        title={label}
+        onClick={onClick}
+        className={cn(
+          "inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-cta text-[0.875rem] font-semibold text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]",
+          beside ? "size-9" : "dock-wide w-full px-5",
+          className
+        )}
+      >
+        {beside ? (
+          <Plus className="size-5" />
+        ) : (
+          <>
+            <Plus className="size-4 shrink-0" />
+            <span className="truncate">{label}</span>
+          </>
+        )}
+      </button>
+    </DockPortal>
   )
 }

@@ -289,7 +289,7 @@ function StateTab() {
                 <DataTable
                   table={table}
                   empty="Nothing in this fold matches the filters in force."
-                  className="max-h-[calc(100vh-28rem)]"
+                  className="max-h-[calc(100dvh-28rem)]"
                 />
               )}
             </Card>

@@ -279,7 +279,7 @@ function DevicesTab() {
                 onRowClick={(row) => device.open(row.device_id)}
                 isSelected={(row) => row.device_id === device.value}
                 empty="No device matches that search."
-                className="max-h-[calc(100vh-14rem)]"
+                className="max-h-[calc(100dvh-14rem)]"
               />
             ),
         })}
@@ -578,7 +578,7 @@ function ReadersTab({
             ) : (
               <DataTable<RfidDevice>
                 table={table}
-                className="max-h-[calc(100vh-18rem)]"
+                className="max-h-[calc(100dvh-18rem)]"
               />
             ),
         })}

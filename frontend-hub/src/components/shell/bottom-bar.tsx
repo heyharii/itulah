@@ -1,7 +1,15 @@
 import { useQuery } from "@tanstack/react-query"
-import { Link, useRouterState } from "@tanstack/react-router"
-import { Bell, LayoutGrid, MessageSquare, UserRound } from "lucide-react"
-import { useEffect, useState } from "react"
+import { Link, useRouter, useRouterState } from "@tanstack/react-router"
+import { Bell, ChevronLeft, LayoutGrid, MessageSquare } from "lucide-react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
+
+import { useDock, useDockRow } from "@/components/shell/dock"
 
 import {
   fallbackInterval,
@@ -32,8 +40,7 @@ const TABS = [
     // Everything that is not another tab is inside an app.
     owns: (path: string) =>
       !MESSAGES.some((one) => within(path, one)) &&
-      !within(path, "/system/notifications") &&
-      !PROFILE.some((one) => within(path, one)),
+      !within(path, "/system/notifications"),
   },
   {
     to: "/chat",
@@ -47,19 +54,9 @@ const TABS = [
     icon: Bell,
     owns: (path: string) => within(path, "/system/notifications"),
   },
-  {
-    to: "/me",
-    label: "Profile",
-    icon: UserRound,
-    owns: (path: string) => PROFILE.some((one) => within(path, one)),
-  },
 ] as const
 
 const MESSAGES = ["/chat", "/discussions"]
-// The personal account sheet (password) lives ON `/me` now, not at a route of
-// its own — see `screens/me/profile.tsx` — so this is one path, kept as an
-// array because `within` below is written for one.
-const PROFILE = ["/me"]
 
 function within(path: string, base: string): boolean {
   return path === base || path.startsWith(`${base}/`)
@@ -86,79 +83,223 @@ export function BottomBar() {
   // icon carries on a desk.
   const chatUnread = useChatUnread()
 
+  const dock = useDock()
+  const attach = dock?.attach
+  const tabsRef = useCallback(
+    (element: HTMLDivElement | null) => attach?.("tabs", element),
+    [attach]
+  )
+  const actionRef = useCallback(
+    (element: HTMLDivElement | null) => attach?.("action", element),
+    [attach]
+  )
+  const searchRef = useCallback(
+    (element: HTMLDivElement | null) => attach?.("search", element),
+    [attach]
+  )
+  const row = useDockRow()
+  const view = dock?.view ?? "rest"
+  const searching = view !== "rest"
+  const lift = useKeyboardLift(view === "search")
+
   return (
-    <nav
-      aria-label="Main"
-      // Out of the way while the keyboard is up: four tabs riding on top of
-      // a keyboard take a fifth of what is left of the glass, over the field
-      // being typed into.
-      hidden={typing}
-      // A material, not a slab: translucent white over a strong blur, so the
-      // list scrolling under it stays faintly present, and a hairline of
-      // light at its top edge rather than a grey rule.
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-black/[0.06] bg-canvas/80 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-xl backdrop-saturate-150 md:hidden"
+    <div
+      // The drawer and the bar under it, one fixed stack. Out of the way while
+      // the keyboard is up — four tabs riding on a keyboard take a fifth of what
+      // is left of the glass, over the field being typed into — except while
+      // the drawer is itself the search field, when it stays and is lifted
+      // clear of the keyboard.
+      hidden={typing && !searching}
+      style={searching && lift > 0 ? { bottom: lift } : undefined}
+      className="fixed inset-x-0 bottom-0 z-30 md:hidden"
     >
-      {/* Taller, in the way a ride-hailing app draws it: the lit tab carries a
-          blue bar on its top edge that fades down into the tab, and its icon
-          is blue and filled; the rest are quiet grey. Labels are 12px here —
-          the one place the 14px floor is lifted, on the owner's word
-          (2026-10-05), because four labels under four icons are read as a
-          caption, not as text. */}
-      <ul className="grid h-16 grid-cols-4">
-        {TABS.map((tab) => {
-          const on = tab.owns(pathname)
-          const Icon = tab.icon
-          // A dot, never a number (owner, 2026-10-05): the count lives on the
-          // screen it opens.
-          const dot =
-            (tab.to === "/system/notifications" && unread > 0) ||
-            (tab.to === "/chat" && chatUnread !== null && chatUnread > 0)
-          return (
-            <li key={tab.to}>
-              <Link
-                to={tab.to as string}
-                aria-current={on ? "page" : undefined}
-                aria-label={dot ? `${tab.label}, something new` : tab.label}
-                className={cn(
-                  "group relative flex h-full flex-col items-center justify-center gap-1 text-[0.75rem] font-medium tracking-[0.005em] transition-colors",
-                  on ? "text-accent" : "text-mute"
-                )}
-              >
-                {on && (
-                  <>
-                    {/* The wash: the accent at the top edge, gone by the
-                        middle of the tab. */}
-                    <span
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0 bg-gradient-to-b from-accent/15 to-transparent"
-                    />
-                    <span
-                      aria-hidden
-                      className="absolute top-0 h-[3px] w-10 rounded-b-full bg-accent"
-                    />
-                  </>
-                )}
-                <span className="relative transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.9]">
-                  <Icon
-                    className={cn(
-                      "size-6",
-                      on ? "fill-accent stroke-accent" : "stroke-[1.7]"
-                    )}
-                  />
-                  {dot && (
-                    <span
-                      aria-hidden
-                      className="absolute -top-0.5 -right-1 size-2.5 rounded-full bg-accent ring-2 ring-canvas"
-                    />
+      <DockDrawer
+        row={row}
+        searching={searching}
+        searchRef={searchRef}
+        tabsRef={tabsRef}
+        actionRef={actionRef}
+      />
+      <nav
+        aria-label="Main"
+        hidden={typing}
+        // A material, not a slab: translucent white over a strong blur, so the
+        // list scrolling under it stays faintly present, and a hairline of
+        // light at its top edge rather than a grey rule.
+        className="border-t border-black/[0.06] bg-canvas/80 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-xl backdrop-saturate-150"
+      >
+        <ul className="grid h-[3.25rem] grid-cols-4">
+          {TABS.map((tab) => {
+            const on = tab.owns(pathname)
+            const Icon = tab.icon
+            // A dot, never a number (owner, 2026-10-05): the count lives on the
+            // screen it opens.
+            const dot =
+              (tab.to === "/system/notifications" && unread > 0) ||
+              (tab.to === "/chat" && chatUnread !== null && chatUnread > 0)
+            return (
+              <li key={tab.to}>
+                <Link
+                  to={tab.to as string}
+                  aria-current={on ? "page" : undefined}
+                  aria-label={dot ? `${tab.label}, something new` : tab.label}
+                  className={cn(
+                    "group relative flex h-full flex-col items-center justify-center gap-0.5 text-[0.75rem] font-medium tracking-[0.005em] transition-colors",
+                    on ? "text-accent" : "text-mute"
                   )}
-                </span>
-                <span className="relative">{tab.label}</span>
-              </Link>
-            </li>
-          )
-        })}
-      </ul>
-    </nav>
+                >
+                  {on && (
+                    <>
+                      {/* The wash: the accent at the top edge, gone by the
+                        middle of the tab. */}
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-accent/15 to-transparent"
+                      />
+                      <span
+                        aria-hidden
+                        className="absolute top-0 h-[3px] w-10 rounded-b-full bg-accent"
+                      />
+                    </>
+                  )}
+                  <span className="relative transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.9]">
+                    <Icon
+                      className={cn(
+                        "size-[1.375rem]",
+                        on ? "fill-accent stroke-accent" : "stroke-[1.7]"
+                      )}
+                    />
+                    {dot && (
+                      <span
+                        aria-hidden
+                        className="absolute -top-0.5 -right-1 size-2.5 rounded-full bg-accent ring-2 ring-canvas"
+                      />
+                    )}
+                  </span>
+                  <span className="relative">{tab.label}</span>
+                </Link>
+              </li>
+            )
+          })}
+          <li>
+            <BackButton />
+          </li>
+        </ul>
+      </nav>
+    </div>
+  )
+}
+
+/// The drawer over the bar (owner, 2026-10-05): a floating card that holds what
+/// the screen is about — its tabs, its one action, its search — and changes
+/// its own height when the content changes, the way a phone's own drawers do.
+///
+/// The card's height is MEASURED, not guessed: the inside is laid out at its
+/// natural size, a `ResizeObserver` reports it, and the card's `height`
+/// follows with a transition. Changing a view then moves the card's edge
+/// smoothly rather than snapping it, which is the whole effect; the content
+/// swaps underneath it and fades in (`dock-search.tsx`).
+function DockDrawer({
+  row,
+  searching,
+  searchRef,
+  tabsRef,
+  actionRef,
+}: {
+  row: boolean
+  searching: boolean
+  searchRef: (element: HTMLDivElement | null) => void
+  tabsRef: (element: HTMLDivElement | null) => void
+  actionRef: (element: HTMLDivElement | null) => void
+}) {
+  const inside = useRef<HTMLDivElement>(null)
+  const [height, setHeight] = useState<number | undefined>(undefined)
+  useLayoutEffect(() => {
+    const element = inside.current
+    if (element === null) return
+    // The card's own 1px border is outside what the inside measures.
+    const measure = () => setHeight(element.offsetHeight + 2)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  return (
+    <div className={cn("px-2 pb-2", row ? "block" : "hidden")}>
+      <div
+        data-searching={searching || undefined}
+        style={{ height }}
+        className="group/dock overflow-hidden rounded-[1.75rem] border border-black/[0.06] bg-canvas/95 shadow-float backdrop-blur-xl transition-[height] duration-300 ease-(--ease-drawer) motion-reduce:transition-none"
+      >
+        <div ref={inside} className="flex items-center gap-1.5 p-2">
+          <div
+            ref={tabsRef}
+            className="min-w-0 flex-1 group-data-[searching]/dock:hidden empty:hidden"
+          />
+          <div
+            ref={searchRef}
+            className="shrink-0 group-data-[searching]/dock:flex-1 empty:hidden"
+          />
+          <div
+            ref={actionRef}
+            className="shrink-0 group-data-[searching]/dock:hidden empty:hidden has-[.dock-wide]:flex-1"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/// How far a phone's keyboard stands above the bottom of the layout, while
+/// something at the bottom is being typed into. iOS does not resize the page
+/// for its keyboard; it slides the visual viewport over it, so a bar fixed to
+/// the bottom is left behind the keyboard unless it is lifted by the gap.
+function useKeyboardLift(active: boolean): number {
+  const [lift, setLift] = useState(0)
+  useEffect(() => {
+    const viewport = window.visualViewport
+    if (!active || viewport === null) return
+    const update = () =>
+      setLift(
+        Math.max(
+          0,
+          Math.round(window.innerHeight - viewport.height - viewport.offsetTop)
+        )
+      )
+    update()
+    viewport.addEventListener("resize", update)
+    viewport.addEventListener("scroll", update)
+    return () => {
+      viewport.removeEventListener("resize", update)
+      viewport.removeEventListener("scroll", update)
+    }
+  }, [active])
+  return lift
+}
+
+/// Back, in the thumb's row (owner, 2026-10-05). Moving between a
+/// department's screens was a menu in the header, the part of a phone's
+/// screen a thumb reaches last; it is Back now — and Home to start again —
+/// which is how a phone's own apps do it, and which a home-screen app (no
+/// browser bar, no back arrow) otherwise has no button for at all.
+function BackButton() {
+  const router = useRouter()
+  // Read again after every navigation: whether there is anywhere to go back
+  // to changes with each one.
+  useRouterState({ select: (state) => state.location.href })
+  const can = router.history.canGoBack()
+  return (
+    <button
+      type="button"
+      disabled={!can}
+      onClick={() => router.history.back()}
+      className="group relative flex h-full w-full flex-col items-center justify-center gap-1 text-[0.75rem] font-medium tracking-[0.005em] text-mute transition-opacity disabled:opacity-40"
+    >
+      <span className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.9]">
+        <ChevronLeft className="size-[1.375rem] stroke-[1.7]" />
+      </span>
+      Back
+    </button>
   )
 }
 

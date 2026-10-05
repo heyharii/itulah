@@ -421,7 +421,7 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
                 onRowClick={(row) => onPick(row.account_code)}
                 empty="No account matches the search and filters in force."
                 more={pages}
-                className="max-h-[calc(100vh-30rem)]"
+                className="max-h-[calc(100dvh-30rem)]"
               />
             ),
         })}
@@ -840,8 +840,8 @@ function AccountMovements({
                   more={pages}
                   className={
                     running.length > 2
-                      ? "max-h-[calc(100vh-40rem)]"
-                      : "max-h-[calc(100vh-26rem)]"
+                      ? "max-h-[calc(100dvh-40rem)]"
+                      : "max-h-[calc(100dvh-26rem)]"
                   }
                 />
               )}

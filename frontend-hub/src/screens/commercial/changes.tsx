@@ -465,7 +465,7 @@ export function Changes() {
                     onRowClick={(row) => book.open(row.publication_id)}
                     isSelected={(row) => row.publication_id === book.value}
                     empty="No change matches that search."
-                    className={`${ROOMY} max-h-[calc(100vh-20rem)]`}
+                    className={`${ROOMY} max-h-[calc(100dvh-20rem)]`}
                   />
                 ),
             })}

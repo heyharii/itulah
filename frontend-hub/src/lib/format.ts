@@ -273,3 +273,14 @@ export function realItemCode(
   if (code === null || code === undefined) return undefined
   return /^ITM-[0-9A-F]{8}$/.test(code) ? undefined : code
 }
+
+/// The letter an avatar shows for a name: the first LETTER, not the first
+/// character — "👨‍💼 Budi" is a B, where `charAt(0)` hands back half of an emoji
+/// and the avatar draws a replacement mark. A name with no letter at all falls
+/// back to its first whole character, and an empty one to "?".
+export function initialOf(name: string | null | undefined): string {
+  const trimmed = (name ?? "").trim()
+  if (trimmed === "") return "?"
+  const letter = trimmed.match(/\p{L}/u)?.[0]
+  return (letter ?? Array.from(trimmed)[0] ?? "?").toLocaleUpperCase()
+}

@@ -589,8 +589,8 @@ export function Payments() {
                 more={payments}
                 className={
                   outflow.payments > 0
-                    ? "max-h-[calc(100vh-32rem)]"
-                    : "max-h-[calc(100vh-18rem)]"
+                    ? "max-h-[calc(100dvh-32rem)]"
+                    : "max-h-[calc(100dvh-18rem)]"
                 }
               />
             ),

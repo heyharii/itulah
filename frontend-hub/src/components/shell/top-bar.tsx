@@ -24,6 +24,8 @@ import { TimeTravel } from "@/components/shell/time-travel"
 import { NotificationBell } from "@/components/shell/notification-bell"
 import { cn } from "@/lib/utils"
 import { useAssistant } from "@/components/assistant/state"
+import { initialOf } from "@/lib/format"
+import { useIdentity } from "@/lib/session"
 
 /// The bar over the page: where you are, and the tools that are not a place.
 ///
@@ -146,6 +148,7 @@ export function TopBar({
           <Sparkles className="size-[0.9375rem] stroke-[1.7] text-accent" />
           <span className="max-md:hidden">Ask</span>
         </button>
+        <ProfileLink />
       </div>
     </header>
   )
@@ -268,10 +271,10 @@ function PhoneTitle({ pathname }: { pathname: string }) {
         onClick={() => setOpen(true)}
         className="flex min-h-11 min-w-0 flex-1 flex-col items-start justify-center text-left md:hidden"
       >
-        <span className="text-[0.875rem] leading-none font-medium text-mute">
-          {domain.label}
-        </span>
-        <span className="flex max-w-full min-w-0 items-center gap-1 text-[1rem] leading-tight font-semibold text-ink">
+        {/* The department's name over the title is gone (owner, 2026-10-05):
+            the title says where this is, and the department is one tap away
+            in the sheet this opens. */}
+        <span className="flex max-w-full min-w-0 items-center gap-1 text-[1.0625rem] leading-tight font-semibold text-ink">
           <span className="truncate">{title}</span>
           <ChevronDown className="size-4 shrink-0 text-line-ico" />
         </span>
@@ -332,4 +335,23 @@ function AsideLink({ aside, here }: { aside: AppModule; here: boolean }) {
 
 function noAsideCount(): null {
   return null
+}
+
+/// Profile, at the top of a phone's screen (owner, 2026-10-05): the account is
+/// opened rarely, so it takes the corner a thumb reaches last, and the bottom
+/// bar keeps to what is pressed all day. A circle with the initial, as phones
+/// draw an account.
+function ProfileLink() {
+  const identity = useIdentity()
+  const name = identity.data?.display_name ?? identity.data?.username ?? ""
+  return (
+    <Link
+      to={"/me" as string}
+      aria-label="Profile"
+      title="Profile"
+      className="grid size-8 shrink-0 place-items-center rounded-full bg-accent-bg text-[0.875rem] font-semibold text-accent transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.92] md:hidden"
+    >
+      {initialOf(name)}
+    </Link>
+  )
 }

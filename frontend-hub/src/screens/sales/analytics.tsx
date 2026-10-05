@@ -341,7 +341,7 @@ export function SalesAnalytics() {
                       the filters in force.
                     </>
                   }
-                  className="max-h-[calc(100vh-24rem)]"
+                  className="max-h-[calc(100dvh-24rem)]"
                 />
               </Card>
             </>

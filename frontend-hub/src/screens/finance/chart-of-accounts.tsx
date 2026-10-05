@@ -183,7 +183,7 @@ export function ChartOfAccounts() {
             </span>
           </Toolbar>
 
-          <Card className="max-h-[calc(100vh-16rem)] overflow-auto">
+          <Card className="max-h-[calc(100dvh-16rem)] overflow-auto">
             {/* The heading row every table in the app has, so the figures on
             the right are named. */}
             <div className="sticky top-0 z-10 flex h-10 items-center border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
@@ -1241,7 +1241,7 @@ function useChartHistory(code: string | null, size: number) {
 function ChartHistory({ onOpen }: { onOpen: (code: string) => void }) {
   const history = useChartHistory(null, HISTORY_PAGE)
   return (
-    <Card className="max-h-[calc(100vh-16rem)] overflow-auto">
+    <Card className="max-h-[calc(100dvh-16rem)] overflow-auto">
       {queryState(history, {
         loading: "Reading the chart's history…",
         render: (data) => {

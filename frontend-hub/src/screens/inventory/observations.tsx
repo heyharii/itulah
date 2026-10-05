@@ -424,7 +424,7 @@ export function Observations() {
                   <DataTable<Observation>
                     table={readTable}
                     more={reads}
-                    className="max-h-[calc(100vh-17rem)]"
+                    className="max-h-[calc(100dvh-17rem)]"
                   />
                 ),
             })}
@@ -448,7 +448,7 @@ export function Observations() {
                   <DataTable<ObservationAnomaly>
                     table={anomalyTable}
                     empty="No disagreement matches the filters in force."
-                    className="max-h-[calc(100vh-17rem)]"
+                    className="max-h-[calc(100dvh-17rem)]"
                   />
                 ),
             })}

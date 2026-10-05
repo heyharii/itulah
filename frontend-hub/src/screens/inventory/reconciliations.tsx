@@ -332,7 +332,7 @@ export function Reconciliations() {
                   <DataTable<Reconciliation>
                     table={table}
                     more={report}
-                    className="max-h-[calc(100vh-26rem)]"
+                    className="max-h-[calc(100dvh-26rem)]"
                   />
                 )}
               </Card>

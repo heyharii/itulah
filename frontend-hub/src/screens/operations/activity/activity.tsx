@@ -405,7 +405,7 @@ export function OpsActivityLog() {
               <DataTable<AuditEntry>
                 table={table}
                 more={feed}
-                className="max-h-[calc(100vh-19rem)]"
+                className="max-h-[calc(100dvh-19rem)]"
               />
             ),
         })}

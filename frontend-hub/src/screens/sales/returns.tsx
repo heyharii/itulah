@@ -326,7 +326,7 @@ export function Returns() {
                 onRowClick={(row) => refund.open(row.id)}
                 isSelected={(row) => row.id === refund.value}
                 more={returns}
-                className="max-h-[calc(100vh-20rem)]"
+                className="max-h-[calc(100dvh-20rem)]"
               />
             ),
         })}

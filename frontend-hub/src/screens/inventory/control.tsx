@@ -483,7 +483,7 @@ export function Control() {
                   <DataTable<ProjectionDifference>
                     table={rowTable}
                     empty="No disagreement matches the filters in force."
-                    className="max-h-[calc(100vh-32rem)]"
+                    className="max-h-[calc(100dvh-32rem)]"
                   />
                 )
               ) : stages.length === 0 ? (
@@ -495,7 +495,7 @@ export function Control() {
                 <DataTable<RollupDifference>
                   table={stageTable}
                   empty="No stage rollup matches the filters in force."
-                  className="max-h-[calc(100vh-32rem)]"
+                  className="max-h-[calc(100dvh-32rem)]"
                 />
               )}
             </Card>

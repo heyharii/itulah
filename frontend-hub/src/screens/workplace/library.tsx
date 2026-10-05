@@ -465,7 +465,7 @@ export function Library() {
                         row.id === filed.value || row.id === attached.value
                       }
                       empty="Nothing in the drawer matches that."
-                      className="max-h-[calc(100vh-16rem)]"
+                      className="max-h-[calc(100dvh-16rem)]"
                     />
                   </Card>
                 ),

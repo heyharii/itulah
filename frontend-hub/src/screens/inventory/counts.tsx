@@ -449,7 +449,7 @@ export function Counts() {
                     rowHeight={64}
                     onRowClick={(row) => sheet.open(row.id)}
                     isSelected={(row) => row.id === sheet.value}
-                    className="max-h-[calc(100vh-14rem)]"
+                    className="max-h-[calc(100dvh-14rem)]"
                   />
                 ),
             })}

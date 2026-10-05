@@ -871,6 +871,10 @@
 html {
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
+  /* No double-tap-to-zoom anywhere on the page, so a second quick tap on a row
+     is a second tap and not a zoom. Pinch still zooms: this is not
+     `user-scalable=no`, which would take zoom from people who need it. */
+  touch-action: manipulation;
 }
 html,
 body {
@@ -888,6 +892,9 @@ button,
 [role="tab"] {
   user-select: none;
   -webkit-user-select: none;
+  /* No long-press callout (copy / share / open) on a control: a press and
+     hold on a button is not a request for a menu. */
+  -webkit-touch-callout: none;
 }
 
 /* With `viewport-fit=cover` the page runs under the notch; the shell pads

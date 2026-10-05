@@ -325,7 +325,7 @@ export function Catalogue() {
                       row.item.supplier_item_id === item.value
                     }
                     more={page}
-                    className="max-h-[calc(100vh-20rem)]"
+                    className="max-h-[calc(100dvh-20rem)]"
                   />
                 ),
             })}

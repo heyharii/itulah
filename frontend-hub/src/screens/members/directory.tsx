@@ -593,7 +593,7 @@ export function Members() {
                 onRowClick={(row) => open.open(row.member_id)}
                 isSelected={(row) => row.member_id === open.value}
                 more={directory}
-                className="max-h-[calc(100vh-17rem)]"
+                className="max-h-[calc(100dvh-17rem)]"
               />
             ),
         })}

@@ -1,5 +1,8 @@
 import { Tabs } from "@base-ui/react/tabs"
+import type { LucideIcon } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 
+import { DockPortal, useDock } from "@/components/shell/dock"
 import { cn } from "@/lib/utils"
 
 /// In-page sub-navigation: switch datasets *within* a screen.
@@ -15,17 +18,44 @@ import { cn } from "@/lib/utils"
 /// caller renders its own body below, and the root is `display: contents` so
 /// the list is still the element the caller's `className` lands on and the
 /// box its layout sees.
+export interface SubTab {
+  readonly value: string
+  readonly label: React.ReactNode
+  /// What the phone's context row says instead of `label`: one plain word.
+  /// The row is a fixed width — three tabs and a button in 351px — so it
+  /// carries no figures (owner, 2026-10-05); the page's own cards say them.
+  readonly short?: string
+  /// Drawn instead of the word in the context row, for the tab nobody opens
+  /// twice a day ("Cancelled"): `short` is then its name for a screen reader
+  /// and a tooltip.
+  readonly icon?: LucideIcon
+}
+
 export function SubTabs({
   tabs,
   value,
   onChange,
   className,
+  dock = false,
 }: {
-  tabs: readonly { readonly value: string; readonly label: React.ReactNode }[]
+  tabs: readonly SubTab[]
   value: string
   onChange: (value: string) => void
   className?: string
+  /// On a phone, draw the tabs in the context row over the bottom bar
+  /// (`components/shell/dock.tsx`) instead of at the top of the page, where a
+  /// thumb has to leave its place to reach them. Everywhere else they stay
+  /// where they were.
+  dock?: boolean
 }) {
+  const shell = useDock()
+  if (dock && shell?.phone) {
+    return (
+      <DockPortal slot="tabs">
+        <DockTabs tabs={tabs} value={value} onChange={onChange} />
+      </DockPortal>
+    )
+  }
   return (
     <Tabs.Root
       value={value}
@@ -61,6 +91,88 @@ export function SubTabs({
             {tab.label}
           </Tabs.Tab>
         ))}
+      </Tabs.List>
+    </Tabs.Root>
+  )
+}
+
+/// The tabs as the context row draws them: a rounded track with the lit tab
+/// raised in it. Equal shares of the width, never squeezed below their word —
+/// past that the track scrolls, and keeps the lit tab in view.
+///
+/// Words only, no counts: three tabs and a button have to fit in 351px, and
+/// "Active 6 · Completed 12 · Cancelled 1" beside "Add New" did not.
+function DockTabs({
+  tabs,
+  value,
+  onChange,
+}: {
+  tabs: readonly SubTab[]
+  value: string
+  onChange: (value: string) => void
+}) {
+  const list = useRef<HTMLDivElement>(null)
+  // More tabs to the right than the track shows: a fade says so, where a
+  // clipped word would only look like a mistake.
+  const [more, setMore] = useState(false)
+  useEffect(() => {
+    list.current
+      ?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.scrollIntoView({ inline: "nearest", block: "nearest" })
+  }, [value])
+  useEffect(() => {
+    const element = list.current
+    if (element === null) return
+    const measure = () =>
+      setMore(
+        element.scrollLeft + element.clientWidth < element.scrollWidth - 2
+      )
+    measure()
+    element.addEventListener("scroll", measure, { passive: true })
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => {
+      element.removeEventListener("scroll", measure)
+      observer.disconnect()
+    }
+  }, [tabs.length])
+  return (
+    <Tabs.Root
+      value={value}
+      onValueChange={(next, details) => {
+        if (details.reason === "none") onChange(next as string)
+      }}
+      className="min-w-0"
+    >
+      <Tabs.List
+        ref={list}
+        className={cn(
+          "flex h-9 min-w-0 [scrollbar-width:none] items-center gap-0.5 overflow-x-auto rounded-full bg-soft-2 p-0.5 [&::-webkit-scrollbar]:hidden",
+          more &&
+            "[mask-image:linear-gradient(to_right,black_calc(100%-1.75rem),transparent)]"
+        )}
+      >
+        {tabs.map((tab) => {
+          const on = tab.value === value
+          const Icon = tab.icon
+          return (
+            <Tabs.Tab
+              key={tab.value}
+              value={tab.value}
+              aria-label={Icon ? tab.short : undefined}
+              title={Icon ? tab.short : undefined}
+              className={cn(
+                "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full text-[0.875rem] font-medium whitespace-nowrap transition-colors duration-150",
+                Icon ? "w-10" : "flex-1 px-2.5",
+                on
+                  ? "bg-canvas text-ink shadow-soft"
+                  : "text-body active:bg-canvas/60"
+              )}
+            >
+              {Icon ? <Icon className="size-4" /> : (tab.short ?? tab.label)}
+            </Tabs.Tab>
+          )
+        })}
       </Tabs.List>
     </Tabs.Root>
   )

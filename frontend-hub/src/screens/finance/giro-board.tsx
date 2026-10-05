@@ -292,7 +292,7 @@ function GiroColumn({
       </div>
       {/* Each lane scrolls on its own, so fifty late giros do not make the
           page fifty cards long. */}
-      <div className="mt-3 flex max-h-[calc(100vh-16rem)] [scrollbar-width:thin] flex-col gap-3 overflow-y-auto pr-1">
+      <div className="mt-3 flex max-h-[calc(100dvh-16rem)] [scrollbar-width:thin] flex-col gap-3 overflow-y-auto pr-1">
         {rows.length === 0 ? (
           <p className="py-6 text-center text-[0.875rem] text-faint">
             Nothing here

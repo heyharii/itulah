@@ -430,7 +430,7 @@ function UsersTab() {
                 more={users}
                 onRowClick={(row) => user.open(row.username)}
                 isSelected={(row) => row.username === user.value}
-                className="max-h-[calc(100vh-22rem)]"
+                className="max-h-[calc(100dvh-22rem)]"
               />
             </Card>
           ) : (
@@ -500,7 +500,7 @@ function GroupedDataTable({
   ).getAllLeafColumns().length
 
   return (
-    <div className="max-h-[calc(100vh-22rem)] min-h-0 overflow-auto">
+    <div className="max-h-[calc(100dvh-22rem)] min-h-0 overflow-auto">
       <table className="w-full border-collapse text-cell">
         <thead>
           {(table as ReturnType<typeof useTable<TableSetup, UserRow>>)

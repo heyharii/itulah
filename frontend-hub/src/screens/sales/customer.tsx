@@ -388,7 +388,7 @@ export function Member() {
                     onRowClick={(row) => receipt.open(row.sale_id)}
                     isSelected={(row) => row.sale_id === receipt.value}
                     more={history}
-                    className="max-h-[calc(100vh-22rem)]"
+                    className="max-h-[calc(100dvh-22rem)]"
                   />
                 ),
             })}

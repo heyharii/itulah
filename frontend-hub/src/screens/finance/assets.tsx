@@ -566,7 +566,7 @@ export function AssetRegister() {
                 // final once the register has been read to its end.
                 empty={<NoMatch what="assets" onClear={clearNarrowing} />}
                 more={assets}
-                className="max-h-[calc(100vh-23rem)] [&_tbody_tr]:h-[4.25rem]"
+                className="max-h-[calc(100dvh-23rem)] [&_tbody_tr]:h-[4.25rem]"
               />
             ),
         })}
