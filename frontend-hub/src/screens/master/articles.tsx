@@ -727,7 +727,7 @@ function ArticleCard({
         url={article.image_url}
         name={article.name}
         division={article.division_code}
-        fallback="No photograph"
+        fallback="No Photo"
         className="h-[9.875rem] w-full"
       >
         {/* The division rides on the photograph: it is what the picture IS, so

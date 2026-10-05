@@ -72,8 +72,8 @@ export function ItemDetail({
       ) : (
         <div className="grid h-24 place-items-center rounded-inner border border-hairline bg-soft text-meta text-mute">
           {image.isPending && supplierCode !== undefined
-            ? "Looking for a photograph…"
-            : "No photograph of this item."}
+            ? "Looking for a photo…"
+            : "No photo of this item."}
         </div>
       )}
 

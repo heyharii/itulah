@@ -304,7 +304,7 @@ function PickCard({
         url={item.image_url}
         name={item.name}
         division={item.division_code}
-        fallback="No photograph"
+        fallback="No Photo"
         className="h-[7.5rem] w-full"
       >
         {/* The tick rides on the photograph rather than sitting under it: what

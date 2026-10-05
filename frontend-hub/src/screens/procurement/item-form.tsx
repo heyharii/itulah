@@ -795,8 +795,8 @@ export function ItemFormSheet({
           )}
           {photoTrouble !== null && (
             <Banner tone="warn" onDismiss={() => setPhotoTrouble(null)}>
-              The item is saved, but its photograph is not: {photoTrouble}. Open
-              the item from the catalogue to try the picture again.
+              The item is saved, but its photo is not: {photoTrouble}. Open the
+              item from the catalogue to try the picture again.
             </Banner>
           )}
 
@@ -809,7 +809,7 @@ export function ItemFormSheet({
             item is created: changing either afterwards does not correct this
             item, it describes a different one. */}
           <div className="grid gap-4 md:grid-cols-[13rem_1fr]">
-            <Field label="Photograph" problem={photoRefused ?? undefined}>
+            <Field label="Photo" problem={photoRefused ?? undefined}>
               <div className="flex flex-col gap-2">
                 {touch && !photoFixed ? (
                   // On a phone one row, not a square the width of the screen:
@@ -850,9 +850,9 @@ export function ItemFormSheet({
                     aria-label={
                       showing === null
                         ? touch
-                          ? "Take a photograph"
-                          : "Choose a photograph"
-                        : "Replace the photograph"
+                          ? "Take a photo"
+                          : "Choose a photo"
+                        : "Replace the photo"
                     }
                   >
                     {showing === null &&

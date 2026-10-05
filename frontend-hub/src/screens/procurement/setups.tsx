@@ -1483,8 +1483,8 @@ function ColourwayPhoto({
         upload.isError
           ? (upload.error as Error).message
           : url
-            ? `Replace the photograph of ${colourLabel}`
-            : `Add a photograph of ${colourLabel}`
+            ? `Replace the photo of ${colourLabel}`
+            : `Add a photo of ${colourLabel}`
       }
       className={cn(
         "group/photo relative grid size-9 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-inner border transition-colors",

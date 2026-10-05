@@ -669,7 +669,7 @@ function ProductCard({
           url={item.image_url}
           name={item.name}
           division={item.division_code}
-          fallback="No photograph"
+          fallback="No Photo"
           className="h-[9.875rem] w-full"
         >
           {/* The division rides on the photograph, the way a marketplace puts
