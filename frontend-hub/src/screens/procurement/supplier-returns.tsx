@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Download, Printer } from "lucide-react"
+import { Download, Printer, ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Collapsible } from "@base-ui/react/collapsible"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { Timeline, type TimelineEvent } from "@/components/ui/timeline"
@@ -593,7 +594,18 @@ export function ReturnSheet({
         width="table"
       >
         {row && (
-          <div className="flex flex-col gap-6">
+          <div className="relative flex flex-col gap-6">
+            {/* The stamp the order sheet wears, over the corner once the return
+                is done: green for completed, and for one closed short. It takes
+                no row of its own. */}
+            {!row.open && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute top-1 right-2 z-10 inline-block -rotate-6 rounded-inner border-2 border-ok-fg px-3 py-0.5 text-[1.125rem] font-bold tracking-[0.14em] text-ok-fg opacity-40 select-none"
+              >
+                {row.status === "Closed short" ? "CLOSED SHORT" : "COMPLETED"}
+              </span>
+            )}
             {form}
             <Problem error={expect.error} />
             <Facts>
@@ -623,7 +635,7 @@ export function ReturnSheet({
 
             <div>
               <h4 className="mb-3 text-card-title font-semibold text-ink">
-                Goods
+                Items
               </h4>
               <Card className="overflow-hidden">
                 <table className="w-full border-collapse text-[0.9375rem]">
@@ -662,12 +674,7 @@ export function ReturnSheet({
               </Card>
             </div>
 
-            <div>
-              <h4 className="mb-3 text-card-title font-semibold text-ink">
-                History
-              </h4>
-              <Timeline events={history} />
-            </div>
+            <ActivityFold events={history} />
           </div>
         )}
       </Sheet>
@@ -686,7 +693,7 @@ export function ReturnSheet({
 // New return
 // ---------------------------------------------------------------------------
 
-/// Goods out of HO return stock, for one supplier. Over-delivery is raised
+/// Items out of HO return stock, for one supplier. Over-delivery is raised
 /// from the PO sheet and is not offered here.
 function NewReturn({
   onDone,
@@ -894,7 +901,7 @@ function NewReturn({
                   <table className="w-full border-collapse text-body">
                     <thead>
                       <tr className="h-12 border-b border-hairline bg-soft text-left text-[0.875rem] font-medium text-body">
-                        <th className="pl-4">Goods</th>
+                        <th className="pl-4">Items</th>
                         <th className="text-right">Available</th>
                         <th className="pr-4 text-right">To Return</th>
                       </tr>
@@ -969,5 +976,25 @@ function NewReturn({
         </Button>
       </div>
     </PageContent>
+  )
+}
+
+/// What was done to the return, folded away until it is asked for — the same
+/// "Activity" line every record sheet ends with, closed when the sheet opens
+/// (owner, 2026-10-05).
+function ActivityFold({ events }: { events: TimelineEvent[] }) {
+  return (
+    <Collapsible.Root>
+      <Collapsible.Trigger className="group flex w-full items-center gap-1.5 border-t border-hairline pt-3.5 text-left text-[0.875rem] font-medium text-body transition-colors hover:text-ink">
+        <ChevronRight className="size-3.5 text-line-ico transition-transform duration-150 group-data-[panel-open]:rotate-90" />
+        Activity
+        {events.length > 0 && (
+          <span className="text-mute tabular-nums">{events.length}</span>
+        )}
+      </Collapsible.Trigger>
+      <Collapsible.Panel className="overflow-hidden pt-3">
+        <Timeline events={events} />
+      </Collapsible.Panel>
+    </Collapsible.Root>
   )
 }
