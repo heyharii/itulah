@@ -388,6 +388,13 @@ export function ItemFormSheet({
   /// The picture can be chosen, replaced or taken off: not on a catalogue
   /// item's line, whose picture is the supplier's record.
   const photoFixed = line !== undefined && !line.draftItem
+  /// What the empty picture box says: the camera opens on a phone, so it says
+  /// so (owner, 2026-10-05).
+  const photoLabel = photoFixed
+    ? "No Picture"
+    : touch
+      ? "Take a Photo"
+      : "Choose a Picture"
   const chosen = useMemo(
     () => (photo === null ? null : URL.createObjectURL(photo)),
     [photo]
@@ -811,7 +818,9 @@ export function ItemFormSheet({
                   className="group relative block aspect-square w-full overflow-hidden rounded-card border border-hairline bg-soft-2 transition-colors enabled:hover:border-hairline-strong"
                   aria-label={
                     showing === null
-                      ? "Choose a photograph"
+                      ? touch
+                        ? "Take a photograph"
+                        : "Choose a photograph"
                       : "Replace the photograph"
                   }
                 >
@@ -825,15 +834,13 @@ export function ItemFormSheet({
                         className="size-full"
                       />
                       <span className="absolute inset-x-0 bottom-2 text-center text-[0.875rem] text-mute">
-                        {photoFixed ? "No picture" : "Choose a picture"}
+                        {photoLabel}
                       </span>
                     </>
                   ) : showing === null ? (
                     <span className="flex size-full flex-col items-center justify-center gap-1.5 text-mute">
                       <ImagePlus className="size-5" />
-                      <span className="text-[0.875rem]">
-                        {photoFixed ? "No picture" : "Choose a picture"}
-                      </span>
+                      <span className="text-[0.875rem]">{photoLabel}</span>
                     </span>
                   ) : (
                     <Thumbnail
@@ -870,13 +877,12 @@ export function ItemFormSheet({
                       onChange={pickPicture}
                     />
                     <Button
-                      variant="quiet"
-                      size="sm"
-                      className="self-start"
+                      variant="ghost"
+                      className="w-full justify-center"
                       onClick={() => gallery.current?.click()}
                     >
                       <Images />
-                      From gallery
+                      From Gallery
                     </Button>
                   </>
                 )}
