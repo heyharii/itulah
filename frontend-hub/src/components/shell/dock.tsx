@@ -7,6 +7,10 @@ import {
   useState,
 } from "react"
 import { createPortal } from "react-dom"
+import { useRouterState } from "@tanstack/react-router"
+
+import type { AppTile } from "@/lib/apps"
+import { domainForPath, modulesOfDomain } from "@/lib/navigation"
 
 /// The phone's context row: a strip over the bottom bar that carries what the
 /// screen under it is about — its tabs, and the one thing it makes (owner,
@@ -55,6 +59,11 @@ interface DockValue {
   /// action step aside and it grows to hold the view.
   readonly view: DockView
   readonly setView: (view: DockView) => void
+  /// The department the screen belongs to, while it is inside one (not the
+  /// launcher, not Chat). The drawer carries its switcher, so moving between
+  /// the department's screens is in the thumb's reach on every screen of it,
+  /// whether or not the screen offers tabs, search or an action.
+  readonly department: AppTile | null
   /// How many things hold each slot right now.
   readonly claimed: Readonly<Record<DockSlot, number>>
   readonly attach: (slot: DockSlot, element: HTMLElement | null) => void
@@ -81,6 +90,25 @@ export function DockProvider({
     action: 0,
   })
   const [view, setView] = useState<DockView>("rest")
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const domain = domainForPath(pathname)
+  const inside =
+    domain !== undefined &&
+    !within(pathname, "/apps") &&
+    !within(pathname, "/chat") &&
+    !within(pathname, "/discussions")
+  const department = useMemo<AppTile | null>(
+    () =>
+      inside && domain !== undefined
+        ? {
+            id: domain.id,
+            label: domain.label,
+            icon: domain.icon,
+            modules: modulesOfDomain(domain),
+          }
+        : null,
+    [inside, domain]
+  )
   // The screen that offered the tools is gone: the drawer is not left holding
   // their view open for nothing.
   useEffect(() => {
@@ -112,11 +140,12 @@ export function DockProvider({
       action: elements.action,
       view,
       setView,
+      department,
       claimed,
       attach,
       claim,
     }),
-    [phone, elements, view, claimed, attach, claim]
+    [phone, elements, view, department, claimed, attach, claim]
   )
   return <DockContext.Provider value={value}>{children}</DockContext.Provider>
 }
@@ -131,11 +160,16 @@ export function useDock(): DockValue | null {
 export function useDockRow(): boolean {
   const dock = useContext(DockContext)
   return (
+    (dock?.department ?? null) !== null ||
     (dock?.claimed.search ?? 0) +
       (dock?.claimed.tabs ?? 0) +
       (dock?.claimed.action ?? 0) >
-    0
+      0
   )
+}
+
+function within(path: string, base: string): boolean {
+  return path === base || path.startsWith(`${base}/`)
 }
 
 /// Draws `children` into a dock slot on a phone, and nothing anywhere else.

@@ -17,7 +17,6 @@ import {
 import { AppSheet } from "@/components/shell/app-sheet"
 import { useDock, useDockRow } from "@/components/shell/dock"
 import type { AppTile } from "@/lib/apps"
-import { domainForPath, modulesOfDomain } from "@/lib/navigation"
 
 import {
   fallbackInterval,
@@ -106,20 +105,6 @@ export function BottomBar() {
     [attach]
   )
   const row = useDockRow()
-  // Inside a department the fourth tab is its Menu — the screens to move
-  // between; anywhere else it is Back.
-  const domain = domainForPath(pathname)
-  const department: AppTile | null =
-    domain !== undefined &&
-    !within(pathname, "/apps") &&
-    !MESSAGES.some((one) => within(pathname, one))
-      ? {
-          id: domain.id,
-          label: domain.label,
-          icon: domain.icon,
-          modules: modulesOfDomain(domain),
-        }
-      : null
   const view = dock?.view ?? "rest"
   const searching = view !== "rest"
   const lift = useKeyboardLift(view === "search")
@@ -137,6 +122,7 @@ export function BottomBar() {
     >
       <DockDrawer
         row={row}
+        department={dock?.department ?? null}
         searching={searching}
         searchRef={searchRef}
         tabsRef={tabsRef}
@@ -204,11 +190,7 @@ export function BottomBar() {
             )
           })}
           <li>
-            {department !== null ? (
-              <MenuButton tile={department} />
-            ) : (
-              <BackButton />
-            )}
+            <BackButton />
           </li>
         </ul>
       </nav>
@@ -227,12 +209,14 @@ export function BottomBar() {
 /// swaps underneath it and fades in (`dock-search.tsx`).
 function DockDrawer({
   row,
+  department,
   searching,
   searchRef,
   tabsRef,
   actionRef,
 }: {
   row: boolean
+  department: AppTile | null
   searching: boolean
   searchRef: (element: HTMLDivElement | null) => void
   tabsRef: (element: HTMLDivElement | null) => void
@@ -258,6 +242,7 @@ function DockDrawer({
         className="group/dock overflow-hidden rounded-[1.75rem] border border-black/[0.06] bg-canvas/95 shadow-float backdrop-blur-xl transition-[height] duration-300 ease-(--ease-drawer) motion-reduce:transition-none"
       >
         <div ref={inside} className="flex items-center gap-1.5 p-2">
+          {department !== null && <DepartmentSwitch tile={department} />}
           <div
             ref={tabsRef}
             className="min-w-0 group-data-[searching]/dock:hidden empty:hidden has-[[role=tablist]]:flex-1"
@@ -273,6 +258,29 @@ function DockDrawer({
         </div>
       </div>
     </div>
+  )
+}
+
+/// The department's screens, one tap from the drawer (owner, 2026-10-05): the
+/// switcher that sat in the header's title, where nobody's thumb reached, and
+/// then as a fourth tab, which read as odd. A round button with the
+/// department's icon at the drawer's left; it opens the sheet the launcher
+/// opens, with this screen marked. Out of the way while the drawer is a search.
+function DepartmentSwitch({ tile }: { tile: AppTile }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-label={`${tile.label} screens`}
+        onClick={() => setOpen(true)}
+        className="grid size-9 shrink-0 place-items-center rounded-full bg-soft-2 text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.92] group-data-[searching]/dock:hidden"
+      >
+        <tile.icon className="size-[1.125rem] stroke-[1.7]" />
+      </button>
+      <AppSheet tile={tile} open={open} onOpenChange={setOpen} />
+    </>
   )
 }
 
@@ -301,30 +309,6 @@ function useKeyboardLift(active: boolean): number {
     }
   }, [active])
   return lift
-}
-
-/// The department's own tab, named for it ("Procurement"), not "Menu" (owner:
-/// that read as odd): it lists the department's screens, from the thumb's row (owner, 2026-10-05): the
-/// switcher that sat in the header's title, where nobody's thumb reached. It
-/// opens the same sheet the launcher does, with this screen marked.
-function MenuButton({ tile }: { tile: AppTile }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <>
-      <button
-        type="button"
-        aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
-        className="group relative flex h-full w-full flex-col items-center justify-center gap-0.5 text-[0.75rem] font-medium tracking-[0.005em] text-mute"
-      >
-        <span className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.9]">
-          <tile.icon className="size-[1.375rem] stroke-[1.7]" />
-        </span>
-        <span className="max-w-full truncate px-1">{tile.label}</span>
-      </button>
-      <AppSheet tile={tile} open={open} onOpenChange={setOpen} />
-    </>
-  )
 }
 
 /// Back, in the thumb's row (owner, 2026-10-05). Moving between a
