@@ -1040,7 +1040,7 @@ function RowCard<TRow>({
         data-fresh={fresh || undefined}
         aria-current={selected || undefined}
         className={cn(
-          "flex flex-col gap-1.5 border-b border-hairline px-3.5 py-3 last:border-b-0",
+          "flex items-center gap-3 border-b border-hairline px-3.5 py-3 last:border-b-0",
           fresh && "row-fresh",
           onRowClick && "cursor-pointer",
           onRowClick && FOCUSED,
@@ -1050,7 +1050,10 @@ function RowCard<TRow>({
           selected ? "bg-accent-bg" : "active:bg-soft"
         )}
       >
-        <div className="flex items-start justify-between gap-2">
+        {/* The content in one column and the status beside it, centred on the
+            card's whole height: beside only the first lines it stood at the
+            top of a card three lines tall, which read as misplaced. */}
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <div className="min-w-0">
             {parts.id.map((cell) => (
               <div key={cell.id} className="truncate">
@@ -1066,46 +1069,46 @@ function RowCard<TRow>({
               </div>
             ))}
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            {parts.status.map((cell) => (
-              <span key={cell.id}>{render(cell)}</span>
-            ))}
-          </div>
-        </div>
 
-        {parts.meta.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-1.5 text-meta text-body">
-            {parts.meta.map((cell, index) => (
-              <span
-                key={cell.id}
-                className="flex max-w-full min-w-0 items-center gap-x-1.5 [&>*]:min-w-0"
-              >
-                {index > 0 && <span className="text-faint">·</span>}
-                {render(cell)}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {parts.metric.length > 0 && (
-          // Two columns of label-over-value, so the figures line up down the
-          // card and from one card to the next — they were a wrapping row of
-          // shouting micro-caps, and a card with four metrics broke onto three
-          // ragged lines. Sentence case, one grey lighter than the value: the
-          // label names the number, it does not compete with it.
-          <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2.5">
-            {parts.metric.map((cell) => (
-              <div key={cell.id} className="min-w-0">
-                <dt className="text-[0.875rem] leading-4 text-mute">
-                  {headerText(cell.column)}
-                </dt>
-                <dd className="mt-0.5 min-w-0 text-cell text-ink tabular-nums [&>*]:max-w-full [&>*]:items-start [&>*]:justify-start [&>*]:text-left">
+          {parts.meta.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-1.5 text-meta text-body">
+              {parts.meta.map((cell, index) => (
+                <span
+                  key={cell.id}
+                  className="flex max-w-full min-w-0 items-center gap-x-1.5 [&>*]:min-w-0"
+                >
+                  {index > 0 && <span className="text-faint">·</span>}
                   {render(cell)}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        )}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {parts.metric.length > 0 && (
+            // Two columns of label-over-value, so the figures line up down the
+            // card and from one card to the next — they were a wrapping row of
+            // shouting micro-caps, and a card with four metrics broke onto three
+            // ragged lines. Sentence case, one grey lighter than the value: the
+            // label names the number, it does not compete with it.
+            <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2.5">
+              {parts.metric.map((cell) => (
+                <div key={cell.id} className="min-w-0">
+                  <dt className="text-[0.875rem] leading-4 text-mute">
+                    {headerText(cell.column)}
+                  </dt>
+                  <dd className="mt-0.5 min-w-0 text-cell text-ink tabular-nums [&>*]:max-w-full [&>*]:items-start [&>*]:justify-start [&>*]:text-left">
+                    {render(cell)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {parts.status.map((cell) => (
+            <span key={cell.id}>{render(cell)}</span>
+          ))}
+        </div>
       </li>
       {sub !== null && sub !== undefined && (
         <li data-sub className="border-b border-hairline">

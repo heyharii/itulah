@@ -27,7 +27,7 @@ import { useChatUnread } from "@/screens/workplace/chat-unread"
 const TABS = [
   {
     to: "/apps",
-    label: "Apps",
+    label: "Home",
     icon: LayoutGrid,
     // Everything that is not another tab is inside an app.
     owns: (path: string) =>
@@ -37,13 +37,13 @@ const TABS = [
   },
   {
     to: "/chat",
-    label: "Messages",
+    label: "Chat",
     icon: MessageSquare,
     owns: (path: string) => MESSAGES.some((one) => within(path, one)),
   },
   {
     to: "/system/notifications",
-    label: "Notifications",
+    label: "Activity",
     icon: Bell,
     owns: (path: string) => within(path, "/system/notifications"),
   },
@@ -98,7 +98,7 @@ export function BottomBar() {
       // light at its top edge rather than a grey rule.
       className="fixed inset-x-0 bottom-0 z-30 border-t border-black/[0.06] bg-canvas/80 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-xl backdrop-saturate-150 md:hidden"
     >
-      <ul className="grid h-14 grid-cols-4">
+      <ul className="grid h-12 grid-cols-4">
         {TABS.map((tab) => {
           const on = tab.owns(pathname)
           const Icon = tab.icon
@@ -108,7 +108,7 @@ export function BottomBar() {
                 to={tab.to as string}
                 aria-current={on ? "page" : undefined}
                 className={cn(
-                  "group flex h-full flex-col items-center justify-center gap-[0.1875rem] text-[0.875rem] font-medium tracking-[0.005em]",
+                  "group flex h-full flex-col items-center justify-center gap-0.5 text-[0.875rem] font-medium tracking-[0.005em]",
                   // The lit tab is ink, not the accent (2026-09-28): the
                   // desk's charcoal column says "here" in its own ink, and
                   // blue is kept for the one thing to press and the counts
@@ -119,7 +119,7 @@ export function BottomBar() {
                 <span className="relative transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.9]">
                   <Icon
                     className={cn(
-                      "size-6",
+                      "size-5",
                       on ? "stroke-[2.1]" : "stroke-[1.7]"
                     )}
                   />
