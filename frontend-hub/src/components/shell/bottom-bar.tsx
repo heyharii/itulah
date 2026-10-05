@@ -431,8 +431,9 @@ function useKeyboardLift(active: boolean): number {
 /// screen a thumb reaches last; it is Back now — and Home to start again —
 /// which is how a phone's own apps do it, and which a home-screen app (no
 /// browser bar, no back arrow) otherwise has no button for at all.
-function BackButton({ fallback }: { fallback?: string }) {
+function BackButton({ fallback = "/apps" }: { fallback?: string }) {
   const router = useRouter()
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
   // Read again after every navigation: whether there is anywhere to go back
   // to changes with each one.
   useRouterState({ select: (state) => state.location.href })
@@ -440,9 +441,11 @@ function BackButton({ fallback }: { fallback?: string }) {
   return (
     <button
       type="button"
-      disabled={!can && fallback === undefined}
+      // With nothing behind it Back leads to Home, so it is never a dead
+      // button; only on Home itself, with nowhere to go, is it greyed.
+      disabled={!can && within(pathname, fallback)}
       onClick={() =>
-        can || fallback === undefined
+        can
           ? router.history.back()
           : void router.navigate({ to: fallback as never })
       }
