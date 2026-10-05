@@ -132,30 +132,29 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
   {
     id: "articles",
     accessorFn: (row) => row.term.in_use,
-    header: "Articles",
+    header: "In Use",
     size: 120,
     // The one question this list is asked that a sort answers badly: "is 0"
     // is the set of colours that can be deleted rather than retired, and a
     // curator tidying up wants that set, not the top of an order.
     meta: {
       align: "right",
-      filter: { kind: "number", label: "Articles", unit: "articles" },
+      filter: { kind: "number", label: "In Use", unit: "articles" },
     },
     // Zero is drawn as 0, not as "Unused". It was worded, on the argument that
     // "unused" is the state somebody scans for — but it read as a licence to
     // delete, which it is not: what a colour may be deleted on is whether
     // anything has EVER worn it, and that answer is in the sheet.
-    cell: ({ row }) => (
-      <span
-        className={
-          row.original.term.in_use === 0
-            ? "text-[0.875rem] text-mute tabular-nums"
-            : "text-[0.875rem] text-text tabular-nums"
-        }
-      >
-        {count(row.original.term.in_use)}
-      </span>
-    ),
+    // The number, and the word beside it in the quiet colour: "4 Articles".
+    cell: ({ row }) => {
+      const n = row.original.term.in_use
+      return (
+        <span className="text-[0.875rem] tabular-nums">
+          <span className={n === 0 ? "text-mute" : "text-ink"}>{count(n)}</span>{" "}
+          <span className="text-mute">{n === 1 ? "Article" : "Articles"}</span>
+        </span>
+      )
+    },
   },
 ]
 
