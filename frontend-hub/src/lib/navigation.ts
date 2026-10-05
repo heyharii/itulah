@@ -572,6 +572,21 @@ export const domains: readonly AppDomain[] = allDomains
   .filter((domain) => !hidden.has(domain.id))
   .map(withRailCount)
 
+/// The modules of the departments this build leaves out. The menu skips them
+/// because `domains` does; this is for the surfaces that list screens by some
+/// other road — ⌘K, search hits — and would otherwise hand somebody the very
+/// screen the deployment chose not to offer.
+export const hiddenModuleIds: ReadonlySet<string> = new Set(
+  allDomains.filter((domain) => hidden.has(domain.id)).flatMap((d) => d.modules)
+)
+
+/// Whether a path belongs to a department this build leaves out.
+export function isHiddenPath(pathname: string): boolean {
+  return (
+    hiddenModuleIds.size > 0 && hiddenModuleIds.has(moduleForPath(pathname).id)
+  )
+}
+
 /// The modules of a domain, in declared order, skipping any that no longer
 /// exist — a rename in one file should dim a chip, not crash the shell.
 export function modulesOfDomain(domain: AppDomain): readonly AppModule[] {

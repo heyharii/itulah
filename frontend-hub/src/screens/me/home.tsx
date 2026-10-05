@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { ChevronRight } from "lucide-react"
 
+import { isHiddenPath } from "@/lib/navigation"
 import { Async, Panel, Row } from "@/screens/me/ui/bits"
 import { Button } from "@/screens/me/ui/button"
 import { StatusPill } from "@/screens/me/ui/status-pill"
@@ -110,7 +111,7 @@ export function Home() {
       {/* The store head's desk, one tap away — and only for a store head.
           The rung rides the session; the server re-checks every decision
           against reach and the record anyway. */}
-      {isManager && (
+      {isManager && !isHiddenPath("/people/overview") && (
         <Link
           to={"/people/overview" as string}
           className={button({

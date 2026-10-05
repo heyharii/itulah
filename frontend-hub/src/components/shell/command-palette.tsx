@@ -4,7 +4,13 @@ import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { CornerDownLeft, Globe } from "lucide-react"
 import { useMemo, useState } from "react"
 
-import { allNavItems, moduleAllowed, moduleForPath } from "@/lib/navigation"
+import {
+  allNavItems,
+  hiddenModuleIds,
+  isHiddenPath,
+  moduleAllowed,
+  moduleForPath,
+} from "@/lib/navigation"
 import { runSearch, type SearchHit } from "@/lib/search"
 import { useSections } from "@/lib/session"
 import { cn } from "@/lib/utils"
@@ -50,6 +56,9 @@ export function CommandPalette({
       (item) =>
         !item.module.soon &&
         !item.soon &&
+        // Nor one this deployment leaves out of the menu (HR and GA on the
+        // public demo), whoever is asking — an admin included.
+        !hiddenModuleIds.has(item.module.id) &&
         moduleAllowed(item.module, sections, bypass)
     )
     const pool = everywhere
@@ -76,7 +85,7 @@ export function CommandPalette({
   })
 
   const rows = useMemo(() => {
-    const hits = records.data ?? []
+    const hits = (records.data ?? []).filter((hit) => !isHiddenPath(hit.to))
     return [
       ...destinations.map((item) => ({
         kind: "screen" as const,
