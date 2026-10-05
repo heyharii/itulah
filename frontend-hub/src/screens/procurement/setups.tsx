@@ -3071,22 +3071,6 @@ function SessionComposer({
               {left < 0 ? `${count(-left)} over` : `${count(left)} left`}
             </p>
           )}
-          {/* "Say which colours arrived" and its kind are not said (owner,
-              2026-10-05): the button is simply not ready. What is said is the
-              count, once it is, and a refusal about the counted total. */}
-          {(ready || (missing !== null && missing !== variantsMissing)) && (
-            <p
-              className={cn(
-                "min-w-0 text-[0.9375rem] leading-relaxed",
-                over ? "text-bad" : "text-mute"
-              )}
-            >
-              {missing ??
-                (split
-                  ? `${count(tabs.length)} articles · ${count(allSkuPrices.length)} SKUs will be created. A size with no pieces is left out.`
-                  : `${count(skuCount)} ${skuCount === 1 ? "SKU" : "SKUs"} will be created. A size with no pieces is left out.`)}
-            </p>
-          )}
         </div>
         {/* "Create articles" (was "Add to inventory"), on the owner's word of 2026-09-13. "Set up and
             send to tagging" named the two writes the press performs; this
@@ -3098,7 +3082,7 @@ function SessionComposer({
           variant="primary"
           type="submit"
           disabled={!ready || busy}
-          className="shrink-0"
+          className="shrink-0 self-end"
         >
           {busy ? "Submitting…" : "Submit"}
         </Button>
