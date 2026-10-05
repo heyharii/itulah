@@ -589,8 +589,11 @@ function TermSheet({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      id={term?.term.code}
-      title={term === null ? `New ${vocabulary.one}` : term.term.label}
+      title={
+        term === null
+          ? `New ${capitalise(vocabulary.one)}`
+          : `${capitalise(vocabulary.one)} ${term.term.label}`
+      }
     >
       {form}
     </Sheet>

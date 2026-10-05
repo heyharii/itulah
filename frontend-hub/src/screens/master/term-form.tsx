@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 import { Dialog } from "@/components/ui/dialog"
+import { Field, Input } from "@/components/ui/field"
 import { Switch } from "@/components/ui/form"
 import { Button } from "@/components/ui/button"
-import { Fact, Facts } from "@/components/ui/sheet"
 import type { TermUsage } from "@/lib/queries/vocabulary"
 
 /// What the master-data sheets share — colours, divisions, sizes, tags.
@@ -15,16 +15,14 @@ import type { TermUsage } from "@/lib/queries/vocabulary"
 /// stay identical live here so they cannot drift again; what differs per list —
 /// its validation, its extra fields — stays in the list's own file.
 
-/// A code that is already minted: read, not edited, because the goods point at
+/// A code that is already minted: shown in its box, locked, because the goods point at
 /// it. Said as a fact rather than a greyed-out box that looks like a field that
 /// is broken.
 export function CodeFact({ code }: { code: string }) {
   return (
-    <Facts>
-      <Fact term="Code">
-        <span className="font-mono">{code}</span>
-      </Fact>
-    </Facts>
+    <Field label="Code">
+      <Input value={code} disabled readOnly aria-label="Code" />
+    </Field>
   )
 }
 
@@ -153,9 +151,8 @@ export function DeactivateDialog({
           </div>
         )}
         <p>
-          It stops being offered when an article, an order or a promotion is set
-          up. Everything that already uses it keeps it, and it can be made
-          active again at any time.
+          It will not be used for new articles. Everything that already uses it
+          keeps it, and it can be made active again at any time.
         </p>
       </div>
     </Dialog>
