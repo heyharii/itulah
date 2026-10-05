@@ -2,7 +2,9 @@
 #
 # Build the hub and swap it into the demo VM's web root (/var/lib/itulah/www/hub,
 # served by Caddy). No backend or container is touched; the swap is a directory
-# rename, so a bad build is undone by deploying the previous commit again.
+# rename, so a bad build is undone by deploying the previous commit again. The
+# previous build's assets stay beside the new ones for 30 days, so a tab that
+# was open while this ran does not lose the chunks it still has to load.
 #
 # The hub is built for the DEPLOYMENT, not for everybody: departments named in
 # HIDE_DOMAINS are left out of the sidebar (their screens and routes stay, and
@@ -40,6 +42,11 @@ W=/var/lib/itulah/www/hub; N=/var/lib/itulah/www/hub.new
 sudo rm -rf $N; sudo mkdir -p $N
 sudo tar xzf /tmp/hub-dist.tgz -C $N 2>/dev/null
 sudo test -f $N/index.html
+# Keep the previous build'"'"'s chunks (never overwriting a new one): a tab that was open
+# during the deploy still asks for its own build'"'"'s lazy chunks, and a 404 there is
+# the "Something went wrong" screen. Chunks nobody has loaded for 30 days go.
+if [ -d $W/assets ]; then sudo cp -an $W/assets/. $N/assets/; fi
+sudo find $N/assets -type f -mtime +30 -delete
 sudo rm -rf /var/lib/itulah/www/hub.old
 sudo mv $W /var/lib/itulah/www/hub.old
 sudo mv $N $W

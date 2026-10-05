@@ -88,6 +88,23 @@ edge.onBearerRejected(() => {
 /// install offer — which fires once, early — is not missed.
 registerServiceWorker()
 
+/// A tab asking for a lazy chunk of a build that is gone. The server keeps the
+/// previous build's chunks for a while, so this is the rare case (a tab left
+/// open for weeks); reloading once is better than a dead "Something went
+/// wrong" screen, and once is all: a second failure inside half a minute is a
+/// real fault and shows as one.
+window.addEventListener("vite:preloadError", (event) => {
+  event.preventDefault()
+  try {
+    const last = Number(sessionStorage.getItem("chunk-reload") ?? "0")
+    if (Date.now() - last < 30_000) return
+    sessionStorage.setItem("chunk-reload", String(Date.now()))
+  } catch {
+    return
+  }
+  window.location.reload()
+})
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
