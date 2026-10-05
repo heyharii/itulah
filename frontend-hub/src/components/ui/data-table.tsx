@@ -110,6 +110,11 @@ export interface DataTableProps<TRow> {
   /// sort in its options sheet (`ListOptionsSheet`) turns this off — two
   /// sort controls on one small screen read as two different orders.
   readonly cardSort?: boolean
+  /// On a phone, each row is a card of its own with a gap between, instead of
+  /// rows divided by hairlines inside one shared card. The screen drops its
+  /// own wrapper's border and fill on a phone (`max-md:`) so the cards stand
+  /// on the page.
+  readonly cardsApart?: boolean
   /// Lay the rows out as cards on a tablet too, not only on a phone. For a list
   /// whose key columns (status, what has arrived) would otherwise sit off the
   /// edge of a 768px screen: Apple's rule — show the common path first — beats
@@ -187,6 +192,7 @@ export function DataTable<TRow>({
   empty,
   rowAction,
   cardSort = true,
+  cardsApart,
   cardsOnTablet,
   onEndReached,
   more,
@@ -419,10 +425,11 @@ export function DataTable<TRow>({
             {empty ?? "Nothing to show."}
           </div>
         ) : (
-          <ul className="flex flex-col">
+          <ul className={cn("flex flex-col", cardsApart && "gap-2.5")}>
             {rows.map((row, index) => (
               <RowCard
                 key={row.id}
+                apart={cardsApart}
                 row={row}
                 before={beforeOf(index)}
                 hidden={isHidden?.(row.original as TRow)}
@@ -993,9 +1000,11 @@ function RowCard<TRow>({
   sub,
   before,
   hidden,
+  apart,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   row: any
+  apart?: boolean
   onRowClick?: (original: TRow) => void
   selected: boolean
   fresh?: boolean
@@ -1040,7 +1049,10 @@ function RowCard<TRow>({
         data-fresh={fresh || undefined}
         aria-current={selected || undefined}
         className={cn(
-          "flex items-center gap-3 border-b border-hairline px-3.5 py-3 last:border-b-0",
+          "flex items-center gap-3 px-3.5 py-3",
+          apart
+            ? "rounded-card border border-hairline bg-canvas shadow-soft"
+            : "border-b border-hairline last:border-b-0",
           fresh && "row-fresh",
           onRowClick && "cursor-pointer",
           onRowClick && FOCUSED,

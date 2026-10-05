@@ -1137,7 +1137,7 @@ export function PurchaseOrders() {
           scroll box, and the table's heading would stick to the card instead
           of the window. */}
       <div ref={fit.ref}>
-        <Card className="overflow-clip">
+        <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
           {queryState(orders, {
             loading: "Loading the orders…",
             render: () =>
@@ -1152,6 +1152,7 @@ export function PurchaseOrders() {
                   table={table}
                   roomy
                   cardSort={false}
+                  cardsApart
                   onRowClick={(row) => order.open(row.purchase_order_id)}
                   isSelected={(row) => row.purchase_order_id === order.value}
                   isFresh={(row) => row.purchase_order_id === fresh}
