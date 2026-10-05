@@ -20,7 +20,6 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
-import { toast } from "@/lib/toast"
 import {
   createTerm,
   listTerms,
@@ -257,47 +256,6 @@ function capitalise(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1)
 }
 
-/// Active or inactive, in the row. Inactive is the old "retired": still
-/// there, never deleted, and no longer offered for new work.
-function StatusSwitch({
-  vocabulary,
-  row,
-}: {
-  vocabulary: Vocabulary
-  row: TermRow
-}) {
-  const client = useQueryClient()
-  const change = useMutation({
-    mutationFn: () =>
-      updateTerm(
-        vocabulary.kind,
-        row.term.code,
-        { active: !row.active },
-        row.term.version,
-        crypto.randomUUID()
-      ),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: vocabularyKeys.all })
-      void client.invalidateQueries({ queryKey: ["procurement", "vocabulary"] })
-      void client.invalidateQueries({ queryKey: ["articles"] })
-    },
-    onError: (error) => toast.error(said(error)),
-  })
-  return (
-    <span className="inline-flex items-center gap-2.5">
-      <Switch
-        on={row.active}
-        busy={change.isPending}
-        label={`${row.active ? "Deactivate" : "Activate"} ${row.term.label}`}
-        onToggle={() => change.mutate()}
-      />
-      <span className={row.active ? "text-ink" : "text-mute"}>
-        {row.active ? "Active" : "Inactive"}
-      </span>
-    </span>
-  )
-}
-
 type StatusTab = "ALL" | "ACTIVE" | "INACTIVE"
 
 function TabLabel({ text, n }: { text: string; n: number }) {
@@ -520,11 +478,6 @@ function TermSheet({
       }}
       id={term?.term.code}
       title={term === null ? `New ${vocabulary.one}` : term.term.label}
-      caption={
-        term === null ? undefined : (
-          <StatusSwitch vocabulary={vocabulary} row={term} />
-        )
-      }
     >
       {form}
     </Sheet>
@@ -535,6 +488,7 @@ interface TermDraft {
   code: string
   label: string
   order: string
+  active: boolean
 }
 
 function problemsWith(
@@ -622,7 +576,7 @@ function TermForm({
         : updateTerm(
             vocabulary.kind,
             term.term.code,
-            { label, display_order: order },
+            { label, display_order: order, active: draft.active },
             term.term.version,
             idempotency.key
           )
@@ -645,6 +599,7 @@ function TermForm({
       code: term?.term.code ?? "",
       label: term?.term.label ?? "",
       order: String(term?.order ?? 0),
+      active: term?.active ?? true,
     } as TermDraft,
     onSubmit: ({ value }) => {
       attempt()
@@ -717,6 +672,20 @@ function TermForm({
               </form.Field>
             ) : (
               <CodeFact code={term.term.code} />
+            )}
+
+            {term !== null && (
+              <form.Field name="active">
+                {(field) => (
+                  <Field label="Active">
+                    <Switch
+                      on={field.state.value}
+                      label={`${capitalise(vocabulary.one)} is active`}
+                      onToggle={() => field.handleChange(!field.state.value)}
+                    />
+                  </Field>
+                )}
+              </form.Field>
             )}
 
             {/* Only where an order is a decision. A tag's was a number

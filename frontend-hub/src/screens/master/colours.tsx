@@ -20,7 +20,6 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
-import { toast } from "@/lib/toast"
 import {
   colourKeys,
   createColour,
@@ -131,18 +130,6 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
     cell: ({ row }) => <Tag>{row.original.term.code}</Tag>,
   },
   {
-    id: "order",
-    accessorFn: (row) => row.order,
-    header: "Order",
-    size: 90,
-    meta: { align: "right" },
-    cell: ({ row }) => (
-      <span className="text-[0.875rem] text-text tabular-nums">
-        {row.original.order}
-      </span>
-    ),
-  },
-  {
     id: "articles",
     accessorFn: (row) => row.term.in_use,
     header: "Articles",
@@ -171,51 +158,6 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
     ),
   },
 ]
-
-/// Active or inactive, in the row (owner, 2026-10-05): one press, no sheet.
-function StatusSwitch({ row }: { row: ColourRow }) {
-  const client = useQueryClient()
-  const change = useMutation({
-    mutationFn: () =>
-      updateColour(
-        row.term.code,
-        { active: !row.active },
-        row.term.version,
-        crypto.randomUUID()
-      ),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: colourKeys.all })
-    },
-    onError: (error) =>
-      toast.error(
-        error instanceof Error ? error.message : "That did not save."
-      ),
-  })
-  return (
-    <span className="inline-flex items-center gap-2.5">
-      <Switch
-        on={row.active}
-        busy={change.isPending}
-        label={`${row.active ? "Deactivate" : "Activate"} ${row.term.label}`}
-        onToggle={() => change.mutate()}
-      />
-      <span className={row.active ? "text-ink" : "text-mute"}>
-        {row.active ? "Active" : "Inactive"}
-      </span>
-    </span>
-  )
-}
-
-type StatusTab = "ALL" | "ACTIVE" | "INACTIVE"
-
-function TabLabel({ text, n }: { text: string; n: number }) {
-  return (
-    <span>
-      {text}
-      <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
-    </span>
-  )
-}
 
 export function Colours() {
   const [query, setQuery] = useState("")
@@ -424,7 +366,6 @@ function ColourSheet({
       onOpenChange={(next) => !next && onClose()}
       id={colour?.term.code}
       title={colour?.term.label ?? "New color"}
-      caption={colour ? <StatusSwitch row={colour} /> : undefined}
     >
       {form}
     </Sheet>
@@ -436,6 +377,7 @@ interface ColourDraft {
   label: string
   hex: string
   order: string
+  active: boolean
 }
 
 interface Problems {
@@ -525,7 +467,11 @@ function ColourForm({
       // Blank clears it rather than storing "". A colour with no agreed pixel
       // value is a normal state, and an empty swatch says so; a wrong one lies.
       const hex = draft.hex.trim() === "" ? null : draft.hex.trim()
-      const order = Number(draft.order)
+      // No Order input (owner, 2026-10-05): a new color goes after the others.
+      const order =
+        colour === null
+          ? Math.max(0, ...existing.map((row) => row.order)) + 1
+          : Number(draft.order)
       return colour === null
         ? createColour(
             {
@@ -538,7 +484,12 @@ function ColourForm({
           )
         : updateColour(
             colour.term.code,
-            { label, hex_code: hex, display_order: order },
+            {
+              label,
+              hex_code: hex,
+              display_order: order,
+              active: draft.active,
+            },
             colour.term.version,
             idempotency.key
           )
@@ -559,6 +510,7 @@ function ColourForm({
       label: colour?.term.label ?? "",
       hex: colour?.term.hex_code ?? "",
       order: String(colour?.order ?? 0),
+      active: colour?.active ?? true,
     } as ColourDraft,
     onSubmit: ({ value }) => {
       attempt()
@@ -668,26 +620,6 @@ function ColourForm({
                   </Field>
                 )}
               </form.Field>
-
-              <form.Field name="order">
-                {(field) => (
-                  <Field
-                    label="Order"
-                    problem={reveal(field.state.meta.isTouched, problems.order)}
-                    className="min-w-0"
-                  >
-                    <Input
-                      type="number"
-                      min={0}
-                      value={field.state.value}
-                      onBlur={field.handleBlur}
-                      onChange={(event) =>
-                        field.handleChange(event.target.value)
-                      }
-                    />
-                  </Field>
-                )}
-              </form.Field>
             </div>
 
             {/* Drawn from the draft, and blank whenever the hex is not a hex.
@@ -748,6 +680,20 @@ function ColourForm({
                 )
               }}
             </form.Subscribe>
+
+            {colour !== null && (
+              <form.Field name="active">
+                {(field) => (
+                  <Field label="Active">
+                    <Switch
+                      on={field.state.value}
+                      label="Color is active"
+                      onToggle={() => field.handleChange(!field.state.value)}
+                    />
+                  </Field>
+                )}
+              </form.Field>
+            )}
 
             <SubmitRow
               pending={save.isPending}
