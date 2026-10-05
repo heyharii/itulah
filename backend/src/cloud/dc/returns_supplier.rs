@@ -222,9 +222,10 @@ pub(super) async fn hand_over(
         .fetch_all(&mut *tx)
         .await?;
         if sources.is_empty() {
+            tracing::warn!(%receipt_line_id, %article_code, "return has no receiving stock to hand back");
             return Err(AppError::Validation(format!(
-                "this Gudang holds no accepted delivery line {receipt_line_id} of \
-                 {article_code}; it cannot hand back goods it never received"
+                "{number}: the {article_code} on this return is not in the Gudang's receiving stock, \
+                 so it cannot be handed over"
             )));
         }
         let mut left = quantity;

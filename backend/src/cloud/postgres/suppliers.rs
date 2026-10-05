@@ -2747,6 +2747,33 @@ async fn ensure_payment_terms_template(
 
 /// What every catalog order's lines must be before anything is read: at least
 /// one, each for a positive quantity, and no supplier item twice.
+/// The ceilings a purchase order is held to (owner, 2026-10-05): a quantity or
+/// a price past these is almost certainly a typo, and one typed in full once
+/// produced a total of Rp 9.999.999.999.899.900.000.000.000. Settings rather
+/// than numbers in the code: the environment moves them without a release.
+fn order_limit(name: &str, default: i64) -> i64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.trim().replace('_', "").parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+/// Most pieces on one line: `PO_MAX_LINE_QUANTITY`, 999.999 by default.
+pub fn max_line_quantity() -> i64 {
+    order_limit("PO_MAX_LINE_QUANTITY", 999_999)
+}
+
+/// Most a piece may cost, in rupiah: `PO_MAX_UNIT_PRICE`, 99.999.999.
+pub fn max_unit_price_minor() -> i64 {
+    order_limit("PO_MAX_UNIT_PRICE", 99_999_999)
+}
+
+/// Most an order may come to: `PO_MAX_ORDER_TOTAL`, 99.999.999.999.
+pub fn max_order_total_minor() -> i64 {
+    order_limit("PO_MAX_ORDER_TOTAL", 99_999_999_999)
+}
+
 fn validate_catalog_lines(lines: &[CatalogPurchaseLineRequest]) -> Result<(), AppError> {
     if lines.is_empty() {
         return Err(AppError::Validation(
@@ -2765,6 +2792,28 @@ fn validate_catalog_lines(lines: &[CatalogPurchaseLineRequest]) -> Result<(), Ap
                 "line {} quantity must be positive",
                 index + 1
             )));
+        }
+        if line.quantity > max_line_quantity() {
+            return Err(AppError::Validation(format!(
+                "line {} quantity is at most {} pieces",
+                index + 1,
+                max_line_quantity()
+            )));
+        }
+        if let Some(price) = line.unit_price_minor {
+            if price < 0 {
+                return Err(AppError::Validation(format!(
+                    "line {} price cannot be negative",
+                    index + 1
+                )));
+            }
+            if price > max_unit_price_minor() {
+                return Err(AppError::Validation(format!(
+                    "line {} price is at most Rp {} a piece",
+                    index + 1,
+                    max_unit_price_minor()
+                )));
+            }
         }
         // Every line carries the delivery date. The owner made it required
         // (2026-09-26): an order nobody promised a date for is an order
@@ -2827,6 +2876,20 @@ fn validate_catalog_lines(lines: &[CatalogPurchaseLineRequest]) -> Result<(), Ap
                 line.supplier_item_id
             )));
         }
+    }
+    // The order as a whole. Lines priced by the request only; a line left to the
+    // catalogue's price is checked against the price ceiling where it is read.
+    let total: i128 = lines
+        .iter()
+        .map(|line| {
+            i128::from(line.quantity) * i128::from(line.unit_price_minor.unwrap_or(0))
+        })
+        .sum();
+    if total > i128::from(max_order_total_minor()) {
+        return Err(AppError::Validation(format!(
+            "an order comes to at most Rp {}",
+            max_order_total_minor()
+        )));
     }
     Ok(())
 }
@@ -3431,6 +3494,62 @@ pub async fn revise_catalog_purchase_order(
     if let Some(reason) = purchase_order_edit_blocker(&mut *transaction, purchase_order_id).await? {
         return Err(AppError::Conflict(reason));
     }
+    // After goods have been received the order is a record of what was bought:
+    // only the delivery date and the notes may change (owner, 2026-10-05). The
+    // items and their quantities, the way it is paid and the discount are held
+    // exactly as they stand; the screen shuts them, and this refuses a request
+    // that changes them anyway.
+    let received_any: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM goods_receipt_line r
+                          JOIN purchase_order_line l ON l.po_line_id = r.po_line_id
+                         WHERE l.purchase_order_id = $1)",
+    )
+    .bind(purchase_order_id)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if received_any {
+        let held = sqlx::query(
+            "SELECT supplier_item_id, (ordered_quantity - cancelled_quantity)::bigint AS quantity
+               FROM purchase_order_line
+              WHERE purchase_order_id = $1 AND line_status <> 'CANCELLED'",
+        )
+        .bind(purchase_order_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let mut same = held.len() == request.lines.len();
+        for line in &request.lines {
+            let found = held.iter().find(|row| {
+                row.try_get::<Option<Uuid>, _>("supplier_item_id")
+                    .ok()
+                    .flatten()
+                    == Some(line.supplier_item_id)
+            });
+            match found {
+                Some(row) => {
+                    let quantity: i64 = row.try_get("quantity")?;
+                    if quantity != line.quantity {
+                        same = false;
+                    }
+                }
+                None => same = false,
+            }
+        }
+        let method_before: Option<String> = sqlx::query_scalar(
+            "SELECT payment_method FROM purchase_order WHERE purchase_order_id = $1",
+        )
+        .bind(purchase_order_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        let terms_held: Option<String> = header.try_get("payment_terms_code")?;
+        let terms_changed = changes_terms && payment_terms_code != terms_held;
+        let method_changed = payment_method.is_some() && payment_method != method_before;
+        if !same || terms_changed || method_changed {
+            return Err(AppError::Conflict(
+                "goods have been received on this order: only the delivery date and the notes can change"
+                    .into(),
+            ));
+        }
+    }
     let po_number: String = header.try_get("po_number")?;
     let supplier_code: String = header.try_get("supplier_id")?;
     let supplier_name: Option<String> = header.try_get("supplier_name")?;
@@ -3554,6 +3673,12 @@ pub async fn revise_catalog_purchase_order(
     let (gross_minor, discount_minor) =
         order_value(&mut snapshots, request.discount_minor, request.discount_bps)?;
     let net_minor = gross_minor - discount_minor;
+    if received_any && discount_minor != discount_before {
+        return Err(AppError::Conflict(
+            "goods have been received on this order: only the delivery date and the notes can change"
+                .into(),
+        ));
+    }
 
     // Money already paid ahead against this order cannot be left worth more
     // than the order it was paid against.

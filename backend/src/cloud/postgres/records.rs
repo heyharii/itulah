@@ -539,6 +539,13 @@ async fn receiving_activity(
                                        'receipt', receipt_number)
                FROM l WHERE verified_at IS NOT NULL
              UNION ALL
+             SELECT pl.closed_short_at, COALESCE(pl.closed_short_by, ''), 'close_short',
+                    jsonb_build_object('quantity', pl.closed_short_units,
+                                       'article', pl.article_name,
+                                       'reason', pl.closed_short_reason)
+               FROM purchase_order_line pl
+              WHERE pl.purchase_order_id = $1 AND pl.closed_short_at IS NOT NULL
+             UNION ALL
              SELECT gr.invoice_recorded_at, gr.invoice_recorded_by, 'invoice',
                     jsonb_build_object('invoice', gr.invoice_number,
                                        'total_minor', gr.invoice_total_minor,
@@ -577,6 +584,7 @@ async fn receiving_activity(
         let path = match what.as_str() {
             "count" => "/api/v1/dc/purchase-counts",
             "verify" => "/api/v1/dc/purchase-verifications",
+            "close_short" => "/api/v1/dc/purchase-close-short",
             _ => "/api/v1/dc/goods-receipts/invoice",
         };
         out.push(AuditEntry {
