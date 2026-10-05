@@ -234,11 +234,11 @@ function DockDrawer({
         <div ref={inside} className="flex items-center gap-1.5 p-2">
           <div
             ref={tabsRef}
-            className="min-w-0 flex-1 group-data-[searching]/dock:hidden empty:hidden"
+            className="min-w-0 group-data-[searching]/dock:hidden empty:hidden has-[[role=tablist]]:flex-1"
           />
           <div
             ref={searchRef}
-            className="shrink-0 group-data-[searching]/dock:flex-1 empty:hidden"
+            className="shrink-0 group-data-[searching]/dock:flex-1 empty:hidden has-[.dock-field]:min-w-0 has-[.dock-field]:flex-1"
           />
           <div
             ref={actionRef}

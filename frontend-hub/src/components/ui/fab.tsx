@@ -7,9 +7,10 @@ import { cn } from "@/lib/utils"
 /// context row over the bottom bar (`components/shell/dock.tsx`), where the
 /// thumb is, rather than floating over the last row of the list.
 ///
-/// Beside tabs it is a round "+" at the end of the row, after the search: a
-/// search, three tabs and a labelled button do not fit 343px, and a screen
-/// reader hears "Add New Order" either way. With no tabs there is room, and it
+/// Beside the status and the search it is a round "+" at the end of the row
+/// (owner, 2026-10-05: "Add" and "Add New" both looked worse than the plus): a
+/// label does not sit well beside a field you can read, and a screen reader
+/// hears "Add New Order" either way. With no tabs there is room, and it
 /// takes the whole row and says the specific thing. From 48rem up it is not drawn: the
 /// toolbar's own button is there, and a desk does not need a thumb target.
 export function Fab({

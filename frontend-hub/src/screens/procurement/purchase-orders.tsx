@@ -11,7 +11,6 @@ import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, Row, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import {
-  Ban,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -883,6 +882,12 @@ export function PurchaseOrders() {
     )
   )
 
+  /// How many orders each tab holds, from the server's own tally of the whole
+  /// search (so it does not move as the list is narrowed to a tab).
+  const facetCount = (statuses: readonly string[]) =>
+    (orders.data?.facets.order_status ?? [])
+      .filter((facet) => statuses.includes(facet.value))
+      .reduce((sum, facet) => sum + facet.count, 0)
   /// The phone's drawer opens the filter or the sort sheet by name.
   const [optionsAt, setOptionsAt] = useState<"filter" | "sort" | null>(null)
   const sortedBy = table
@@ -922,29 +927,21 @@ export function PurchaseOrders() {
       </KpiStrip>
 
       <SubTabs
-        // On a phone these are drawn in the context row over the bottom bar
-        // (owner, 2026-10-05), as the word alone.
-        dock
-        tabs={TABS.map((one) => {
-          const figure = (orders.data?.facets.order_status ?? [])
-            .filter((facet) =>
-              (one.statuses as readonly string[]).includes(facet.value)
-            )
-            .reduce((sum, facet) => sum + facet.count, 0)
-          return {
-            value: one.value,
-            short: one.label.replace(/ PO$/, ""),
-            icon: one.value === "cancelled" ? Ban : undefined,
-            label: (
-              <span>
-                {one.label}
-                <span className="ml-1.5 text-body tabular-nums">
-                  {count(figure)}
-                </span>
+        // Hidden on a phone: the status is the button in the drawer over the
+        // bottom bar (`DockTools`), which says the same and has the room for
+        // the counts (owner, 2026-10-05).
+        className="max-md:hidden"
+        tabs={TABS.map((one) => ({
+          value: one.value,
+          label: (
+            <span>
+              {one.label}
+              <span className="ml-1.5 text-body tabular-nums">
+                {count(facetCount(one.statuses))}
               </span>
-            ),
-          }
-        })}
+            </span>
+          ),
+        }))}
         value={tab}
         onChange={(next) => {
           setTab(next as OrderTab)
@@ -1100,6 +1097,18 @@ export function PurchaseOrders() {
         sort={{
           label: sortName,
           onOpen: () => setOptionsAt("sort"),
+        }}
+        status={{
+          value: tab,
+          options: TABS.map((one) => ({
+            value: one.value,
+            label: one.label.replace(/ PO$/, ""),
+            count: facetCount(one.statuses),
+          })),
+          onChange: (next) => {
+            setTab(next as OrderTab)
+            setCollapsed(new Set())
+          },
         }}
       />
       <ListOptionsSheet
