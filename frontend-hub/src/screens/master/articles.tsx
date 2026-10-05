@@ -17,7 +17,6 @@ import {
   ChoiceMenu,
   ColumnsMenu,
   ExpandingSearch,
-  ViewPicker,
 } from "@/components/ui/list-chrome"
 import {
   useFilterState,
@@ -475,6 +474,7 @@ export function Articles() {
         <div className="@container flex min-w-0 flex-col">
           {/* One line, as the order book draws it: the search and what narrows
               the catalogue at the left, what orders and shapes it at the right.
+              No saved views here (owner, 2026-10-05).
               The box is one box for every identifier, because somebody holding
               a garment does not know which of them they are holding — the QR on
               the swing tag, the SKU on the label, the supplier's own code on
@@ -512,7 +512,6 @@ export function Articles() {
                 }
               />
               {view === "table" && <ColumnsMenu table={table} />}
-              <ViewPicker model={filters} id="articles" all="All articles" />
             </div>
           </div>
 
