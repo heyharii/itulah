@@ -372,7 +372,7 @@ function ColumnHeader() {
       <span />
       <span>Article</span>
       <span className="text-right">Quantity</span>
-      <span>Colours</span>
+      <span>Colors</span>
       <span>Sizes</span>
       <span>Setup date</span>
     </div>

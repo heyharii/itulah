@@ -103,7 +103,7 @@ export const masterNav: AppModule = {
         { path: "/master/divisions", label: "Divisions", icon: FolderTree },
         { path: "/master/tags", label: "Tags", icon: Tag },
         { path: "/master/sizes", label: "Sizes", icon: Ruler },
-        { path: "/master/colours", label: "Colours", icon: Palette },
+        { path: "/master/colours", label: "Colors", icon: Palette },
         {
           path: "/master/name-suggestions",
           label: "Name Suggestions",

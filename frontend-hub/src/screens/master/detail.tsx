@@ -195,7 +195,7 @@ function Overview({
         </Fact>
         <Fact term="Base price">{priceSpan(article)}</Fact>
         <Fact term="SKUs">{count(article.sku_count)}</Fact>
-        <Fact term="Colourways">{count(article.colours.length)} of 10</Fact>
+        <Fact term="Colorways">{count(article.colours.length)} of 10</Fact>
         <Fact term="Sizes">{count(article.size_codes.length)}</Fact>
         <Fact term="Currency">{article.currency ?? "—"}</Fact>
         <Fact term="Stock unit">{article.stock_unit_code}</Fact>

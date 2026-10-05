@@ -317,7 +317,7 @@ export function PoSheet({
               { label: "No.", align: "left" },
               { label: "SKU", align: "left" },
               { label: "Article", align: "left" },
-              { label: "Colour", align: "left" },
+              { label: "Color", align: "left" },
               { label: "Size", align: "left" },
               "Labels",
               "Printed",

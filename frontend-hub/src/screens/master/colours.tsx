@@ -10,16 +10,11 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
-import { FilterOmnibox } from "@/components/ui/filter-omnibox"
-import {
-  ColumnsMenu,
-  DockedFilters,
-  SortMenu,
-  ViewPicker,
-} from "@/components/ui/list-chrome"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { ColumnsMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { Switch } from "@/components/ui/form"
+import { Switch, SwitchPill } from "@/components/ui/form"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
@@ -107,7 +102,7 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
   {
     id: "colour",
     accessorFn: (row) => `${row.term.label} ${row.term.code}`,
-    header: "Colour",
+    header: "Color",
     size: 260,
     meta: { grow: 260 },
     cell: ({ row }) => (
@@ -220,7 +215,9 @@ export function Colours() {
   const [sorting, setSorting] = useState<SortingState>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
-  const [tab, setTab] = useState<StatusTab>("ALL")
+  const [tab, setTab] = useState<StatusTab>("ACTIVE")
+  const [inUseOnly, setInUseOnly] = useState(false)
+  const [noSwatchOnly, setNoSwatchOnly] = useState(false)
 
   // The whole vocabulary in one read. A company has a hundred colours, not a
   // hundred thousand, so there is nothing to page and nothing to re-ask the
@@ -241,10 +238,13 @@ export function Colours() {
   // segment and a status chip end up giving two different answers.
   const rows = useMemo(
     () =>
-      tab === "ALL"
-        ? all
-        : all.filter((row) => row.active === (tab === "ACTIVE")),
-    [all, tab]
+      all.filter(
+        (row) =>
+          (tab === "ALL" || row.active === (tab === "ACTIVE")) &&
+          (!inUseOnly || row.term.in_use > 0) &&
+          (!noSwatchOnly || !row.term.hex_code)
+      ),
+    [all, tab, inUseOnly, noSwatchOnly]
   )
 
   const filters = useFilters(columns)
@@ -274,6 +274,16 @@ export function Colours() {
   // anybody has decided which pixel value stands for it, so this is a count of
   // work outstanding, not of rows that are wrong.
   const unswatched = all.filter((row) => !row.term.hex_code).length
+  const kpis = [
+    { label: "Colors", value: count(all.length), note: undefined },
+    { label: "Active", value: count(all.length - retired), note: undefined },
+    { label: "Inactive", value: count(retired), note: undefined },
+    {
+      label: "No Swatch",
+      value: count(unswatched),
+      note: "Named, but nobody has said which pixel value they mean.",
+    },
+  ]
 
   const close = useCallback(() => {
     setCreating(false)
@@ -282,20 +292,15 @@ export function Colours() {
 
   return (
     <PageContent>
-      <PageHeader
-        title="Colours"
-        sub="Standard colours used across articles and variants."
-        actions={
-          <Button
-            onClick={() => {
-              setEditing(null)
-              setCreating(true)
-            }}
-          >
-            New colour
-          </Button>
-        }
-      />
+      <PageHeader title="Colors" small />
+
+      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+        {kpis.map((one) => (
+          <div key={one.label} title={one.note}>
+            <Kpi label={one.label} value={one.value} />
+          </div>
+        ))}
+      </KpiStrip>
 
       <SubTabs
         tabs={[
@@ -316,107 +321,71 @@ export function Colours() {
         onChange={(next) => setTab(next as StatusTab)}
       />
 
-      {/* Two columns from 1440 up: the master, and the panel that narrows it —
-          the shape Sourcing and the order book already wear, brought here on
-          2026-09-13 so the lists an article is described with are read with the
-          same chrome as the article itself. Below that width the panel is the
-          omnibox above the table, which is the same model drawn as a line. */}
-      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
-        <div className="flex min-w-0 flex-col">
-          {/* One line, the width of the table, carrying everything that
-              acts on it — the same line the order book wears, in the same
-              order: what narrows it at the left, what orders and shapes it in
-              the middle, which view it is at the right.
-
-              It was a full-width box above a second row until 2026-09-13. Two
-              rows of chrome over one short list is one row too many, and the
-              owner said so. */}
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            {/* The plain box, where the panel beside it is carrying the
-                filters. Below 1440 the panel is gone and the omnibox below
-                takes both jobs, so only one of the two is ever on screen. */}
-            <span className="relative mr-auto hidden dock:block">
-              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                aria-label="Search the colour master"
-                className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
-              />
-            </span>
-            <span className="mr-auto text-[0.875rem] text-body dock:mr-0">
-              <b className="font-medium text-ink">{count(all.length)}</b>{" "}
-              colours · {count(retired)} inactive
-              {unswatched > 0 && ` · ${count(unswatched)} with no swatch yet`}
-            </span>
-            <SortMenu
-              table={table}
-              sorting={sorting}
-              onSort={(id, desc) => setSorting([{ id, desc }])}
-            />
-            <ColumnsMenu table={table} />
-            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
-            <ViewPicker model={filters} id="colours" all="All colours" />
-          </div>
-
-          {/* The same model as the panel, drawn as one line, for the widths
-              where the panel is not on screen. */}
-          <FilterOmnibox
-            model={filters}
-            text={query === "" ? undefined : query}
-            onText={(next) => setQuery(next ?? "")}
-            className="mb-3 dock:hidden"
+      <div className="mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+        <span className="relative min-w-0 flex-1 lg:w-44 lg:flex-none">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            aria-label="Search colors"
+            placeholder="Search colors"
+            className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
           />
-
-          <Card className="overflow-clip">
-            {queryState(colours, {
-              loading: "Reading the vocabulary…",
-              render: () =>
-                all.length === 0 ? (
-                  <EmptyState
-                    action={
-                      <Button
-                        variant="primary"
-                        onClick={() => setCreating(true)}
-                      >
-                        New colour
-                      </Button>
-                    }
-                  >
-                    No colour has been declared yet, so there is nothing for an
-                    article to pick.
-                  </EmptyState>
-                ) : (
-                  <DataTable<ColourRow>
-                    table={table}
-                    onRowClick={(row) => {
-                      setCreating(false)
-                      setEditing(row.term.code)
-                    }}
-                    isSelected={(row) => row.term.code === editing}
-                    empty="No colour matches that search."
-                    pageScroll
-                  />
-                ),
-            })}
-          </Card>
-        </div>
-
-        <DockedFilters
-          model={filters}
-          id="colours"
-          subject="Colour"
-          kpis={[
-            { label: "Colours", value: count(all.length) },
-            {
-              label: "No swatch",
-              value: count(unswatched),
-              note: "Named, but nobody has said which pixel value they mean.",
-            },
-          ]}
-          className="hidden dock:flex"
+        </span>
+        <SwitchPill
+          on={inUseOnly}
+          label="In Use"
+          onToggle={() => setInUseOnly((was) => !was)}
         />
+        <SwitchPill
+          on={noSwatchOnly}
+          label="No Swatch"
+          onToggle={() => setNoSwatchOnly((was) => !was)}
+        />
+        <span className="flex-1 max-lg:hidden" />
+        <div className="hidden md:contents">
+          <ColumnsMenu table={table} label="View" />
+        </div>
+        <Button
+          variant="primary"
+          onClick={() => {
+            setEditing(null)
+            setCreating(true)
+          }}
+        >
+          New color
+        </Button>
       </div>
+
+      <Card className="overflow-clip">
+        {queryState(colours, {
+          loading: "Reading the vocabulary…",
+          render: () =>
+            all.length === 0 ? (
+              <EmptyState
+                action={
+                  <Button variant="primary" onClick={() => setCreating(true)}>
+                    New color
+                  </Button>
+                }
+              >
+                No color has been declared yet, so there is nothing for an
+                article to pick.
+              </EmptyState>
+            ) : (
+              <DataTable<ColourRow>
+                table={table}
+                onRowClick={(row) => {
+                  setCreating(false)
+                  setEditing(row.term.code)
+                }}
+                isSelected={(row) => row.term.code === editing}
+                empty="No color matches that search."
+                pageScroll
+              />
+            ),
+        })}
+      </Card>
 
       <ColourSheet
         open={creating || selected !== null}
@@ -491,7 +460,7 @@ function ColourSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       id={colour?.term.code}
-      title={colour?.term.label ?? "New colour"}
+      title={colour?.term.label ?? "New color"}
       caption={colour ? <StatusSwitch row={colour} /> : undefined}
     >
       {form}
@@ -538,7 +507,7 @@ function problemsWith(
 
   const label = draft.label.trim()
   if (label === "") {
-    problems.label = "A colour needs a name — it is what everybody reads."
+    problems.label = "A color needs a name — it is what everybody reads."
   } else {
     // The same comparison as the unique index, `lower(btrim(label))`, done early
     // enough to name the row it would collide with. The server stays the
@@ -595,6 +564,12 @@ function ColourForm({
   // a code corrected by hand should not be silently rewritten by the next
   // keystroke in the field above it.
   const [codeTyped, setCodeTyped] = useState(false)
+  /// Nothing is called wrong before it has been touched: the form used to open
+  /// red, an error under every empty box. Gaps are named once a field has been
+  /// left, or once Submit has been pressed on a form that is not ready.
+  const [tried, setTried] = useState(false)
+  const reveal = (touched: boolean, problem: string | undefined) =>
+    tried || touched ? problem : undefined
 
   const save = useMutation({
     mutationFn: (draft: ColourDraft) => {
@@ -637,7 +612,12 @@ function ColourForm({
       hex: colour?.term.hex_code ?? "",
       order: String(colour?.order ?? 0),
     } as ColourDraft,
-    onSubmit: ({ value }) => save.mutate(value),
+    onSubmit: ({ value }) => {
+      setTried(true)
+      const found = problemsWith(value, colour, existing)
+      if (Object.keys(found).length > 0) return
+      save.mutate(value)
+    },
   })
 
   return (
@@ -657,7 +637,11 @@ function ColourForm({
           <>
             <form.Field name="label">
               {(field) => (
-                <Field label="Label" required problem={problems.label}>
+                <Field
+                  label="Label"
+                  required
+                  problem={reveal(field.state.meta.isTouched, problems.label)}
+                >
                   <Input
                     value={field.state.value}
                     onBlur={() => {
@@ -690,7 +674,7 @@ function ColourForm({
                 <Field
                   label="Code"
                   required={colour === null}
-                  problem={problems.code}
+                  problem={reveal(field.state.meta.isTouched, problems.code)}
                 >
                   <Input
                     value={field.state.value}
@@ -708,7 +692,11 @@ function ColourForm({
             <div className="grid grid-cols-2 gap-3">
               <form.Field name="hex">
                 {(field) => (
-                  <Field label="Hex" problem={problems.hex} className="min-w-0">
+                  <Field
+                    label="Hex"
+                    problem={reveal(field.state.meta.isTouched, problems.hex)}
+                    className="min-w-0"
+                  >
                     <ColourField
                       value={field.state.value}
                       onBlur={field.handleBlur}
@@ -734,7 +722,7 @@ function ColourForm({
                 {(field) => (
                   <Field
                     label="Order"
-                    problem={problems.order}
+                    problem={reveal(field.state.meta.isTouched, problems.order)}
                     className="min-w-0"
                   >
                     <Input
@@ -810,14 +798,7 @@ function ColourForm({
               }}
             </form.Subscribe>
 
-            <Button
-              type="submit"
-              variant="primary"
-              pending={save.isPending}
-              disabled={Object.values(problems).some(
-                (one) => one !== undefined
-              )}
-            >
+            <Button type="submit" variant="primary" pending={save.isPending}>
               {save.isPending
                 ? "Submitting…"
                 : colour === null

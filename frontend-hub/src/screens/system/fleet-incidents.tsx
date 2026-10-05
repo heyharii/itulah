@@ -238,7 +238,7 @@ function AlertSettingsFields({
         on={form.alerts_enabled}
         onToggle={() => set("alerts_enabled", !form.alerts_enabled)}
         label="Alerts on"
-        note="Off stops every notification; the fleet page still colours rows."
+        note="Off stops every notification; the fleet page still colors rows."
       />
 
       <div className="grid grid-cols-2 gap-3">

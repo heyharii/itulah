@@ -179,7 +179,7 @@ export function ColourField({
             never forwards a click that landed on interactive content. */}
         <Popover.Trigger
           disabled={disabled}
-          aria-label="Choose this colour by eye"
+          aria-label="Choose this color by eye"
           className="absolute left-0 z-10 grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-50"
         >
           <ColourSwatch
@@ -265,7 +265,7 @@ export function ColourField({
                   <button
                     type="button"
                     onClick={() => void pickOffScreen()}
-                    title="Take the colour from anywhere on screen."
+                    title="Take the color from anywhere on screen."
                     className="grid size-8 shrink-0 place-items-center rounded-full text-line-ico transition-colors hover:bg-soft-2 hover:text-ink"
                   >
                     <Pipette className="size-3.5" />

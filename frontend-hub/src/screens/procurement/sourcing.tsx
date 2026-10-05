@@ -218,7 +218,7 @@ export function Sourcing() {
       // OR is a chip a buyer would trust and should not.
       {
         column: "colour",
-        label: "Colour",
+        label: "Color",
         spec: {
           kind: "multi",
           format: colourLabel,

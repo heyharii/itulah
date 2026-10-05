@@ -970,9 +970,9 @@ export function ItemFormSheet({
               it is better shown as nothing than guessed at. Not asked on an order. */}
           {!ordering && (
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Colours">
+              <Field label="Colors">
                 <PickMany
-                  label="Colours"
+                  label="Colors"
                   choices={colourChoices}
                   loading={
                     colourMaster.isPending ? "Loading colours…" : undefined

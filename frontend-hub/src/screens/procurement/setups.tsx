@@ -2918,7 +2918,7 @@ function SessionComposer({
               is still enforced — `onChange` refuses the eleventh — and a line
               of small print under every box was three sentences of chrome on a
               form of six fields. */}
-          <Field label="Colours" required>
+          <Field label="Colors" required>
             <PickMany
               choices={colourChoices}
               values={chosenColours}
@@ -2929,7 +2929,7 @@ function SessionComposer({
               onChange={(next) =>
                 setChosenColours(next.slice(0, COLOURWAY_CEILING))
               }
-              label="The Colours That Arrived"
+              label="The Colors That Arrived"
               leading={(code) => (
                 <ColourSwatch hex={colourNamed.get(code)?.hex_code ?? null} />
               )}

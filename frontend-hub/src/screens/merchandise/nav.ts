@@ -51,7 +51,7 @@ export const merchandiseArticlesNav: AppModule = {
         },
         { path: "/merchandise/tags", label: "Tags", icon: Tag },
         { path: "/merchandise/sizes", label: "Sizes", icon: Ruler },
-        { path: "/merchandise/colours", label: "Colours", icon: Palette },
+        { path: "/merchandise/colours", label: "Colors", icon: Palette },
         {
           path: "/merchandise/name-suggestions",
           label: "Name Suggestions",

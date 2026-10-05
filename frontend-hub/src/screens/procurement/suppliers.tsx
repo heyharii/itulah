@@ -364,7 +364,7 @@ export function Suppliers() {
   /// The book is narrowed by two things and only two (the owner,
   /// 2026-09-28): its status, as tabs, and whether a supplier has an order
   /// still open, as a switch. The filter panel, views and chips are gone.
-  const [tab, setTab] = useState<StatusTab>("ALL")
+  const [tab, setTab] = useState<StatusTab>("ACTIVE")
   const [activeOnly, setActiveOnly] = useState(false)
   /// Which suppliers are opened out to show their active orders, by id.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())

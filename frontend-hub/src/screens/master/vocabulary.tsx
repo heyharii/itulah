@@ -10,14 +10,9 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
-import { Switch } from "@/components/ui/form"
-import { FilterOmnibox } from "@/components/ui/filter-omnibox"
-import {
-  ColumnsMenu,
-  DockedFilters,
-  SortMenu,
-  ViewPicker,
-} from "@/components/ui/list-chrome"
+import { Switch, SwitchPill } from "@/components/ui/form"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { ColumnsMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -108,7 +103,10 @@ const DIVISIONS: Vocabulary = {
   codePlaceholder: "OUTERWEAR",
   labelPlaceholder: "Outerwear",
   empty: "No division has been declared, so no article can be filed under one.",
-  ordered: true,
+  // No Order column or field (owner, 2026-10-05: "order di divisions itu buat
+  // apa? hapus saja"). The numbers already set stay; a new division goes to
+  // the end of them.
+  ordered: false,
 }
 
 const SIZES: Vocabulary = {
@@ -303,7 +301,8 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
-  const [tab, setTab] = useState<StatusTab>("ALL")
+  const [tab, setTab] = useState<StatusTab>("ACTIVE")
+  const [inUseOnly, setInUseOnly] = useState(false)
 
   // The whole list in one read. A company has five divisions, a dozen sizes and
   // a few dozen tags, so there is nothing to page — which is also what lets the
@@ -323,10 +322,12 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
   // and a status chip end up giving two different answers.
   const rows = useMemo(
     () =>
-      tab === "ALL"
-        ? all
-        : all.filter((row) => row.active === (tab === "ACTIVE")),
-    [all, tab]
+      all.filter(
+        (row) =>
+          (tab === "ALL" || row.active === (tab === "ACTIVE")) &&
+          (!inUseOnly || row.term.in_use > 0)
+      ),
+    [all, tab, inUseOnly]
   )
 
   const columns = useMemo(() => columnsOf(vocabulary), [vocabulary])
@@ -353,6 +354,15 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
 
   const selected = all.find((row) => row.term.code === editing) ?? null
   const retired = all.filter((row) => !row.active).length
+  const kpis = [
+    { label: capitalise(vocabulary.title), value: count(all.length) },
+    { label: "Active", value: count(all.length - retired) },
+    { label: "Inactive", value: count(retired) },
+    {
+      label: "In Use",
+      value: count(all.filter((row) => row.term.in_use > 0).length),
+    },
+  ]
 
   const close = useCallback(() => {
     setCreating(false)
@@ -361,20 +371,14 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
 
   return (
     <PageContent>
-      <PageHeader
-        title={vocabulary.title}
-        sub={vocabulary.sub}
-        actions={
-          <Button
-            onClick={() => {
-              setEditing(null)
-              setCreating(true)
-            }}
-          >
-            New {vocabulary.one}
-          </Button>
-        }
-      />
+      <PageHeader title={vocabulary.title} small />
+
+      {/* The same cards the order book opens on. */}
+      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+        {kpis.map((one) => (
+          <Kpi key={one.label} label={one.label} value={one.value} />
+        ))}
+      </KpiStrip>
 
       <SubTabs
         tabs={[
@@ -395,110 +399,68 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
         onChange={(next) => setTab(next as StatusTab)}
       />
 
-      {/* Two columns from 1440 up: the list, and the panel that narrows it —
-          the shape Sourcing and the order book already wear, brought here on
-          2026-09-13 so the four lists an article is described with are read
-          with the same chrome as the article itself. Below that width the
-          panel is the omnibox above the table, which is the same model drawn
-          as a line. */}
-      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
-        <div className="flex min-w-0 flex-col">
-          {/* One line, the width of the table, carrying everything that
-              acts on it — the same line the order book wears, in the same
-              order: what narrows it at the left, what orders and shapes it in
-              the middle, which view it is at the right.
-
-              It was a full-width box above a second row until 2026-09-13. Two
-              rows of chrome over one short list is one row too many, and the
-              owner said so. */}
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            {/* The plain box, where the panel beside it is carrying the
-                filters. Below 1440 the panel is gone and the omnibox below
-                takes both jobs, so only one of the two is ever on screen. */}
-            <span className="relative mr-auto hidden dock:block">
-              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                aria-label={`Search ${vocabulary.title.toLowerCase()}`}
-                className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
-              />
-            </span>
-            <span className="mr-auto text-[0.875rem] text-body dock:mr-0">
-              <b className="font-medium text-ink">{count(all.length)}</b>{" "}
-              {vocabulary.title.toLowerCase()} · {count(retired)} inactive
-            </span>
-            <SortMenu
-              table={table}
-              sorting={sorting}
-              onSort={(id, desc) => setSorting([{ id, desc }])}
-            />
-            <ColumnsMenu table={table} />
-            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
-            <ViewPicker
-              model={filters}
-              id={`vocabulary-${vocabulary.kind}`}
-              all={`All ${vocabulary.title.toLowerCase()}`}
-            />
-          </div>
-
-          {/* The same model as the panel, drawn as one line, for the widths
-              where the panel is not on screen. */}
-          <FilterOmnibox
-            model={filters}
-            text={query === "" ? undefined : query}
-            onText={(next) => setQuery(next ?? "")}
-            className="mb-3 dock:hidden"
+      {/* One line, as the order book draws it: the search and what narrows the
+          list at the left, what shapes the table and what makes a new one at
+          the right. */}
+      <div className="mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+        <span className="relative min-w-0 flex-1 lg:w-44 lg:flex-none">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            aria-label={`Search ${vocabulary.title.toLowerCase()}`}
+            placeholder={`Search ${vocabulary.title.toLowerCase()}`}
+            className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
           />
-
-          <Card className="overflow-clip">
-            {queryState(terms, {
-              loading: "Reading the vocabulary…",
-              render: () =>
-                all.length === 0 ? (
-                  <EmptyState
-                    action={
-                      <Button
-                        variant="primary"
-                        onClick={() => setCreating(true)}
-                      >
-                        New {vocabulary.one}
-                      </Button>
-                    }
-                  >
-                    {vocabulary.empty}
-                  </EmptyState>
-                ) : (
-                  <DataTable<TermRow>
-                    table={table}
-                    onRowClick={(row) => {
-                      setCreating(false)
-                      setEditing(row.term.code)
-                    }}
-                    isSelected={(row) => row.term.code === editing}
-                    empty="Nothing matches that search."
-                    pageScroll
-                  />
-                ),
-            })}
-          </Card>
-        </div>
-
-        <DockedFilters
-          model={filters}
-          id={`vocabulary-${vocabulary.kind}`}
-          subject={capitalise(vocabulary.one)}
-          kpis={[
-            { label: capitalise(vocabulary.title), value: count(all.length) },
-            {
-              label: "Inactive",
-              value: count(retired),
-              note: "Terms no longer offered when an article is described.",
-            },
-          ]}
-          className="hidden dock:flex"
+        </span>
+        <SwitchPill
+          on={inUseOnly}
+          label="In Use"
+          onToggle={() => setInUseOnly((was) => !was)}
         />
+        <span className="flex-1 max-lg:hidden" />
+        <div className="hidden md:contents">
+          <ColumnsMenu table={table} label="View" />
+        </div>
+        <Button
+          variant="primary"
+          onClick={() => {
+            setEditing(null)
+            setCreating(true)
+          }}
+        >
+          New {vocabulary.one}
+        </Button>
       </div>
+
+      <Card className="overflow-clip">
+        {queryState(terms, {
+          loading: "Reading the vocabulary…",
+          render: () =>
+            all.length === 0 ? (
+              <EmptyState
+                action={
+                  <Button variant="primary" onClick={() => setCreating(true)}>
+                    New {vocabulary.one}
+                  </Button>
+                }
+              >
+                {vocabulary.empty}
+              </EmptyState>
+            ) : (
+              <DataTable<TermRow>
+                table={table}
+                onRowClick={(row) => {
+                  setCreating(false)
+                  setEditing(row.term.code)
+                }}
+                isSelected={(row) => row.term.code === editing}
+                empty="Nothing matches that search."
+                pageScroll
+              />
+            ),
+        })}
+      </Card>
 
       <TermSheet
         vocabulary={vocabulary}
@@ -668,7 +630,12 @@ function TermForm({
   const save = useMutation({
     mutationFn: (draft: TermDraft) => {
       const label = draft.label.trim()
-      const order = draft.order.trim() === "" ? undefined : Number(draft.order)
+      const order =
+        !vocabulary.ordered && term === null && vocabulary.kind === "divisions"
+          ? Math.max(0, ...existing.map((row) => row.order)) + 1
+          : draft.order.trim() === ""
+            ? undefined
+            : Number(draft.order)
       return term === null
         ? createTerm(
             vocabulary.kind,

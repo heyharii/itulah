@@ -146,7 +146,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     // Sorted by how many, not by which: "which colours" has no order, and the
     // question a merchandiser actually sorts on is "what only comes in one".
     accessorFn: (row) => row.article.colours.length,
-    header: "Colours",
+    header: "Colors",
     size: 150,
     cell: ({ row }) => <Swatches colours={row.original.article.colours} />,
   },
@@ -310,7 +310,7 @@ export function Articles() {
       // chip that lies about a tee sold in five.
       {
         column: "colour",
-        label: "Colour",
+        label: "Color",
         spec: {
           kind: "multi",
           format: colourLabel,
@@ -437,7 +437,7 @@ export function Articles() {
     <PageContent>
       <PageHeader
         title="Articles"
-        sub="Every article the company sells, with the colourways, sizes and SKUs minted against it."
+        sub="Every article the company sells, with the colorways, sizes and SKUs minted against it."
       />
 
       {/* Two columns from 1440 up: the catalogue, and the facets standing

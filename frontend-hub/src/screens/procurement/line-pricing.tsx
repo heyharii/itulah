@@ -136,7 +136,7 @@ export function VariantGrid({
           </colgroup>
           <thead className="sticky top-0 z-10">
             <tr>
-              {hasColour && <th className={GRID_HEAD}>Colour</th>}
+              {hasColour && <th className={GRID_HEAD}>Color</th>}
               {hasSize && <th className={GRID_HEAD}>Size</th>}
               <th className={cn(GRID_HEAD, "text-right")}>Quantity</th>
               <th className={cn(GRID_HEAD, "text-right")}>Price / Pc</th>
