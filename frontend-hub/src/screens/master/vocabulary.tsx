@@ -15,7 +15,7 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { ColumnsMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
@@ -31,6 +31,13 @@ import {
 } from "@/lib/queries/vocabulary"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { CodeFact, SubmitRow } from "@/screens/master/term-form"
+import {
+  said,
+  snake,
+  useIdempotencyKey,
+  useReveal,
+} from "@/screens/master/term-form-kit"
 
 /// Divisions, sizes and tags — the three lists, on one screen written once.
 ///
@@ -475,25 +482,6 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
 
 // ---------------------------------------------------------------------------
 
-/// A key held across retries and rotated after a success.
-///
-/// The point of an idempotency key is that a retry carries the SAME one, so the
-/// server replays its first answer instead of writing a second term. Minted
-/// inside the mutation it would be a fresh key per click, and a double-clicked
-/// save would be two rows.
-function useIdempotencyKey(): {
-  readonly key: string
-  readonly rotate: () => void
-} {
-  const [key, setKey] = useState(() => crypto.randomUUID())
-  const rotate = useCallback(() => setKey(crypto.randomUUID()), [])
-  return { key, rotate }
-}
-
-function said(error: unknown): string {
-  return error instanceof Error ? error.message : "That did not save."
-}
-
 function TermSheet({
   vocabulary,
   open,
@@ -541,19 +529,6 @@ interface TermDraft {
   code: string
   label: string
   order: string
-}
-
-/// The code suggested from the label, for the two lists whose codes are names.
-///
-/// Sizes are excluded: their code is two digits of a SKU, and a suggestion
-/// derived from "M" would be "M", which is not a size code and would be
-/// rejected. Better to leave the field empty and let the hint say what it wants.
-function snake(label: string): string {
-  return label
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
 }
 
 function problemsWith(
@@ -619,13 +594,7 @@ function TermForm({
   // a code corrected by hand should not be silently rewritten by the next
   // keystroke in the field above it.
   const [codeTyped, setCodeTyped] = useState(false)
-  /// Nothing is called wrong before it has been touched: a new term's form
-  /// used to open red, two errors over two empty boxes. Gaps are named once a
-  /// field has been left, or once Add / Save has been pressed on a form that
-  /// is not ready.
-  const [tried, setTried] = useState(false)
-  const reveal = (touched: boolean, problem: string | undefined) =>
-    tried || touched ? problem : undefined
+  const { attempt, reveal } = useReveal()
 
   const save = useMutation({
     mutationFn: (draft: TermDraft) => {
@@ -670,7 +639,7 @@ function TermForm({
       order: String(term?.order ?? 0),
     } as TermDraft,
     onSubmit: ({ value }) => {
-      setTried(true)
+      attempt()
       const found = problemsWith(value, vocabulary, term, existing)
       if (Object.keys(found).length > 0) return
       save.mutate(value)
@@ -739,14 +708,7 @@ function TermForm({
                 )}
               </form.Field>
             ) : (
-              // An existing code is read, not edited: the goods point at it.
-              // Said as a fact, not as a greyed box that looks like a field
-              // that is broken.
-              <Facts>
-                <Fact term="Code">
-                  <span className="font-mono">{term.term.code}</span>
-                </Fact>
-              </Facts>
+              <CodeFact code={term.term.code} />
             )}
 
             {/* Only where an order is a decision. A tag's was a number
@@ -772,15 +734,11 @@ function TermForm({
               </form.Field>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <Button type="submit" variant="primary" pending={save.isPending}>
-                {save.isPending
-                  ? "Saving…"
-                  : term === null
-                    ? `Add ${capitalise(vocabulary.one)}`
-                    : "Save"}
-              </Button>
-            </div>
+            <SubmitRow
+              pending={save.isPending}
+              creating={term === null}
+              noun={vocabulary.one}
+            />
           </>
         )}
       </form.Subscribe>

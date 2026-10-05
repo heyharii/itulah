@@ -34,6 +34,13 @@ import { readColour } from "@/lib/colour-parse"
 import { ColourField } from "@/screens/master/colour-field"
 import { HEX, mistakenFor } from "@/screens/master/colour-hex"
 import { ColourSwatch } from "@/screens/master/colour-picker"
+import { CodeFact, SubmitRow } from "@/screens/master/term-form"
+import {
+  said,
+  snake,
+  useIdempotencyKey,
+  useReveal,
+} from "@/screens/master/term-form-kit"
 
 /// The company's colour vocabulary — the list itself, not a colour on a shirt.
 ///
@@ -217,7 +224,6 @@ export function Colours() {
   const [creating, setCreating] = useState(false)
   const [tab, setTab] = useState<StatusTab>("ACTIVE")
   const [inUseOnly, setInUseOnly] = useState(false)
-  const [noSwatchOnly, setNoSwatchOnly] = useState(false)
 
   // The whole vocabulary in one read. A company has a hundred colours, not a
   // hundred thousand, so there is nothing to page and nothing to re-ask the
@@ -241,10 +247,9 @@ export function Colours() {
       all.filter(
         (row) =>
           (tab === "ALL" || row.active === (tab === "ACTIVE")) &&
-          (!inUseOnly || row.term.in_use > 0) &&
-          (!noSwatchOnly || !row.term.hex_code)
+          (!inUseOnly || row.term.in_use > 0)
       ),
-    [all, tab, inUseOnly, noSwatchOnly]
+    [all, tab, inUseOnly]
   )
 
   const filters = useFilters(columns)
@@ -270,18 +275,14 @@ export function Colours() {
 
   const selected = all.find((row) => row.term.code === editing) ?? null
   const retired = all.filter((row) => !row.active).length
-  // Not an error and not a warning. A colour can legitimately be named before
-  // anybody has decided which pixel value stands for it, so this is a count of
-  // work outstanding, not of rows that are wrong.
-  const unswatched = all.filter((row) => !row.term.hex_code).length
   const kpis = [
     { label: "Colors", value: count(all.length), note: undefined },
     { label: "Active", value: count(all.length - retired), note: undefined },
     { label: "Inactive", value: count(retired), note: undefined },
     {
-      label: "No Swatch",
-      value: count(unswatched),
-      note: "Named, but nobody has said which pixel value they mean.",
+      label: "In Use",
+      value: count(all.filter((row) => row.term.in_use > 0).length),
+      note: "Colors that at least one article is made in.",
     },
   ]
 
@@ -336,11 +337,6 @@ export function Colours() {
           on={inUseOnly}
           label="In Use"
           onToggle={() => setInUseOnly((was) => !was)}
-        />
-        <SwitchPill
-          on={noSwatchOnly}
-          label="No Swatch"
-          onToggle={() => setNoSwatchOnly((was) => !was)}
         />
         <span className="flex-1 max-lg:hidden" />
         <div className="hidden md:contents">
@@ -399,39 +395,6 @@ export function Colours() {
 
 // ---------------------------------------------------------------------------
 
-/// A key held across retries and rotated after a success.
-///
-/// The point of an idempotency key is that a retry carries the SAME one, so the
-/// server replays its first answer instead of writing a second colour. Minted
-/// inside the mutation it would be a fresh key per click, and a double-clicked
-/// Save would be two rows with the same label — the one thing the unique index
-/// then refuses, leaving somebody staring at a duplicate error they caused by
-/// clicking twice.
-///
-/// Copied into this module rather than imported from Procurement's: `lib/` is
-/// not this screen's to edit, and Store Ops made the same call for the same
-/// reason. If a third module wants it, it should be promoted, not copied again.
-function useIdempotencyKey(): {
-  readonly key: string
-  readonly rotate: () => void
-} {
-  const [key, setKey] = useState(() => crypto.randomUUID())
-  const rotate = useCallback(() => setKey(crypto.randomUUID()), [])
-  return { key, rotate }
-}
-
-/// The server's own sentence about why a write was refused.
-///
-/// `ApiError` carries the node's message, and the refusal this form expects most
-/// is a duplicate label — where the node names the colour that already holds the
-/// word. "Could not save" would throw exactly that away and leave somebody
-/// retyping the same thing until they gave up.
-function said(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : "The server could not be reached."
-}
-
 /// One colour, as a record to be written or corrected.
 function ColourSheet({
   open,
@@ -487,16 +450,6 @@ interface Problems {
 /// article points at it, and a vocabulary with `NAVY_BLUE` beside `Navy blue` is
 /// half of the mess this table was built to end.
 const CODE = /^[A-Z0-9]+(?:_[A-Z0-9]+)*$/
-
-/// `Navy Blue` → `NAVY_BLUE`, the same rule the backfill mints codes with, so a
-/// colour added by hand next month matches the ones the migration created.
-function snake(label: string): string {
-  return label
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-}
 
 function problemsWith(
   draft: ColourDraft,
@@ -564,12 +517,7 @@ function ColourForm({
   // a code corrected by hand should not be silently rewritten by the next
   // keystroke in the field above it.
   const [codeTyped, setCodeTyped] = useState(false)
-  /// Nothing is called wrong before it has been touched: the form used to open
-  /// red, an error under every empty box. Gaps are named once a field has been
-  /// left, or once Submit has been pressed on a form that is not ready.
-  const [tried, setTried] = useState(false)
-  const reveal = (touched: boolean, problem: string | undefined) =>
-    tried || touched ? problem : undefined
+  const { attempt, reveal } = useReveal()
 
   const save = useMutation({
     mutationFn: (draft: ColourDraft) => {
@@ -613,7 +561,7 @@ function ColourForm({
       order: String(colour?.order ?? 0),
     } as ColourDraft,
     onSubmit: ({ value }) => {
-      setTried(true)
+      attempt()
       const found = problemsWith(value, colour, existing)
       if (Object.keys(found).length > 0) return
       save.mutate(value)
@@ -669,25 +617,28 @@ function ColourForm({
               )}
             </form.Field>
 
-            <form.Field name="code">
-              {(field) => (
-                <Field
-                  label="Code"
-                  required={colour === null}
-                  problem={reveal(field.state.meta.isTouched, problems.code)}
-                >
-                  <Input
-                    value={field.state.value}
-                    disabled={colour !== null}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      setCodeTyped(true)
-                      field.handleChange(event.target.value)
-                    }}
-                  />
-                </Field>
-              )}
-            </form.Field>
+            {colour === null ? (
+              <form.Field name="code">
+                {(field) => (
+                  <Field
+                    label="Code"
+                    required
+                    problem={reveal(field.state.meta.isTouched, problems.code)}
+                  >
+                    <Input
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => {
+                        setCodeTyped(true)
+                        field.handleChange(event.target.value)
+                      }}
+                    />
+                  </Field>
+                )}
+              </form.Field>
+            ) : (
+              <CodeFact code={colour.term.code} />
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <form.Field name="hex">
@@ -798,13 +749,11 @@ function ColourForm({
               }}
             </form.Subscribe>
 
-            <Button type="submit" variant="primary" pending={save.isPending}>
-              {save.isPending
-                ? "Submitting…"
-                : colour === null
-                  ? "Submit"
-                  : "Submit"}
-            </Button>
+            <SubmitRow
+              pending={save.isPending}
+              creating={colour === null}
+              noun="color"
+            />
           </>
         )}
       </form.Subscribe>
