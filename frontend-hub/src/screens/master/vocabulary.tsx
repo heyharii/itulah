@@ -129,7 +129,7 @@ const SIZES: Vocabulary = {
   empty: "No size has been declared, so no SKU can be minted.",
   // The one list where the order is not a preference. Alphabetically, L comes
   // before M comes before S comes before XS.
-  ordered: true,
+  ordered: false,
   orderField: false,
 }
 
