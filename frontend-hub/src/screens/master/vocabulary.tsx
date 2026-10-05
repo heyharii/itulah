@@ -97,6 +97,9 @@ interface Vocabulary {
   /// has a use for looks like. They are found by searching and read
   /// alphabetically, so the column and the field both go.
   readonly ordered: boolean
+  /// Whether the form asks for the order. None does (owner, 2026-10-05): a new
+  /// term goes after the others, and the column, where there is one, only reads.
+  readonly orderField: boolean
 }
 
 const DIVISIONS: Vocabulary = {
@@ -114,6 +117,7 @@ const DIVISIONS: Vocabulary = {
   // apa? hapus saja"). The numbers already set stay; a new division goes to
   // the end of them.
   ordered: false,
+  orderField: false,
 }
 
 const SIZES: Vocabulary = {
@@ -127,6 +131,7 @@ const SIZES: Vocabulary = {
   // The one list where the order is not a preference. Alphabetically, L comes
   // before M comes before S comes before XS.
   ordered: true,
+  orderField: false,
 }
 
 const TAGS: Vocabulary = {
@@ -138,6 +143,7 @@ const TAGS: Vocabulary = {
   labelPlaceholder: "Kemeja",
   empty: "No tag has been declared, so nothing can be classified yet.",
   ordered: false,
+  orderField: false,
 }
 
 export function Divisions() {
@@ -600,7 +606,9 @@ function TermForm({
     mutationFn: (draft: TermDraft) => {
       const label = draft.label.trim()
       const order =
-        !vocabulary.ordered && term === null && vocabulary.kind === "divisions"
+        term === null &&
+        !vocabulary.orderField &&
+        (vocabulary.kind === "divisions" || vocabulary.kind === "sizes")
           ? Math.max(0, ...existing.map((row) => row.order)) + 1
           : draft.order.trim() === ""
             ? undefined
@@ -714,7 +722,7 @@ function TermForm({
             {/* Only where an order is a decision. A tag's was a number
                 nobody set and every row showed 0 — a field that exists
                 because the table has a column, which is the wrong reason. */}
-            {vocabulary.ordered && (
+            {vocabulary.orderField && (
               <form.Field name="order">
                 {(field) => (
                   <Field
