@@ -201,12 +201,15 @@ pub(super) async fn hand_over(
         let quantity: i64 = line.try_get("quantity")?;
         // Where the accepted delivery line put its pieces: the Gudang's
         // receiving (Unidentified) pool, under the subject its count booked.
+        // A place's state is NORMAL while pieces stand in it (`...:on_hand` is
+        // only its id) — it was filtered on 'ON_HAND', which no place has, so
+        // every hand-over said the Gudang had never received the goods.
         let sources = sqlx::query(
             "SELECT DISTINCT m.subject_id, m.to_place_id,
                     COALESCE(projection.quantity, 0)::bigint AS on_hand
                FROM goods_receipt_line g
                JOIN movement m ON m.movement_group_id = g.movement_group_id
-               JOIN inventory_place place ON place.id = m.to_place_id AND place.state = 'ON_HAND'
+               JOIN inventory_place place ON place.id = m.to_place_id AND place.state = 'NORMAL'
                JOIN operational_pool pool ON pool.id = place.pool_id
                 AND pool.role = 'RECEIVING' AND pool.site_id = $2
                LEFT JOIN inventory_projection projection
