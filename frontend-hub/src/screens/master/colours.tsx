@@ -2,7 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { EyeOff, Pencil, Search } from "lucide-react"
+import { EyeOff, Pencil } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -11,7 +11,11 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { ColumnsMenu } from "@/components/ui/list-chrome"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { SwitchPill } from "@/components/ui/form"
@@ -319,23 +323,18 @@ export function Colours() {
         onChange={(next) => setTab(next as StatusTab)}
       />
 
-      <div className="mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-        <span className="relative min-w-0 flex-1 lg:w-44 lg:flex-none">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            aria-label="Search colors"
-            placeholder="Search colors"
-            className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
-          />
-        </span>
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+        <ExpandingSearch
+          value={query}
+          onChange={setQuery}
+          label="Search Colors"
+        />
         <SwitchPill
           on={inUseOnly}
           label="In Use"
           onToggle={() => setInUseOnly((was) => !was)}
         />
-        <span className="flex-1 max-lg:hidden" />
+        <BarSpacer />
         <div className="hidden md:contents">
           <ColumnsMenu table={table} label="View" />
         </div>
@@ -346,7 +345,7 @@ export function Colours() {
             setCreating(true)
           }}
         >
-          New color
+          New Color
         </Button>
       </div>
 
@@ -358,7 +357,7 @@ export function Colours() {
               <EmptyState
                 action={
                   <Button variant="primary" onClick={() => setCreating(true)}>
-                    New color
+                    New Color
                   </Button>
                 }
               >

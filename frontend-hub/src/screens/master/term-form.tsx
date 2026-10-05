@@ -32,6 +32,7 @@ export function SubmitRow({
   pending,
   creating,
   noun,
+  disabled,
   onDelete,
 }: {
   pending: boolean
@@ -39,6 +40,8 @@ export function SubmitRow({
   creating: boolean
   /// The singular, any case: "tag", "colour".
   noun: string
+  /// Holds Submit back while the form has a problem to fix.
+  disabled?: boolean
   /// Given only for a row nothing uses: Delete sits at the left of the row.
   onDelete?: () => void
 }) {
@@ -51,7 +54,12 @@ export function SubmitRow({
       ) : (
         <span />
       )}
-      <Button type="submit" variant="primary" pending={pending}>
+      <Button
+        type="submit"
+        variant="primary"
+        pending={pending}
+        disabled={disabled}
+      >
         {pending
           ? "Saving…"
           : creating

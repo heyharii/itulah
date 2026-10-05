@@ -1728,3 +1728,48 @@ function SheetFieldOptions({
     </>
   )
 }
+
+/// The search box of a list's toolbar: narrow at rest, and when it takes focus
+/// it grows to fill whatever the toolbar has free, stopping at the buttons on
+/// its right. It is `flex-grow` that moves, against the `BarSpacer` giving the
+/// same room back, so the two swap the free space between them and nothing
+/// else in the bar shifts. The bar carries `group/bar`. On a phone the box is
+/// already full width and does not move; under reduced motion it jumps.
+///
+/// Opening takes 300ms, closing 200ms (the duration of the state being moved
+/// TO): the user chose to type, so the grow can be deliberate, while giving the
+/// room back should be quick. Ease-in-out, not ease-out — a box changing size on
+/// screen wants to accelerate and settle, and the strong ease-out curve spent
+/// nearly the whole move in its first 60ms, which read as no motion at all.
+export function ExpandingSearch({
+  value,
+  onChange,
+  label,
+  placeholder,
+}: {
+  value: string
+  onChange: (value: string) => void
+  label: string
+  placeholder?: string
+}) {
+  return (
+    <span className="relative min-w-0 flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] motion-reduce:transition-none lg:flex-[0_1_11rem] lg:group-has-[input:focus]/bar:grow lg:group-has-[input:focus]/bar:duration-300">
+      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        aria-label={label}
+        placeholder={placeholder ?? label}
+        className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
+      />
+    </span>
+  )
+}
+
+/// The free space between a toolbar's left and right groups. It gives that room
+/// up while the `ExpandingSearch` beside it has focus.
+export function BarSpacer() {
+  return (
+    <span className="flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] group-has-[input:focus]/bar:grow-0 group-has-[input:focus]/bar:duration-300 motion-reduce:transition-none max-lg:hidden" />
+  )
+}
