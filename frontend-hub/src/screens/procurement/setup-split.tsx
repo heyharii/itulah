@@ -87,7 +87,7 @@ export function ArticleTabStrip({
         type="button"
         onClick={onAdd}
         disabled={!canAdd}
-        className="mb-1 ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-inner px-2.5 py-1.5 text-[0.875rem] font-medium text-accent transition-colors enabled:hover:bg-accent-bg disabled:cursor-not-allowed disabled:opacity-50"
+        className="mb-1 ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-inner px-2.5 py-1.5 text-[0.875rem] font-medium text-body transition-colors enabled:hover:bg-soft-2 enabled:hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Plus className="size-4" />
         Split Article

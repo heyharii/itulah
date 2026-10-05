@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Camera, ChevronLeft, ChevronRight, Pencil } from "lucide-react"
+import { Camera, Pencil } from "lucide-react"
 import { Popover } from "@base-ui/react/popover"
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
@@ -343,11 +343,6 @@ export function SetupWorkspace() {
     ? null
     : (waiting.find((row) => row.receipt_line_id === chosen.value) ?? null)
   const sheetOpen = session.isOpen || active !== null
-  const at = cards.findIndex((card) =>
-    session.isOpen
-      ? card.setup === session.value
-      : card.receipt !== undefined && card.receipt === active?.receipt_line_id
-  )
 
   /// An empty queue gets one sentence, not an empty rail beside no cards.
   const nothingWaiting =
@@ -379,14 +374,10 @@ export function SetupWorkspace() {
   }
 
   const railNow = poFilter.value
-  const step = (by: number) => {
-    const next = cards[at + by]
-    if (at !== -1 && next !== undefined) go({ setupFor: railNow, ...next })
-  }
-
   /// After a delivery has its identity: on to the next waiting card — the
-  /// one after it, else the one before — or the sheet closes on the last.
-  const advance = (done: string) => {
+  /// one after it, else the one before — when Submit and Next was pressed, or
+  /// the sheet closes on Submit, and on the last card either way.
+  const advance = (done: string, toNext = true) => {
     client.setQueryData<UnidentifiedReceipt[]>(
       procurementKeys.unidentified(),
       (rows) => rows?.filter((row) => row.receipt_line_id !== done)
@@ -398,7 +389,7 @@ export function SetupWorkspace() {
         : (shown[index + 1] ?? (index > 0 ? shown[index - 1] : undefined))
     void point({
       setupFor: railNow,
-      receipt: next?.receipt_line_id,
+      receipt: toNext ? next?.receipt_line_id : undefined,
     })
   }
 
@@ -569,71 +560,26 @@ export function SetupWorkspace() {
           if (!open) go({ setupFor: railNow })
         }}
         width="wide"
+        // The kind in small type above, the name as the title, as the master
+        // lists' sheets read ("Division" over "Pria"; owner, 2026-10-05).
+        id={
+          <span className="font-sans text-[0.875rem] text-mute">
+            New Article
+          </span>
+        }
         title={
           active !== null
             ? active.article_name
             : (record.data?.article_name ?? "New article")
         }
         caption={
-          active !== null ? (
-            <>
-              {supplierOf(
-                active.supplier_id,
-                active.supplier_id,
-                active.supplier_id
-              )}
-              {" · "}
-              <span className="font-mono">{active.po_number}</span>
-              {" · "}
-              {count(active.quantity)} pcs
-            </>
-          ) : record.data !== undefined ? (
+          // The delivery's own line (supplier, PO, pieces) is not repeated
+          // under the title (owner, 2026-10-05); a minted record shows its code.
+          active === null && record.data !== undefined ? (
             <span className="font-mono">{record.data.article_code}</span>
           ) : undefined
         }
-        actions={
-          at !== -1 && cards.length > 1 ? (
-            <>
-              <span className="mr-1 hidden text-[0.875rem] whitespace-nowrap text-mute tabular-nums md:inline">
-                {count(at + 1)} of {count(cards.length)}
-              </span>
-              <Button
-                size="icon"
-                aria-label="Previous"
-                title="Previous"
-                disabled={at === 0}
-                onClick={() => step(-1)}
-              >
-                <ChevronLeft />
-              </Button>
-              <Button
-                size="icon"
-                aria-label="Next"
-                title="Next"
-                disabled={at === cards.length - 1}
-                onClick={() => step(1)}
-              >
-                <ChevronRight />
-              </Button>
-            </>
-          ) : undefined
-        }
       >
-        {/* Where this card stands among the ones on the page, as the
-        prototype's step bar: one segment per card, the open one inked. */}
-        {at !== -1 && cards.length > 1 && (
-          <div aria-hidden className="-mt-2 mb-6 flex gap-1">
-            {cards.map((card, index) => (
-              <span
-                key={card.receipt ?? card.setup}
-                className={cn(
-                  "h-1.5 min-w-0 flex-1 rounded-full transition-colors",
-                  index === at ? "bg-ink" : "bg-hairline-2"
-                )}
-              />
-            ))}
-          </div>
-        )}
         {session.value !== undefined ? (
           <SessionRecord
             id={session.value}
@@ -651,13 +597,16 @@ export function SetupWorkspace() {
             receipt={active}
             vocabulary={vocabulary.data}
             onDirty={setDirty}
-            onDone={(outcome) => {
+            hasNext={shown.some(
+              (row) => row.receipt_line_id !== active.receipt_line_id
+            )}
+            onDone={(outcome, next) => {
               if (outcome.kind === "issued") {
                 // Minted: named in the receipt dialog by its code, and the
                 // queue goes on to the next card behind it rather than to a
                 // record of it.
                 setMinted([outcome.session.article_code])
-                advance(active.receipt_line_id)
+                advance(active.receipt_line_id, next)
                 return
               }
               if (outcome.kind === "split") {
@@ -669,7 +618,7 @@ export function SetupWorkspace() {
                 if (codes.length > 0) setMinted(codes)
                 const first = outcome.stalled[0]
                 if (first === undefined) {
-                  advance(active.receipt_line_id)
+                  advance(active.receipt_line_id, next)
                   return
                 }
                 setHandover({
@@ -1609,10 +1558,14 @@ function DeliverySetup({
   vocabulary,
   onDone,
   onDirty,
+  hasNext,
 }: {
   receipt: UnidentifiedReceipt
   vocabulary?: CatalogueVocabulary
-  onDone: (outcome: SetupOutcome) => void
+  /// `next` is whether Submit & Next was the button pressed.
+  onDone: (outcome: SetupOutcome, next: boolean) => void
+  /// Whether another delivery is waiting to go on to.
+  hasNext: boolean
   /// Whether the form holds something typed that closing would lose.
   onDirty: (dirty: boolean) => void
 }) {
@@ -1623,6 +1576,8 @@ function DeliverySetup({
   /// same press exactly as the single key is: a retry happens only when the
   /// sessions did not open, so no key has been spent yet.
   const splitKeys = useRef<string[]>([])
+  /// Which button made the press, read when the mint comes back.
+  const goNext = useRef(false)
   const splitKey = (index: number) =>
     (splitKeys.current[index] ??= crypto.randomUUID())
 
@@ -1712,7 +1667,7 @@ function DeliverySetup({
       // into the NEXT delivery's mint.
       idempotency.rotate()
       splitKeys.current = []
-      onDone(outcome)
+      onDone(outcome, goNext.current)
     },
   })
 
@@ -1731,7 +1686,11 @@ function DeliverySetup({
       // waiting, so the pane has moved on to the session that is.
       problem={problemOf(setUp.error)}
       busy={setUp.isPending}
-      onSubmit={(submission) => setUp.mutate(submission)}
+      hasNext={hasNext}
+      onSubmit={(submission, next) => {
+        goNext.current = next
+        setUp.mutate(submission)
+      }}
       onDirty={onDirty}
     />
   )
@@ -2266,15 +2225,19 @@ function SessionComposer({
   busy,
   onSubmit,
   onDirty,
+  hasNext,
 }: {
   receipt: UnidentifiedReceipt
   vocabulary?: CatalogueVocabulary
   actor: string
   problem: string | null
   busy: boolean
-  onSubmit: (submission: SetupSubmission) => void
+  onSubmit: (submission: SetupSubmission, next: boolean) => void
+  hasNext: boolean
   onDirty?: (dirty: boolean) => void
 }) {
+  /// Set by the button just pressed: Enter submits through the first one.
+  const wantsNext = useRef(false)
   /// The delivery line's picture, shown at the head of the form.
   const lineImage = useLineImage(receipt)
   /// The colour master, for the words and for the swatches. A colour is the
@@ -2687,8 +2650,10 @@ function SessionComposer({
                 kind: "split",
                 request: { ...header, articles: tabs.map(partOf) },
               }
-            : { kind: "one", request: { ...header, ...partOf(tab) } }
+            : { kind: "one", request: { ...header, ...partOf(tab) } },
+          wantsNext.current
         )
+        wantsNext.current = false
       }}
       // Measured on the sheet, not the window: this panel is 64rem at a desk
       // and the whole glass on a phone.
@@ -3054,8 +3019,13 @@ function SessionComposer({
       
           Stuck to the foot of the pane, for the same reason: the grid alone
           can be ten rows, and the line saying why the button is dead was
-          scrolling off the bottom just as somebody went looking for it. */}
-      <div className="sticky bottom-0 z-30 -mx-1 mt-4 flex flex-col gap-3 border-t border-hairline bg-canvas px-1 pt-3 pb-2 min-[100rem]:gap-4 min-[100rem]:pt-5 @xl:flex-row @xl:items-center @xl:justify-between">
+          scrolling off the bottom just as somebody went looking for it.
+
+          Pulled out by the sheet body's own padding (-bottom-6 / md:-bottom-8,
+          and the same on the sides): a sticky box rests on the CONTENT edge,
+          so at bottom-0 it stopped a padding's height short of the pane and
+          the form showed through the gap beneath it. */}
+      <div className="sticky -bottom-6 z-30 -mx-4 mt-4 -mb-6 flex flex-col gap-3 border-t border-hairline bg-canvas px-4 pt-3 pb-3 md:-bottom-8 md:-mx-7 md:-mb-8 md:px-7 min-[100rem]:gap-4 min-[100rem]:pt-4 @xl:flex-row @xl:items-center @xl:justify-between">
         <div className="flex min-w-0 flex-col gap-1">
           {/* Split, the one number that decides the button: every piece the
               warehouse counted in some article, and none twice. */}
@@ -3078,14 +3048,30 @@ function SessionComposer({
             actually happens, which is where that detail belongs — a button is
             read in half a second and a warehouse job is not what somebody came
             here to think about. */}
-        <Button
-          variant="primary"
-          type="submit"
-          disabled={!ready || busy}
-          className="shrink-0 self-end"
-        >
-          {busy ? "Submitting…" : "Submit"}
-        </Button>
+        <span className="flex shrink-0 items-center gap-2 self-end">
+          {hasNext && (
+            <Button
+              variant="quiet"
+              type="submit"
+              disabled={!ready || busy}
+              onClick={() => {
+                wantsNext.current = true
+              }}
+            >
+              Submit and Next
+            </Button>
+          )}
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={!ready || busy}
+            onClick={() => {
+              wantsNext.current = false
+            }}
+          >
+            {busy ? "Submitting…" : "Submit"}
+          </Button>
+        </span>
       </div>
     </form>
   )
