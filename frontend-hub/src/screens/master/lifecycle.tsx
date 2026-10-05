@@ -2,7 +2,6 @@ import { useMutation, type UseQueryResult } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/form"
 import { SubHead } from "@/components/ui/rows"
 import { Banner } from "@/components/ui/states"
 import { count } from "@/lib/format"
@@ -21,6 +20,11 @@ import type { TermUsage } from "@/lib/queries/vocabulary"
 ///
 /// ACTIVE + never used ──delete──▶ gone
 /// ```
+///
+/// This is the sheet's "Used by" tab: what points at the value, and Delete. The
+/// Active / Inactive switch is not here — it is in the sheet's head, under the
+/// name (owner, 2026-10-05), because it is the one decision the sheet is opened
+/// for and it should show on every tab.
 ///
 /// **Retire is the ordinary way out**, and it means one thing only: this value
 /// may not be chosen for anything NEW. It does not touch what already holds it.
@@ -44,17 +48,13 @@ import type { TermUsage } from "@/lib/queries/vocabulary"
 /// such state: the value has been used, and that is permanent.
 export function MasterLifecycle({
   subject,
-  active,
   usage,
-  onSetActive,
   onDelete,
   onDeleted,
 }: {
   /// Singular and lower case: "tag", "colour", "division", "size".
   subject: string
-  active: boolean
   usage: UseQueryResult<TermUsage>
-  onSetActive: (next: boolean) => Promise<unknown>
   onDelete: () => Promise<unknown>
   onDeleted: () => void
 }) {
@@ -63,18 +63,16 @@ export function MasterLifecycle({
   // a place anybody expects a permanent act to happen on the first press.
   const [confirming, setConfirming] = useState(false)
 
-  const change = useMutation({
-    mutationFn: (next: boolean) => onSetActive(next),
-  })
   const remove = useMutation({
     mutationFn: () => onDelete(),
     onSuccess: onDeleted,
   })
 
   const deletable = usage.data?.can_delete === true
+  const blockedAtZero = !!usage.data?.blocked && usage.data.total === 0
 
   return (
-    <div className="mt-6 flex flex-col gap-4 border-t border-hairline pt-4">
+    <div className="flex flex-col gap-5">
       <div>
         <SubHead>Used by</SubHead>
         {usage.isPending ? (
@@ -115,63 +113,45 @@ export function MasterLifecycle({
         )}
       </div>
 
-      <div>
-        <SubHead>Status</SubHead>
-        <div className="mb-2.5 flex items-center gap-2.5">
-          <Switch
-            on={active}
-            busy={change.isPending}
-            label={
-              active ? `Deactivate this ${subject}` : `Activate this ${subject}`
-            }
-            onToggle={() => change.mutate(!active)}
-          />
-          <span className={active ? "text-ink" : "text-mute"}>
-            {active ? "Active" : "Inactive"}
-          </span>
-        </div>
+      {(deletable || remove.isError || blockedAtZero) && (
+        <div>
+          {remove.isError && (
+            <Banner tone="bad" className="mb-2.5">
+              {said(remove.error)}
+            </Banner>
+          )}
 
-        {change.isError && (
-          <Banner tone="bad" className="mb-2.5">
-            {said(change.error)}
-          </Banner>
-        )}
-        {remove.isError && (
-          <Banner tone="bad" className="mb-2.5">
-            {said(remove.error)}
-          </Banner>
-        )}
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          {deletable &&
-            (confirming ? (
-              <>
-                <Button
-                  variant="danger"
-                  pending={remove.isPending}
-                  onClick={() => remove.mutate()}
-                >
-                  {remove.isPending ? "Deleting…" : "Delete Permanently"}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {deletable &&
+              (confirming ? (
+                <>
+                  <Button
+                    variant="danger"
+                    pending={remove.isPending}
+                    onClick={() => remove.mutate()}
+                  >
+                    {remove.isPending ? "Deleting…" : "Delete Permanently"}
+                  </Button>
+                  <Button variant="quiet" onClick={() => setConfirming(false)}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button variant="quiet" onClick={() => setConfirming(true)}>
+                  Delete
                 </Button>
-                <Button variant="quiet" onClick={() => setConfirming(false)}>
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <Button variant="quiet" onClick={() => setConfirming(true)}>
-                Delete
-              </Button>
-            ))}
-        </div>
+              ))}
+          </div>
 
-        {/* The one case worth explaining, because it is the case somebody
-            argues with: nothing points at this today, and it still cannot be
-            deleted. The server's own sentence says which of the two reasons
-            applies. */}
-        {usage.data?.blocked && usage.data.total === 0 && (
-          <p className="mt-2.5 text-meta text-mute">{usage.data.blocked}</p>
-        )}
-      </div>
+          {/* The one case worth explaining, because it is the case somebody
+              argues with: nothing points at this today, and it still cannot be
+              deleted. The server's own sentence says which of the two reasons
+              applies. */}
+          {blockedAtZero && (
+            <p className="text-meta text-mute">{usage.data?.blocked}</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

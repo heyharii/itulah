@@ -18,6 +18,7 @@ import {
   ViewPicker,
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Switch } from "@/components/ui/form"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -27,9 +28,7 @@ import { count } from "@/lib/format"
 import { toast } from "@/lib/toast"
 import {
   colourKeys,
-  colourUsage,
   createColour,
-  deleteColour,
   listColours,
   updateColour,
   type ColourTerm,
@@ -38,7 +37,6 @@ import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { readColour } from "@/lib/colour-parse"
 import { ColourField } from "@/screens/master/colour-field"
-import { MasterLifecycle } from "@/screens/master/lifecycle"
 import { HEX, mistakenFor } from "@/screens/master/colour-hex"
 import { ColourSwatch } from "@/screens/master/colour-picker"
 
@@ -111,6 +109,7 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
     accessorFn: (row) => `${row.term.label} ${row.term.code}`,
     header: "Colour",
     size: 260,
+    meta: { grow: 260 },
     cell: ({ row }) => (
       <ColourSwatch
         hex={row.original.term.hex_code}
@@ -169,43 +168,6 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
       </span>
     ),
   },
-  {
-    id: "status",
-    accessorFn: (row) => (row.active ? "ACTIVE" : "RETIRED"),
-    header: "Status",
-    size: 110,
-    // Filtered here, and nowhere else. It was a three-way segment above the
-    // table — All · Active · Retired — which sieved the rows before the table
-    // saw them, so this column could not carry a chip without two controls
-    // each insisting they were the reason the list was empty. The panel beside
-    // the table took the segment's job on 2026-09-13, and the segment is gone
-    // rather than left to disagree with it.
-    //
-    // The value is the WORD and not `1`/`0`: a clause rides in the address bar,
-    // and `status is 1` is not a thing anybody can read.
-    meta: {
-      filter: {
-        kind: "option",
-        label: "Status",
-        single: true,
-        operators: ["isAnyOf"],
-        // Declared rather than gathered off the rows: a master with nothing
-        // retired must still offer Retired, because its emptiness is the
-        // answer the curator is looking for.
-        options: [
-          { value: "ACTIVE", label: "Active" },
-          { value: "RETIRED", label: "Inactive" },
-        ],
-        format: (value) => (value === "ACTIVE" ? "Active" : "Inactive"),
-      },
-    },
-    // Active and Retired, not Offered and Retired. "Offered" made the reader
-    // guess who it was offered to; Active says what it means — this may be
-    // chosen when a colourway is mapped — and matches the segment above.
-    // Retired is `neutral`, not `bad`: a colour taken out of the picker is a
-    // decision somebody made, not a fault in the row.
-    cell: ({ row }) => <StatusSwitch row={row.original} />,
-  },
 ]
 
 /// Active or inactive, in the row (owner, 2026-10-05): one press, no sheet.
@@ -242,11 +204,23 @@ function StatusSwitch({ row }: { row: ColourRow }) {
   )
 }
 
+type StatusTab = "ALL" | "ACTIVE" | "INACTIVE"
+
+function TabLabel({ text, n }: { text: string; n: number }) {
+  return (
+    <span>
+      {text}
+      <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
+    </span>
+  )
+}
+
 export function Colours() {
   const [query, setQuery] = useState("")
   const [sorting, setSorting] = useState<SortingState>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [tab, setTab] = useState<StatusTab>("ALL")
 
   // The whole vocabulary in one read. A company has a hundred colours, not a
   // hundred thousand, so there is nothing to page and nothing to re-ask the
@@ -265,7 +239,13 @@ export function Colours() {
   // Every colour reaches the table. What narrows it is the panel beside it,
   // and only that — a second sieve in front of the table is how a status
   // segment and a status chip end up giving two different answers.
-  const rows = all
+  const rows = useMemo(
+    () =>
+      tab === "ALL"
+        ? all
+        : all.filter((row) => row.active === (tab === "ACTIVE")),
+    [all, tab]
+  )
 
   const filters = useFilters(columns)
 
@@ -315,6 +295,25 @@ export function Colours() {
             New colour
           </Button>
         }
+      />
+
+      <SubTabs
+        tabs={[
+          {
+            value: "ALL",
+            label: <TabLabel text="All" n={all.length} />,
+          },
+          {
+            value: "ACTIVE",
+            label: <TabLabel text="Active" n={all.length - retired} />,
+          },
+          {
+            value: "INACTIVE",
+            label: <TabLabel text="Inactive" n={retired} />,
+          },
+        ]}
+        value={tab}
+        onChange={(next) => setTab(next as StatusTab)}
       />
 
       {/* Two columns from 1440 up: the master, and the panel that narrows it —
@@ -369,7 +368,7 @@ export function Colours() {
             className="mb-3 dock:hidden"
           />
 
-          <Card className="overflow-hidden">
+          <Card className="overflow-clip">
             {queryState(colours, {
               loading: "Reading the vocabulary…",
               render: () =>
@@ -396,7 +395,7 @@ export function Colours() {
                     }}
                     isSelected={(row) => row.term.code === editing}
                     empty="No colour matches that search."
-                    className="max-h-[calc(100vh-17rem)]"
+                    pageScroll
                   />
                 ),
             })}
@@ -476,25 +475,26 @@ function ColourSheet({
   existing: readonly ColourRow[]
   onClose: () => void
 }) {
+  // Keyed so moving between rows starts a form on the row in front of you:
+  // `useForm` reads its defaults once, and without this the second colour
+  // opened would be edited through the first one's values.
+  const form = (
+    <ColourForm
+      key={colour?.term.code ?? "new"}
+      colour={colour}
+      existing={existing}
+      onSaved={onClose}
+    />
+  )
   return (
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
       id={colour?.term.code}
       title={colour?.term.label ?? "New colour"}
+      caption={colour ? <StatusSwitch row={colour} /> : undefined}
     >
-      <div className="flex flex-col gap-5">
-        {/* Keyed so moving between rows starts a form on the row in front of
-            you: `useForm` reads its defaults once, and without this the second
-            colour opened would be edited through the first one's values. */}
-        <ColourForm
-          key={colour?.term.code ?? "new"}
-          colour={colour}
-          existing={existing}
-          onSaved={onClose}
-        />
-        {colour && <ColourLifecycle colour={colour} onGone={onClose} />}
-      </div>
+      {form}
     </Sheet>
   )
 }
@@ -828,58 +828,5 @@ function ColourForm({
         )}
       </form.Subscribe>
     </form>
-  )
-}
-
-/// Retire, restore or delete one colour, and the counts behind each.
-///
-/// The rule and the buttons are `MasterLifecycle`, shared with the three word
-/// lists; this is the part that differs — which endpoints the verbs go to.
-///
-/// Every article wearing a colour holds its code, and every printed label
-/// already carries the name as a snapshot, which is why retiring rather than
-/// deleting is the ordinary way out: the articles that have it keep it, and
-/// nobody can choose it for a new one.
-function ColourLifecycle({
-  colour,
-  onGone,
-}: {
-  colour: ColourRow
-  onGone: () => void
-}) {
-  const client = useQueryClient()
-  const idempotency = useIdempotencyKey()
-
-  const usage = useQuery({
-    queryKey: colourKeys.usage(colour.term.code),
-    queryFn: ({ signal }) => colourUsage(colour.term.code, signal),
-  })
-
-  const invalidate = () => {
-    void client.invalidateQueries({ queryKey: colourKeys.all })
-    void client.invalidateQueries({ queryKey: ["articles"] })
-    idempotency.rotate()
-  }
-
-  return (
-    <MasterLifecycle
-      subject="colour"
-      active={colour.active}
-      usage={usage}
-      onSetActive={async (active) => {
-        await updateColour(
-          colour.term.code,
-          { active },
-          colour.term.version,
-          idempotency.key
-        )
-        invalidate()
-      }}
-      onDelete={async () => {
-        await deleteColour(colour.term.code, colour.term.version)
-        invalidate()
-      }}
-      onDeleted={onGone}
-    />
   )
 }

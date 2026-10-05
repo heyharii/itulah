@@ -19,6 +19,7 @@ import {
   ViewPicker,
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
@@ -27,9 +28,7 @@ import { count } from "@/lib/format"
 import { toast } from "@/lib/toast"
 import {
   createTerm,
-  deleteTerm,
   listTerms,
-  termUsage,
   updateTerm,
   vocabularyKeys,
   type MasterTerm,
@@ -37,7 +36,6 @@ import {
 } from "@/lib/queries/vocabulary"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { MasterLifecycle } from "@/screens/master/lifecycle"
 
 /// Divisions, sizes and tags — the three lists, on one screen written once.
 ///
@@ -65,12 +63,12 @@ import { MasterLifecycle } from "@/screens/master/lifecycle"
 ///
 /// # Two rules this screen explains rather than merely enforces
 ///
-/// A term that has ever been used cannot be deleted, only retired. Not "a term
+/// A term that has ever been used cannot be deleted, only made inactive. Not "a term
 /// with articles behind it" — articles are one of five tables that can name a
 /// tag, a promotion can select on one from inside a jsonb rule with no foreign
 /// key at all, and a term unpicked from everything last month still reads in
-/// last year's report. `MasterLifecycle` draws that answer from the server; see
-/// `lifecycle.tsx`.
+/// last year's report. The sheet has no Delete or "Used by" for now (owner,
+/// 2026-10-05: keep the sheet simple); `lifecycle.tsx` still holds that answer.
 ///
 /// And a code is not editable: it is what `article.division_code`,
 /// `sku.size_code` and `article_tag.tag_code` hold, so a code that moved would
@@ -177,6 +175,7 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
       accessorFn: (row) => `${row.term.label} ${row.term.code}`,
       header: capitalise(vocabulary.one),
       size: 260,
+      meta: { grow: 260 },
       cell: ({ row }) => (
         <span className="text-[0.875rem] font-medium text-ink">
           {row.original.term.label}
@@ -210,82 +209,35 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
     })
   }
 
-  columns.push(
-    {
-      id: "articles",
-      accessorFn: (row) => row.term.in_use,
-      header: "Articles",
-      size: 120,
-      // The one clause these lists want: "is 0" is the set worth looking at
-      // before tidying up, which on forty tags is not something a sort makes
-      // obvious. It is not the set that may be DELETED — see `lifecycle.tsx`;
-      // articles are one of five things that can name a tag.
-      meta: {
-        align: "right",
-        filter: { kind: "number", label: "Articles", unit: "articles" },
-      },
-      // Zero is drawn as 0, not as "Unused". It was worded, on the argument
-      // that "unused" is the state somebody scans for — but it read as a
-      // licence to delete, which it is not, and a column of numbers with one
-      // word in it is a column that stops adding up.
-      cell: ({ row }) => (
-        <span
-          className={
-            row.original.term.in_use === 0
-              ? "text-[0.875rem] text-mute tabular-nums"
-              : "text-[0.875rem] text-text tabular-nums"
-          }
-        >
-          {count(row.original.term.in_use)}
-        </span>
-      ),
+  columns.push({
+    id: "articles",
+    accessorFn: (row) => row.term.in_use,
+    header: "Articles",
+    size: 120,
+    // The one clause these lists want: "is 0" is the set worth looking at
+    // before tidying up, which on forty tags is not something a sort makes
+    // obvious. It is not the set that may be DELETED — see `lifecycle.tsx`;
+    // articles are one of five things that can name a tag.
+    meta: {
+      align: "right",
+      filter: { kind: "number", label: "Articles", unit: "articles" },
     },
-    {
-      id: "status",
-      accessorFn: (row) => (row.active ? "ACTIVE" : "RETIRED"),
-      header: "Status",
-      size: 110,
-      // Filtered here, and nowhere else. It was a three-way segment above the
-      // table — All · Active · Retired — which narrowed the rows BEFORE the
-      // table saw them, so the column could not carry a chip without two
-      // controls both claiming to be why the list was empty. The panel beside
-      // the table took the segment's job on 2026-09-13: one place to say which
-      // part of the vocabulary you are looking at, in the URL like every other
-      // clause, and the segment is gone rather than left to disagree with it.
-      //
-      // The value is the WORD and not `1`/`0`, because a filter's values ride
-      // in the address bar and `status is 1` is not a thing anybody can read.
-      meta: {
-        filter: {
-          kind: "option",
-          label: "Status",
-          single: true,
-          operators: ["isAnyOf"],
-          // Declared rather than gathered off the rows: a vocabulary with
-          // nothing retired must still offer Retired, because its emptiness is
-          // the answer somebody is looking for.
-          options: [
-            { value: "ACTIVE", label: "Active" },
-            { value: "RETIRED", label: "Inactive" },
-          ],
-          format: (value) => (value === "ACTIVE" ? "Active" : "Inactive"),
-        },
-      },
-      //
-      // Active and Retired, not Offered and Retired. "Offered" made the reader
-      // guess who it was offered to — sold? in the POS? pickable on an article?
-      // — and the answer is the last of those. Active/Retired says it without
-      // the guess, and pairs with the word on the segment above.
-      // Retired is `neutral`, not `bad`: a term taken out of the picker is a
-      // decision somebody made, not a fault in the row.
-      // A switch, not a word: Active and Inactive are the one decision this
-      // list asks of anybody, and it should be one press from the row
-      // (owner, 2026-10-05) rather than a button down a sheet.
-      cell: ({ row }) => (
-        <StatusSwitch vocabulary={vocabulary} row={row.original} />
-      ),
-    }
-  )
+    // Zero is drawn as 0, not as "Unused". It was worded, on the argument
+    // that "unused" is the state somebody scans for — but it read as a
+    // licence to delete, which it is not, and a column of numbers with one
+    // word in it is a column that stops adding up.
+    cell: ({ row }) => (
+      <span
+        className={
+          row.original.term.in_use === 0
+            ? "text-[0.875rem] text-mute tabular-nums"
+            : "text-[0.875rem] text-text tabular-nums"
+        }
+      >
+        {count(row.original.term.in_use)}
+      </span>
+    ),
+  })
 
   return columns
 }
@@ -335,11 +287,23 @@ function StatusSwitch({
   )
 }
 
+type StatusTab = "ALL" | "ACTIVE" | "INACTIVE"
+
+function TabLabel({ text, n }: { text: string; n: number }) {
+  return (
+    <span>
+      {text}
+      <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
+    </span>
+  )
+}
+
 function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
   const [query, setQuery] = useState("")
   const [sorting, setSorting] = useState<SortingState>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [tab, setTab] = useState<StatusTab>("ALL")
 
   // The whole list in one read. A company has five divisions, a dozen sizes and
   // a few dozen tags, so there is nothing to page — which is also what lets the
@@ -357,7 +321,13 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
   // Every term reaches the table. What narrows it is the panel beside it, and
   // only that — a second sieve in front of the table is how a status segment
   // and a status chip end up giving two different answers.
-  const rows = all
+  const rows = useMemo(
+    () =>
+      tab === "ALL"
+        ? all
+        : all.filter((row) => row.active === (tab === "ACTIVE")),
+    [all, tab]
+  )
 
   const columns = useMemo(() => columnsOf(vocabulary), [vocabulary])
   const filters = useFilters(columns)
@@ -404,6 +374,25 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
             New {vocabulary.one}
           </Button>
         }
+      />
+
+      <SubTabs
+        tabs={[
+          {
+            value: "ALL",
+            label: <TabLabel text="All" n={all.length} />,
+          },
+          {
+            value: "ACTIVE",
+            label: <TabLabel text="Active" n={all.length - retired} />,
+          },
+          {
+            value: "INACTIVE",
+            label: <TabLabel text="Inactive" n={retired} />,
+          },
+        ]}
+        value={tab}
+        onChange={(next) => setTab(next as StatusTab)}
       />
 
       {/* Two columns from 1440 up: the list, and the panel that narrows it —
@@ -462,7 +451,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
             className="mb-3 dock:hidden"
           />
 
-          <Card className="overflow-hidden">
+          <Card className="overflow-clip">
             {queryState(terms, {
               loading: "Reading the vocabulary…",
               render: () =>
@@ -488,7 +477,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
                     }}
                     isSelected={(row) => row.term.code === editing}
                     empty="Nothing matches that search."
-                    className="max-h-[calc(100vh-17rem)]"
+                    pageScroll
                   />
                 ),
             })}
@@ -556,6 +545,17 @@ function TermSheet({
   existing: readonly TermRow[]
   onClose: () => void
 }) {
+  const form = (
+    <TermForm
+      // Keyed so switching rows with the sheet open re-seeds the form rather
+      // than leaving the previous term's label in the field.
+      key={term?.term.code ?? "new"}
+      vocabulary={vocabulary}
+      term={term}
+      existing={existing}
+      onSaved={onClose}
+    />
+  )
   return (
     <Sheet
       open={open}
@@ -564,19 +564,13 @@ function TermSheet({
       }}
       id={term?.term.code}
       title={term === null ? `New ${vocabulary.one}` : term.term.label}
+      caption={
+        term === null ? undefined : (
+          <StatusSwitch vocabulary={vocabulary} row={term} />
+        )
+      }
     >
-      <TermForm
-        // Keyed so switching rows with the sheet open re-seeds the form rather
-        // than leaving the previous term's label in the field.
-        key={term?.term.code ?? "new"}
-        vocabulary={vocabulary}
-        term={term}
-        existing={existing}
-        onSaved={onClose}
-      />
-      {term !== null && (
-        <TermLifecycle vocabulary={vocabulary} term={term} onGone={onClose} />
-      )}
+      {form}
     </Sheet>
   )
 }
@@ -824,62 +818,5 @@ function TermForm({
         )}
       </form.Subscribe>
     </form>
-  )
-}
-
-/// Retire, restore or delete one term, and the counts behind each.
-///
-/// The rule and the buttons are `MasterLifecycle`, shared with the colour
-/// master; this is the part that differs — which endpoints the three verbs go
-/// to, and what has to be re-read afterwards.
-function TermLifecycle({
-  vocabulary,
-  term,
-  onGone,
-}: {
-  vocabulary: Vocabulary
-  term: TermRow
-  onGone: () => void
-}) {
-  const client = useQueryClient()
-  const idempotency = useIdempotencyKey()
-
-  const usage = useQuery({
-    queryKey: vocabularyKeys.usage(vocabulary.kind, term.term.code),
-    queryFn: ({ signal }) => termUsage(vocabulary.kind, term.term.code, signal),
-  })
-
-  const invalidate = () => {
-    // The whole prefix, plus the catalogue vocabulary: divisions and tags are
-    // also read through `/catalogue/vocabulary` by every filter column and the
-    // setup composer, and a term retired here that is still offered there is
-    // the drift these tables exist to end.
-    void client.invalidateQueries({ queryKey: vocabularyKeys.all })
-    void client.invalidateQueries({ queryKey: ["procurement", "vocabulary"] })
-    void client.invalidateQueries({ queryKey: ["articles"] })
-    idempotency.rotate()
-  }
-
-  return (
-    <MasterLifecycle
-      subject={vocabulary.one}
-      active={term.active}
-      usage={usage}
-      onSetActive={async (active) => {
-        await updateTerm(
-          vocabulary.kind,
-          term.term.code,
-          { active },
-          term.term.version,
-          idempotency.key
-        )
-        invalidate()
-      }}
-      onDelete={async () => {
-        await deleteTerm(vocabulary.kind, term.term.code, term.term.version)
-        invalidate()
-      }}
-      onDeleted={onGone}
-    />
   )
 }
