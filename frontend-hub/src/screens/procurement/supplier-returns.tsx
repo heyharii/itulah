@@ -242,7 +242,7 @@ export function useReturnRows() {
       settledMinor: 0,
       owedMinor: 0,
       byKind: {},
-      status: r.status === "OPEN" ? "To hand over" : "Closed",
+      status: r.status === "OPEN" ? "To hand over" : "Completed",
       tone: r.status === "OPEN" ? "neutral" : "done",
       open: r.status === "OPEN",
       raisedAt: r.raised_at,
@@ -609,9 +609,14 @@ export function ReturnSheet({
             {form}
             <Problem error={expect.error} />
             <Facts>
-              <Fact term="Settle by">
-                {row.settleBy ? SETTLE_LABEL[row.settleBy] : "None"}
+              <Fact term="Person in Charge">
+                {row.pic === null ? "—" : titled(row.pic)}
               </Fact>
+              {/* How the supplier settles, said only where one was chosen: a
+                  "None" under it told nobody anything. */}
+              {row.settleBy && (
+                <Fact term="Settle by">{SETTLE_LABEL[row.settleBy]}</Fact>
+              )}
               {row.reference && <Fact term="PO">{row.reference}</Fact>}
               {row.letterId && (
                 <Fact term="Surat">
