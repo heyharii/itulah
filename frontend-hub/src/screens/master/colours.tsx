@@ -296,7 +296,7 @@ function RowActions({ row }: { row: ColourRow }) {
   )
 }
 
-type StatusTab = "ALL" | "ACTIVE" | "INACTIVE"
+type StatusTab = "ALL" | "ACTIVE" | "INACTIVE" | "TRASH"
 
 function TabLabel({ text, n }: { text: string; n: number }) {
   return (
@@ -336,7 +336,9 @@ export function Colours() {
     () =>
       all.filter(
         (row) =>
-          (tab === "ALL" || row.active === (tab === "ACTIVE")) &&
+          (tab === "TRASH"
+            ? row.term.in_use === 0
+            : tab === "ALL" || row.active === (tab === "ACTIVE")) &&
           (!inUseOnly || row.term.in_use > 0)
       ),
     [all, tab, inUseOnly]
@@ -365,6 +367,7 @@ export function Colours() {
 
   const selected = all.find((row) => row.term.code === editing) ?? null
   const retired = all.filter((row) => !row.active).length
+  const trashed = all.filter((row) => row.term.in_use === 0).length
   const kpis = [
     { label: "Colors", value: count(all.length), note: undefined },
     { label: "Active", value: count(all.length - retired), note: undefined },
@@ -393,24 +396,40 @@ export function Colours() {
         ))}
       </KpiStrip>
 
-      <SubTabs
-        tabs={[
-          {
-            value: "ACTIVE",
-            label: <TabLabel text="Active" n={all.length - retired} />,
-          },
-          {
-            value: "INACTIVE",
-            label: <TabLabel text="Inactive" n={retired} />,
-          },
-          {
-            value: "ALL",
-            label: <TabLabel text="All" n={all.length} />,
-          },
-        ]}
-        value={tab}
-        onChange={(next) => setTab(next as StatusTab)}
-      />
+      <div className="relative">
+        <SubTabs
+          tabs={[
+            {
+              value: "ACTIVE",
+              label: <TabLabel text="Active" n={all.length - retired} />,
+            },
+            {
+              value: "INACTIVE",
+              label: <TabLabel text="Inactive" n={retired} />,
+            },
+            {
+              value: "ALL",
+              label: <TabLabel text="All" n={all.length} />,
+            },
+          ]}
+          value={tab}
+          onChange={(next) => setTab(next as StatusTab)}
+        />
+        <button
+          type="button"
+          aria-pressed={tab === "TRASH"}
+          onClick={() => setTab(tab === "TRASH" ? "ACTIVE" : "TRASH")}
+          className={
+            tab === "TRASH"
+              ? "absolute top-0 right-0 inline-flex h-8 items-center gap-1.5 rounded-inner border border-hairline-2 bg-soft-2 px-2.5 text-[0.875rem] font-medium text-ink"
+              : "absolute top-0 right-0 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-inner border border-transparent px-2.5 text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink"
+          }
+        >
+          <Trash2 className="size-4" />
+          Trash Bin
+          <span className="tabular-nums">{count(trashed)}</span>
+        </button>
+      </div>
 
       <div className="mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
         <span className="relative min-w-0 flex-1 lg:w-44 lg:flex-none">

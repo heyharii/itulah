@@ -410,7 +410,7 @@ function capitalise(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1)
 }
 
-type StatusTab = "ALL" | "ACTIVE" | "INACTIVE"
+type StatusTab = "ALL" | "ACTIVE" | "INACTIVE" | "TRASH"
 
 function TabLabel({ text, n }: { text: string; n: number }) {
   return (
@@ -449,7 +449,9 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
     () =>
       all.filter(
         (row) =>
-          (tab === "ALL" || row.active === (tab === "ACTIVE")) &&
+          (tab === "TRASH"
+            ? row.term.in_use === 0
+            : tab === "ALL" || row.active === (tab === "ACTIVE")) &&
           (!inUseOnly || row.term.in_use > 0)
       ),
     [all, tab, inUseOnly]
@@ -479,6 +481,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
 
   const selected = all.find((row) => row.term.code === editing) ?? null
   const retired = all.filter((row) => !row.active).length
+  const trashed = all.filter((row) => row.term.in_use === 0).length
   const kpis = [
     { label: capitalise(vocabulary.title), value: count(all.length) },
     { label: "Active", value: count(all.length - retired) },
@@ -505,24 +508,40 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
         ))}
       </KpiStrip>
 
-      <SubTabs
-        tabs={[
-          {
-            value: "ACTIVE",
-            label: <TabLabel text="Active" n={all.length - retired} />,
-          },
-          {
-            value: "INACTIVE",
-            label: <TabLabel text="Inactive" n={retired} />,
-          },
-          {
-            value: "ALL",
-            label: <TabLabel text="All" n={all.length} />,
-          },
-        ]}
-        value={tab}
-        onChange={(next) => setTab(next as StatusTab)}
-      />
+      <div className="relative">
+        <SubTabs
+          tabs={[
+            {
+              value: "ACTIVE",
+              label: <TabLabel text="Active" n={all.length - retired} />,
+            },
+            {
+              value: "INACTIVE",
+              label: <TabLabel text="Inactive" n={retired} />,
+            },
+            {
+              value: "ALL",
+              label: <TabLabel text="All" n={all.length} />,
+            },
+          ]}
+          value={tab}
+          onChange={(next) => setTab(next as StatusTab)}
+        />
+        <button
+          type="button"
+          aria-pressed={tab === "TRASH"}
+          onClick={() => setTab(tab === "TRASH" ? "ACTIVE" : "TRASH")}
+          className={
+            tab === "TRASH"
+              ? "absolute top-0 right-0 inline-flex h-8 items-center gap-1.5 rounded-inner border border-hairline-2 bg-soft-2 px-2.5 text-[0.875rem] font-medium text-ink"
+              : "absolute top-0 right-0 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-inner border border-transparent px-2.5 text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink"
+          }
+        >
+          <Trash2 className="size-4" />
+          Trash Bin
+          <span className="tabular-nums">{count(trashed)}</span>
+        </button>
+      </div>
 
       {/* One line, as the order book draws it: the search and what narrows the
           list at the left, what shapes the table and what makes a new one at
