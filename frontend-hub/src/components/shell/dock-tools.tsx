@@ -137,6 +137,12 @@ export function DockTools({
                 spellCheck={false}
                 value={search.value}
                 onChange={(event) => search.onChange(event.target.value)}
+                // The keyboard went down — by Done, by a swipe, by tapping the
+                // list — so the field has nothing left to be for: the drawer
+                // shuts. Waiting for a tap on Done does not do it on a phone,
+                // where the field blurring moves the bar and the tap lands
+                // where the button was.
+                onBlur={() => setView?.("rest")}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === "Escape")
                     closeSearch()
@@ -166,6 +172,11 @@ export function DockTools({
             </div>
             <button
               type="button"
+              // Pressed without taking the focus off the field: the press that
+              // blurred it first would move the bar from under the finger
+              // before the tap could land.
+              onPointerDown={(event) => event.preventDefault()}
+              onMouseDown={(event) => event.preventDefault()}
               onClick={closeSearch}
               className="h-10 shrink-0 rounded-full px-3 text-[0.875rem] font-semibold text-accent active:opacity-60"
             >
@@ -242,23 +253,47 @@ export function DockTools({
           </div>
         ) : status !== undefined ? (
           // The field: it says what is searched, or what was.
-          <div className="dock-field flex h-9 min-w-0 items-center rounded-full bg-soft-2 pr-1 pl-3">
+          // Tinted while a search is narrowing the list: the list is not the
+          // whole one, and the row says so where the thumb is.
+          <div
+            className={cn(
+              "dock-field flex h-9 min-w-0 items-center rounded-full pr-1 pl-3 transition-colors duration-150",
+              search.value === "" ? "bg-soft-2" : "bg-accent-bg"
+            )}
+          >
             <button
               type="button"
               onClick={toSearch}
               aria-label={search.label}
               className="flex h-full min-w-0 flex-1 items-center gap-2 text-left text-[0.875rem]"
             >
-              <Search className="size-4 shrink-0 text-mute" />
+              <Search
+                className={cn(
+                  "size-4 shrink-0",
+                  search.value === "" ? "text-mute" : "text-accent"
+                )}
+              />
               <span
                 className={cn(
                   "truncate",
-                  search.value === "" ? "text-mute" : "text-ink"
+                  search.value === "" ? "text-mute" : "font-medium text-ink"
                 )}
               >
                 {search.value === "" ? search.label : search.value}
               </span>
             </button>
+            {search.value !== "" && (
+              // One tap to widen the list again: it took a tap into the field,
+              // then another on its ✕, to undo a search.
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => search.onChange("")}
+                className="grid size-7 shrink-0 place-items-center rounded-full text-body transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.92]"
+              >
+                <X className="size-4" />
+              </button>
+            )}
             {several && (
               <button
                 type="button"

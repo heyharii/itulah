@@ -45,7 +45,7 @@ sudo test -f $N/index.html
 # Keep the previous build'"'"'s chunks (never overwriting a new one): a tab that was open
 # during the deploy still asks for its own build'"'"'s lazy chunks, and a 404 there is
 # the "Something went wrong" screen. Chunks nobody has loaded for 30 days go.
-if [ -d $W/assets ]; then sudo cp -an $W/assets/. $N/assets/; fi
+if sudo test -d $W/assets; then sudo cp -an $W/assets/. $N/assets/; fi
 sudo find $N/assets -type f -mtime +30 -delete
 sudo rm -rf /var/lib/itulah/www/hub.old
 sudo mv $W /var/lib/itulah/www/hub.old
