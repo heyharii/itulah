@@ -472,7 +472,10 @@ function ColourSheet({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      title={colour ? `Color ${colour.term.label}` : "New Color"}
+      id={
+        colour === null ? undefined : <span className="font-sans">Color</span>
+      }
+      title={colour ? colour.term.label : "New Color"}
     >
       {form}
     </Sheet>

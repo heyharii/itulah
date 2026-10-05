@@ -589,10 +589,15 @@ function TermSheet({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
+      // The kind in small type above, the name as the title: "Division" over
+      // "Anak Laki-laki" (owner, 2026-10-05).
+      id={
+        term === null ? undefined : (
+          <span className="font-sans">{capitalise(vocabulary.one)}</span>
+        )
+      }
       title={
-        term === null
-          ? `New ${capitalise(vocabulary.one)}`
-          : `${capitalise(vocabulary.one)} ${term.term.label}`
+        term === null ? `New ${capitalise(vocabulary.one)}` : term.term.label
       }
     >
       {form}
