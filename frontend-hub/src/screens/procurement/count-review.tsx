@@ -106,8 +106,10 @@ export function ReviewCountButton({
         size="sm"
         // Soft blue on a phone, where the round "+" is the one solid blue
         // button on the screen (owner, 2026-10-05); solid on a desk, where
-        // there is no "+" beside it.
-        className="-my-1 w-fit max-md:bg-accent-bg max-md:text-accent max-md:hover:bg-accent-bg/70"
+        // there is no "+" beside it. On a card it is a capsule at iOS's small
+        // button size (28pt tall, 14px, medium): a status beside the title
+        // takes the title's weight down, never up.
+        className="-my-1 w-fit relative max-md:my-0 max-md:h-7 max-md:pointer-coarse:h-7 max-md:pointer-coarse:px-3 max-md:rounded-full max-md:bg-accent-bg max-md:px-3 after:absolute after:inset-x-0 after:-inset-y-2 after:content-[''] max-md:text-[0.875rem] max-md:font-medium max-md:text-accent max-md:hover:bg-accent-bg/70"
         onClick={(event) => {
           event.stopPropagation()
           review.open(po)
