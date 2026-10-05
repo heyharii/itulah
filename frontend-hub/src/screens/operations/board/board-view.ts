@@ -37,8 +37,11 @@ export function useBoardView(
 
 /// Stage order, then oldest first — the order the cards are read in.
 export function byStage(rows: readonly StageRow[]): StageRow[] {
+  // Rows with a button to press lead the list, whatever lane they sit in
+  // (owner, 2026-10-05); then the lanes in their own order, oldest first.
   return [...rows].sort(
     (left, right) =>
+      Number(right.act !== undefined) - Number(left.act !== undefined) ||
       left.stage.order - right.stage.order ||
       (left.at ?? "").localeCompare(right.at ?? "")
   )

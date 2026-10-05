@@ -67,8 +67,16 @@ export function groupBySupplier(
     }
     by.set(one.supplier, [...(by.get(one.supplier) ?? []), dated])
   }
+  // Suppliers with something still to do — a return not yet handed over, the
+  // ones that carry the button — lead (owner, 2026-10-05); the rest follow, and
+  // each group is A to Z.
+  const busy = (list: readonly Dated[]) => list.some((one) => one.open)
   return [...by.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(
+      ([leftName, leftRows], [rightName, rightRows]) =>
+        Number(busy(rightRows)) - Number(busy(leftRows)) ||
+        leftName.localeCompare(rightName)
+    )
     .map(([supplier, list]) => ({
       supplier,
       rows: list.sort(

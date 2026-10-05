@@ -71,6 +71,9 @@ export interface OrderRow {
   readonly awaiting: readonly PurchaseCountAwaitingVerification[]
 }
 
+/// Orders with a button to press — still to count — lead the list.
+const TO_COUNT_FIRST = { id: "action", desc: false } as const
+
 export function Receiving() {
   const counting = useSheet("delivery")
   const [sorting, setSorting] = useState<SortingState>([
@@ -145,7 +148,13 @@ export function Receiving() {
         size: 70,
         enableSorting: false,
         meta: { align: "right", priority: 2, card: "hide" },
-        cell: ({ row }) => <span className="text-mute">{row.index + 1}</span>,
+        // The place in the list as it is drawn, not the order the rows came in:
+        // sorted, the old number read 4, 3, 6, 5.
+        cell: ({ row, table }) => (
+          <span className="text-mute">
+            {table.getRowModel().rows.findIndex((one) => one.id === row.id) + 1}
+          </span>
+        ),
       },
       {
         accessorKey: "po_number",
@@ -197,7 +206,11 @@ export function Receiving() {
         cell: ({ row }) => count(row.original.lines.length),
       },
       {
+        // Also the hidden first sort key: orders still waiting for a count (the
+        // ones with the button) stand above those already counted, whatever the
+        // headings sort by (owner, 2026-10-05).
         id: "action",
+        accessorFn: (row: OrderRow) => (row.awaiting.length === 0 ? 0 : 1),
         header: "",
         size: 220,
         meta: { card: "status", align: "right" },
@@ -236,8 +249,18 @@ export function Receiving() {
         data: rows,
         columns,
         getRowId: (row: OrderRow) => row.po_number,
-        state: { sorting },
-        onSortingChange: setSorting,
+        // The hidden key leads whatever was chosen, and is taken back out of
+        // anything the table hands back.
+        state: { sorting: [TO_COUNT_FIRST, ...sorting] },
+        onSortingChange: (
+          next: SortingState | ((prev: SortingState) => SortingState)
+        ) =>
+          setSorting((was) =>
+            (typeof next === "function"
+              ? next([TO_COUNT_FIRST, ...was])
+              : next
+            ).filter((one) => one.id !== TO_COUNT_FIRST.id)
+          ),
       }),
       [rows, columns, sorting]
     )
