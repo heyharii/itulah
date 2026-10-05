@@ -668,14 +668,16 @@
     height: 12px;
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--accent);
+    /* The accent at 60%: still plainly blue, so it is found, without two
+       full-strength bars outweighing a table's own content. Full on hover. */
+    background: color-mix(in srgb, var(--accent) 60%, transparent);
     border-radius: 8px;
     border: 2px solid var(--canvas);
     min-height: 40px;
     min-width: 40px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #1d4ed8;
+    background: var(--accent);
   }
   ::-webkit-scrollbar-track {
     background: var(--accent-bg);
