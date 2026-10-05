@@ -15,10 +15,9 @@ import { Card } from "@/components/ui/card"
 import { Dialog, SavedDialog } from "@/components/ui/dialog"
 import { Field, Input, Money } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
+import { BarSpacer, SearchSuggest } from "@/components/ui/list-chrome"
 import { RecordPanel } from "@/components/ui/record-panel"
 import { SubHead } from "@/components/ui/rows"
-import { SubTabs } from "@/components/ui/sub-tabs"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -206,9 +205,6 @@ export function SetupWorkspace() {
   const poFilter = useSheet("setupFor")
   const supplierOf = useSupplierName()
   const [query, setQuery] = useState("")
-  /// Waiting lines, sessions that did not mint, or both — as Divisions has
-  /// Active, Inactive and All.
-  const [tab, setTab] = useState<ListTab>("WAITING")
 
   /// How the last press of Submit ended, for the record the sheet hands over
   /// to. Not in the URL: it is what just happened in front of one person, not
@@ -332,14 +328,14 @@ export function SetupWorkspace() {
   /// Previous and Next walk, and what "2 of 7" counts.
   const cards = useMemo<readonly Target[]>(
     () => [
-      ...(tab === "NOT_MINTED" ? [] : shown).map((row) => ({
+      ...shown.map((row) => ({
         receipt: row.receipt_line_id,
       })),
-      ...(tab === "WAITING" ? [] : stalledShown).map((row) => ({
+      ...stalledShown.map((row) => ({
         setup: row.session_id,
       })),
     ],
-    [shown, stalledShown, tab]
+    [shown, stalledShown]
   )
 
   /// Which delivery the form is for. Looked up in the whole queue, not just
@@ -416,8 +412,8 @@ export function SetupWorkspace() {
   return (
     <>
       {/* The same head Divisions and the order book open on: figures,
-      tabs, then the toolbar over the table. */}
-      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+      then the toolbar over the table. */}
+      <KpiStrip className="grid-cols-1 md:grid-cols-3 xl:grid-cols-3">
         <Kpi
           label="New Articles"
           value={count(waiting.length + stalled.length)}
@@ -430,53 +426,32 @@ export function SetupWorkspace() {
           )}
         />
         <Kpi label="Suppliers" value={count(suppliers.length)} />
-        <Kpi label="Not Minted" value={count(stalled.length)} />
       </KpiStrip>
-
-      <SubTabs
-        tabs={[
-          {
-            value: "WAITING",
-            label: <TabLabel text="Waiting" n={waiting.length} />,
-          },
-          {
-            value: "NOT_MINTED",
-            label: <TabLabel text="Not Minted" n={stalled.length} />,
-          },
-          {
-            value: "ALL",
-            label: <TabLabel text="All" n={waiting.length + stalled.length} />,
-          },
-        ]}
-        value={tab}
-        onChange={(next) => setTab(next as ListTab)}
-      />
 
       {/* Search, and the supplier picker once there is more than one
       supplier to pick from. */}
       <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-        <ExpandingSearch
+        <SearchSuggest
           value={query}
           onChange={setQuery}
           label="Search New Articles"
+          placeholder="Search New Articles or Supplier"
+          suggestions={suppliers.map((one) => ({
+            value: one.id,
+            label: one.name,
+            hint: count(one.tally),
+          }))}
+          picked={
+            here === null
+              ? null
+              : {
+                  value: here,
+                  label: suppliers.find((one) => one.id === here)?.name ?? here,
+                }
+          }
+          onPick={(id) => go({ setupFor: id })}
+          onClear={() => go({})}
         />
-        {suppliers.length > 1 && (
-          <PickOne
-            label="Supplier"
-            placeholder="All suppliers"
-            choices={suppliers.map((one) => ({
-              value: one.id,
-              label: one.name,
-            }))}
-            value={here}
-            onChange={(next) => go(next === null ? {} : { setupFor: next })}
-            className={cn(
-              "h-[2.125rem] min-h-0 w-56 shrink-0 py-0",
-              here !== null &&
-                "border-accent/40 bg-accent-bg [&_input]:text-accent"
-            )}
-          />
-        )}
         <BarSpacer />
       </div>
 
@@ -508,36 +483,32 @@ export function SetupWorkspace() {
                 Received At
               </span>
             </div>
-            {tab !== "NOT_MINTED" &&
-              sections.map((group) => (
-                <LedgerGroup
-                  key={group.id}
-                  name={group.name}
-                  pieces={group.rows.reduce(
-                    (sum, row) => sum + row.quantity,
-                    0
-                  )}
-                  lines={group.rows.length}
-                >
-                  {group.rows.map((row) => (
-                    <WaitingRow
-                      key={row.receipt_line_id}
-                      row={row}
-                      on={row.receipt_line_id === active?.receipt_line_id}
-                      onOpen={() =>
-                        go({
-                          setupFor: railNow,
-                          receipt: row.receipt_line_id,
-                        })
-                      }
-                    />
-                  ))}
-                </LedgerGroup>
-              ))}
+            {sections.map((group) => (
+              <LedgerGroup
+                key={group.id}
+                name={group.name}
+                pieces={group.rows.reduce((sum, row) => sum + row.quantity, 0)}
+                lines={group.rows.length}
+              >
+                {group.rows.map((row) => (
+                  <WaitingRow
+                    key={row.receipt_line_id}
+                    row={row}
+                    on={row.receipt_line_id === active?.receipt_line_id}
+                    onOpen={() =>
+                      go({
+                        setupFor: railNow,
+                        receipt: row.receipt_line_id,
+                      })
+                    }
+                  />
+                ))}
+              </LedgerGroup>
+            ))}
             {/* A session still open is a mint that did not run: the delivery
             has its identity and is out of the queue, and nothing but a
             person pressing the button on its record will finish it. */}
-            {tab !== "WAITING" && stalledShown.length > 0 && (
+            {stalledShown.length > 0 && (
               <LedgerGroup
                 name="Not Minted"
                 warn
@@ -580,11 +551,8 @@ export function SetupWorkspace() {
               <span className="hidden @2xl:block" />
               <span className="px-4 text-right font-medium text-ink tabular-nums @2xl:px-5">
                 {count(
-                  (tab === "NOT_MINTED" ? [] : shown).reduce(
-                    (sum, row) => sum + row.quantity,
-                    0
-                  ) +
-                    (tab === "WAITING" ? [] : stalledShown).reduce(
+                  shown.reduce((sum, row) => sum + row.quantity, 0) +
+                    stalledShown.reduce(
                       (sum, row) => sum + row.receipt_quantity,
                       0
                     )
@@ -783,18 +751,6 @@ function codeSpan(codes: readonly string[]): string {
   return sorted.length > 1 && consecutive
     ? `${sorted[0]}–${sorted[sorted.length - 1]}`
     : sorted.join(", ")
-}
-
-type ListTab = "WAITING" | "NOT_MINTED" | "ALL"
-
-/// A tab's word and its count, as Divisions draws them.
-function TabLabel({ text, n }: { text: string; n: number }) {
-  return (
-    <span>
-      {text}
-      <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
-    </span>
-  )
 }
 
 /// The ledger's columns, shared by its heading, its rows and its foot so the

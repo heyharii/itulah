@@ -17,7 +17,6 @@ import {
   ClipboardCheck,
   Pencil,
   RotateCcw,
-  Search,
   X,
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
@@ -31,9 +30,13 @@ import { Fab } from "@/components/ui/fab"
 import { Switch } from "@/components/ui/form"
 import { DayRange, type DayWindow } from "@/components/ui/day-range"
 import { PageHeader } from "@/components/ui/page-header"
-import { PickOne } from "@/components/ui/pick"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { ColumnsMenu, ListOptionsSheet } from "@/components/ui/list-chrome"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ListOptionsSheet,
+  SearchSuggest,
+} from "@/components/ui/list-chrome"
 import { Pill } from "@/components/ui/pill"
 import { Section } from "@/components/ui/rows"
 import { SubTabs } from "@/components/ui/sub-tabs"
@@ -497,17 +500,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
 /// (`?f=`), so a narrowed list can be linked and survives a reload. A phone
 /// does not draw this row; its Filter button in `ListOptionsSheet` edits the
 /// same clauses.
-function FilterRow({
-  filters,
-  suppliers,
-}: {
-  filters: FilterState
-  suppliers: readonly {
-    supplier_code: string
-    name: string
-    legal_form?: string | null
-  }[]
-}) {
+function FilterRow({ filters }: { filters: FilterState }) {
   const valueOf = (column: string, operator: Operator): string =>
     filters.filters.find(
       (one) => one.column === column && one.operator === operator
@@ -533,40 +526,11 @@ function FilterRow({
         ? []
         : [{ column, operator: "lte" as const, values: [next.to] }]),
     ])
-  const choices = useMemo(
-    () =>
-      suppliers.map((one) => ({
-        value: one.supplier_code,
-        label: supplierDisplayName(one),
-      })),
-    [suppliers]
-  )
-  const supplier = valueOf("supplier", "isAnyOf")
   const box = "h-[2.125rem] min-h-0 py-0"
   const anySet = filters.filters.length > 0
 
   return (
     <>
-      <PickOne
-        label="Supplier"
-        placeholder="Supplier"
-        choices={choices}
-        value={supplier === "" ? null : supplier}
-        onChange={(next) =>
-          setColumn(
-            "supplier",
-            next === null
-              ? []
-              : [{ column: "supplier", operator: "isAnyOf", values: [next] }]
-          )
-        }
-        className={cn(
-          box,
-          "w-52 shrink-0",
-          choices.some((one) => one.value === supplier) &&
-            "border-accent/40 bg-accent-bg [&_input]:text-accent"
-        )}
-      />
       <DayRange
         quiet
         label="Issued"
@@ -745,6 +709,20 @@ export function PurchaseOrders() {
   )
 
   const filters = useFilterState(fields)
+  /// The suppliers the search offers by name, and the one already taken. The
+  /// clause is the same `supplier` one the filter row drew a picker for, so a
+  /// link that carries it still narrows the book.
+  const supplierChoices = useMemo(
+    () =>
+      (suppliers.data ?? []).map((one) => ({
+        value: one.supplier_code,
+        label: supplierDisplayName(one),
+      })),
+    [suppliers.data]
+  )
+  const pickedSupplier = filters.filters.find(
+    (one) => one.column === "supplier" && one.operator === "isAnyOf"
+  )?.values[0]
 
   /// What was typed, plus the chips, as the one request that answers both.
   ///
@@ -980,21 +958,41 @@ export function PurchaseOrders() {
           (2026-09-28): it took 256px from a table that needs every one, and
           its figures are the cards above. On a phone: the search, and one
           button for filter and sort — see `ListOptionsSheet`. */}
-      <div className="mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-        <span className="relative min-w-0 flex-1 lg:w-44 lg:flex-none">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-          <input
-            value={search.value ?? ""}
-            onChange={(event) =>
-              event.target.value
-                ? search.open(event.target.value)
-                : search.close()
-            }
-            aria-label="Search orders"
-            placeholder="Search orders"
-            className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
-          />
-        </span>
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+        <SearchSuggest
+          value={search.value ?? ""}
+          onChange={(next) => (next ? search.open(next) : search.close())}
+          label="Search orders"
+          suggestions={supplierChoices.map((one) => ({
+            value: one.value,
+            label: one.label,
+          }))}
+          picked={
+            pickedSupplier === undefined
+              ? null
+              : {
+                  value: pickedSupplier,
+                  label:
+                    supplierChoices.find((one) => one.value === pickedSupplier)
+                      ?.label ?? pickedSupplier,
+                }
+          }
+          onPick={(code) =>
+            filters.set([
+              ...filters.filters.filter((one) => one.column !== "supplier"),
+              {
+                column: "supplier",
+                operator: "isAnyOf" as const,
+                values: [code],
+              },
+            ])
+          }
+          onClear={() =>
+            filters.set(
+              filters.filters.filter((one) => one.column !== "supplier")
+            )
+          }
+        />
         <ListOptionsSheet
           model={filters}
           filterModel={{ ...filters, fields: counted }}
@@ -1004,10 +1002,10 @@ export function PurchaseOrders() {
           className="lg:hidden"
         />
         <div className="hidden lg:contents">
-          <FilterRow filters={filters} suppliers={suppliers.data ?? []} />
+          <FilterRow filters={filters} />
         </div>
         <div className="hidden md:contents">
-          <span className="flex-1 max-lg:hidden" />
+          <BarSpacer />
           {groupBySupplier && groups.size > 0 && (
             <Button
               size="sm"

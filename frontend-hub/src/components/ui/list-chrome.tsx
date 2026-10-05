@@ -15,7 +15,7 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 
 import { ClearFilters, FilterControls } from "@/components/ui/filter-bar"
 import { BottomSheet, MorphHeight } from "@/components/ui/picker-sheet"
@@ -1753,9 +1753,10 @@ export function ExpandingSearch({
   placeholder?: string
 }) {
   return (
-    <span className="relative min-w-0 flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] motion-reduce:transition-none lg:flex-[0_1_11rem] lg:group-has-[input:focus]/bar:grow lg:group-has-[input:focus]/bar:duration-300">
+    <span className="relative min-w-0 flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] motion-reduce:transition-none lg:flex-[0_1_11rem] lg:group-has-[input[data-expanding-search]:focus]/bar:grow lg:group-has-[input[data-expanding-search]:focus]/bar:duration-300">
       <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
       <input
+        data-expanding-search=""
         value={value}
         onChange={(event) => onChange(event.target.value)}
         aria-label={label}
@@ -1770,6 +1771,154 @@ export function ExpandingSearch({
 /// up while the `ExpandingSearch` beside it has focus.
 export function BarSpacer() {
   return (
-    <span className="flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] group-has-[input:focus]/bar:grow-0 group-has-[input:focus]/bar:duration-300 motion-reduce:transition-none max-lg:hidden" />
+    <span className="flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] group-has-[input[data-expanding-search]:focus]/bar:grow-0 group-has-[input[data-expanding-search]:focus]/bar:duration-300 motion-reduce:transition-none max-lg:hidden" />
+  )
+}
+
+/// One suggestion under a `SearchSuggest`.
+export interface Suggestion {
+  readonly value: string
+  readonly label: string
+  /// Quiet text at the right of the row: a tally, a code.
+  readonly hint?: string
+}
+
+/// A search box that also narrows by a name (owner, 2026-10-05: "search +
+/// dropdown, not a dropdown box"). Typing filters the list under it; a row is
+/// taken with a click, or the arrows and Enter. What was taken sits beside the
+/// box as a pill with a ×, and the box stays free for the next search. The text
+/// itself still filters the table, so nothing has to be picked at all.
+export function SearchSuggest({
+  value,
+  onChange,
+  label,
+  placeholder,
+  suggestions,
+  picked,
+  onPick,
+  onClear,
+}: {
+  value: string
+  onChange: (value: string) => void
+  label: string
+  placeholder?: string
+  suggestions: readonly Suggestion[]
+  /// The one already taken, if any.
+  picked: Suggestion | null
+  onPick: (value: string) => void
+  onClear: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+  const listId = useId()
+  const box = useRef<HTMLSpanElement>(null)
+  const needle = value.trim().toLowerCase()
+  const matches = suggestions
+    .filter(
+      (one) =>
+        one.value !== picked?.value &&
+        (needle === "" || one.label.toLowerCase().includes(needle))
+    )
+    .slice(0, 8)
+  const showing = open && matches.length > 0
+
+  const take = (one: Suggestion) => {
+    onPick(one.value)
+    onChange("")
+    setOpen(false)
+  }
+
+  return (
+    <>
+      <span
+        ref={box}
+        className="relative min-w-0 flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] motion-reduce:transition-none lg:flex-[0_1_11rem] lg:group-has-[input[data-expanding-search]:focus]/bar:grow lg:group-has-[input[data-expanding-search]:focus]/bar:duration-300"
+        onBlur={(event) => {
+          if (!box.current?.contains(event.relatedTarget as Node | null)) {
+            setOpen(false)
+          }
+        }}
+      >
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+        <input
+          data-expanding-search=""
+          role="combobox"
+          aria-expanded={showing}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={showing ? `${listId}-${active}` : undefined}
+          value={value}
+          onFocus={() => setOpen(true)}
+          onChange={(event) => {
+            onChange(event.target.value)
+            setActive(0)
+            setOpen(true)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setOpen(false)
+            if (!showing) return
+            if (event.key === "ArrowDown") {
+              event.preventDefault()
+              setActive((at) => Math.min(at + 1, matches.length - 1))
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault()
+              setActive((at) => Math.max(at - 1, 0))
+            } else if (event.key === "Enter") {
+              event.preventDefault()
+              const one = matches[active]
+              if (one) take(one)
+            }
+          }}
+          aria-label={label}
+          placeholder={placeholder ?? label}
+          className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
+        />
+        {showing && (
+          <ul
+            id={listId}
+            role="listbox"
+            className="absolute top-full left-0 z-30 mt-1.5 max-h-72 w-full min-w-60 origin-top overflow-y-auto rounded-inner border border-hairline-2 bg-canvas p-1 shadow-pop transition-[opacity,transform] duration-150 ease-[var(--ease-out)] motion-reduce:transition-none starting:-translate-y-1 starting:opacity-0"
+          >
+            {matches.map((one, index) => (
+              <li
+                key={one.value}
+                id={`${listId}-${index}`}
+                role="option"
+                aria-selected={index === active}
+                // Held on mouse DOWN so the box keeps focus: a click that
+                // blurred first would close the list before it landed.
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  take(one)
+                }}
+                onMouseEnter={() => setActive(index)}
+                className={cn(
+                  "flex cursor-pointer items-baseline justify-between gap-3 rounded-[0.5rem] px-2.5 py-2 text-[0.875rem] text-ink",
+                  index === active && "bg-soft-2"
+                )}
+              >
+                <span className="min-w-0 truncate">{one.label}</span>
+                {one.hint && (
+                  <span className="shrink-0 text-body tabular-nums">
+                    {one.hint}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </span>
+      {picked && (
+        <button
+          type="button"
+          onClick={onClear}
+          aria-label={`Clear ${picked.label}`}
+          className="inline-flex h-[2.125rem] max-w-56 shrink-0 cursor-pointer items-center gap-1.5 rounded-inner border border-accent/40 bg-accent-bg pr-2 pl-2.5 text-[0.875rem] font-medium text-accent pointer-coarse:h-11"
+        >
+          <span className="truncate">{picked.label}</span>
+          <X className="size-3.5 shrink-0" />
+        </button>
+      )}
+    </>
   )
 }
